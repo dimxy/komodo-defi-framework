@@ -2940,3 +2940,24 @@ pub async fn get_locked_amount(mm: &MarketMakerIt, coin: &str) -> GetLockedAmoun
     let response: RpcV2Response<GetLockedAmountResponse> = json::from_str(&request.1).unwrap();
     response.result
 }
+
+// test helper to call sign_raw_transaction rpc with coin param
+pub async fn test_sign_raw_transaction_rpc_helper(mm: &MarketMakerIt, json_params: &Json) -> Json {
+    let response = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method":"sign_raw_transaction",
+            "mmrpc":"2.0",
+            "id": 0,
+            "params": json_params
+        }))
+        .await
+        .expect("sign_raw_transaction rpc result okay");
+    assert_eq!(
+        response.0,
+        StatusCode::OK,
+        "'sign_raw_transaction' failed: {}",
+        response.1
+    );
+    json::from_str(&response.1).expect("response to json conversion must be okay")
+}
