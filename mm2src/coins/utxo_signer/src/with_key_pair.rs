@@ -155,16 +155,17 @@ pub fn p2wpkh_spend(
 ) -> UtxoSignWithKeyPairResult<TransactionInput> {
     let unsigned_input = get_input(signer, input_index)?;
 
-    let script = Builder::build_p2pkh(&key_pair.public().address_hash().into());
-    if script != prev_script {
+    let script_code = Builder::build_p2pkh(&key_pair.public().address_hash().into()); // this is script code by BIP-0141
+    let witness_program = Builder::build_p2witness(&key_pair.public().address_hash().into());
+    if witness_program != prev_script {
         return MmError::err(UtxoSignWithKeyPairError::MismatchScript {
-            script_type: "P2PKH".to_owned(),
-            script,
+            script_type: "P2WPKH".to_owned(),
+            script: witness_program,
             prev_script,
         });
     }
 
-    let signature = calc_and_sign_sighash(signer, input_index, script, key_pair, signature_version, fork_id)?;
+    let signature = calc_and_sign_sighash(signer, input_index, script_code, key_pair, signature_version, fork_id)?;
     Ok(p2wpkh_spend_with_signature(
         unsigned_input,
         key_pair.public(),
