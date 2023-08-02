@@ -663,6 +663,11 @@ impl MarketCoinOps for UtxoStandardCoin {
         utxo_common::send_raw_tx_bytes(&self.utxo_arc, tx)
     }
 
+    #[inline(always)]
+    fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionFut {
+        Box::new(utxo_common::sign_raw_tx(self.clone(), args.clone()).boxed().compat())
+    }
+
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         utxo_common::wait_for_confirmations(&self.utxo_arc, input)
     }

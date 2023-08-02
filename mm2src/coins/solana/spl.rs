@@ -266,6 +266,11 @@ impl MarketCoinOps for SplToken {
         self.platform_coin.send_raw_tx_bytes(tx)
     }
 
+    #[inline(always)]
+    fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionFut {
+        Box::new(utxo_common::sign_raw_tx(self.clone(), args.clone()).boxed().compat())
+    }
+
     fn wait_for_confirmations(&self, _input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         unimplemented!()
     }

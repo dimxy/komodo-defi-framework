@@ -2286,6 +2286,16 @@ impl MarketCoinOps for TendermintCoin {
         Box::new(fut.boxed().compat())
     }
 
+    #[inline(always)]
+    fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionFut {
+        let ticker = self.ticker.clone();
+        Box::new(
+            async move { Err(RawTransactionError::NotImplemented { coin: ticker }.into()) }
+                .boxed()
+                .compat(),
+        )
+    }
+
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         // Sanity check
         let _: TxRaw = try_fus!(Message::decode(input.payment_tx.as_slice()));
