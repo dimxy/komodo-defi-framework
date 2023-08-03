@@ -1581,8 +1581,8 @@ macro_rules! get_passphrase {
 }
 
 /// Reads passphrase from file or environment.
-/// Note that if you try to read the passphrase file from the current directory 
-/// the current directory could be different depending on how you run tests 
+/// Note that if you try to read the passphrase file from the current directory
+/// the current directory could be different depending on how you run tests
 /// (it could be either the workspace directory or the module source directory)
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_passphrase(path: &dyn AsRef<Path>, env: &str) -> Result<String, String> {
@@ -2994,11 +2994,21 @@ pub async fn get_locked_amount(mm: &MarketMakerIt, coin: &str) -> GetLockedAmoun
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn test_parse_env_file() {
-    let env_client = b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid";
-    let env_client_new_line = b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid\n";
+    let env_client =
+        b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid";
+    let env_client_new_line =
+        b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid\n";
 
     let parsed1 = from_env_file(env_client.to_vec());
     let parsed2 = from_env_file(env_client_new_line.to_vec());
     assert_eq!(parsed1, parsed2);
-    assert_eq!(parsed1, (Some(String::from("spice describe gravity federal blast come thank unfair canal monkey style afraid")), None));
+    assert_eq!(
+        parsed1,
+        (
+            Some(String::from(
+                "spice describe gravity federal blast come thank unfair canal monkey style afraid"
+            )),
+            None
+        )
+    );
 }
