@@ -1545,16 +1545,17 @@ pub async fn enable_qrc20(
 pub fn from_env_file(env: Vec<u8>) -> (Option<String>, Option<String>) {
     use regex::bytes::Regex;
     let (mut passphrase, mut userpass) = (None, None);
-    for cap in Regex::new(r"\w+_(PASSPHRASE|USERPASS)=(\w[\w ]+)\n?")
+    for cap in Regex::new(r"^(\w+_|.{0})(PASSPHRASE|USERPASS)=(\w[\w ]+)\n?")
+
         .unwrap()
         .captures_iter(&env)
     {
-        match cap.get(1) {
+        match cap.get(2) {
             Some(name) if name.as_bytes() == b"PASSPHRASE" => {
-                passphrase = cap.get(2).map(|v| String::from_utf8(v.as_bytes().into()).unwrap())
+                passphrase = cap.get(3).map(|v| String::from_utf8(v.as_bytes().into()).unwrap())
             },
             Some(name) if name.as_bytes() == b"USERPASS" => {
-                userpass = cap.get(2).map(|v| String::from_utf8(v.as_bytes().into()).unwrap())
+                userpass = cap.get(3).map(|v| String::from_utf8(v.as_bytes().into()).unwrap())
             },
             _ => (),
         }
@@ -2993,11 +2994,33 @@ pub async fn get_locked_amount(mm: &MarketMakerIt, coin: &str) -> GetLockedAmoun
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-fn test_parse_env_file() {
+fn test_parse_env_file_1() {
     let env_client =
         b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid";
     let env_client_new_line =
         b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid\n";
+
+    let parsed1 = from_env_file(env_client.to_vec());
+    let parsed2 = from_env_file(env_client_new_line.to_vec());
+    assert_eq!(parsed1, parsed2);
+    assert_eq!(
+        parsed1,
+        (
+            Some(String::from(
+                "spice describe gravity federal blast come thank unfair canal monkey style afraid"
+            )),
+            None
+        )
+    );
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn test_parse_env_file_2() {
+    let env_client =
+        b"PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid";
+    let env_client_new_line =
+        b"PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid\n";
 
     let parsed1 = from_env_file(env_client.to_vec());
     let parsed2 = from_env_file(env_client_new_line.to_vec());
