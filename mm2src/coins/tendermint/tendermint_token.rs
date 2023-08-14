@@ -11,7 +11,7 @@ use crate::{big_decimal_from_sat_unsigned, utxo::sat_from_big_decimal, BalanceFu
             FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin, MyAddressError,
             NegotiateSwapContractAddrErr, PaymentInstructions, PaymentInstructionsErr, RawTransactionFut,
             RawTransactionRequest, RefundError, RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput,
-            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionFut, SignRawTransactionRequest,
+            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest, SignRawTransactionResult,
             SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageFut,
             TradePreimageResult, TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr,
             TransactionFut, TransactionType, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod,
@@ -497,6 +497,7 @@ impl WatcherOps for TendermintToken {
     }
 }
 
+#[async_trait]
 impl MarketCoinOps for TendermintToken {
     fn ticker(&self) -> &str { &self.ticker }
 
@@ -539,13 +540,11 @@ impl MarketCoinOps for TendermintToken {
     }
 
     #[inline(always)]
-    fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionFut {
-        let ticker = self.ticker.clone();
-        Box::new(
-            async move { Err(RawTransactionError::NotImplemented { coin: ticker }.into()) }
-                .boxed()
-                .compat(),
-        )
+    async fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionResult {
+        Err(RawTransactionError::NotImplemented {
+            coin: self.ticker().to_string(),
+        }
+        .into())
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {

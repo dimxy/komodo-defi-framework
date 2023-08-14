@@ -26,7 +26,7 @@ use crate::{CanRefundHtlc, CheckIfMyPaymentSentArgs, CoinBalance, CoinWithDeriva
             GetWithdrawSenderAddress, IguanaPrivKey, MakerSwapTakerCoin, MmCoinEnum, NegotiateSwapContractAddrErr,
             PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, RefundError,
             RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput,
-            SendPaymentArgs, SignRawTransactionFut, SignRawTransactionRequest, SignatureResult, SpendPaymentArgs,
+            SendPaymentArgs, SignRawTransactionRequest, SignRawTransactionResult, SignatureResult, SpendPaymentArgs,
             SwapOps, TakerSwapMakerCoin, TradePreimageValue, TransactionFut, TxMarshalingErr, ValidateAddressResult,
             ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError,
             ValidatePaymentFut, ValidatePaymentInput, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps,
@@ -579,6 +579,7 @@ impl WatcherOps for UtxoStandardCoin {
     }
 }
 
+#[async_trait]
 impl MarketCoinOps for UtxoStandardCoin {
     fn ticker(&self) -> &str { &self.utxo_arc.conf.ticker }
 
@@ -618,8 +619,8 @@ impl MarketCoinOps for UtxoStandardCoin {
     }
 
     #[inline(always)]
-    fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionFut {
-        Box::new(utxo_common::sign_raw_tx(self.clone(), args.clone()).boxed().compat())
+    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionResult {
+        utxo_common::sign_raw_tx(self, args).await
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
