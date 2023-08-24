@@ -215,6 +215,7 @@ pub mod eth;
 use eth::GetValidEthWithdrawAddError;
 use eth::{eth_coin_from_conf_and_request, get_eth_address, EthCoin, EthGasDetailsErr, EthTxFeeDetails,
           GetEthAddressError, SignedEthTx};
+use ethereum_types::U256;
 
 pub mod hd_confirm_address;
 pub mod hd_pubkey;
@@ -310,6 +311,7 @@ pub type RawTransactionResult = Result<RawTransactionRes, MmError<RawTransaction
 pub type RawTransactionFut<'a> =
     Box<dyn Future<Item = RawTransactionRes, Error = MmError<RawTransactionError>> + Send + 'a>;
 pub type SignRawTransactionResult = Result<SignRawTransactionResponse, MmError<RawTransactionError>>;
+pub type SignEthTransactionResult = Result<SignEthTransactionResponse, MmError<RawTransactionError>>;
 pub type RefundResult<T> = Result<T, MmError<RefundError>>;
 
 pub type IguanaPrivKey = Secp256k1Secret;
@@ -348,6 +350,8 @@ pub enum RawTransactionError {
     SigningError(String),
     #[display(fmt = "Not implemented for this coin {}", coin)]
     NotImplemented { coin: String },
+    #[display(fmt = "Transaction error {}", _0)]
+    TransactionError(String),
 }
 
 impl HttpStatusCode for RawTransactionError {
@@ -361,7 +365,8 @@ impl HttpStatusCode for RawTransactionError {
             | RawTransactionError::HashNotExist(_)
             | RawTransactionError::DecodeError(_)
             | RawTransactionError::InvalidParam(_)
-            | RawTransactionError::NonExistentPrevOutputError(_) => StatusCode::BAD_REQUEST,
+            | RawTransactionError::NonExistentPrevOutputError(_)
+            | RawTransactionError::TransactionError(_) => StatusCode::BAD_REQUEST,
             RawTransactionError::NotImplemented { .. } => StatusCode::NOT_IMPLEMENTED,
         }
     }
@@ -454,6 +459,30 @@ pub struct SignRawTransactionResponse {
     /// Raw bytes of signed transaction in hexadecimal string which is the response from the sign_raw_transaction request
     pub tx_hex: BytesJson,
 }
+
+/// RPC request with unsigned eth transaction and params for signing 
+#[derive(Clone, Debug, Deserialize)]
+pub struct SignEthTransactionRequest {
+    /// Coin ticker name
+    pub coin: String,
+    /// Eth transfer value
+    value: Option<U256>,
+    /// Eth to address
+    to: Option<String>,
+    /// Eth contract data
+    data: Option<Vec<u8>>,
+    /// Eth gas use limit
+    gas_limit: U256,
+}
+
+/// RPC response with signed eth transaction 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct SignEthTransactionResponse {
+    /// Raw bytes of signed transaction in hexadecimal string which is the response from the sign_eth_transaction request
+    pub tx_hex: BytesJson,
+}
+
+
 
 #[derive(Debug, Deserialize)]
 pub struct MyAddressReq {
@@ -1085,6 +1114,9 @@ pub trait MarketCoinOps {
 
     /// Signs raw utxo transaction in hexadecimal format as input and returns signed transaction in hexadecimal format
     async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionResult;
+
+    /// Signs ethereum transaction in hexadecimal format as input and returns signed transaction in hexadecimal format
+    async fn sign_eth_tx(&self, args: &SignEthTransactionRequest) -> SignEthTransactionResult;
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send>;
 
@@ -3368,6 +3400,11 @@ pub async fn verify_message(ctx: MmArc, req: VerificationRequest) -> Verificatio
 pub async fn sign_raw_transaction(ctx: MmArc, req: SignRawTransactionRequest) -> SignRawTransactionResult {
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     coin.sign_raw_tx(&req).await
+}
+
+pub async fn sign_eth_transaction(ctx: MmArc, req: SignEthTransactionRequest) -> SignEthTransactionResult {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    coin.sign_eth_tx(&req).await
 }
 
 pub async fn remove_delegation(ctx: MmArc, req: RemoveDelegateRequest) -> DelegationResult {

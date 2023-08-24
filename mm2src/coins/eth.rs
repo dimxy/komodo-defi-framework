@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright © 2022 Atomic Private Limited and its contributors               *
+ * Copyright © 2023 Atomic Private Limited and its contributors               *
  *                                                                            *
  * See the CONTRIBUTOR-LICENSE-AGREEMENT, COPYING, LICENSE-COPYRIGHT-NOTICE   *
  * and DEVELOPER-CERTIFICATE-OF-ORIGIN files in the LEGAL directory in        *
@@ -98,7 +98,7 @@ use super::{coin_conf, lp_coinfind_or_err, AsyncMutex, BalanceError, BalanceFut,
             WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
             WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult, EARLY_CONFIRMATION_ERR_LOG,
             INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG, INVALID_RECEIVER_ERR_LOG,
-            INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG};
+            INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG, SignEthTransactionRequest, SignEthTransactionResponse, SignEthTransactionResult};
 pub use rlp;
 
 #[cfg(test)] mod eth_tests;
@@ -1915,6 +1915,39 @@ impl MarketCoinOps for EthCoin {
         })
     }
 
+    /// Stub for sign eth tx 
+    #[inline(always)]
+    async fn sign_eth_tx(&self, args: &SignEthTransactionRequest) -> SignEthTransactionResult {
+        let ctx = MmArc::from_weak(&self.ctx).ok_or("!ctx")
+            .map_to_mm(|err| RawTransactionError::TransactionError(err.to_string()))?;
+        let coin = self.clone();
+        let value = if let Some(value) = args.value { value } else { U256::from(0) };
+
+        let action = if let Some(to) = &args.to { 
+            Action::Call(
+                Address::from_str(to).map_to_mm(|err| RawTransactionError::InvalidParam(err.to_string()))?
+            ) 
+        } else { 
+            Action::Create 
+        };
+        let data = if let Some(data) = &args.data { data.clone() } else { vec![] };
+        let gas_limit = args.gas_limit;
+        match coin.priv_key_policy {
+            // TODO: use zeroise for privkey
+            EthPrivKeyPolicy::KeyPair(ref key_pair) => {
+                return sign_transaction_with_keypair(ctx, &coin, key_pair, value, action, data, gas_limit).await
+                    .map(|(signed_tx, _)| SignEthTransactionResponse {
+                        tx_hex: signed_tx.tx_hex().into(),
+                    })
+                    .map_to_mm(|err| RawTransactionError::TransactionError(err.get_plain_text_format()));
+            },
+            #[cfg(target_arch = "wasm32")]
+            EthPrivKeyPolicy::Metamask(_) => {
+                unimplemented!()
+            },
+        }
+    }
+
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         macro_rules! update_status_with_error {
             ($status: ident, $error: ident) => {
@@ -2145,7 +2178,7 @@ lazy_static! {
 
 type EthTxFut = Box<dyn Future<Item = SignedEthTx, Error = TransactionErr> + Send + 'static>;
 
-async fn sign_and_send_transaction_with_keypair(
+async fn sign_transaction_with_keypair(
     ctx: MmArc,
     coin: &EthCoin,
     key_pair: &KeyPair,
@@ -2153,11 +2186,11 @@ async fn sign_and_send_transaction_with_keypair(
     action: Action,
     data: Vec<u8>,
     gas: U256,
-) -> Result<SignedEthTx, TransactionErr> {
+) -> Result<(SignedEthTx, Vec<Web3Instance>), TransactionErr> {
     let mut status = ctx.log.status_handle();
     macro_rules! tags {
         () => {
-            &[&"sign-and-send"]
+            &[&"sign"]
         };
     }
     let _nonce_lock = coin.nonce_lock.lock().await;
@@ -2179,7 +2212,25 @@ async fn sign_and_send_transaction_with_keypair(
         data,
     };
 
-    let signed = tx.sign(key_pair.secret(), coin.chain_id);
+    Ok((tx.sign(key_pair.secret(), coin.chain_id), web3_instances_with_latest_nonce))
+}
+
+async fn sign_and_send_transaction_with_keypair(
+    ctx: MmArc,
+    coin: &EthCoin,
+    key_pair: &KeyPair,
+    value: U256,
+    action: Action,
+    data: Vec<u8>,
+    gas: U256,
+) -> Result<SignedEthTx, TransactionErr> {
+    let mut status = ctx.log.status_handle();
+    macro_rules! tags {
+        () => {
+            &[&"sign-and-send"]
+        };
+    }
+    let (signed, web3_instances_with_latest_nonce) = sign_transaction_with_keypair(ctx, coin, key_pair, value, action, data, gas).await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
     status.status(tags!(), "send_raw_transaction…");
 
@@ -2189,7 +2240,7 @@ async fn sign_and_send_transaction_with_keypair(
     try_tx_s!(select_ok(futures).await.map_err(|e| ERRL!("{}", e)), signed);
 
     status.status(tags!(), "get_addr_nonce…");
-    coin.wait_for_addr_nonce_increase(coin.my_address, nonce).await;
+    coin.wait_for_addr_nonce_increase(coin.my_address, signed.transaction.unsigned.nonce).await;
     Ok(signed)
 }
 
