@@ -25,7 +25,8 @@ use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, C
             ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentInput, VerificationError,
             VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError,
             WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
-            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest};
+            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, 
+            RawTransactionError, SignEthTransactionRequest, SignEthTransactionResult};
 use async_trait::async_trait;
 use bitcrypto::dhash160;
 use chain::constants::SEQUENCE_FINAL;
@@ -1167,6 +1168,14 @@ impl MarketCoinOps for SlpToken {
     #[inline(always)]
     async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionResult {
         utxo_common::sign_raw_tx(self, args).await
+    }
+    
+    /// Stub for sign eth tx 
+    #[inline(always)]
+    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
+        MmError::err(RawTransactionError::NotImplemented {
+            coin: self.ticker().to_string(),
+        })
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {

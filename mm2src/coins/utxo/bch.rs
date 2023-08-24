@@ -19,7 +19,8 @@ use crate::{BlockHeightAndTime, CanRefundHtlc, CheckIfMyPaymentSentArgs, CoinBal
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
             ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput,
             VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError,
-            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut};
+            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut,
+            RawTransactionError, SignEthTransactionRequest, SignEthTransactionResult};
 use common::executor::{AbortableSystem, AbortedError};
 use common::log::warn;
 use derive_more::Display;
@@ -1182,6 +1183,14 @@ impl MarketCoinOps for BchCoin {
     #[inline(always)]
     async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionResult {
         utxo_common::sign_raw_tx(self, args).await
+    }
+    
+    /// Stub for sign eth tx 
+    #[inline(always)]
+    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
+        MmError::err(RawTransactionError::NotImplemented {
+            coin: self.ticker().to_string(),
+        })
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {

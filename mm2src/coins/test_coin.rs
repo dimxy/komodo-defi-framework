@@ -14,7 +14,7 @@ use crate::{coin_errors::MyAddressError, BalanceFut, CanRefundHtlc, CheckIfMyPay
             ValidateTakerPaymentArgs, ValidateTakerPaymentResult, ValidateTakerPaymentSpendPreimageResult,
             VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError,
             WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut,
-            WithdrawRequest, SignRawTransactionFut, SignRawTransactionRequest};
+            WithdrawRequest, SignRawTransactionFut, SignRawTransactionRequest, SignEthTransactionRequest, SignEthTransactionResult};
 use async_trait::async_trait;
 use common::executor::AbortedError;
 use futures01::Future;
@@ -82,6 +82,9 @@ impl MarketCoinOps for TestCoin {
 
     #[inline(always)]
     async fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionResult { unimplemented!() }
+    
+    #[inline(always)]
+    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult { unimplemented!() }
 
     fn wait_for_confirmations(&self, _input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         unimplemented!()
