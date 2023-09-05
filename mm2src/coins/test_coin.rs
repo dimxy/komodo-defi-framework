@@ -1,7 +1,7 @@
 #![allow(clippy::all)]
 
 use super::{CoinBalance, HistorySyncState, MarketCoinOps, MmCoin, RawTransactionFut, RawTransactionRequest, SwapOps,
-            TradeFee, TransactionEnum, TransactionFut};
+            TradeFee, TransactionEnum, TransactionFut, TransactionResult};
 use crate::{coin_errors::MyAddressError, BalanceFut, CanRefundHtlc, CheckIfMyPaymentSentArgs, CoinFutSpawner,
             ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, GenTakerPaymentSpendArgs,
             GenTakerPaymentSpendResult, MakerSwapTakerCoin, MmCoinEnum, NegotiateSwapContractAddrErr,
@@ -82,7 +82,7 @@ impl MarketCoinOps for TestCoin {
 
     #[inline(always)]
     async fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionResult { unimplemented!() }
-    
+
     #[inline(always)]
     async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult { unimplemented!() }
 

@@ -20,7 +20,8 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicy,
             PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes,
             RefundError, RefundPaymentArgs, RefundResult, RpcCommonOps, SearchForSwapTxSpendInput,
-            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignatureError, SignatureResult, SpendPaymentArgs,
+            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignEthTransactionRequest, SignEthTransactionResult,
+            SignRawTransactionRequest, SignRawTransactionResult, SignatureError, SignatureResult, SpendPaymentArgs,
             SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
             TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr, TransactionFut,
             TransactionResult, TransactionType, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod,
@@ -2293,8 +2294,8 @@ impl MarketCoinOps for TendermintCoin {
             coin: self.ticker().to_string(),
         })
     }
-    
-    /// Stub for sign eth tx 
+
+    /// Stub for sign eth tx
     #[inline(always)]
     async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
         MmError::err(RawTransactionError::NotImplemented {
