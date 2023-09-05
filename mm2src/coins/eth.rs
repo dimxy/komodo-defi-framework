@@ -1961,7 +1961,8 @@ impl MarketCoinOps for EthCoin {
         let gas_limit = args.gas_limit;
         match coin.priv_key_policy {
             // TODO: use zeroise for privkey
-            EthPrivKeyPolicy::HDWallet {
+            EthPrivKeyPolicy::Iguana(ref key_pair)
+            | EthPrivKeyPolicy::HDWallet {
                 activated_key: ref key_pair,
                 ..
             } => {
@@ -1973,12 +1974,12 @@ impl MarketCoinOps for EthCoin {
                     .map_to_mm(|err| RawTransactionError::TransactionError(err.get_plain_text_format()));
             },
             #[cfg(target_arch = "wasm32")]
-            EthPrivKeyPolicy::Metamask(_) => {
-                unimplemented!()
-            },
-            _ => {
-                unimplemented!()
-            },
+            EthPrivKeyPolicy::Metamask(_) => MmError::err(RawTransactionError::InvalidParam(
+                "sign raw eth tx not implemented for Metamask".into(),
+            )),
+            EthPrivKeyPolicy::Trezor => MmError::err(RawTransactionError::InvalidParam(
+                "sign raw eth tx not implemented for Trezor".into(),
+            )),
         }
     }
 
