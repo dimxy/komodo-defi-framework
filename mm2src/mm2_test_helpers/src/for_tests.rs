@@ -1545,8 +1545,7 @@ pub async fn enable_qrc20(
 pub fn from_env_file(env: Vec<u8>) -> (Option<String>, Option<String>) {
     use regex::bytes::Regex;
     let (mut passphrase, mut userpass) = (None, None);
-    for cap in Regex::new(r"^\w+_(PASSPHRASE|USERPASS)=(\w[\w ]+)\n?")
-
+    for cap in Regex::new(r"^\w+_(PASSPHRASE|USERPASS)=(\w+( \w+)+)\s*")
         .unwrap()
         .captures_iter(&env)
     {
@@ -2999,10 +2998,14 @@ fn test_parse_env_file() {
         b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid";
     let env_client_new_line =
         b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid\n";
+    let env_client_space =
+        b"ALICE_PASSPHRASE=spice describe gravity federal blast come thank unfair canal monkey style afraid  ";
 
     let parsed1 = from_env_file(env_client.to_vec());
     let parsed2 = from_env_file(env_client_new_line.to_vec());
+    let parsed3 = from_env_file(env_client_space.to_vec());
     assert_eq!(parsed1, parsed2);
+    assert_eq!(parsed1, parsed3);
     assert_eq!(
         parsed1,
         (
