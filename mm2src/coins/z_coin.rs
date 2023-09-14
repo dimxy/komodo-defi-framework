@@ -11,8 +11,9 @@ use crate::utxo::utxo_builder::{UtxoCoinBuilder, UtxoCoinBuilderCommonOps, UtxoF
 use crate::utxo::utxo_common::{big_decimal_from_sat_unsigned, payment_script};
 use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxData, AddrFromStrError, Address,
                   BroadcastTxErr, FeePolicy, GetUtxoListOps, HistoryUtxoTx, HistoryUtxoTxMap, MatureUnspentList,
-                  RecentlySpentOutPointsGuard, UtxoActivationParams, UtxoAddressFormat, UtxoArc, UtxoCoinFields,
-                  UtxoCommonOps, UtxoRpcMode, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom};
+                  RecentlySpentOutPointsGuard, UnsupportedAddr, UtxoActivationParams, UtxoAddressFormat, UtxoArc,
+                  UtxoCoinFields, UtxoCommonOps, UtxoRpcMode, UtxoTxBroadcastOps, UtxoTxGenerationOps,
+                  VerboseTransactionFrom};
 use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput,
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin, MmCoinEnum,
             NegotiateSwapContractAddrErr, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
@@ -1844,7 +1845,7 @@ impl UtxoCommonOps for ZCoin {
         utxo_common::checked_address_from_str(self, address)
     }
 
-    fn script_for_address(&self, address: &Address) -> Script {
+    fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
         utxo_common::get_script_for_address(self.as_ref(), address)
     }
 
