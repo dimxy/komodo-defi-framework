@@ -20,16 +20,15 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicy,
             PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes,
             RefundError, RefundPaymentArgs, RefundResult, RpcCommonOps, SearchForSwapTxSpendInput,
-            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignEthTransactionRequest, SignEthTransactionResult,
-            SignRawTransactionRequest, SignRawTransactionResult, SignatureError, SignatureResult, SpendPaymentArgs,
-            SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
-            TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr, TransactionFut,
-            TransactionResult, TransactionType, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult, WaitForHTLCTxSpendArgs,
-            WatcherOps, WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFee, WithdrawFrom,
-            WithdrawFut, WithdrawRequest};
+            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest, SignRawTransactionResult,
+            SignatureError, SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee,
+            TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
+            TransactionEnum, TransactionErr, TransactionFut, TransactionResult, TransactionType, TxFeeDetails,
+            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
+            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
+            VerificationError, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward,
+            WatcherRewardError, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFee, WithdrawFrom, WithdrawFut, WithdrawRequest};
 use async_std::prelude::FutureExt as AsyncStdFutureExt;
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
@@ -2290,14 +2289,6 @@ impl MarketCoinOps for TendermintCoin {
 
     #[inline(always)]
     async fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionResult {
-        MmError::err(RawTransactionError::NotImplemented {
-            coin: self.ticker().to_string(),
-        })
-    }
-
-    /// Stub for sign eth tx
-    #[inline(always)]
-    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
         MmError::err(RawTransactionError::NotImplemented {
             coin: self.ticker().to_string(),
         })

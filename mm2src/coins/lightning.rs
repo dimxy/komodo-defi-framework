@@ -20,14 +20,14 @@ use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, C
             NegotiateSwapContractAddrErr, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
             RawTransactionError, RawTransactionFut, RawTransactionRequest, RefundError, RefundPaymentArgs,
             RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs,
-            SignEthTransactionRequest, SignEthTransactionResult, SignRawTransactionRequest, SignRawTransactionResult,
-            SignatureError, SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee,
-            TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction, TransactionEnum, TransactionErr,
-            TransactionFut, TransactionResult, TxMarshalingErr, UnexpectedDerivationMethod, UtxoStandardCoin,
-            ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationError, VerificationResult,
-            WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
+            SignRawTransactionRequest, SignRawTransactionResult, SignatureError, SignatureResult, SpendPaymentArgs,
+            SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageFut, TradePreimageResult, TradePreimageValue,
+            Transaction, TransactionEnum, TransactionErr, TransactionFut, TransactionResult, TxMarshalingErr,
+            UnexpectedDerivationMethod, UtxoStandardCoin, ValidateAddressResult, ValidateFeeArgs,
+            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
+            ValidatePaymentInput, VerificationError, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps,
+            WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest};
 use async_trait::async_trait;
 use bitcoin::bech32::ToBase32;
 use bitcoin::hashes::Hash;
@@ -1105,14 +1105,6 @@ impl MarketCoinOps for LightningCoin {
 
     #[inline(always)]
     async fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionResult {
-        MmError::err(RawTransactionError::NotImplemented {
-            coin: self.ticker().to_string(),
-        })
-    }
-
-    /// Stub for sign eth tx
-    #[inline(always)]
-    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
         MmError::err(RawTransactionError::NotImplemented {
             coin: self.ticker().to_string(),
         })

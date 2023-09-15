@@ -7,14 +7,14 @@ use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinFutSpawner, 
             PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed,
             RawTransactionError, RawTransactionFut, RawTransactionRequest, RefundError, RefundPaymentArgs,
             RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs,
-            SignEthTransactionRequest, SignEthTransactionResult, SignRawTransactionRequest, SignRawTransactionResult,
-            SignatureResult, SpendPaymentArgs, TakerSwapMakerCoin, TradePreimageFut, TradePreimageResult,
-            TradePreimageValue, TransactionDetails, TransactionFut, TransactionResult, TransactionType,
-            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
-            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
-            ValidatePaymentInput, VerificationResult, WaitForHTLCTxSpendArgs, WatcherReward, WatcherRewardError,
-            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
-            WithdrawError, WithdrawFut, WithdrawRequest, WithdrawResult};
+            SignRawTransactionRequest, SignRawTransactionResult, SignatureResult, SpendPaymentArgs,
+            TakerSwapMakerCoin, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
+            TransactionFut, TransactionResult, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod,
+            ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
+            ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationResult,
+            WaitForHTLCTxSpendArgs, WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest,
+            WithdrawResult};
 use async_trait::async_trait;
 use base58::ToBase58;
 use bincode::{deserialize, serialize};
@@ -445,14 +445,6 @@ impl MarketCoinOps for SolanaCoin {
 
     #[inline(always)]
     async fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionResult {
-        MmError::err(RawTransactionError::NotImplemented {
-            coin: self.ticker().to_string(),
-        })
-    }
-
-    /// Stub for sign eth tx
-    #[inline(always)]
-    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
         MmError::err(RawTransactionError::NotImplemented {
             coin: self.ticker().to_string(),
         })

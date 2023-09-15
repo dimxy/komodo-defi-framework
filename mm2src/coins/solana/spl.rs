@@ -6,15 +6,14 @@ use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinFutSpawner, ConfirmPayment
             FoundSwapTxSpend, MakerSwapTakerCoin, MmCoinEnum, NegotiateSwapContractAddrErr, PaymentInstructionArgs,
             PaymentInstructions, PaymentInstructionsErr, RawTransactionError, RawTransactionFut,
             RawTransactionRequest, RefundError, RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput,
-            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignEthTransactionRequest, SignEthTransactionResult,
-            SignRawTransactionRequest, SignRawTransactionResult, SignatureResult, SolanaCoin, SpendPaymentArgs,
-            TakerSwapMakerCoin, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
-            TransactionFut, TransactionResult, TransactionType, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationResult,
-            WaitForHTLCTxSpendArgs, WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput,
-            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawError, WithdrawFut, WithdrawRequest,
-            WithdrawResult};
+            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest, SignRawTransactionResult,
+            SignatureResult, SolanaCoin, SpendPaymentArgs, TakerSwapMakerCoin, TradePreimageFut, TradePreimageResult,
+            TradePreimageValue, TransactionDetails, TransactionFut, TransactionResult, TransactionType,
+            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
+            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
+            ValidatePaymentInput, VerificationResult, WaitForHTLCTxSpendArgs, WatcherReward, WatcherRewardError,
+            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
+            WithdrawError, WithdrawFut, WithdrawRequest, WithdrawResult};
 use async_trait::async_trait;
 use bincode::serialize;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem, AbortedError};
@@ -271,14 +270,6 @@ impl MarketCoinOps for SplToken {
 
     #[inline(always)]
     async fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> SignRawTransactionResult {
-        MmError::err(RawTransactionError::NotImplemented {
-            coin: self.ticker().to_string(),
-        })
-    }
-
-    /// Stub for sign eth tx
-    #[inline(always)]
-    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
         MmError::err(RawTransactionError::NotImplemented {
             coin: self.ticker().to_string(),
         })

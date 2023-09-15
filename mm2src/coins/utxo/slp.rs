@@ -16,11 +16,10 @@ use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualTxFee, Addit
 use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput, FeeApproxStage,
             FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin, MmCoinEnum,
             NegotiateSwapContractAddrErr, NumConversError, PaymentInstructionArgs, PaymentInstructions,
-            PaymentInstructionsErr, PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut,
-            RawTransactionRequest, RefundError, RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput,
-            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignEthTransactionRequest, SignEthTransactionResult,
-            SignRawTransactionRequest, SignRawTransactionResult, SignatureResult, SpendPaymentArgs, SwapOps,
-            TakerSwapMakerCoin, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
+            PaymentInstructionsErr, PrivKeyPolicyNotAllowed, RawTransactionFut, RawTransactionRequest, RefundError,
+            RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput,
+            SendPaymentArgs, SignRawTransactionRequest, SignRawTransactionResult, SignatureResult, SpendPaymentArgs,
+            SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
             TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr, TransactionFut,
             TransactionResult, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
             ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentInput, VerificationError,
@@ -1168,14 +1167,6 @@ impl MarketCoinOps for SlpToken {
     #[inline(always)]
     async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionResult {
         utxo_common::sign_raw_tx(self, args).await
-    }
-
-    /// Stub for sign eth tx
-    #[inline(always)]
-    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
-        MmError::err(RawTransactionError::NotImplemented {
-            coin: self.ticker().to_string(),
-        })
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {

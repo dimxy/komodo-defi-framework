@@ -17,13 +17,12 @@ use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxDa
 use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput,
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin, MmCoinEnum,
             NegotiateSwapContractAddrErr, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
-            PrivKeyActivationPolicy, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed, RawTransactionError,
-            RawTransactionFut, RawTransactionRequest, RefundError, RefundPaymentArgs, RefundResult,
-            SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignEthTransactionRequest,
-            SignEthTransactionResult, SignRawTransactionRequest, SignRawTransactionResult, SignatureError,
-            SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageFut,
-            TradePreimageResult, TradePreimageValue, Transaction, TransactionEnum, TransactionFut, TransactionResult,
-            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
+            PrivKeyActivationPolicy, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed, RawTransactionFut,
+            RawTransactionRequest, RefundError, RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput,
+            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest, SignRawTransactionResult,
+            SignatureError, SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee,
+            TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction, TransactionEnum, TransactionFut,
+            TransactionResult, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
             ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
             ValidatePaymentInput, VerificationError, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps,
             WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
@@ -1144,14 +1143,6 @@ impl MarketCoinOps for ZCoin {
     #[inline(always)]
     async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionResult {
         utxo_common::sign_raw_tx(self, args).await
-    }
-
-    /// Stub for sign eth tx
-    #[inline(always)]
-    async fn sign_eth_tx(&self, _args: &SignEthTransactionRequest) -> SignEthTransactionResult {
-        MmError::err(RawTransactionError::NotImplemented {
-            coin: self.ticker().to_string(),
-        })
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
