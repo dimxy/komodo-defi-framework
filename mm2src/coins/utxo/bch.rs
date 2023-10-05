@@ -12,9 +12,9 @@ use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetails
 use crate::{BlockHeightAndTime, CanRefundHtlc, CheckIfMyPaymentSentArgs, CoinBalance, CoinProtocol,
             CoinWithDerivationMethod, ConfirmPaymentInput, IguanaPrivKey, MakerSwapTakerCoin, MmCoinEnum,
             NegotiateSwapContractAddrErr, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
-            PrivKeyBuildPolicy, RawTransactionFut, RawTransactionRequest, RefundError, RefundPaymentArgs,
-            RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs,
-            SignRawTransactionRequest, SignRawTransactionResult, SignatureResult, SpendPaymentArgs, SwapOps,
+            PrivKeyBuildPolicy, RawTransactionFut, RawTransactionRequest, RawTransactionResult, RefundError,
+            RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput,
+            SendPaymentArgs, SignRawTransactionRequest, SignatureResult, SpendPaymentArgs, SwapOps,
             TakerSwapMakerCoin, TradePreimageValue, TransactionFut, TransactionResult, TransactionType, TxFeeDetails,
             TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
             ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
@@ -1185,7 +1185,7 @@ impl MarketCoinOps for BchCoin {
     }
 
     #[inline(always)]
-    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionResult {
+    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> RawTransactionResult {
         utxo_common::sign_raw_tx(self, args).await
     }
 

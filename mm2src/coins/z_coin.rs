@@ -18,8 +18,8 @@ use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, Coi
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin, MmCoinEnum,
             NegotiateSwapContractAddrErr, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
             PrivKeyActivationPolicy, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed, RawTransactionFut,
-            RawTransactionRequest, RefundError, RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput,
-            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest, SignRawTransactionResult,
+            RawTransactionRequest, RawTransactionResult, RefundError, RefundPaymentArgs, RefundResult,
+            SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest,
             SignatureError, SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee,
             TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction, TransactionEnum, TransactionFut,
             TransactionResult, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
@@ -1141,7 +1141,7 @@ impl MarketCoinOps for ZCoin {
     }
 
     #[inline(always)]
-    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> SignRawTransactionResult {
+    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> RawTransactionResult {
         utxo_common::sign_raw_tx(self, args).await
     }
 
