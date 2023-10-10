@@ -46,7 +46,7 @@ pub enum HwWalletType {
     Trezor,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum HwDeviceInfo {
     Trezor(TrezorDeviceInfo),
@@ -125,8 +125,23 @@ impl HwClient {
         use common::custom_futures::timeout::TimeoutError;
         use common::executor::Timer;
 
-        async fn try_to_connect() -> HwResult<Option<TrezorClient>> {
+        fn try_to_connect() -> HwResult<Option<TrezorClient>> {
             let mut devices = trezor::transport::usb::find_devices()?;
+            if devices.is_empty() {
+                return Ok(None);
+            }
+            if devices.len() != 1 {
+                return MmError::err(HwError::CannotChooseDevice { count: devices.len() });
+            }
+            let device = devices.remove(0);
+            let transport = device.connect()?;
+            let trezor = TrezorClient::from_transport(transport);
+            Ok(Some(trezor))
+        }
+
+        #[cfg(feature = "trezor-udp")]
+        fn try_to_connect_emulator() -> HwResult<Option<TrezorClient>> {
+            let mut devices = trezor::transport::udp::find_devices()?;
             if devices.is_empty() {
                 return Ok(None);
             }
@@ -141,9 +156,16 @@ impl HwClient {
 
         let fut = async move {
             loop {
-                if let Some(trezor) = try_to_connect().await? {
+                if let Some(trezor) = try_to_connect()? {
                     return Ok(trezor);
                 }
+
+                #[cfg(feature = "trezor-udp")]
+                // try connect to emulator over UDP
+                if let Some(trezor) = try_to_connect_emulator()? {
+                    return Ok(trezor);
+                }
+
                 Timer::sleep(1.).await;
             }
         };

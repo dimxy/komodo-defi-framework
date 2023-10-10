@@ -1901,6 +1901,71 @@ fn parse_hex_encoded_u32(hex_encoded: &str) -> Result<u32, MmError<String>> {
     Ok(u32::from_be_bytes(be_bytes))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod for_tests {
+    use super::UtxoCoinFields;
+    use crate::rpc_command::init_withdraw::WithdrawStatusRequest;
+    use crate::rpc_command::init_withdraw::{init_withdraw, withdraw_status};
+    use crate::MarketCoinOps;
+    use crate::WithdrawFrom;
+    use crate::{utxo::{utxo_standard::UtxoStandardCoin, UtxoArc},
+                WithdrawRequest};
+    use common::executor::Timer;
+    use common::{now_ms, wait_until_ms};
+    use mm2_core::mm_ctx::MmArc;
+    use mm2_number::BigDecimal;
+    use rpc_task::RpcTaskStatus;
+    use std::str::FromStr;
+
+    /// Helper to call init_withdraw and wait for completion
+    pub async fn test_withdraw_init_loop(
+        ctx: MmArc,
+        fields: UtxoCoinFields,
+        ticker: &str,
+        to: &str,
+        amount: &str,
+        from_derivation_path: &str,
+    ) -> serde_json::Result<String> {
+        let arc: UtxoArc = fields.into();
+        let coin: UtxoStandardCoin = arc.into();
+
+        let withdraw_req = WithdrawRequest {
+            amount: BigDecimal::from_str(amount).unwrap(),
+            from: Some(WithdrawFrom::DerivationPath {
+                derivation_path: from_derivation_path.to_owned(),
+            }),
+            to: to.to_owned(),
+            coin: ticker.to_owned(),
+            max: false,
+            fee: None,
+            memo: None,
+        };
+        let init = init_withdraw(ctx.clone(), withdraw_req).await.unwrap();
+        let timeout = wait_until_ms(150000);
+        let tx_details = loop {
+            if now_ms() > timeout {
+                panic!("{} init_withdraw timed out", coin.ticker());
+            }
+
+            let status = withdraw_status(ctx.clone(), WithdrawStatusRequest {
+                task_id: init.task_id,
+                forget_if_finished: true,
+            })
+            .await;
+            if let Ok(status) = status {
+                match status {
+                    RpcTaskStatus::Ok(tx_details) => break tx_details,
+                    RpcTaskStatus::Error(e) => panic!("{} withdraw error {:?}", coin.ticker(), e),
+                    _ => Timer::sleep(1.).await,
+                }
+            } else {
+                panic!("{} could not get withdraw_status", coin.ticker())
+            }
+        };
+        serde_json::to_string(&tx_details.tx_hex)
+    }
+}
+
 #[test]
 fn test_parse_hex_encoded_u32() {
     assert_eq!(parse_hex_encoded_u32("0x892f2085"), Ok(2301567109));

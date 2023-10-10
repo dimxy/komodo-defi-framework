@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use rand::RngCore;
 
 mod protocol;
+#[cfg(all(feature = "trezor-udp", not(target_arch = "wasm32"), not(target_os = "ios")))]
+pub mod udp;
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 pub mod usb;
 #[cfg(target_arch = "wasm32")] pub mod webusb;

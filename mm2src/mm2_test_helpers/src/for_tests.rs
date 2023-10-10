@@ -844,11 +844,18 @@ pub fn mm_ctx_with_iguana(passphrase: Option<&str>) -> MmArc {
 pub fn mm_ctx_with_custom_db() -> MmArc { MmCtxBuilder::new().with_test_db_namespace().into_mm_arc() }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn mm_ctx_with_custom_db() -> MmArc {
+pub fn mm_ctx_with_custom_db() -> MmArc { mm_ctx_with_custom_db_with_conf(None) }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn mm_ctx_with_custom_db_with_conf(conf: Option<Json>) -> MmArc {
     use db_common::sqlite::rusqlite::Connection;
     use std::sync::Arc;
 
-    let ctx = MmCtxBuilder::new().into_mm_arc();
+    let mut ctx_builder = MmCtxBuilder::new();
+    if let Some(conf) = conf {
+        ctx_builder = ctx_builder.with_conf(conf);
+    }
+    let ctx = ctx_builder.into_mm_arc();
 
     let connection = Connection::open_in_memory().unwrap();
     let _ = ctx.sqlite_connection.pin(Arc::new(Mutex::new(connection)));
@@ -2249,7 +2256,7 @@ pub async fn best_orders_v2_by_number(
     json::from_str(&request.1).unwrap()
 }
 
-pub async fn init_withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &str) -> Json {
+pub async fn init_withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &str, from: Option<Json>) -> Json {
     let request = mm
         .rpc(&json!({
             "userpass": mm.userpass,
@@ -2259,6 +2266,7 @@ pub async fn init_withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &st
                 "coin": coin,
                 "to": to,
                 "amount": amount,
+                "from": from,
             }
         }))
         .await
@@ -2704,7 +2712,25 @@ pub async fn enable_tendermint_token(mm: &MarketMakerIt, coin: &str) -> Json {
     json::from_str(&request.1).unwrap()
 }
 
-pub async fn init_utxo_electrum(mm: &MarketMakerIt, coin: &str, servers: Vec<Json>) -> Json {
+pub async fn init_utxo_electrum(
+    mm: &MarketMakerIt,
+    coin: &str,
+    servers: Vec<Json>,
+    activation_params_extra: Option<Json>,
+) -> Json {
+    let mut activation_params = json!({
+        "mode": {
+            "rpc": "Electrum",
+            "rpc_data": {
+                "servers": servers
+            }
+        }
+    });
+    if let Some(activation_params_extra) = activation_params_extra.unwrap_or_default().as_object() {
+        for (key, value) in activation_params_extra {
+            activation_params[key] = value.clone();
+        }
+    }
     let request = mm
         .rpc(&json!({
             "userpass": mm.userpass,
@@ -2712,14 +2738,7 @@ pub async fn init_utxo_electrum(mm: &MarketMakerIt, coin: &str, servers: Vec<Jso
             "mmrpc": "2.0",
             "params": {
                 "ticker": coin,
-                "activation_params": {
-                    "mode": {
-                        "rpc": "Electrum",
-                        "rpc_data": {
-                            "servers": servers
-                        }
-                    }
-                },
+                "activation_params": activation_params,
             }
         }))
         .await
@@ -3061,4 +3080,48 @@ fn test_parse_env_file() {
             None
         )
     );
+}
+
+/// Helper to call init trezor rpc
+pub async fn init_trezor_rpc(mm: &MarketMakerIt, coin: &str) -> Json {
+    let request = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "task::init_trezor::init",
+            "mmrpc": "2.0",
+            "params": {
+                "ticker": coin,
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::init_trezor::init' failed: {}",
+        request.1
+    );
+    json::from_str(&request.1).unwrap()
+}
+
+/// Helper to call init trezor status
+pub async fn init_trezor_status_rpc(mm: &MarketMakerIt, task_id: u64) -> Json {
+    let request = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "task::init_trezor::status",
+            "mmrpc": "2.0",
+            "params": {
+                "task_id": task_id,
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::init_trezor::status' failed: {}",
+        request.1
+    );
+    json::from_str(&request.1).unwrap()
 }

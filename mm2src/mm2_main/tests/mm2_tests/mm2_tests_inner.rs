@@ -1,10 +1,24 @@
 #[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
 use super::enable_z_coin;
 use crate::integration_tests_common::*;
+use coins::utxo::for_tests::test_withdraw_init_loop;
+use coins::utxo::{utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder},
+                  utxo_standard::UtxoStandardCoin,
+                  UtxoActivationParams};
+use coins::PrivKeyBuildPolicy;
+use coins_activation::{init_standalone_coin, init_standalone_coin_status, InitStandaloneCoinReq,
+                       InitStandaloneCoinStatusRequest};
 use common::executor::Timer;
+use common::now_ms;
+use common::serde::Deserialize;
+use common::wait_until_ms;
 use common::{cfg_native, cfg_wasm32, get_utc_timestamp, log, new_uuid};
 use crypto::privkey::key_pair_from_seed;
+use crypto::CryptoCtx;
+use crypto::StandardHDCoinAddress;
 use http::{HeaderMap, StatusCode};
+use mm2_core::mm_ctx::MmArc;
+use mm2_main::mm2::init_hw::{init_trezor, init_trezor_status, InitHwRequest, InitHwResponse};
 use mm2_main::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
 use mm2_metrics::{MetricType, MetricsJson};
 use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber};
@@ -12,21 +26,24 @@ use mm2_rpc::data::legacy::{CoinInitResponse, MmVersionResponse, OrderbookRespon
 use mm2_test_helpers::electrums::*;
 #[cfg(all(not(target_arch = "wasm32"), not(feature = "zhtlc-native-tests")))]
 use mm2_test_helpers::for_tests::check_stats_swap_status;
+use mm2_test_helpers::for_tests::init_trezor_rpc;
+use mm2_test_helpers::for_tests::init_trezor_status_rpc;
+#[cfg(all(not(target_arch = "wasm32")))]
+use mm2_test_helpers::for_tests::mm_ctx_with_custom_db_with_conf;
 use mm2_test_helpers::for_tests::{btc_segwit_conf, btc_with_spv_conf, btc_with_sync_starting_header,
                                   check_recent_swaps, enable_eth_coin, enable_qrc20, eth_jst_testnet_conf,
-                                  eth_testnet_conf, find_metrics_in_json, from_env_file, get_shared_db_id, mm_spat,
-                                  morty_conf, rick_conf, sign_message, start_swaps, tbtc_segwit_conf,
-                                  tbtc_with_spv_conf, test_qrc20_history_impl, tqrc20_conf, verify_message,
-                                  wait_for_swap_contract_negotiation, wait_for_swap_negotiation_failure,
-                                  wait_for_swaps_finish_and_check_status, wait_till_history_has_records,
-                                  MarketMakerIt, Mm2InitPrivKeyPolicy, Mm2TestConf, Mm2TestConfForSwap, RaiiDump,
-                                  ETH_DEV_NODES, ETH_DEV_SWAP_CONTRACT, ETH_DEV_TOKEN_CONTRACT, ETH_MAINNET_NODE,
-                                  ETH_MAINNET_SWAP_CONTRACT, MORTY, QRC20_ELECTRUMS, RICK, RICK_ELECTRUM_ADDRS,
-                                  TBTC_ELECTRUMS};
-
-use crypto::StandardHDCoinAddress;
+                                  eth_testnet_conf, find_metrics_in_json, from_env_file, get_shared_db_id,
+                                  init_withdraw, mm_spat, morty_conf, rick_conf, sign_message, start_swaps,
+                                  tbtc_segwit_conf, tbtc_with_spv_conf, test_qrc20_history_impl, tqrc20_conf,
+                                  verify_message, wait_for_swap_contract_negotiation,
+                                  wait_for_swap_negotiation_failure, wait_for_swaps_finish_and_check_status,
+                                  wait_till_history_has_records, withdraw_status, MarketMakerIt, Mm2InitPrivKeyPolicy,
+                                  Mm2TestConf, Mm2TestConfForSwap, RaiiDump, ETH_DEV_NODES, ETH_DEV_SWAP_CONTRACT,
+                                  ETH_DEV_TOKEN_CONTRACT, ETH_MAINNET_NODE, ETH_MAINNET_SWAP_CONTRACT, MORTY,
+                                  QRC20_ELECTRUMS, RICK, RICK_ELECTRUM_ADDRS, TBTC_ELECTRUMS};
 use mm2_test_helpers::get_passphrase;
 use mm2_test_helpers::structs::*;
+use rpc_task::{rpc_common::RpcTaskStatusRequest, RpcTaskStatus};
 use serde_json::{self as json, json, Value as Json};
 use std::collections::HashMap;
 use std::env::{self, var};
@@ -7498,7 +7515,7 @@ fn test_enable_btc_with_sync_starting_header() {
     let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
     log!("log path: {}", mm_bob.log_path.display());
 
-    let utxo_bob = block_on(enable_utxo_v2_electrum(&mm_bob, "BTC", btc_electrums(), 80));
+    let utxo_bob = block_on(enable_utxo_v2_electrum(&mm_bob, "BTC", btc_electrums(), 80, None));
     log!("enable UTXO bob {:?}", utxo_bob);
 
     block_on(mm_bob.stop()).unwrap();
@@ -7528,7 +7545,7 @@ fn test_btc_block_header_sync() {
     let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
     log!("log path: {}", mm_bob.log_path.display());
 
-    let utxo_bob = block_on(enable_utxo_v2_electrum(&mm_bob, "BTC", btc_electrums(), 600));
+    let utxo_bob = block_on(enable_utxo_v2_electrum(&mm_bob, "BTC", btc_electrums(), 600, None));
     log!("enable UTXO bob {:?}", utxo_bob);
 
     block_on(mm_bob.stop()).unwrap();
@@ -7559,7 +7576,13 @@ fn test_tbtc_block_header_sync() {
     let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
     log!("log path: {}", mm_bob.log_path.display());
 
-    let utxo_bob = block_on(enable_utxo_v2_electrum(&mm_bob, "tBTC-TEST", tbtc_electrums(), 100000));
+    let utxo_bob = block_on(enable_utxo_v2_electrum(
+        &mm_bob,
+        "tBTC-TEST",
+        tbtc_electrums(),
+        100000,
+        None,
+    ));
     log!("enable UTXO bob {:?}", utxo_bob);
 
     block_on(mm_bob.stop()).unwrap();
@@ -7926,4 +7949,294 @@ fn test_eth_swap_negotiation_fails_maker_no_fallback() {
     let wait_until = get_utc_timestamp() + 30;
     block_on(wait_for_swap_negotiation_failure(&mm_bob, &uuids[0], wait_until));
     block_on(wait_for_swap_negotiation_failure(&mm_alice, &uuids[0], wait_until));
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, tag = "status", content = "details")]
+pub enum InitTrezorStatus {
+    Ok(InitHwResponse),
+    Error(Json),
+    InProgress(Json),
+    UserActionRequired(Json),
+}
+
+pub fn mm_ctx_with_trezor(conf: Json) -> MmArc {
+    let ctx = mm_ctx_with_custom_db_with_conf(Some(conf));
+
+    CryptoCtx::init_with_iguana_passphrase(ctx.clone(), "123456").unwrap(); // for now we need passphrase seed for init
+    let req: InitHwRequest = serde_json::from_value(json!({ "device_pubkey": null })).unwrap();
+    let res = match block_on(init_trezor(ctx.clone(), req)) {
+        Ok(res) => res,
+        _ => {
+            panic!("cannot init trezor");
+        },
+    };
+
+    block_on(async {
+        loop {
+            let status_req = RpcTaskStatusRequest {
+                task_id: res.task_id,
+                forget_if_finished: false,
+            };
+            match init_trezor_status(ctx.clone(), status_req).await {
+                Ok(res) => {
+                    log!("trezor init status={:?}", serde_json::to_string(&res).unwrap());
+                    match res {
+                        RpcTaskStatus::Ok(_) => {
+                            log!("device initialized");
+                            break;
+                        },
+                        RpcTaskStatus::Error(_) => {
+                            log!("device in error state");
+                            break;
+                        },
+                        RpcTaskStatus::InProgress(_) => log!("trezor init in progress"),
+                        RpcTaskStatus::UserActionRequired(_) => log!("device is waiting for user action"),
+                    }
+                },
+                _ => {
+                    panic!("cannot get trezor status");
+                },
+            };
+            Timer::sleep(5.).await
+        }
+    });
+    ctx
+}
+
+/// Tool to run withdraw directly (w/o rpc) with trezor device or emulator
+/// run cargo test with '--ignored' option
+/// to use trezor emulator add '--features trezor-udp' option to cargo test params
+#[test]
+#[ignore]
+#[cfg(all(not(target_arch = "wasm32")))]
+fn test_withdraw_from_trezor_segwit_no_rpc() {
+    use common::wait_until_ms;
+
+    let ticker = "tBTC-segwit";
+    //let ticker = "tBTC";
+    let coin_conf = json!({
+        "coin": ticker,
+        "name": "tbitcoin",
+        "fname": "tBitcoin",
+        "rpcport": 18332,
+        "pubtype": 111,
+        "p2shtype": 196,
+        "wiftype": 239,
+        "segwit": true,
+        "bech32_hrp": "tb",
+        "address_format": {
+            "format": "segwit"
+        },
+        "orderbook_ticker": "tBTC",
+        "txfee": 0,
+        "estimate_fee_mode": "ECONOMICAL",
+        "mm2": 1,
+        "is_testnet": true,
+        "required_confirmations": 0,
+        "protocol": {
+            "type": "UTXO"
+        },
+        // added to params from coins
+        "derivation_path": "m/84'/1'",
+        "trezor_coin": "Testnet",
+    });
+    let mm_conf = json!({ "coins": [coin_conf] });
+
+    let ctx = mm_ctx_with_trezor(mm_conf);
+    let priv_key_policy = PrivKeyBuildPolicy::Trezor;
+    let servers: Vec<_> = [
+        "electrum1.cipig.net:10068",
+        "electrum2.cipig.net:10068",
+        "electrum3.cipig.net:10068",
+    ]
+    .iter()
+    .map(|server| json!({ "url": server }))
+    .collect();
+
+    let enable_req = json!({
+        "method": "electrum",
+        "coin": ticker,
+        "servers": servers,
+        "priv_key_policy": "Trezor",
+    });
+    let activation_params = UtxoActivationParams::from_legacy_req(&enable_req).unwrap();
+    let request: InitStandaloneCoinReq<UtxoActivationParams> = json::from_value(json!({
+        "ticker": ticker,
+        "activation_params": activation_params
+    }))
+    .unwrap();
+
+    block_on(async {
+        let init_result = init_standalone_coin::<UtxoStandardCoin>(ctx.clone(), request)
+            .await
+            .unwrap();
+        let timeout = wait_until_ms(150000);
+        loop {
+            if now_ms() > timeout {
+                panic!("{} init_standalone_coin timed out", ticker);
+            }
+
+            let status_req = InitStandaloneCoinStatusRequest {
+                task_id: init_result.task_id,
+                forget_if_finished: true,
+            };
+            let status_res = init_standalone_coin_status::<UtxoStandardCoin>(ctx.clone(), status_req).await;
+            if let Ok(status) = status_res {
+                match status {
+                    RpcTaskStatus::Ok(tx_details) => break tx_details,
+                    RpcTaskStatus::Error(e) => panic!("{} init_standalone_coin error {:?}", ticker, e),
+                    _ => Timer::sleep(1.).await,
+                }
+            } else {
+                panic!("{} could not get init_standalone_coin status", ticker)
+            }
+        }
+    });
+
+    let builder = UtxoArcBuilder::new(
+        &ctx,
+        ticker,
+        &coin_conf,
+        &activation_params,
+        priv_key_policy,
+        UtxoStandardCoin::from,
+    );
+    let fields = block_on(builder.build_utxo_fields()).unwrap();
+    log!(
+        "tx_hex={:?}",
+        block_on(test_withdraw_init_loop(
+            ctx.clone(),
+            fields,
+            "tBTC-segwit",
+            "tb1q3zkv6g29ku3jh9vdkhxlpyek44se2s0zrv7ctn",
+            "0.00001",
+            "m/84'/1'/0'/0/0",
+        ))
+    );
+}
+
+/// Helper to init trezor and wait for completion
+pub async fn init_trezor_loop_rpc(mm: &MarketMakerIt, coin: &str, timeout: u64) -> InitHwResponse {
+    let init = init_trezor_rpc(mm, coin).await;
+    let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
+    let timeout = wait_until_ms(timeout * 1000);
+
+    loop {
+        if now_ms() > timeout {
+            panic!("{} init_trezor_rpc timed out", coin);
+        }
+
+        let ret = init_trezor_status_rpc(mm, init.result.task_id).await;
+        log!("init_trezor_status_rpc: {:?}", ret);
+        let ret: RpcV2Response<InitTrezorStatus> = json::from_value(ret).unwrap();
+        match ret.result {
+            InitTrezorStatus::Ok(result) => break result,
+            InitTrezorStatus::Error(e) => panic!("{} trezor initialization error {:?}", coin, e),
+            _ => Timer::sleep(1.).await,
+        }
+    }
+}
+
+/// Helper to run init withdraw and wait for completion
+async fn init_withdraw_loop_rpc(
+    mm: &MarketMakerIt,
+    coin: &str,
+    to: &str,
+    amount: &str,
+    from: Option<Json>,
+) -> TransactionDetails {
+    let init = init_withdraw(mm, coin, to, amount, from).await;
+    let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
+    let timeout = wait_until_ms(150000);
+
+    loop {
+        if now_ms() > timeout {
+            panic!("{} init_withdraw timed out", coin);
+        }
+
+        let status = withdraw_status(mm, init.result.task_id).await;
+        log!("Withdraw status {}", json::to_string(&status).unwrap());
+        let status: RpcV2Response<WithdrawStatus> = json::from_value(status).unwrap();
+        match status.result {
+            WithdrawStatus::Ok(result) => break result,
+            WithdrawStatus::Error(e) => panic!("{} withdraw error {:?}", coin, e),
+            _ => Timer::sleep(1.).await,
+        }
+    }
+}
+
+/// Tool to run withdraw for trezor device or emulator over rpc
+/// run cargo test with '--ignored' option
+/// to use trezor emulator add '--features trezor-udp' option to cargo test params
+#[test]
+#[ignore]
+#[cfg(all(not(target_arch = "wasm32")))]
+fn test_withdraw_from_trezor_segwit_rpc() {
+    let bob_seed = "123";
+    let ticker = "tBTC-segwit";
+
+    let coins = json!([
+        {
+            "coin":ticker,
+            "name":"tbitcoin",
+            "fname":"tBitcoin",
+            "rpcport":18332,
+            "pubtype":111,
+            "p2shtype":196,
+            "wiftype":239,
+            "segwit":true,
+            "bech32_hrp":"tb",
+            "txfee":0,
+            "mm2":1,
+            "required_confirmations":0,
+            "protocol":{"type":"UTXO"},
+            "address_format":{"format":"segwit"},
+            "derivation_path": "m/84'/1'",
+            "trezor_coin": "Testnet",
+        }
+    ]);
+
+    // start bob
+    let mm_bob = MarketMakerIt::start(
+        json! ({
+            "gui": "nogui",
+            "netid": 9998,
+            "myipaddr": env::var ("BOB_TRADE_IP") .ok(),
+            "rpcip": env::var ("BOB_TRADE_IP") .ok(),
+            "canbind": env::var ("BOB_TRADE_PORT") .ok().map (|s| s.parse::<i64>().unwrap()),
+            "passphrase": bob_seed.to_string(),
+            "coins": coins,
+            "rpc_password": "pass",
+            "i_am_seed": true,
+        }),
+        "pass".into(),
+        None,
+    )
+    .expect("MarketMakerIt must start okay");
+
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    log!("Bob log path: {}", mm_bob.log_path.display());
+
+    block_on(init_trezor_loop_rpc(&mm_bob, ticker, 60));
+
+    let utxo_bob = block_on(enable_utxo_v2_electrum(
+        &mm_bob,
+        ticker,
+        tbtc_electrums(),
+        80,
+        Some(json!({
+            "priv_key_policy": "Trezor"
+        })),
+    ));
+    log!("enable UTXO bob {:?}", utxo_bob);
+
+    let tx_details = block_on(init_withdraw_loop_rpc(
+        &mm_bob,
+        ticker,
+        "tb1q3zkv6g29ku3jh9vdkhxlpyek44se2s0zrv7ctn",
+        "0.00001",
+        Some(json!({"derivation_path": "m/84'/1'/0'/0/0"})),
+    ));
+    log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
 }
