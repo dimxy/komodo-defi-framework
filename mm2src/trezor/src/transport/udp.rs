@@ -1,5 +1,6 @@
-/// This source file was borrowed from Trezor repo and modified to integrate into this project
-/// Adds udp transport to interact with trezor emulator
+/// This source file was borrowed from Trezor repo (https://raw.githubusercontent.com/trezor/trezor-firmware/07ba960ab4aa5aa3ddf16ae74c3658782d491250/rust/trezor-client/src/transport/udp.rs)
+/// and modified to integrate into this project.
+/// Adds udp transport to interact with trezor emulator.
 /// To build emulator use this repo: https://github.com/trezor/trezor-firmware, build with build-docker.sh for the desired branch (tag)
 /// Tested with the legacy emulator (for Trezor One).
 /// After building the emulator find it as ./legacy/firmware/trezor.elf file.
