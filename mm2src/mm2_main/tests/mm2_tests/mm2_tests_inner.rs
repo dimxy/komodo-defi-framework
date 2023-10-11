@@ -8004,7 +8004,7 @@ pub fn mm_ctx_with_trezor(conf: Json) -> MmArc {
     ctx
 }
 
-/// Tool to run withdraw directly (w/o rpc) with trezor device or emulator
+/// Tool to run withdraw directly with trezor device or emulator (no rpc version, added for easier debugging)
 /// run cargo test with '--ignored' option
 /// to use trezor emulator add '--features trezor-udp' option to cargo test params
 #[test]
@@ -8014,7 +8014,6 @@ fn test_withdraw_from_trezor_segwit_no_rpc() {
     use common::wait_until_ms;
 
     let ticker = "tBTC-segwit";
-    //let ticker = "tBTC";
     let coin_conf = json!({
         "coin": ticker,
         "name": "tbitcoin",
@@ -8166,14 +8165,16 @@ async fn init_withdraw_loop_rpc(
     }
 }
 
-/// Tool to run withdraw for trezor device or emulator over rpc
+/// Tool to run withdraw rpc from trezor device or emulator segwit account
 /// run cargo test with '--ignored' option
 /// to use trezor emulator add '--features trezor-udp' option to cargo test params
+/// Sample (for emulator):
+/// cargo test -p mm2_main  --features trezor-udp -- --nocapture --ignored test_withdraw_from_trezor_segwit_no_rpc
 #[test]
 #[ignore]
 #[cfg(all(not(target_arch = "wasm32")))]
 fn test_withdraw_from_trezor_segwit_rpc() {
-    let bob_seed = "123";
+    let default_passphrase = "123";
     let ticker = "tBTC-segwit";
 
     let coins = json!([
@@ -8198,22 +8199,8 @@ fn test_withdraw_from_trezor_segwit_rpc() {
     ]);
 
     // start bob
-    let mm_bob = MarketMakerIt::start(
-        json! ({
-            "gui": "nogui",
-            "netid": 9998,
-            "myipaddr": env::var ("BOB_TRADE_IP") .ok(),
-            "rpcip": env::var ("BOB_TRADE_IP") .ok(),
-            "canbind": env::var ("BOB_TRADE_PORT") .ok().map (|s| s.parse::<i64>().unwrap()),
-            "passphrase": bob_seed.to_string(),
-            "coins": coins,
-            "rpc_password": "pass",
-            "i_am_seed": true,
-        }),
-        "pass".into(),
-        None,
-    )
-    .expect("MarketMakerIt must start okay");
+    let conf = Mm2TestConf::seednode(default_passphrase, &coins);
+    let mm_bob = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
@@ -8237,6 +8224,68 @@ fn test_withdraw_from_trezor_segwit_rpc() {
         "tb1q3zkv6g29ku3jh9vdkhxlpyek44se2s0zrv7ctn",
         "0.00001",
         Some(json!({"derivation_path": "m/84'/1'/0'/0/0"})),
+    ));
+    log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
+}
+
+/// Tool to run withdraw rpc from trezor device or emulator p2pkh account
+/// run cargo test with '--ignored' option
+/// to use trezor emulator add '--features trezor-udp' option to cargo test params
+/// Sample (for emulator):
+/// cargo test -p mm2_main  --features trezor-udp -- --nocapture --ignored test_withdraw_from_trezor_p2pkh_rpc
+#[test]
+#[ignore]
+#[cfg(all(not(target_arch = "wasm32")))]
+fn test_withdraw_from_trezor_p2pkh_rpc() {
+    let default_passphrase = "123";
+    let ticker = "tBTC";
+
+    let coins = json!([
+        {
+            "coin":ticker,
+            "name":"tbitcoin",
+            "fname":"tBitcoin",
+            "rpcport":18332,
+            "pubtype":111,
+            "p2shtype":196,
+            "wiftype":239,
+            "segwit":true,
+            "bech32_hrp":"tb",
+            "txfee":0,
+            "mm2":1,
+            "required_confirmations":0,
+            "protocol":{"type":"UTXO"},
+            "address_format":{"format":"standard"},
+            "derivation_path": "m/44'/1'",
+            "trezor_coin": "Testnet",
+        }
+    ]);
+
+    let conf = Mm2TestConf::seednode(default_passphrase, &coins);
+    let mm_bob = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
+
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    log!("Bob log path: {}", mm_bob.log_path.display());
+
+    block_on(init_trezor_loop_rpc(&mm_bob, ticker, 60));
+
+    let utxo_bob = block_on(enable_utxo_v2_electrum(
+        &mm_bob,
+        ticker,
+        tbtc_electrums(),
+        80,
+        Some(json!({
+            "priv_key_policy": "Trezor"
+        })),
+    ));
+    log!("enable UTXO bob {:?}", utxo_bob);
+
+    let tx_details = block_on(init_withdraw_loop_rpc(
+        &mm_bob,
+        ticker,
+        "tb1q3zkv6g29ku3jh9vdkhxlpyek44se2s0zrv7ctn",
+        "0.00001",
+        Some(json!({"derivation_path": "m/44'/1'/0'/0/0"})),
     ));
     log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
 }
