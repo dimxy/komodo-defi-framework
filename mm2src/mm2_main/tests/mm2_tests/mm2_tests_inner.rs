@@ -8017,20 +8017,10 @@ fn test_withdraw_from_trezor_segwit_no_rpc() {
 
     let ctx = mm_ctx_with_trezor(mm_conf);
     let priv_key_policy = PrivKeyBuildPolicy::Trezor;
-
-    let servers: Vec<_> = [
-        "electrum1.cipig.net:10068",
-        "electrum2.cipig.net:10068",
-        "electrum3.cipig.net:10068",
-    ]
-    .iter()
-    .map(|server| json!({ "url": server }))
-    .collect();
-
     let enable_req = json!({
         "method": "electrum",
         "coin": ticker,
-        "servers": servers,
+        "servers": tbtc_electrums(),
         "priv_key_policy": "Trezor",
     });
     let activation_params = UtxoActivationParams::from_legacy_req(&enable_req).unwrap();
