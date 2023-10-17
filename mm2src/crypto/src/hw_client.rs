@@ -124,9 +124,14 @@ impl HwClient {
     ) -> MmResult<TrezorClient, HwProcessingError<Processor::Error>> {
         use common::custom_futures::timeout::TimeoutError;
         use common::executor::Timer;
+        use trezor::transport::{ConnectableDeviceWrapper, Transport};
 
-        fn try_to_connect() -> HwResult<Option<TrezorClient>> {
-            let mut devices = trezor::transport::usb::find_devices()?;
+        async fn try_to_connect<C>() -> HwResult<Option<TrezorClient>>
+        where
+            C: ConnectableDeviceWrapper,
+            <C as ConnectableDeviceWrapper>::T: Transport + Sync + Send + 'static,
+        {
+            let mut devices = C::find_devices().await?;
             if devices.is_empty() {
                 return Ok(None);
             }
@@ -134,35 +139,20 @@ impl HwClient {
                 return MmError::err(HwError::CannotChooseDevice { count: devices.len() });
             }
             let device = devices.remove(0);
-            let transport = device.connect()?;
-            let trezor = TrezorClient::from_transport(transport);
-            Ok(Some(trezor))
-        }
-
-        #[cfg(feature = "trezor-udp")]
-        fn try_to_connect_emulator() -> HwResult<Option<TrezorClient>> {
-            let mut devices = trezor::transport::udp::find_devices()?;
-            if devices.is_empty() {
-                return Ok(None);
-            }
-            if devices.len() != 1 {
-                return MmError::err(HwError::CannotChooseDevice { count: devices.len() });
-            }
-            let device = devices.remove(0);
-            let transport = device.connect()?;
+            let transport = device.connect().await?;
             let trezor = TrezorClient::from_transport(transport);
             Ok(Some(trezor))
         }
 
         let fut = async move {
             loop {
-                if let Some(trezor) = try_to_connect()? {
+                if let Some(trezor) = try_to_connect::<trezor::transport::usb::UsbAvailableDevice>().await? {
                     return Ok(trezor);
                 }
 
                 #[cfg(feature = "trezor-udp")]
-                // try connect to emulator over UDP
-                if let Some(trezor) = try_to_connect_emulator()? {
+                // try also to connect to emulator over UDP
+                if let Some(trezor) = try_to_connect::<trezor::transport::udp::UdpAvailableDevice>().await? {
                     return Ok(trezor);
                 }
 

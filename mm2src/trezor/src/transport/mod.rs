@@ -68,3 +68,15 @@ impl SessionId {
 impl AsRef<[u8]> for SessionId {
     fn as_ref(&self) -> &[u8] { &self.0 }
 }
+
+/// Wrapper to abstract connectivity to usb and emulator devices
+#[async_trait]
+pub trait ConnectableDeviceWrapper {
+    type T;
+    async fn find_devices() -> TrezorResult<Vec<Self>>
+    where
+        Self: Sized;
+    async fn connect(self) -> TrezorResult<Self::T>
+    where
+        Self::T: Transport;
+}
