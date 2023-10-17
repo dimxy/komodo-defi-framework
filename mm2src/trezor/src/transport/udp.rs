@@ -18,10 +18,10 @@ use std::time::Duration;
 
 // A collection of constants related to the Emulator Ports.
 mod constants {
-    pub const DEFAULT_HOST: &str = "127.0.0.1";
-    pub const DEFAULT_PORT: &str = "21324";
-    pub const DEFAULT_DEBUG_PORT: &str = "21325";
-    pub const LOCAL_LISTENER: &str = "127.0.0.1:0";
+    pub(super) const DEFAULT_HOST: &str = "127.0.0.1";
+    pub(super) const DEFAULT_PORT: &str = "21324";
+    pub(super) const DEFAULT_DEBUG_PORT: &str = "21325";
+    pub(super) const LOCAL_LISTENER: &str = "127.0.0.1:0";
 }
 
 use async_trait::async_trait;
@@ -52,10 +52,11 @@ impl UdpAvailableDevice {
 async fn find_devices() -> TrezorResult<Vec<UdpAvailableDevice>> {
     let debug = false;
     let mut devices = Vec::new();
-    let mut dest = String::new();
-    dest.push_str(DEFAULT_HOST);
-    dest.push(':');
-    dest.push_str(if debug { DEFAULT_DEBUG_PORT } else { DEFAULT_PORT });
+    let dest = format!(
+        "{}:{}",
+        DEFAULT_HOST,
+        if debug { DEFAULT_DEBUG_PORT } else { DEFAULT_PORT }
+    );
 
     let link = UdpLink::open(&dest).await?;
     if link.ping().await? {
@@ -137,10 +138,7 @@ impl UdpTransport {
     /// Connect to a device over the UDP transport.
     async fn connect(device: &UdpAvailableDevice) -> TrezorResult<UdpTransport> {
         let transport = &device.transport;
-        let mut path = String::new();
-        path.push_str(&transport.protocol.link.device.0);
-        path.push(':');
-        path.push_str(&transport.protocol.link.device.1);
+        let path = format!("{}:{}", transport.protocol.link.device.0, transport.protocol.link.device.1);
         let link = UdpLink::open(&path).await?;
         Ok(UdpTransport {
             protocol: ProtocolV1 { link },
