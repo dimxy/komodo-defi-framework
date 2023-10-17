@@ -73,9 +73,11 @@ impl AsRef<[u8]> for SessionId {
 #[async_trait]
 pub trait ConnectableDeviceWrapper {
     type T;
+    
     async fn find_devices() -> TrezorResult<Vec<Self>>
     where
         Self: Sized;
+
     async fn connect(self) -> TrezorResult<Self::T>
     where
         Self::T: Transport;
