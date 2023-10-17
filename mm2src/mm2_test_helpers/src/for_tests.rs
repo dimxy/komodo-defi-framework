@@ -2734,7 +2734,7 @@ pub async fn init_utxo_electrum(
     mm: &MarketMakerIt,
     coin: &str,
     servers: Vec<Json>,
-    activation_params_extra: Option<Json>,
+    priv_key_policy: Option<&str>,
 ) -> Json {
     let mut activation_params = json!({
         "mode": {
@@ -2744,10 +2744,8 @@ pub async fn init_utxo_electrum(
             }
         }
     });
-    if let Some(activation_params_extra) = activation_params_extra.unwrap_or_default().as_object() {
-        for (key, value) in activation_params_extra {
-            activation_params[key] = value.clone();
-        }
+    if let Some(priv_key_policy) = priv_key_policy {
+        activation_params["priv_key_policy"] = priv_key_policy.into();
     }
     let request = mm
         .rpc(&json!({

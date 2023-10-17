@@ -7959,47 +7959,46 @@ pub enum InitTrezorStatus {
     UserActionRequired(Json),
 }
 
-pub fn mm_ctx_with_trezor(conf: Json) -> MmArc {
+pub async fn mm_ctx_with_trezor(conf: Json) -> MmArc {
     let ctx = mm_ctx_with_custom_db_with_conf(Some(conf));
 
     CryptoCtx::init_with_iguana_passphrase(ctx.clone(), "123456").unwrap(); // for now we need passphrase seed for init
     let req: InitHwRequest = serde_json::from_value(json!({ "device_pubkey": null })).unwrap();
-    let res = match block_on(init_trezor(ctx.clone(), req)) {
+    let res = match init_trezor(ctx.clone(), req).await {
         Ok(res) => res,
         _ => {
             panic!("cannot init trezor");
         },
     };
 
-    block_on(async {
-        loop {
-            let status_req = RpcTaskStatusRequest {
-                task_id: res.task_id,
-                forget_if_finished: false,
-            };
-            match init_trezor_status(ctx.clone(), status_req).await {
-                Ok(res) => {
-                    log!("trezor init status={:?}", serde_json::to_string(&res).unwrap());
-                    match res {
-                        RpcTaskStatus::Ok(_) => {
-                            log!("device initialized");
-                            break;
-                        },
-                        RpcTaskStatus::Error(_) => {
-                            log!("device in error state");
-                            break;
-                        },
-                        RpcTaskStatus::InProgress(_) => log!("trezor init in progress"),
-                        RpcTaskStatus::UserActionRequired(_) => log!("device is waiting for user action"),
-                    }
-                },
-                _ => {
-                    panic!("cannot get trezor status");
-                },
-            };
-            Timer::sleep(5.).await
-        }
-    });
+    
+    loop {
+        let status_req = RpcTaskStatusRequest {
+            task_id: res.task_id,
+            forget_if_finished: false,
+        };
+        match init_trezor_status(ctx.clone(), status_req).await {
+            Ok(res) => {
+                log!("trezor init status={:?}", serde_json::to_string(&res).unwrap());
+                match res {
+                    RpcTaskStatus::Ok(_) => {
+                        log!("device initialized");
+                        break;
+                    },
+                    RpcTaskStatus::Error(_) => {
+                        log!("device in error state");
+                        break;
+                    },
+                    RpcTaskStatus::InProgress(_) => log!("trezor init in progress"),
+                    RpcTaskStatus::UserActionRequired(_) => log!("device is waiting for user action"),
+                }
+            },
+            _ => {
+                panic!("cannot get trezor status");
+            },
+        };
+        Timer::sleep(5.).await
+    }
     ctx
 }
 
@@ -8015,7 +8014,7 @@ fn test_withdraw_from_trezor_segwit_no_rpc() {
     coin_conf["trezor_coin"] = "Testnet".into();
     let mm_conf = json!({ "coins": [coin_conf] });
 
-    let ctx = mm_ctx_with_trezor(mm_conf);
+    let ctx = block_on(mm_ctx_with_trezor(mm_conf));
     let priv_key_policy = PrivKeyBuildPolicy::Trezor;
     let enable_req = json!({
         "method": "electrum",
@@ -8132,9 +8131,7 @@ fn test_withdraw_from_trezor_segwit_rpc() {
         ticker,
         tbtc_electrums(),
         80,
-        Some(json!({
-            "priv_key_policy": "Trezor"
-        })),
+        Some("Trezor")
     ));
     log!("enable UTXO bob {:?}", utxo_bob);
 
@@ -8177,9 +8174,7 @@ fn test_withdraw_from_trezor_p2pkh_rpc() {
         ticker,
         tbtc_electrums(),
         80,
-        Some(json!({
-            "priv_key_policy": "Trezor"
-        })),
+        Some("Trezor")
     ));
     log!("enable UTXO bob {:?}", utxo_bob);
 

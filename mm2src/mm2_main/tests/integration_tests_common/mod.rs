@@ -116,9 +116,9 @@ pub async fn enable_utxo_v2_electrum(
     coin: &str,
     servers: Vec<Json>,
     timeout: u64,
-    activation_params_extra: Option<Json>,
+    priv_key_policy: Option<&str>,
 ) -> UtxoStandardActivationResult {
-    let init = init_utxo_electrum(mm, coin, servers, activation_params_extra).await;
+    let init = init_utxo_electrum(mm, coin, servers, priv_key_policy).await;
     let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
     let timeout = wait_until_ms(timeout * 1000);
 
