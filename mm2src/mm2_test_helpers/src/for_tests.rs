@@ -661,6 +661,24 @@ pub fn tbtc_with_spv_conf() -> Json {
     })
 }
 
+pub fn tbtc_legacy_conf() -> Json {
+    json!({
+        "coin": "tBTC",
+        "asset":"tBTC",
+        "pubtype": 111,
+        "p2shtype": 196,
+        "wiftype": 239,
+        "segwit": false,
+        "bech32_hrp": "tb",
+        "txfee": 0,
+        "estimate_fee_mode": "ECONOMICAL",
+        "required_confirmations": 0,
+        "protocol": {
+            "type": "UTXO"
+        }
+    })
+}
+
 pub fn eth_testnet_conf() -> Json {
     json!({
         "coin": "ETH",

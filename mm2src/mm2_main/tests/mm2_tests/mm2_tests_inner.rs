@@ -6,8 +6,7 @@ use coins::utxo::{utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder},
                   utxo_standard::UtxoStandardCoin,
                   UtxoActivationParams};
 use coins::PrivKeyBuildPolicy;
-use coins_activation::{init_standalone_coin, init_standalone_coin_status, InitStandaloneCoinReq,
-                       InitStandaloneCoinStatusRequest};
+use coins_activation::{for_tests::init_standalone_coin_loop, InitStandaloneCoinReq};
 use common::executor::Timer;
 use common::now_ms;
 use common::serde::Deserialize;
@@ -34,8 +33,8 @@ use mm2_test_helpers::for_tests::{btc_segwit_conf, btc_with_spv_conf, btc_with_s
                                   check_recent_swaps, enable_eth_coin, enable_qrc20, eth_jst_testnet_conf,
                                   eth_testnet_conf, find_metrics_in_json, from_env_file, get_shared_db_id,
                                   init_withdraw, mm_spat, morty_conf, rick_conf, sign_message, start_swaps,
-                                  tbtc_segwit_conf, tbtc_with_spv_conf, test_qrc20_history_impl, tqrc20_conf,
-                                  verify_message, wait_for_swap_contract_negotiation,
+                                  tbtc_legacy_conf, tbtc_segwit_conf, tbtc_with_spv_conf, test_qrc20_history_impl,
+                                  tqrc20_conf, verify_message, wait_for_swap_contract_negotiation,
                                   wait_for_swap_negotiation_failure, wait_for_swaps_finish_and_check_status,
                                   wait_till_history_has_records, withdraw_status, MarketMakerIt, Mm2InitPrivKeyPolicy,
                                   Mm2TestConf, Mm2TestConfForSwap, RaiiDump, ETH_DEV_NODES, ETH_DEV_SWAP_CONTRACT,
@@ -8011,39 +8010,14 @@ pub fn mm_ctx_with_trezor(conf: Json) -> MmArc {
 #[ignore]
 #[cfg(all(not(target_arch = "wasm32")))]
 fn test_withdraw_from_trezor_segwit_no_rpc() {
-    use common::wait_until_ms;
-
-    let ticker = "tBTC-segwit";
-    let coin_conf = json!({
-        "coin": ticker,
-        "name": "tbitcoin",
-        "fname": "tBitcoin",
-        "rpcport": 18332,
-        "pubtype": 111,
-        "p2shtype": 196,
-        "wiftype": 239,
-        "segwit": true,
-        "bech32_hrp": "tb",
-        "address_format": {
-            "format": "segwit"
-        },
-        "orderbook_ticker": "tBTC",
-        "txfee": 0,
-        "estimate_fee_mode": "ECONOMICAL",
-        "mm2": 1,
-        "is_testnet": true,
-        "required_confirmations": 0,
-        "protocol": {
-            "type": "UTXO"
-        },
-        // added to params from coins
-        "derivation_path": "m/84'/1'",
-        "trezor_coin": "Testnet",
-    });
+    let ticker = "tBTC-Segwit";
+    let mut coin_conf = tbtc_segwit_conf();
+    coin_conf["trezor_coin"] = "Testnet".into();
     let mm_conf = json!({ "coins": [coin_conf] });
 
     let ctx = mm_ctx_with_trezor(mm_conf);
     let priv_key_policy = PrivKeyBuildPolicy::Trezor;
+
     let servers: Vec<_> = [
         "electrum1.cipig.net:10068",
         "electrum2.cipig.net:10068",
@@ -8066,32 +8040,8 @@ fn test_withdraw_from_trezor_segwit_no_rpc() {
     }))
     .unwrap();
 
-    block_on(async {
-        let init_result = init_standalone_coin::<UtxoStandardCoin>(ctx.clone(), request)
-            .await
-            .unwrap();
-        let timeout = wait_until_ms(150000);
-        loop {
-            if now_ms() > timeout {
-                panic!("{} init_standalone_coin timed out", ticker);
-            }
-
-            let status_req = InitStandaloneCoinStatusRequest {
-                task_id: init_result.task_id,
-                forget_if_finished: true,
-            };
-            let status_res = init_standalone_coin_status::<UtxoStandardCoin>(ctx.clone(), status_req).await;
-            if let Ok(status) = status_res {
-                match status {
-                    RpcTaskStatus::Ok(tx_details) => break tx_details,
-                    RpcTaskStatus::Error(e) => panic!("{} init_standalone_coin error {:?}", ticker, e),
-                    _ => Timer::sleep(1.).await,
-                }
-            } else {
-                panic!("{} could not get init_standalone_coin status", ticker)
-            }
-        }
-    });
+    block_on(init_standalone_coin_loop::<UtxoStandardCoin>(ctx.clone(), request))
+        .expect("coin activation must be successful");
 
     let builder = UtxoArcBuilder::new(
         &ctx,
@@ -8102,17 +8052,16 @@ fn test_withdraw_from_trezor_segwit_no_rpc() {
         UtxoStandardCoin::from,
     );
     let fields = block_on(builder.build_utxo_fields()).unwrap();
-    log!(
-        "tx_hex={:?}",
-        block_on(test_withdraw_init_loop(
-            ctx.clone(),
-            fields,
-            "tBTC-segwit",
-            "tb1q3zkv6g29ku3jh9vdkhxlpyek44se2s0zrv7ctn",
-            "0.00001",
-            "m/84'/1'/0'/0/0",
-        ))
-    );
+    let tx_details = block_on(test_withdraw_init_loop(
+        ctx.clone(),
+        fields,
+        ticker,
+        "tb1q3zkv6g29ku3jh9vdkhxlpyek44se2s0zrv7ctn",
+        "0.00001",
+        "m/84'/1'/0'/0/0",
+    ))
+    .expect("withdraw must end successfully");
+    log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
 }
 
 /// Helper to init trezor and wait for completion
@@ -8174,32 +8123,13 @@ async fn init_withdraw_loop_rpc(
 #[ignore]
 #[cfg(all(not(target_arch = "wasm32")))]
 fn test_withdraw_from_trezor_segwit_rpc() {
-    let default_passphrase = "123";
-    let ticker = "tBTC-segwit";
-
-    let coins = json!([
-        {
-            "coin":ticker,
-            "name":"tbitcoin",
-            "fname":"tBitcoin",
-            "rpcport":18332,
-            "pubtype":111,
-            "p2shtype":196,
-            "wiftype":239,
-            "segwit":true,
-            "bech32_hrp":"tb",
-            "txfee":0,
-            "mm2":1,
-            "required_confirmations":0,
-            "protocol":{"type":"UTXO"},
-            "address_format":{"format":"segwit"},
-            "derivation_path": "m/84'/1'",
-            "trezor_coin": "Testnet",
-        }
-    ]);
+    let default_passphrase = "123"; // TODO: remove when we allow hardware wallet init w/o seed
+    let ticker = "tBTC-Segwit";
+    let mut coin_conf = tbtc_segwit_conf();
+    coin_conf["trezor_coin"] = "Testnet".into();
 
     // start bob
-    let conf = Mm2TestConf::seednode(default_passphrase, &coins);
+    let conf = Mm2TestConf::seednode(default_passphrase, &json!([coin_conf]));
     let mm_bob = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -8237,31 +8167,14 @@ fn test_withdraw_from_trezor_segwit_rpc() {
 #[ignore]
 #[cfg(all(not(target_arch = "wasm32")))]
 fn test_withdraw_from_trezor_p2pkh_rpc() {
-    let default_passphrase = "123";
+    let default_passphrase = "123"; // TODO: remove when we allow hardware wallet init w/o seed
     let ticker = "tBTC";
+    let mut coin_conf = tbtc_legacy_conf();
+    coin_conf["trezor_coin"] = "Testnet".into();
+    coin_conf["derivation_path"] = "m/44'/1'".into();
 
-    let coins = json!([
-        {
-            "coin":ticker,
-            "name":"tbitcoin",
-            "fname":"tBitcoin",
-            "rpcport":18332,
-            "pubtype":111,
-            "p2shtype":196,
-            "wiftype":239,
-            "segwit":true,
-            "bech32_hrp":"tb",
-            "txfee":0,
-            "mm2":1,
-            "required_confirmations":0,
-            "protocol":{"type":"UTXO"},
-            "address_format":{"format":"standard"},
-            "derivation_path": "m/44'/1'",
-            "trezor_coin": "Testnet",
-        }
-    ]);
-
-    let conf = Mm2TestConf::seednode(default_passphrase, &coins);
+    // start bob
+    let conf = Mm2TestConf::seednode(default_passphrase, &json!([coin_conf]));
     let mm_bob = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
 
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
@@ -8283,7 +8196,7 @@ fn test_withdraw_from_trezor_p2pkh_rpc() {
     let tx_details = block_on(init_withdraw_loop_rpc(
         &mm_bob,
         ticker,
-        "tb1q3zkv6g29ku3jh9vdkhxlpyek44se2s0zrv7ctn",
+        "miuSj7rXDxbaHsqf1GmoKkygTBnoi3iwzj",
         "0.00001",
         Some(json!({"derivation_path": "m/44'/1'/0'/0/0"})),
     ));

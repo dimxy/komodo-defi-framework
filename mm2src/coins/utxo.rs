@@ -1906,13 +1906,14 @@ pub mod for_tests {
     use super::UtxoCoinFields;
     use crate::rpc_command::init_withdraw::WithdrawStatusRequest;
     use crate::rpc_command::init_withdraw::{init_withdraw, withdraw_status};
-    use crate::MarketCoinOps;
     use crate::WithdrawFrom;
     use crate::{utxo::{utxo_standard::UtxoStandardCoin, UtxoArc},
                 WithdrawRequest};
+    use crate::{MarketCoinOps, TransactionDetails, WithdrawError};
     use common::executor::Timer;
     use common::{now_ms, wait_until_ms};
     use mm2_core::mm_ctx::MmArc;
+    use mm2_err_handle::prelude::MmResult;
     use mm2_number::BigDecimal;
     use rpc_task::RpcTaskStatus;
     use std::str::FromStr;
@@ -1925,7 +1926,7 @@ pub mod for_tests {
         to: &str,
         amount: &str,
         from_derivation_path: &str,
-    ) -> serde_json::Result<String> {
+    ) -> MmResult<TransactionDetails, WithdrawError> {
         let arc: UtxoArc = fields.into();
         let coin: UtxoStandardCoin = arc.into();
 
@@ -1942,11 +1943,10 @@ pub mod for_tests {
         };
         let init = init_withdraw(ctx.clone(), withdraw_req).await.unwrap();
         let timeout = wait_until_ms(150000);
-        let tx_details = loop {
+        loop {
             if now_ms() > timeout {
                 panic!("{} init_withdraw timed out", coin.ticker());
             }
-
             let status = withdraw_status(ctx.clone(), WithdrawStatusRequest {
                 task_id: init.task_id,
                 forget_if_finished: true,
@@ -1954,15 +1954,14 @@ pub mod for_tests {
             .await;
             if let Ok(status) = status {
                 match status {
-                    RpcTaskStatus::Ok(tx_details) => break tx_details,
-                    RpcTaskStatus::Error(e) => panic!("{} withdraw error {:?}", coin.ticker(), e),
+                    RpcTaskStatus::Ok(tx_details) => break Ok(tx_details),
+                    RpcTaskStatus::Error(e) => break Err(e),
                     _ => Timer::sleep(1.).await,
                 }
             } else {
                 panic!("{} could not get withdraw_status", coin.ticker())
             }
-        };
-        serde_json::to_string(&tx_details.tx_hex)
+        }
     }
 }
 
