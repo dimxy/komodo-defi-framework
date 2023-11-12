@@ -1,3 +1,5 @@
+use crate::context::CoinsActivationContext;
+use crate::platform_coin_with_tokens::InitPlatformCoinWithTokensTask;
 use crate::platform_coin_with_tokens::*;
 use crate::prelude::*;
 use crate::slp_token_activation::SlpActivationRequest;
@@ -18,6 +20,7 @@ use crypto::CryptoCtxError;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::BigDecimal;
+use rpc_task::RpcTaskHandle;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -145,7 +148,7 @@ impl TryFromCoinProtocol for BchProtocolInfo {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct BchWithTokensActivationResult {
     current_block: u64,
     bch_addresses_infos: HashMap<String, CoinAddressInfo<CoinBalance>>,
@@ -208,6 +211,10 @@ impl PlatformWithTokensActivationOps for BchCoin {
     type ActivationResult = BchWithTokensActivationResult;
     type ActivationError = BchWithTokensActivationError;
 
+    type InProgressStatus = InitPlatformCoinWithTokensStandardInProgressStatus;
+    type AwaitingStatus = InitPlatformCoinWithTokensStandardAwaitingStatus;
+    type UserAction = InitPlatformCoinWithTokensStandardUserAction;
+
     async fn enable_platform_coin(
         ctx: MmArc,
         ticker: String,
@@ -258,6 +265,7 @@ impl PlatformWithTokensActivationOps for BchCoin {
 
     async fn get_activation_result(
         &self,
+        _task_handle: Option<&RpcTaskHandle<InitPlatformCoinWithTokensTask<BchCoin>>>,
         activation_request: &Self::ActivationRequest,
     ) -> Result<BchWithTokensActivationResult, MmError<BchWithTokensActivationError>> {
         let current_block = self.as_ref().rpc_client.get_block_count().compat().await?;
@@ -331,4 +339,35 @@ impl PlatformWithTokensActivationOps for BchCoin {
         let settings = AbortSettings::info_on_abort(format!("bch_and_slp_history_loop stopped for {}", self.ticker()));
         self.spawner().spawn_with_settings(fut, settings);
     }
+
+    fn rpc_task_manager(_activation_ctx: &CoinsActivationContext) -> &InitPlatformTaskManagerShared<BchCoin> {
+        unimplemented!()
+    }
 }
+
+/*
+pub struct InitBchTask {}
+
+pub type BchTaskManagerShared = RpcTaskManagerShared<InitBchTask>;
+pub type BchActivationV2AwaitingStatus = HwRpcTaskAwaitingStatus;
+pub type BchActivationV2UserAction = HwRpcTaskUserAction;
+
+impl RpcTaskTypes for InitBchTask {
+    type Item = ();
+    type Error = ();
+    type InProgressStatus = ();
+    type AwaitingStatus = BchActivationV2AwaitingStatus;
+    type UserAction = BchActivationV2UserAction;
+}
+
+#[async_trait]
+impl RpcTask for InitBchTask {
+    fn initial_status(&self) -> Self::InProgressStatus { todo!() }
+
+    async fn cancel(self) { todo!() }
+
+    async fn run(&mut self, _task_handle: &RpcTaskHandle<InitBchTask>) -> Result<Self::Item, MmError<Self::Error>> {
+        Ok(())
+    }
+}
+*/
