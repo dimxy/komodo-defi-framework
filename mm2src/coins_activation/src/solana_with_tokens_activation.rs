@@ -3,8 +3,8 @@ use crate::platform_coin_with_tokens::{EnablePlatformCoinWithTokensError, GetPla
                                        InitPlatformCoinWithTokensStandardAwaitingStatus,
                                        InitPlatformCoinWithTokensStandardInProgressStatus,
                                        InitPlatformCoinWithTokensStandardUserAction, InitPlatformCoinWithTokensTask,
-                                       InitPlatformTaskManagerShared, InitTokensAsMmCoinsError,
-                                       PlatformWithTokensActivationOps, RegisterTokenInfo, TokenActivationParams,
+                                       InitPlatformCoinWithTokensTaskManagerShared, InitTokensAsMmCoinsError,
+                                       PlatformCoinWithTokensActivationOps, RegisterTokenInfo, TokenActivationParams,
                                        TokenActivationRequest, TokenAsMmCoinInitializer, TokenInitializer, TokenOf};
 use crate::prelude::*;
 use crate::prelude::{CoinAddressInfo, TokenBalances, TryFromCoinProtocol, TxHistory};
@@ -94,6 +94,10 @@ impl TxHistory for SolanaWithTokensActivationRequest {
     fn tx_history(&self) -> bool { false }
 }
 
+impl ActivationRequestInfo for SolanaWithTokensActivationRequest {
+    fn is_hw_policy(&self) -> bool { false } // TODO: fix when device policy is added
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct SolanaWithTokensActivationResult {
     current_block: u64,
@@ -115,7 +119,7 @@ impl CurrentBlock for SolanaWithTokensActivationResult {
     fn current_block(&self) -> u64 { self.current_block }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SolanaWithTokensActivationError {
     PlatformCoinCreationError { ticker: String, error: String },
     UnableToRetrieveMyAddress(String),
@@ -181,7 +185,7 @@ impl From<SplTokenInitializerErr> for InitTokensAsMmCoinsError {
 }
 
 #[async_trait]
-impl PlatformWithTokensActivationOps for SolanaCoin {
+impl PlatformCoinWithTokensActivationOps for SolanaCoin {
     type ActivationRequest = SolanaWithTokensActivationRequest;
     type PlatformProtocolInfo = SolanaProtocolInfo;
     type ActivationResult = SolanaWithTokensActivationResult;
@@ -299,7 +303,9 @@ impl PlatformWithTokensActivationOps for SolanaCoin {
     ) {
     }
 
-    fn rpc_task_manager(_activation_ctx: &CoinsActivationContext) -> &InitPlatformTaskManagerShared<SolanaCoin> {
+    fn rpc_task_manager(
+        _activation_ctx: &CoinsActivationContext,
+    ) -> &InitPlatformCoinWithTokensTaskManagerShared<SolanaCoin> {
         unimplemented!()
     }
 }

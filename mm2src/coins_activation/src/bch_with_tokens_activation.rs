@@ -132,6 +132,10 @@ impl TxHistory for BchWithTokensActivationRequest {
     fn tx_history(&self) -> bool { self.platform_request.utxo_params.tx_history }
 }
 
+impl ActivationRequestInfo for BchWithTokensActivationRequest {
+    fn is_hw_policy(&self) -> bool { self.platform_request.utxo_params.is_hw_policy() }
+}
+
 pub struct BchProtocolInfo {
     slp_prefix: String,
 }
@@ -169,7 +173,7 @@ impl CurrentBlock for BchWithTokensActivationResult {
     fn current_block(&self) -> u64 { self.current_block }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BchWithTokensActivationError {
     PlatformCoinCreationError {
         ticker: String,
@@ -205,7 +209,7 @@ impl From<CryptoCtxError> for BchWithTokensActivationError {
 }
 
 #[async_trait]
-impl PlatformWithTokensActivationOps for BchCoin {
+impl PlatformCoinWithTokensActivationOps for BchCoin {
     type ActivationRequest = BchWithTokensActivationRequest;
     type PlatformProtocolInfo = BchProtocolInfo;
     type ActivationResult = BchWithTokensActivationResult;
@@ -340,7 +344,9 @@ impl PlatformWithTokensActivationOps for BchCoin {
         self.spawner().spawn_with_settings(fut, settings);
     }
 
-    fn rpc_task_manager(_activation_ctx: &CoinsActivationContext) -> &InitPlatformTaskManagerShared<BchCoin> {
+    fn rpc_task_manager(
+        _activation_ctx: &CoinsActivationContext,
+    ) -> &InitPlatformCoinWithTokensTaskManagerShared<BchCoin> {
         unimplemented!()
     }
 }

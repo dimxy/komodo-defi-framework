@@ -3,8 +3,8 @@ use crate::platform_coin_with_tokens::{EnablePlatformCoinWithTokensError, GetPla
                                        InitPlatformCoinWithTokensStandardAwaitingStatus,
                                        InitPlatformCoinWithTokensStandardInProgressStatus,
                                        InitPlatformCoinWithTokensStandardUserAction, InitPlatformCoinWithTokensTask,
-                                       InitPlatformTaskManagerShared, InitTokensAsMmCoinsError,
-                                       PlatformWithTokensActivationOps, RegisterTokenInfo, TokenActivationParams,
+                                       InitPlatformCoinWithTokensTaskManagerShared, InitTokensAsMmCoinsError,
+                                       PlatformCoinWithTokensActivationOps, RegisterTokenInfo, TokenActivationParams,
                                        TokenActivationRequest, TokenAsMmCoinInitializer, TokenInitializer, TokenOf};
 use crate::prelude::*;
 use async_trait::async_trait;
@@ -50,6 +50,10 @@ pub struct TendermintActivationParams {
 
 impl TxHistory for TendermintActivationParams {
     fn tx_history(&self) -> bool { self.tx_history }
+}
+
+impl ActivationRequestInfo for TendermintActivationParams {
+    fn is_hw_policy(&self) -> bool { false } // TODO: fix when device policy is added
 }
 
 struct TendermintTokenInitializer {
@@ -162,7 +166,7 @@ impl From<TendermintInitError> for EnablePlatformCoinWithTokensError {
 }
 
 #[async_trait]
-impl PlatformWithTokensActivationOps for TendermintCoin {
+impl PlatformCoinWithTokensActivationOps for TendermintCoin {
     type ActivationRequest = TendermintActivationParams;
     type PlatformProtocolInfo = TendermintProtocolInfo;
     type ActivationResult = TendermintActivationResult;
@@ -286,7 +290,9 @@ impl PlatformWithTokensActivationOps for TendermintCoin {
         self.spawner().spawn_with_settings(fut, settings);
     }
 
-    fn rpc_task_manager(_activation_ctx: &CoinsActivationContext) -> &InitPlatformTaskManagerShared<TendermintCoin> {
+    fn rpc_task_manager(
+        _activation_ctx: &CoinsActivationContext,
+    ) -> &InitPlatformCoinWithTokensTaskManagerShared<TendermintCoin> {
         unimplemented!()
     }
 }
