@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use bip32::DerivationPath;
 use crypto::hw_rpc_task::HwConnectStatuses;
@@ -10,6 +8,7 @@ use enum_from::{EnumFromInner, EnumFromStringify};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared};
+use std::sync::Arc;
 
 const SHOW_ADDRESS_ON_DISPLAY: bool = true;
 

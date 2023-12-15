@@ -1,4 +1,4 @@
-use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandleShared};
+use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTask};
 use crate::utxo_activation::init_utxo_standard_activation_error::InitUtxoStandardError;
 use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingStatus, UtxoStandardInProgressStatus,
                                                           UtxoStandardUserAction};
@@ -17,12 +17,13 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
+use rpc_task::RpcTaskHandleShared;
 use std::collections::HashMap;
 
 pub(crate) async fn get_activation_result<Coin>(
     ctx: &MmArc,
     coin: &Coin,
-    task_handle: InitStandaloneCoinTaskHandleShared<Coin>,
+    task_handle: RpcTaskHandleShared<InitStandaloneCoinTask<Coin>>,
     activation_params: &UtxoActivationParams,
 ) -> MmResult<UtxoStandardActivationResult, InitUtxoStandardError>
 where
@@ -32,8 +33,7 @@ where
             AwaitingStatus = UtxoStandardAwaitingStatus,
             UserAction = UtxoStandardUserAction,
         > + EnableCoinBalanceOps
-        + MarketCoinOps
-        + Clone,
+        + MarketCoinOps,
 {
     let ticker = coin.ticker().to_owned();
     let current_block = coin

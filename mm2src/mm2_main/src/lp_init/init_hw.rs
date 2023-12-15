@@ -12,7 +12,8 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+               RpcTaskTypes};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,8 +25,6 @@ pub type InitHwUserAction = HwRpcTaskUserAction;
 
 pub type InitHwTaskManagerShared = RpcTaskManagerShared<InitHwTask>;
 pub type InitHwStatus = RpcTaskStatus<InitHwResponse, InitHwError, InitHwInProgressStatus, InitHwAwaitingStatus>;
-type InitHwTaskHandle = RpcTaskHandle<InitHwTask>;
-type InitHwTaskHandleShared = Arc<InitHwTaskHandle>;
 
 #[derive(Clone, Display, EnumFromTrait, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -135,7 +134,7 @@ impl RpcTask for InitHwTask {
         }
     }
 
-    async fn run(&mut self, task_handle: InitHwTaskHandleShared) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, task_handle: RpcTaskHandleShared<Self>) -> Result<Self::Item, MmError<Self::Error>> {
         let crypto_ctx = CryptoCtx::from_ctx(&self.ctx)?;
 
         match self.hw_wallet_type {

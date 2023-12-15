@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{lp_coinfind_or_err, CoinsContext, MmCoinEnum, WithdrawError};
 use crate::{TransactionDetails, WithdrawRequest};
 use async_trait::async_trait;
@@ -9,7 +7,7 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatusAlias, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatusAlias, RpcTaskTypes};
 
 pub type WithdrawAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type WithdrawUserAction = HwRpcTaskUserAction;
@@ -20,8 +18,6 @@ pub type WithdrawStatusRequest = RpcTaskStatusRequest;
 pub type WithdrawUserActionRequest = HwRpcTaskUserActionRequest;
 pub type WithdrawTaskManager = RpcTaskManager<WithdrawTask>;
 pub type WithdrawTaskManagerShared = RpcTaskManagerShared<WithdrawTask>;
-pub type WithdrawTaskHandle = RpcTaskHandle<WithdrawTask>;
-pub type WithdrawTaskHandleShared = Arc<WithdrawTaskHandle>;
 pub type WithdrawRpcStatus = RpcTaskStatusAlias<WithdrawTask>;
 pub type WithdrawInitResult<T> = Result<T, MmError<WithdrawError>>;
 
@@ -31,7 +27,7 @@ pub trait CoinWithdrawInit {
     fn init_withdraw(
         ctx: MmArc,
         req: WithdrawRequest,
-        rpc_task_handle: WithdrawTaskHandleShared,
+        rpc_task_handle: RpcTaskHandleShared<WithdrawTask>,
     ) -> WithdrawInitResult<TransactionDetails>;
 }
 
@@ -104,7 +100,7 @@ pub trait InitWithdrawCoin {
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: WithdrawTaskHandleShared,
+        task_handle: RpcTaskHandleShared<WithdrawTask>,
     ) -> Result<TransactionDetails, MmError<WithdrawError>>;
 }
 
@@ -129,7 +125,7 @@ impl RpcTask for WithdrawTask {
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}
 
-    async fn run(&mut self, task_handle: WithdrawTaskHandleShared) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, task_handle: RpcTaskHandleShared<Self>) -> Result<Self::Item, MmError<Self::Error>> {
         let ctx = self.ctx.clone();
         let request = self.request.clone();
         match self.coin {

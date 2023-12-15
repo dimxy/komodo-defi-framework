@@ -15,7 +15,8 @@ use mm2_err_handle::prelude::*;
 use parking_lot::Mutex as PaMutex;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+               RpcTaskTypes};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,8 +24,6 @@ pub type CreateAccountUserAction = HwRpcTaskUserAction;
 pub type CreateAccountAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type CreateAccountTaskManager = RpcTaskManager<InitCreateAccountTask>;
 pub type CreateAccountTaskManagerShared = RpcTaskManagerShared<InitCreateAccountTask>;
-pub type CreateAccountTaskHandle = RpcTaskHandle<InitCreateAccountTask>;
-pub type CreateAccountTaskHandleShared = Arc<CreateAccountTaskHandle>;
 pub type CreateAccountRpcTaskStatus =
     RpcTaskStatus<HDAccountBalance, CreateAccountRpcError, CreateAccountInProgressStatus, CreateAccountAwaitingStatus>;
 
@@ -243,13 +242,13 @@ impl RpcTask for InitCreateAccountTask {
         };
     }
 
-    async fn run(&mut self, task_handle: CreateAccountTaskHandleShared) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, task_handle: RpcTaskHandleShared<Self>) -> Result<Self::Item, MmError<Self::Error>> {
         async fn create_new_account_helper<Coin>(
             ctx: &MmArc,
             coin: &Coin,
             params: CreateNewAccountParams,
             state: CreateAccountState,
-            task_handle: CreateAccountTaskHandleShared,
+            task_handle: RpcTaskHandleShared<InitCreateAccountTask>,
         ) -> MmResult<HDAccountBalance, CreateAccountRpcError>
         where
             Coin: InitCreateAccountRpcOps + Send + Sync,

@@ -1,4 +1,4 @@
-use crate::rpc_command::init_withdraw::{WithdrawInProgressStatus, WithdrawTaskHandleShared};
+use crate::rpc_command::init_withdraw::{WithdrawInProgressStatus, WithdrawTask};
 use crate::utxo::utxo_common::{big_decimal_from_sat, UtxoTxBuilder};
 use crate::utxo::{output_script, sat_from_big_decimal, ActualTxFee, Address, FeePolicy, GetUtxoListOps, PrivKeyPolicy,
                   UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps, UtxoFeeDetails, UtxoTx, UTXO_LOCK};
@@ -16,7 +16,7 @@ use keys::{AddressFormat, AddressHashEnum, KeyPair, Private, Public as PublicKey
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc::v1::types::ToTxHash;
-use rpc_task::RpcTaskError;
+use rpc_task::{RpcTaskError, RpcTaskHandleShared};
 use script::{Builder, Script, SignatureVersion, TransactionInputSigner};
 use serialization::{serialize, serialize_with_flags, SERIALIZE_TRANSACTION_WITNESS};
 use std::iter::once;
@@ -224,7 +224,7 @@ where
 pub struct InitUtxoWithdraw<Coin> {
     ctx: MmArc,
     coin: Coin,
-    task_handle: WithdrawTaskHandleShared,
+    task_handle: RpcTaskHandleShared<WithdrawTask>,
     req: WithdrawRequest,
     from_address: Address,
     /// Displayed [`InitUtxoWithdraw::from_address`].
@@ -366,7 +366,7 @@ impl<Coin> InitUtxoWithdraw<Coin> {
         ctx: MmArc,
         coin: Coin,
         req: WithdrawRequest,
-        task_handle: WithdrawTaskHandleShared,
+        task_handle: RpcTaskHandleShared<WithdrawTask>,
     ) -> Result<InitUtxoWithdraw<Coin>, MmError<WithdrawError>>
     where
         Coin: CoinWithDerivationMethod + GetWithdrawSenderAddress<Address = Address, Pubkey = PublicKey>,

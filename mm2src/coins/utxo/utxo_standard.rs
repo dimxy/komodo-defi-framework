@@ -17,7 +17,7 @@ use crate::rpc_command::init_create_account::{self, CreateAccountRpcError, Creat
                                               InitCreateAccountRpcOps};
 use crate::rpc_command::init_scan_for_new_addresses::{self, InitScanAddressesRpcOps, ScanAddressesParams,
                                                       ScanAddressesResponse};
-use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandleShared};
+use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTask};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
@@ -40,6 +40,7 @@ use crypto::Bip44Chain;
 use futures::{FutureExt, TryFutureExt};
 use mm2_metrics::MetricsArc;
 use mm2_number::MmNumber;
+use rpc_task::RpcTaskHandleShared;
 use utxo_signer::UtxoSignerOps;
 
 #[derive(Clone)]
@@ -866,7 +867,7 @@ impl InitWithdrawCoin for UtxoStandardCoin {
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: WithdrawTaskHandleShared,
+        task_handle: RpcTaskHandleShared<WithdrawTask>,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         utxo_common::init_withdraw(ctx, self.clone(), req, task_handle).await
     }

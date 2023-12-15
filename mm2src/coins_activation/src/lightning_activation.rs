@@ -1,5 +1,5 @@
 use crate::context::CoinsActivationContext;
-use crate::l2::{InitL2ActivationOps, InitL2Error, InitL2InitialStatus, InitL2TaskHandle, InitL2TaskManagerShared,
+use crate::l2::{InitL2ActivationOps, InitL2Error, InitL2InitialStatus, InitL2Task, InitL2TaskManagerShared,
                 L2ProtocolParams};
 use crate::prelude::*;
 use async_trait::async_trait;
@@ -29,6 +29,7 @@ use lightning_invoice::payment;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use parking_lot::Mutex as PaMutex;
+use rpc_task::RpcTaskHandleShared;
 use ser_error_derive::SerializeErrorType;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{self as json, Value as Json};
@@ -37,8 +38,6 @@ use std::sync::Arc;
 const DEFAULT_LISTENING_PORT: u16 = 9735;
 
 pub type LightningTaskManagerShared = InitL2TaskManagerShared<LightningCoin>;
-pub type LightningRpcTaskHandle = InitL2TaskHandle<LightningCoin>;
-pub type LightningRpcTaskHandleShared = Arc<LightningRpcTaskHandle>;
 pub type LightningAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type LightningUserAction = HwRpcTaskUserAction;
 
@@ -296,7 +295,7 @@ impl InitL2ActivationOps for LightningCoin {
         validated_params: Self::ValidatedParams,
         protocol_conf: Self::ProtocolInfo,
         coin_conf: Self::CoinConf,
-        task_handle: LightningRpcTaskHandleShared,
+        task_handle: RpcTaskHandleShared<InitL2Task<LightningCoin>>,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>> {
         let lightning_coin = start_lightning(
             ctx,
@@ -330,7 +329,7 @@ async fn start_lightning(
     protocol_conf: LightningProtocolConf,
     conf: LightningCoinConf,
     params: LightningValidatedParams,
-    task_handle: LightningRpcTaskHandleShared,
+    task_handle: RpcTaskHandleShared<InitL2Task<LightningCoin>>,
 ) -> EnableLightningResult<LightningCoin> {
     // Todo: add support for Hardware wallets for funding transactions and spending spendable outputs (channel closing transactions)
     if let coins::DerivationMethod::HDWallet(_) = platform_coin.as_ref().derivation_method {

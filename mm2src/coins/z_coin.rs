@@ -2,7 +2,7 @@ use crate::coin_errors::MyAddressError;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::my_tx_history_v2::{MyTxHistoryErrorV2, MyTxHistoryRequestV2, MyTxHistoryResponseV2};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::rpc_command::init_withdraw::WithdrawTaskHandleShared;
+use crate::rpc_command::init_withdraw::WithdrawTask;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawInProgressStatus};
 use crate::utxo::rpc_clients::{ElectrumRpcRequest, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut,
@@ -51,6 +51,8 @@ use mm2_number::{BigDecimal, MmNumber};
 #[cfg(test)] use mocktopus::macros::*;
 use primitives::bytes::Bytes;
 use rpc::v1::types::{Bytes as BytesJson, Transaction as RpcTransaction, H256 as H256Json};
+#[cfg(not(target_arch = "wasm32"))]
+use rpc_task::RpcTaskHandleShared;
 use script::{Builder as ScriptBuilder, Opcode, Script, TransactionInputSigner};
 use serde_json::Value as Json;
 use serialization::CoinVariant;
@@ -1927,7 +1929,7 @@ impl InitWithdrawCoin for ZCoin {
         &self,
         _ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: WithdrawTaskHandleShared,
+        task_handle: RpcTaskHandleShared<WithdrawTask>,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         if req.fee.is_some() {
             return MmError::err(WithdrawError::UnsupportedError(

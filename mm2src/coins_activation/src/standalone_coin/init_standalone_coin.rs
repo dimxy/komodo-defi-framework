@@ -13,19 +13,15 @@ use mm2_err_handle::prelude::*;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use rpc_task::rpc_common::{CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusRequest, RpcTaskUserActionRequest};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
-               RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 use serde_derive::Deserialize;
 use serde_json::Value as Json;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub type InitStandaloneCoinResponse = InitRpcTaskResponse;
 pub type InitStandaloneCoinStatusRequest = RpcTaskStatusRequest;
 pub type InitStandaloneCoinUserActionRequest<UserAction> = RpcTaskUserActionRequest<UserAction>;
 pub type InitStandaloneCoinTaskManagerShared<Standalone> = RpcTaskManagerShared<InitStandaloneCoinTask<Standalone>>;
-pub type InitStandaloneCoinTaskHandle<Standalone> = RpcTaskHandle<InitStandaloneCoinTask<Standalone>>;
-pub type InitStandaloneCoinTaskHandleShared<Standalone> = Arc<InitStandaloneCoinTaskHandle<Standalone>>;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct InitStandaloneCoinReq<T> {
@@ -61,13 +57,13 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'sta
         coin_conf: Json,
         activation_request: &Self::ActivationRequest,
         protocol_info: Self::StandaloneProtocol,
-        task_handle: InitStandaloneCoinTaskHandleShared<Self>,
+        task_handle: RpcTaskHandleShared<InitStandaloneCoinTask<Self>>,
     ) -> Result<Self, MmError<Self::ActivationError>>;
 
     async fn get_activation_result(
         &self,
         ctx: MmArc,
-        task_handle: InitStandaloneCoinTaskHandleShared<Self>,
+        task_handle: RpcTaskHandleShared<InitStandaloneCoinTask<Self>>,
         activation_request: &Self::ActivationRequest,
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>>;
 

@@ -8,7 +8,7 @@ use crate::hd_wallet::{AccountUpdatingError, AddressDerivingResult, HDAccountMut
                        NewAccountCreatingError, NewAddressDeriveConfirmError, NewAddressDerivingError};
 use crate::hd_wallet_storage::{HDWalletCoinWithStorageOps, HDWalletStorageResult};
 use crate::lp_price::get_base_price_in_rel;
-use crate::rpc_command::init_withdraw::WithdrawTaskHandleShared;
+use crate::rpc_command::init_withdraw::WithdrawTask;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UnspentMap, UtxoRpcClientEnum,
                                UtxoRpcClientOps, UtxoRpcResult};
 use crate::utxo::spv::SimplePaymentVerification;
@@ -51,6 +51,7 @@ use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, MmNumber};
 use primitives::hash::H512;
 use rpc::v1::types::{Bytes as BytesJson, ToTxHash, TransactionInputEnum, H256 as H256Json};
+use rpc_task::RpcTaskHandleShared;
 use script::{Builder, Opcode, Script, ScriptAddress, TransactionInputSigner, UnsignedTransactionInput};
 use secp256k1::{PublicKey, Signature as SecpSignature};
 use serde_json::{self as json};
@@ -3001,7 +3002,7 @@ pub async fn init_withdraw<T>(
     ctx: MmArc,
     coin: T,
     req: WithdrawRequest,
-    task_handle: WithdrawTaskHandleShared,
+    task_handle: RpcTaskHandleShared<WithdrawTask>,
 ) -> WithdrawResult
 where
     T: UtxoCommonOps

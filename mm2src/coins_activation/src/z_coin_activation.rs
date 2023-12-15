@@ -1,7 +1,7 @@
 use crate::context::CoinsActivationContext;
 use crate::prelude::*;
 use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinError,
-                             InitStandaloneCoinInitialStatus, InitStandaloneCoinTaskHandle,
+                             InitStandaloneCoinInitialStatus, InitStandaloneCoinTask,
                              InitStandaloneCoinTaskManagerShared};
 use async_trait::async_trait;
 use coins::coin_balance::{CoinBalanceReport, IguanaWalletBalance};
@@ -18,17 +18,14 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
-use rpc_task::RpcTaskError;
+use rpc_task::{RpcTaskError, RpcTaskHandleShared};
 use ser_error_derive::SerializeErrorType;
 use serde_derive::Serialize;
 use serde_json::Value as Json;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 pub type ZcoinTaskManagerShared = InitStandaloneCoinTaskManagerShared<ZCoin>;
-pub type ZcoinRpcTaskHandle = InitStandaloneCoinTaskHandle<ZCoin>;
-pub type ZcoinRpcTaskHandleShared = Arc<ZcoinRpcTaskHandle>;
 pub type ZcoinAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type ZcoinUserAction = HwRpcTaskUserAction;
 
@@ -229,7 +226,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
         coin_conf: Json,
         activation_request: &ZcoinActivationParams,
         protocol_info: ZcoinProtocolInfo,
-        task_handle: ZcoinRpcTaskHandleShared,
+        task_handle: RpcTaskHandleShared<InitStandaloneCoinTask<Self>>,
     ) -> MmResult<Self, ZcoinInitError> {
         // When `ZCoin` supports Trezor, we'll need to check [`ZcoinActivationParams::priv_key_policy`]
         // instead of using [`PrivKeyBuildPolicy::detect_priv_key_policy`].
@@ -278,7 +275,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
     async fn get_activation_result(
         &self,
         _ctx: MmArc,
-        task_handle: ZcoinRpcTaskHandleShared,
+        task_handle: RpcTaskHandleShared<InitStandaloneCoinTask<Self>>,
         _activation_request: &Self::ActivationRequest,
     ) -> MmResult<Self::ActivationResult, ZcoinInitError> {
         task_handle.update_in_progress_status(ZcoinInProgressStatus::RequestingWalletBalance)?;
