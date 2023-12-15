@@ -32,8 +32,7 @@ where
             AwaitingStatus = UtxoStandardAwaitingStatus,
             UserAction = UtxoStandardUserAction,
         > + EnableCoinBalanceOps
-        + MarketCoinOps
-        + Clone,
+        + MarketCoinOps,
 {
     let ticker = coin.ticker().to_owned();
     let current_block = coin

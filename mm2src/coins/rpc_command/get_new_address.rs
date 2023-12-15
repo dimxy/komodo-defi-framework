@@ -14,17 +14,15 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared,
-               RpcTaskStatus, RpcTaskTypes};
-use std::sync::Arc;
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+               RpcTaskTypes};
 use std::time::Duration;
 
 pub type GetNewAddressUserAction = HwRpcTaskUserAction;
 pub type GetNewAddressAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type GetNewAddressTaskManager = RpcTaskManager<InitGetNewAddressTask>;
 pub type GetNewAddressTaskManagerShared = RpcTaskManagerShared<InitGetNewAddressTask>;
-pub type GetNewAddressTaskHandle = RpcTaskHandle<InitGetNewAddressTask>;
-pub type GetNewAddressTaskHandleArc = Arc<RpcTaskHandle<InitGetNewAddressTask>>;
+pub type GetNewAddressTaskHandleShared = RpcTaskHandleShared<InitGetNewAddressTask>;
 pub type GetNewAddressRpcTaskStatus = RpcTaskStatus<
     GetNewAddressResponse,
     GetNewAddressRpcError,
@@ -284,7 +282,7 @@ impl RpcTask for InitGetNewAddressTask {
             ctx: &MmArc,
             coin: &Coin,
             params: GetNewAddressParams,
-            task_handle: GetNewAddressTaskHandleArc,
+            task_handle: GetNewAddressTaskHandleShared,
         ) -> MmResult<GetNewAddressResponse, GetNewAddressRpcError>
         where
             Coin: GetNewAddressRpcOps + Send + Sync,

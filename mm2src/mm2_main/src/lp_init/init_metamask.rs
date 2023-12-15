@@ -11,7 +11,7 @@ use mm2_err_handle::common_errors::WithInternal;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 use std::time::Duration;
 use std::sync::Arc;
 
@@ -21,8 +21,7 @@ pub type InitMetamaskStatus =
 
 type InitMetamaskUserAction = SerdeInfallible;
 type InitMetamaskAwaitingStatus = SerdeInfallible;
-type InitMetamaskTaskHandle = RpcTaskHandle<InitMetamaskTask>;
-type InitMetamaskTaskHandleShared = Arc<InitMetamaskTaskHandle>;
+type InitMetamaskTaskHandleShared = RpcTaskHandleShared<InitMetamaskTask>;
 
 #[derive(Clone, Display, EnumFromTrait, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]

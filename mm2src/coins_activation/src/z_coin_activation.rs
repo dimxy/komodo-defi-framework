@@ -1,7 +1,7 @@
 use crate::context::CoinsActivationContext;
 use crate::prelude::*;
 use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinError,
-                             InitStandaloneCoinInitialStatus, InitStandaloneCoinTaskHandle,
+                             InitStandaloneCoinInitialStatus, InitStandaloneCoinTaskHandleShared,
                              InitStandaloneCoinTaskManagerShared};
 use async_trait::async_trait;
 use coins::coin_balance::{CoinBalanceReport, IguanaWalletBalance};
@@ -23,12 +23,10 @@ use ser_error_derive::SerializeErrorType;
 use serde_derive::Serialize;
 use serde_json::Value as Json;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 
 pub type ZcoinTaskManagerShared = InitStandaloneCoinTaskManagerShared<ZCoin>;
-pub type ZcoinRpcTaskHandle = InitStandaloneCoinTaskHandle<ZCoin>;
-pub type ZcoinRpcTaskHandleShared = Arc<ZcoinRpcTaskHandle>;
+pub type ZcoinRpcTaskHandleShared = InitStandaloneCoinTaskHandleShared<ZCoin>;
 pub type ZcoinAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type ZcoinUserAction = HwRpcTaskUserAction;
 

@@ -10,18 +10,15 @@ use common::SuccessResponse;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusRequest, RpcTaskUserActionRequest};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
-               RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 use serde_derive::Deserialize;
 use serde_json::Value as Json;
-use std::sync::Arc;
 
 pub type InitL2Response = InitRpcTaskResponse;
 pub type InitL2StatusRequest = RpcTaskStatusRequest;
 pub type InitL2UserActionRequest<UserAction> = RpcTaskUserActionRequest<UserAction>;
 pub type InitL2TaskManagerShared<L2> = RpcTaskManagerShared<InitL2Task<L2>>;
-pub type InitL2TaskHandle<L2> = RpcTaskHandle<InitL2Task<L2>>;
-pub type InitL2TaskHandleShared<L2> = Arc<InitL2TaskHandle<L2>>;
+pub type InitL2TaskHandleShared<L2> = RpcTaskHandleShared<InitL2Task<L2>>;
 
 #[derive(Debug, Deserialize)]
 pub struct InitL2Req<T> {

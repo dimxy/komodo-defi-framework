@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::coin_balance::HDAccountBalance;
 use crate::rpc_command::hd_account_balance_rpc_error::HDAccountBalanceRpcError;
 use crate::{lp_coinfind_or_err, CoinsContext, MmCoinEnum};
@@ -9,14 +7,13 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 
 pub type AccountBalanceUserAction = SerdeInfallible;
 pub type AccountBalanceAwaitingStatus = SerdeInfallible;
 pub type AccountBalanceTaskManager = RpcTaskManager<InitAccountBalanceTask>;
 pub type AccountBalanceTaskManagerShared = RpcTaskManagerShared<InitAccountBalanceTask>;
-pub type InitAccountBalanceTaskHandle = RpcTaskHandle<InitAccountBalanceTask>;
-pub type InitAccountBalanceTaskHandleShared = Arc<InitAccountBalanceTaskHandle>;
+pub type InitAccountBalanceTaskHandleShared = RpcTaskHandleShared<InitAccountBalanceTask>;
 pub type AccountBalanceRpcTaskStatus = RpcTaskStatus<
     HDAccountBalance,
     HDAccountBalanceRpcError,

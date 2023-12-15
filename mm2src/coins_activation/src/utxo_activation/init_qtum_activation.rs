@@ -1,6 +1,6 @@
 use crate::context::CoinsActivationContext;
 use crate::prelude::TryFromCoinProtocol;
-use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandle,
+use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandleShared,
                              InitStandaloneCoinTaskManagerShared};
 use crate::utxo_activation::common_impl::{get_activation_result, priv_key_build_policy,
                                           start_history_background_fetching};
@@ -20,11 +20,9 @@ use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub type QtumTaskManagerShared = InitStandaloneCoinTaskManagerShared<QtumCoin>;
-pub type QtumRpcTaskHandle = InitStandaloneCoinTaskHandle<QtumCoin>;
-pub type QtumRpcTaskHandleShared = Arc<QtumRpcTaskHandle>;
+pub type QtumRpcTaskHandleShared = InitStandaloneCoinTaskHandleShared<QtumCoin>;
 
 #[derive(Clone)]
 pub struct QtumProtocolInfo;

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{lp_coinfind_or_err, CoinsContext, MmCoinEnum, WithdrawError};
 use crate::{TransactionDetails, WithdrawRequest};
 use async_trait::async_trait;
@@ -9,7 +7,7 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatusAlias, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatusAlias, RpcTaskTypes};
 
 pub type WithdrawAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type WithdrawUserAction = HwRpcTaskUserAction;
@@ -20,8 +18,7 @@ pub type WithdrawStatusRequest = RpcTaskStatusRequest;
 pub type WithdrawUserActionRequest = HwRpcTaskUserActionRequest;
 pub type WithdrawTaskManager = RpcTaskManager<WithdrawTask>;
 pub type WithdrawTaskManagerShared = RpcTaskManagerShared<WithdrawTask>;
-pub type WithdrawTaskHandle = RpcTaskHandle<WithdrawTask>;
-pub type WithdrawTaskHandleShared = Arc<WithdrawTaskHandle>;
+pub type WithdrawTaskHandleShared = RpcTaskHandleShared<WithdrawTask>;
 pub type WithdrawRpcStatus = RpcTaskStatusAlias<WithdrawTask>;
 pub type WithdrawInitResult<T> = Result<T, MmError<WithdrawError>>;
 

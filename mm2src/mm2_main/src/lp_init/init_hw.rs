@@ -12,7 +12,8 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+               RpcTaskTypes};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,8 +25,7 @@ pub type InitHwUserAction = HwRpcTaskUserAction;
 
 pub type InitHwTaskManagerShared = RpcTaskManagerShared<InitHwTask>;
 pub type InitHwStatus = RpcTaskStatus<InitHwResponse, InitHwError, InitHwInProgressStatus, InitHwAwaitingStatus>;
-type InitHwTaskHandle = RpcTaskHandle<InitHwTask>;
-type InitHwTaskHandleShared = Arc<InitHwTaskHandle>;
+type InitHwTaskHandleShared = RpcTaskHandleShared<InitHwTask>;
 
 #[derive(Clone, Display, EnumFromTrait, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]

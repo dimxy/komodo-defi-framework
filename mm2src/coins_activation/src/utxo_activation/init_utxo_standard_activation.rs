@@ -1,6 +1,6 @@
 use crate::context::CoinsActivationContext;
 use crate::prelude::TryFromCoinProtocol;
-use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandle,
+use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandleShared,
                              InitStandaloneCoinTaskManagerShared};
 use crate::utxo_activation::common_impl::{get_activation_result, priv_key_build_policy,
                                           start_history_background_fetching};
@@ -21,11 +21,9 @@ use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub type UtxoStandardTaskManagerShared = InitStandaloneCoinTaskManagerShared<UtxoStandardCoin>;
-pub type UtxoStandardRpcTaskHandle = InitStandaloneCoinTaskHandle<UtxoStandardCoin>;
-pub type UtxoStandardRpcTaskHandleShared = Arc<UtxoStandardRpcTaskHandle>;
+pub type UtxoStandardRpcTaskHandleShared = InitStandaloneCoinTaskHandleShared<UtxoStandardCoin>;
 
 #[derive(Clone)]
 pub struct UtxoStandardProtocolInfo;
