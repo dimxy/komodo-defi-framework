@@ -114,6 +114,9 @@ mod nonce;
 use crate::{PrivKeyPolicy, TransactionResult, WithdrawFrom};
 use nonce::ParityNonce;
 
+mod fee_estimator;
+use fee_estimator::EthPriorityFeeEstimator;
+
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
 /// Ropsten: https://ropsten.etherscan.io/address/0x7bc1bbdd6a0a722fc9bffc49c921b685ecb84b94
@@ -411,6 +414,42 @@ impl TryFrom<PrivKeyBuildPolicy> for EthPrivKeyBuildPolicy {
         }
     }
 }
+
+
+/// estimated priority level gas fee
+#[derive(Clone, Serialize)]
+pub struct PriorityFee {
+    /// estimated max priority tip fee per gas
+    pub max_priority_fee_per_gas: U256,
+    /// estimated max fee per gas
+    pub max_fee_per_gas: U256,
+    /// estimated transaction min wait time in ms for this priority level (may be not known in case of simple estimations)
+    pub min_wait_time: Option<u32>,
+    /// estimated transaction max wait time in ms for this priority level (may be not known in case of simple estimations)
+    pub max_wait_time: Option<u32>,
+}
+
+/// Estimated gas price for several priority levels
+/// we support low/medium/high levels as we can use api providers which normally support such levels 
+#[derive(Clone, Serialize)]
+pub struct Eip1559EstimatedGasFees {
+    /// base fee for the next block
+    pub base_fee: U256,
+    /// estimated priority fees 
+    pub priority_fees: [PriorityFee; 3],
+}
+
+impl Default for PriorityFee {
+    fn default() -> Self {
+        Self {
+            max_priority_fee_per_gas: U256::from(0),
+            max_fee_per_gas: U256::from(0),
+            min_wait_time: None,
+            max_wait_time: None,
+        }
+    }
+}
+
 
 /// pImpl idiom.
 pub struct EthCoinImpl {
@@ -4618,10 +4657,17 @@ impl EthCoin {
                 .eth_fee_history(U256::from(1u64), BlockNumber::Latest, &[])
                 .await
             {
-                Ok(res) => res
+                Ok(res) => { 
+                    println!(
+                        "base_fee_per_gas {:?}",
+                        res.base_fee_per_gas.first()
+                    );
+                    
+                    res
                     .base_fee_per_gas
                     .first()
-                    .map(|val| increase_by_percent_one_gwei(*val, BASE_BLOCK_FEE_DIFF_PCT)),
+                    .map(|val| increase_by_percent_one_gwei(*val, BASE_BLOCK_FEE_DIFF_PCT))
+                },
                 Err(e) => {
                     debug!("Error {} on eth_feeHistory request", e);
                     None
@@ -4634,6 +4680,23 @@ impl EthCoin {
                 .flatten()
                 .max()
                 .or_mm_err(|| Web3RpcError::Internal("All requests failed".into()))
+        };
+        Box::new(fut.boxed().compat())
+    }
+
+    /// Get base fee and suggest priority tip fees (introduced in EIP1559)
+    pub fn get_eip1559_gas_price(&self) -> Web3RpcFut<Eip1559EstimatedGasFees> {
+        let coin = self.clone();
+        let fut = async move {
+            let fee_history_namespace: EthFeeHistoryNamespace<_> = coin.web3.api();
+            let res = fee_history_namespace
+                .eth_fee_history(U256::from(EthPriorityFeeEstimator::history_depth()), BlockNumber::Latest, EthPriorityFeeEstimator::history_percentiles())
+                .await;
+
+            match res {
+                Ok(fee_history) => Ok(EthPriorityFeeEstimator::estimate_fees(&fee_history)),
+                Err(_) => Err(MmError::new(Web3RpcError::Internal("All requests failed".into()))),
+            }
         };
         Box::new(fut.boxed().compat())
     }
