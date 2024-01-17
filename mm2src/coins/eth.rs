@@ -4622,11 +4622,10 @@ impl EthCoin {
                 .eth_fee_history(U256::from(1u64), BlockNumber::Latest, &[])
                 .await
             {
-                Ok(res) => {
-                    res.base_fee_per_gas
-                        .first()
-                        .map(|val| increase_by_percent_one_gwei(*val, BASE_BLOCK_FEE_DIFF_PCT))
-                },
+                Ok(res) => res
+                    .base_fee_per_gas
+                    .first()
+                    .map(|val| increase_by_percent_one_gwei(*val, BASE_BLOCK_FEE_DIFF_PCT)),
                 Err(e) => {
                     debug!("Error {} on eth_feeHistory request", e);
                     None
