@@ -7981,7 +7981,7 @@ mod trezor_tests {
             ticker_coin,
             "0xc06eFafa6527fc4b3C8F69Afb173964A3780a104",
             "0.00001",
-            "m/44'/1'/0'/0/0",
+            None, // try withdraw from default account
             Some(WithdrawFee::EthGas {
                 gas: ETH_GAS,
                 gas_price: 0.1_f32.try_into().unwrap(),
@@ -7995,8 +7995,8 @@ mod trezor_tests {
             ctx,
             ticker_token,
             "0xbAB36286672fbdc7B250804bf6D14Be0dF69fa29",
-            "0.000000000000000001", // 1 wei
-            "m/44'/1'/0'/0/0",      // Note: Trezor uses 1' type for all testnets
+            "0.000000000000000001",  // 1 wei
+            Some("m/44'/1'/0'/0/0"), // Note: Trezor uses 1' type for all testnets
             Some(WithdrawFee::EthGas {
                 gas: ETH_GAS,
                 gas_price: 0.1_f32.try_into().unwrap(),

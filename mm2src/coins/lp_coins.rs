@@ -3255,10 +3255,13 @@ pub enum PrivKeyPolicy<T> {
     /// Details about how the keys are managed with the Trezor device
     /// are abstracted away and are not directly managed by this policy.
     Trezor {
-        /// pubkey for initially derived account, used for Eth only
-        /// TODO: maybe better get the pubkey each time when it is needed instead of storing here.
-        /// Also now it is stored as base58. Maybe better to store as a binary type Secp256k1ExtendedPublicKey
+        /// Cached pubkey for the initially derived account.
+        /// Supposed to use in get_public_key rpc.
+        /// Used for Eth coin only.
         activated_pubkey: Option<String>,
+        /// Derivation path for the initially derived account.
+        /// Used for Eth coin only.
+        derivation_path: Option<DerivationPath>,
     },
     /// The Metamask private key policy, specific to the WASM target architecture.
     ///
@@ -3354,7 +3357,7 @@ impl<T> PrivKeyPolicy<T> {
             .mm_err(|e| PrivKeyPolicyNotAllowed::InternalError(e.to_string()))
     }
 
-    fn is_trezor(&self) -> bool { matches!(self, PrivKeyPolicy::Trezor { activated_pubkey: _ }) }
+    fn is_trezor(&self) -> bool { matches!(self, PrivKeyPolicy::Trezor { .. }) }
 }
 
 /// 'CoinWithPrivKeyPolicy' trait is used to get the private key policy of a coin.
@@ -4827,7 +4830,7 @@ pub mod for_tests {
         ticker: &str,
         to: &str,
         amount: &str,
-        from_derivation_path: &str,
+        from_derivation_path: Option<&str>,
         fee: Option<WithdrawFee>,
     ) -> MmResult<TransactionDetails, WithdrawError> {
         println!(
@@ -4837,7 +4840,7 @@ pub mod for_tests {
         );
         let withdraw_req = WithdrawRequest {
             amount: BigDecimal::from_str(amount).unwrap(),
-            from: if !from_derivation_path.is_empty() {
+            from: if let Some(from_derivation_path) = from_derivation_path {
                 Some(WithdrawFrom::DerivationPath {
                     derivation_path: from_derivation_path.to_owned(),
                 })

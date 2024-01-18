@@ -309,7 +309,9 @@ pub async fn eth_coin_from_conf_and_request_v2(
         build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, &req.path_to_address, req.gap_limit)
             .await?;
     let enabled_address = match priv_key_policy {
-        PrivKeyPolicy::Trezor { ref activated_pubkey } => {
+        PrivKeyPolicy::Trezor {
+            ref activated_pubkey, ..
+        } => {
             let my_pubkey = activated_pubkey
                 .as_ref()
                 .or_mm_err(|| EthActivationV2Error::InternalError("empty trezor xpub".to_string()))?;
@@ -508,6 +510,7 @@ pub(crate) async fn build_address_and_priv_key_policy(
             Ok((
                 EthPrivKeyPolicy::Trezor {
                     activated_pubkey: Some(my_pubkey),
+                    derivation_path: Some(derivation_path),
                 },
                 derivation_method,
             ))

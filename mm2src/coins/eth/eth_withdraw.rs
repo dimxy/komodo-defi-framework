@@ -83,13 +83,29 @@ where
                 (balance, address, key_pair, Some(derivation_path))
             },
             None => {
-                let my_address = coin.derivation_method.single_addr_or_err().await?;
-                (
-                    coin.my_balance().compat().await?,
-                    my_address,
-                    Some(coin.priv_key_policy.activated_key_or_err()?.clone()),
-                    None,
-                )
+                let (key_pair, address, derivation_path) = match coin.priv_key_policy {
+                    EthPrivKeyPolicy::Trezor {
+                        ref derivation_path, ..
+                    } => {
+                        let derivation_path = derivation_path
+                            .clone()
+                            .or_mm_err(|| WithdrawError::InternalError("no derivation path".to_string()))?;
+                        let address = self.get_address_with_trezor(&derivation_path).await?;
+                        // for hw wallet as we cannot have the default privkey we need the default derivation path
+                        (None, address, Some(derivation_path))
+                    },
+                    _ => {
+                        let my_address = coin.derivation_method.single_addr_or_err().await?;
+                        (
+                            Some(coin.priv_key_policy.activated_key_or_err()?.clone()),
+                            my_address,
+                            None,
+                        )
+                    },
+                };
+
+                let balance = coin.my_balance().compat().await?;
+                (balance, address, key_pair, derivation_path)
             },
         };
         let my_balance_dec = u256_to_big_decimal(my_balance, coin.decimals)?;
