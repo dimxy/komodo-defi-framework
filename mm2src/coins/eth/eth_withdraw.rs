@@ -300,8 +300,7 @@ impl<'a> EthWithdraw for InitEthWithdraw<'a> {
             .ack_all()
             .await?;
 
-        let my_pubkey =
-            pubkey_from_xpub_str(&my_pubkey).map_to_mm(WithdrawError::InternalError)?;
+        let my_pubkey = pubkey_from_xpub_str(&my_pubkey).map_to_mm(WithdrawError::InternalError)?;
         let address = public_to_address(&my_pubkey);
         Ok(address)
     }

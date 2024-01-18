@@ -4841,7 +4841,7 @@ pub mod for_tests {
         let withdraw_req = WithdrawRequest {
             amount: BigDecimal::from_str(amount).unwrap(),
             from: from_derivation_path.map(|from_derivation_path| WithdrawFrom::DerivationPath {
-                derivation_path: from_derivation_path.to_owned()
+                derivation_path: from_derivation_path.to_owned(),
             }),
             to: to.to_owned(),
             coin: ticker.to_owned(),
