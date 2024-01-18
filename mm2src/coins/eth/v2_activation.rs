@@ -487,7 +487,7 @@ pub(crate) async fn build_address_and_priv_key_policy(
                 .mm_err(EthActivationV2Error::from)?;
             let accounts = load_hd_accounts_from_storage(&hd_wallet_storage, &path_to_coin).await?;
             // Todo: use fn gap_limit(&self) -> u32 { self.activation_params().gap_limit.unwrap_or(DEFAULT_GAP_LIMIT) } like UTXO
-            let gap_limit = DEFAULT_GAP_LIMIT;
+            let gap_limit = gap_limit.unwrap_or(DEFAULT_GAP_LIMIT);
             // Todo: Maybe we can make a constructor for HDWallet struct
             let hd_wallet = EthHDWallet {
                 hd_wallet_rmd160,
