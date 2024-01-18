@@ -10,6 +10,7 @@ use common::custom_futures::timeout::FutureTimerExt;
 use common::now_sec;
 use crypto::{CryptoCtx, HwRpcError};
 use ethabi::Token;
+use ethereum_types::H160;
 use ethkey::public_to_address;
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
@@ -35,9 +36,11 @@ where
     #[allow(clippy::result_large_err)]
     fn on_finishing(&self) -> Result<(), MmError<WithdrawError>>;
 
+    async fn get_address_with_trezor(&self, derivation_path: &DerivationPath) -> Result<H160, MmError<WithdrawError>>;
+
     async fn sign_tx_with_trezor(
         &self,
-        derivation_path: DerivationPath,
+        derivation_path: &DerivationPath,
         unsigned_tx: &UnSignedEthTx,
     ) -> Result<SignedEthTx, MmError<WithdrawError>>;
 
@@ -60,15 +63,8 @@ where
                 let path_to_address = from.to_address_path(path_to_coin.coin_type())?;
                 let derivation_path = path_to_address.to_derivation_path(path_to_coin)?;
                 let (key_pair, address) = match coin.priv_key_policy {
-                    EthPrivKeyPolicy::Trezor {
-                        ref activated_pubkey, ..
-                    } => {
-                        let my_pubkey = activated_pubkey
-                            .as_ref()
-                            .or_mm_err(|| WithdrawError::InternalError("empty trezor xpub".to_string()))?;
-                        let my_pubkey = pubkey_from_xpub_str(my_pubkey)
-                            .map_to_mm(|_| WithdrawError::InternalError("invalid trezor xpub".to_string()))?;
-                        let address = public_to_address(&my_pubkey);
+                    EthPrivKeyPolicy::Trezor { .. } => {
+                        let address = self.get_address_with_trezor(&derivation_path).await?;
                         (None, address)
                     },
                     _ => {
@@ -172,7 +168,7 @@ where
             },
             EthPrivKeyPolicy::Trezor { .. } => {
                 let derivation_path = derivation_path.or_mm_err(|| WithdrawError::FromAddressNotFound)?;
-                let signed = self.sign_tx_with_trezor(derivation_path, &tx).await?;
+                let signed = self.sign_tx_with_trezor(&derivation_path, &tx).await?;
                 let bytes = rlp::encode(&signed);
 
                 (signed.hash, BytesJson::from(bytes.to_vec()))
@@ -276,9 +272,27 @@ impl<'a> EthWithdraw for InitEthWithdraw<'a> {
             .update_in_progress_status(WithdrawInProgressStatus::Finishing)?)
     }
 
+    async fn get_address_with_trezor(&self, derivation_path: &DerivationPath) -> Result<H160, MmError<WithdrawError>> {
+        let crypto_ctx = CryptoCtx::from_ctx(&self.ctx)?;
+        let hw_ctx = crypto_ctx
+            .hw_ctx()
+            .or_mm_err(|| WithdrawError::HwError(HwRpcError::NoTrezorDeviceAvailable))?;
+        let mut trezor_session = hw_ctx.trezor().await?;
+        let my_pubkey = trezor_session
+            .get_eth_public_key(derivation_path, false)
+            .await?
+            .ack_all()
+            .await?;
+
+        let my_pubkey =
+            pubkey_from_xpub_str(&my_pubkey).map_to_mm(|err| WithdrawError::InternalError(err.to_string()))?;
+        let address = public_to_address(&my_pubkey);
+        Ok(address)
+    }
+
     async fn sign_tx_with_trezor(
         &self,
-        derivation_path: DerivationPath,
+        derivation_path: &DerivationPath,
         unsigned_tx: &UnSignedEthTx,
     ) -> Result<SignedEthTx, MmError<WithdrawError>> {
         let coin = self.coin();
@@ -293,7 +307,7 @@ impl<'a> EthWithdraw for InitEthWithdraw<'a> {
         let unverified_tx = trezor_session
             .sign_eth_tx(derivation_path, unsigned_tx, chain_id)
             .await?;
-        Ok(SignedEthTx::new(unverified_tx).map_err(|err| WithdrawError::InternalError(err.to_string()))?)
+        Ok(SignedEthTx::new(unverified_tx).map_to_mm(|err| WithdrawError::InternalError(err.to_string()))?)
     }
 }
 
@@ -330,9 +344,18 @@ impl EthWithdraw for StandardEthWithdraw {
 
     fn on_finishing(&self) -> Result<(), MmError<WithdrawError>> { Ok(()) }
 
+    async fn get_address_with_trezor(&self, _derivation_path: &DerivationPath) -> Result<H160, MmError<WithdrawError>> {
+        async {
+            Err(MmError::new(WithdrawError::UnsupportedError(String::from(
+                "Trezor not supported for legacy RPC",
+            ))))
+        }
+        .await
+    }
+
     async fn sign_tx_with_trezor(
         &self,
-        _derivation_path: DerivationPath,
+        _derivation_path: &DerivationPath,
         _unsigned_tx: &UnSignedEthTx,
     ) -> Result<SignedEthTx, MmError<WithdrawError>> {
         async {

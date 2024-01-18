@@ -140,7 +140,7 @@ where
         let mut trezor_session = hw_ctx.trezor().await?;
         let pubkey_processor = TrezorRpcTaskProcessor::new(task_handle, statuses.to_trezor_request_statuses());
         trezor_session
-            .get_eth_public_key(derivation_path, SHOW_PUBKEY_ON_DISPLAY)
+            .get_eth_public_key(&derivation_path, SHOW_PUBKEY_ON_DISPLAY)
             .await?
             .process(&pubkey_processor)
             .await

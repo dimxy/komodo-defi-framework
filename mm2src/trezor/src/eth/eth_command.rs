@@ -72,11 +72,11 @@ impl<'a> TrezorSession<'a> {
 
     pub async fn get_eth_public_key<'b>(
         &'b mut self,
-        derivation_path: DerivationPath,
+        derivation_path: &DerivationPath,
         show_display: bool,
     ) -> TrezorResult<TrezorResponse<'a, 'b, XPub>> {
         let req = proto_ethereum::EthereumGetPublicKey {
-            address_n: serialize_derivation_path(&derivation_path),
+            address_n: serialize_derivation_path(derivation_path),
             show_display: Some(show_display),
         };
         let result_handler = ResultHandler::new(|m: proto_ethereum::EthereumPublicKey| Ok(m.xpub));
@@ -85,12 +85,12 @@ impl<'a> TrezorSession<'a> {
 
     pub async fn sign_eth_tx(
         &mut self,
-        derivation_path: DerivationPath,
+        derivation_path: &DerivationPath,
         unsigned_tx: &UnSignedEthTx,
         chain_id: u64,
     ) -> TrezorResult<UnverifiedEthTx> {
         let mut data: Vec<u8> = vec![];
-        let req = to_sign_eth_message(unsigned_tx, &derivation_path, chain_id, &mut data);
+        let req = to_sign_eth_message(unsigned_tx, derivation_path, chain_id, &mut data);
         let mut tx_request = self.send_sign_eth_tx(req).await?.ack_all().await?;
 
         while let Some(data_length) = tx_request.data_length {

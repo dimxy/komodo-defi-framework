@@ -501,7 +501,7 @@ pub(crate) async fn build_address_and_priv_key_policy(
             let derivation_path = path_to_address.to_derivation_path(&path_to_coin)?;
             let mut trezor_session = hw_ctx.trezor().await?;
             let my_pubkey = trezor_session
-                .get_eth_public_key(derivation_path, false)
+                .get_eth_public_key(&derivation_path, false)
                 .await?
                 .ack_all()
                 .await?;

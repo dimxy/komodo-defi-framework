@@ -2386,7 +2386,7 @@ async fn sign_and_send_transaction_with_trezor(
     let chain_id = try_tx_s!(coin
         .chain_id
         .ok_or_else(|| ERRL!("{}", "chain_id is required for Trezor wallet")));
-    let unverified_tx = try_tx_s!(trezor_session.sign_eth_tx(derivation_path, &tx, chain_id).await);
+    let unverified_tx = try_tx_s!(trezor_session.sign_eth_tx(&derivation_path, &tx, chain_id).await);
     let signed_tx = try_tx_s!(SignedEthTx::new(unverified_tx));
     let bytes = Bytes(rlp::encode(&signed_tx).to_vec());
 
