@@ -1,19 +1,21 @@
-use super::{checksum_address, get_addr_nonce, get_eth_gas_details, pubkey_from_xpub_str, u256_to_big_decimal,
-            wei_from_big_decimal, EthCoinType, EthPrivKeyPolicy, WithdrawError, WithdrawRequest, WithdrawResult,
-            ERC20_CONTRACT};
-use crate::eth::{Action, EthTxFeeDetails, KeyPair, SignedEthTx, UnSignedEthTx};
+use super::{checksum_address, get_addr_nonce, get_eth_gas_details, u256_to_big_decimal, wei_from_big_decimal,
+            EthCoinType, EthDerivationMethod, EthPrivKeyPolicy, Public, WithdrawError, WithdrawRequest,
+            WithdrawResult, ERC20_CONTRACT, H160, H256};
+use crate::eth::{Action, Address, EthTxFeeDetails, KeyPair, SignedEthTx, UnSignedEthTx};
+use crate::hd_wallet::{HDCoinWithdrawOps, HDWalletOps, WithdrawSenderAddress};
 use crate::rpc_command::init_withdraw::{WithdrawInProgressStatus, WithdrawTaskHandle};
-use crate::{BytesJson, EthCoin, TransactionDetails};
+use crate::{BytesJson, EthCoin, GetWithdrawSenderAddress, TransactionDetails};
+use crate::{CoinWithDerivationMethod, PrivKeyPolicy};
 use async_trait::async_trait;
 use bip32::DerivationPath;
 use common::custom_futures::timeout::FutureTimerExt;
 use common::now_sec;
 use crypto::{CryptoCtx, HwRpcError};
 use ethabi::Token;
-use ethereum_types::H160;
-use ethkey::public_to_address;
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
+use mm2_err_handle::map_mm_error::MapMmError;
+use mm2_err_handle::mm_error::MmResult;
 use mm2_err_handle::prelude::{MapToMmResult, MmError, OrMmError};
 use std::ops::Deref;
 
@@ -36,24 +38,25 @@ where
     #[allow(clippy::result_large_err)]
     fn on_finishing(&self) -> Result<(), MmError<WithdrawError>>;
 
-    async fn get_address_with_trezor(&self, derivation_path: &DerivationPath) -> Result<H160, MmError<WithdrawError>>;
-
     async fn sign_tx_with_trezor(
         &self,
         derivation_path: &DerivationPath,
         unsigned_tx: &UnSignedEthTx,
     ) -> Result<SignedEthTx, MmError<WithdrawError>>;
 
-    async fn build(self) -> WithdrawResult {
+    async fn get_from_address(&self, req: &WithdrawRequest) -> Result<H160, MmError<WithdrawError>> {
         let coin = self.coin();
-        let ticker = coin.deref().ticker.clone();
-        let req = self.request().clone();
+        match req.from {
+            Some(_) => Ok(coin.get_withdraw_sender_address(req).await?.address),
+            None => Ok(coin.derivation_method.single_addr_or_err().await?),
+        }
+    }
 
-        let to_addr = coin
-            .address_from_str(&req.to)
-            .map_to_mm(WithdrawError::InvalidAddress)?;
-        let (my_balance, my_address, key_pair, derivation_path) = match req.from {
-            Some(from) => {
+    #[allow(clippy::result_large_err)]
+    fn get_key_pair(&self, req: &WithdrawRequest) -> Result<KeyPair, MmError<WithdrawError>> {
+        let coin = self.coin();
+        match req.from {
+            Some(ref from) => {
                 let path_to_coin = &coin
                     .deref()
                     .derivation_method
@@ -62,10 +65,9 @@ where
                     .derivation_path;
                 let path_to_address = from.to_address_path(path_to_coin.coin_type())?;
                 let derivation_path = path_to_address.to_derivation_path(path_to_coin)?;
-                let (key_pair, address) = match coin.priv_key_policy {
+                match coin.priv_key_policy {
                     EthPrivKeyPolicy::Trezor { .. } => {
-                        let address = self.get_address_with_trezor(&derivation_path).await?;
-                        (None, address)
+                        MmError::err(WithdrawError::InternalError("no keypair for hw wallet".to_owned()))
                     },
                     _ => {
                         let raw_priv_key = coin
@@ -75,39 +77,117 @@ where
                         let key_pair = KeyPair::from_secret_slice(raw_priv_key.as_slice())
                             .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
 
-                        let address = key_pair.address();
-                        (Some(key_pair), address)
+                        Ok(key_pair)
                     },
-                };
-                let balance = coin.address_balance(address).compat().await?;
-                (balance, address, key_pair, Some(derivation_path))
+                }
+            },
+            None => match coin.priv_key_policy {
+                EthPrivKeyPolicy::Trezor { .. } => {
+                    MmError::err(WithdrawError::InternalError("no keypair for hw wallet".to_owned()))
+                },
+                _ => Ok(coin.priv_key_policy.activated_key_or_err()?.clone()),
+            },
+        }
+    }
+
+    async fn get_from_derivation_path(&self, req: &WithdrawRequest) -> Result<DerivationPath, MmError<WithdrawError>> {
+        let coin = self.coin();
+        match req.from {
+            Some(ref from) => {
+                let path_to_coin = &coin
+                    .deref()
+                    .derivation_method
+                    .hd_wallet()
+                    .ok_or(WithdrawError::UnexpectedDerivationMethod)?
+                    .derivation_path;
+                let path_to_address = from.to_address_path(path_to_coin.coin_type())?;
+                let derivation_path = path_to_address.to_derivation_path(path_to_coin)?;
+                Ok(derivation_path)
             },
             None => {
-                let (key_pair, address, derivation_path) = match coin.priv_key_policy {
-                    EthPrivKeyPolicy::Trezor {
-                        ref derivation_path, ..
-                    } => {
-                        let derivation_path = derivation_path
-                            .clone()
-                            .or_mm_err(|| WithdrawError::InternalError("no derivation path".to_string()))?;
-                        let address = self.get_address_with_trezor(&derivation_path).await?;
-                        // for hw wallet as we cannot have the default privkey we need the default derivation path
-                        (None, address, Some(derivation_path))
-                    },
-                    _ => {
-                        let my_address = coin.derivation_method.single_addr_or_err().await?;
-                        (
-                            Some(coin.priv_key_policy.activated_key_or_err()?.clone()),
-                            my_address,
-                            None,
-                        )
-                    },
+                let default_hd_address = &coin
+                    .deref()
+                    .derivation_method
+                    .hd_wallet()
+                    .ok_or(WithdrawError::UnexpectedDerivationMethod)?
+                    .get_enabled_address()
+                    .await
+                    .ok_or_else(|| WithdrawError::InternalError("no enabled address".to_owned()))?;
+                Ok(default_hd_address.derivation_path.clone())
+            },
+        }
+    }
+
+    async fn sign_withdraw_tx(
+        &self,
+        req: &WithdrawRequest,
+        tx: UnSignedEthTx,
+    ) -> Result<(H256, BytesJson), MmError<WithdrawError>> {
+        let coin = self.coin();
+        match coin.priv_key_policy {
+            EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. } => {
+                let key_pair = self.get_key_pair(req)?;
+                // Todo: nonce_lock is still global for all addresses but this needs to be per address
+                let signed = tx.sign(key_pair.secret(), coin.chain_id);
+                let bytes = rlp::encode(&signed);
+
+                Ok((signed.hash, BytesJson::from(bytes.to_vec())))
+            },
+            EthPrivKeyPolicy::Trezor { .. } => {
+                let derivation_path = self.get_from_derivation_path(req).await?;
+                let signed = self.sign_tx_with_trezor(&derivation_path, &tx).await?;
+                let bytes = rlp::encode(&signed);
+                Ok((signed.hash, BytesJson::from(bytes.to_vec())))
+            },
+            #[cfg(target_arch = "wasm32")]
+            EthPrivKeyPolicy::Metamask(_) => {
+                if !req.broadcast {
+                    let error =
+                        "Set 'broadcast' to generate, sign and broadcast a transaction with MetaMask".to_string();
+                    return MmError::err(WithdrawError::BroadcastExpected(error));
+                }
+
+                let tx_to_send = TransactionRequest {
+                    from: my_address,
+                    to: Some(to_addr),
+                    gas: Some(gas),
+                    gas_price: Some(gas_price),
+                    value: Some(eth_value),
+                    data: Some(data.into()),
+                    nonce: None,
+                    ..TransactionRequest::default()
                 };
 
-                let balance = coin.my_balance().compat().await?;
-                (balance, address, key_pair, derivation_path)
+                // Wait for 10 seconds for the transaction to appear on the RPC node.
+                let wait_rpc_timeout = 10_000;
+                let check_every = 1.;
+
+                // Please note that this method may take a long time
+                // due to `wallet_switchEthereumChain` and `eth_sendTransaction` requests.
+                let tx_hash = coin.web3.eth().send_transaction(tx_to_send).await?;
+
+                let signed_tx = coin
+                    .wait_for_tx_appears_on_rpc(tx_hash, wait_rpc_timeout, check_every)
+                    .await?;
+                let tx_hex = signed_tx
+                    .map(|tx| BytesJson::from(rlp::encode(&tx).to_vec()))
+                    // Return an empty `tx_hex` if the transaction is still not appeared on the RPC node.
+                    .unwrap_or_default();
+                Ok((tx_hash, tx_hex))
             },
-        };
+        }
+    }
+
+    async fn build(self) -> WithdrawResult {
+        let coin = self.coin();
+        let ticker = coin.deref().ticker.clone();
+        let req = self.request().clone();
+
+        let to_addr = coin
+            .address_from_str(&req.to)
+            .map_to_mm(WithdrawError::InvalidAddress)?;
+        let my_address = self.get_from_address(&req).await?;
+        let my_balance = coin.address_balance(my_address).compat().await?;
         let my_balance_dec = u256_to_big_decimal(my_balance, coin.decimals)?;
 
         let (mut wei_amount, dec_amount) = if req.max {
@@ -135,7 +215,7 @@ where
 
         let (gas, gas_price) = get_eth_gas_details(
             coin,
-            req.fee,
+            req.fee.clone(),
             eth_value,
             data.clone().into(),
             my_address,
@@ -173,59 +253,7 @@ where
             gas_price,
         };
 
-        let (tx_hash, tx_hex) = match coin.priv_key_policy {
-            EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. } => {
-                let key_pair = key_pair.ok_or_else(|| WithdrawError::InternalError("no keypair found".to_string()))?;
-                // Todo: nonce_lock is still global for all addresses but this needs to be per address
-                let signed = tx.sign(key_pair.secret(), coin.chain_id);
-                let bytes = rlp::encode(&signed);
-
-                (signed.hash, BytesJson::from(bytes.to_vec()))
-            },
-            EthPrivKeyPolicy::Trezor { .. } => {
-                let derivation_path = derivation_path.or_mm_err(|| WithdrawError::FromAddressNotFound)?;
-                let signed = self.sign_tx_with_trezor(&derivation_path, &tx).await?;
-                let bytes = rlp::encode(&signed);
-
-                (signed.hash, BytesJson::from(bytes.to_vec()))
-            },
-            #[cfg(target_arch = "wasm32")]
-            EthPrivKeyPolicy::Metamask(_) => {
-                if !req.broadcast {
-                    let error =
-                        "Set 'broadcast' to generate, sign and broadcast a transaction with MetaMask".to_string();
-                    return MmError::err(WithdrawError::BroadcastExpected(error));
-                }
-
-                let tx_to_send = TransactionRequest {
-                    from: my_address,
-                    to: Some(to_addr),
-                    gas: Some(gas),
-                    gas_price: Some(gas_price),
-                    value: Some(eth_value),
-                    data: Some(data.into()),
-                    nonce: None,
-                    ..TransactionRequest::default()
-                };
-
-                // Wait for 10 seconds for the transaction to appear on the RPC node.
-                let wait_rpc_timeout = 10_000;
-                let check_every = 1.;
-
-                // Please note that this method may take a long time
-                // due to `wallet_switchEthereumChain` and `eth_sendTransaction` requests.
-                let tx_hash = coin.web3.eth().send_transaction(tx_to_send).await?;
-
-                let signed_tx = coin
-                    .wait_for_tx_appears_on_rpc(tx_hash, wait_rpc_timeout, check_every)
-                    .await?;
-                let tx_hex = signed_tx
-                    .map(|tx| BytesJson::from(rlp::encode(&tx).to_vec()))
-                    // Return an empty `tx_hex` if the transaction is still not appeared on the RPC node.
-                    .unwrap_or_default();
-                (tx_hash, tx_hex)
-            },
-        };
+        let (tx_hash, tx_hex) = self.sign_withdraw_tx(&req, tx).await?;
 
         let tx_hash_bytes = BytesJson::from(tx_hash.0.to_vec());
         let tx_hash_str = format!("{:02x}", tx_hash_bytes);
@@ -288,23 +316,6 @@ impl<'a> EthWithdraw for InitEthWithdraw<'a> {
             .update_in_progress_status(WithdrawInProgressStatus::Finishing)?)
     }
 
-    async fn get_address_with_trezor(&self, derivation_path: &DerivationPath) -> Result<H160, MmError<WithdrawError>> {
-        let crypto_ctx = CryptoCtx::from_ctx(&self.ctx)?;
-        let hw_ctx = crypto_ctx
-            .hw_ctx()
-            .or_mm_err(|| WithdrawError::HwError(HwRpcError::NoTrezorDeviceAvailable))?;
-        let mut trezor_session = hw_ctx.trezor().await?;
-        let my_pubkey = trezor_session
-            .get_eth_public_key(derivation_path, false)
-            .await?
-            .ack_all()
-            .await?;
-
-        let my_pubkey = pubkey_from_xpub_str(&my_pubkey).map_to_mm(WithdrawError::InternalError)?;
-        let address = public_to_address(&my_pubkey);
-        Ok(address)
-    }
-
     async fn sign_tx_with_trezor(
         &self,
         derivation_path: &DerivationPath,
@@ -359,15 +370,6 @@ impl EthWithdraw for StandardEthWithdraw {
 
     fn on_finishing(&self) -> Result<(), MmError<WithdrawError>> { Ok(()) }
 
-    async fn get_address_with_trezor(&self, _derivation_path: &DerivationPath) -> Result<H160, MmError<WithdrawError>> {
-        async {
-            Err(MmError::new(WithdrawError::UnsupportedError(String::from(
-                "Trezor not supported for legacy RPC",
-            ))))
-        }
-        .await
-    }
-
     async fn sign_tx_with_trezor(
         &self,
         _derivation_path: &DerivationPath,
@@ -387,4 +389,55 @@ impl StandardEthWithdraw {
     pub fn new(coin: EthCoin, req: WithdrawRequest) -> Result<StandardEthWithdraw, MmError<WithdrawError>> {
         Ok(StandardEthWithdraw { coin, req })
     }
+}
+
+#[async_trait]
+impl GetWithdrawSenderAddress for EthCoin {
+    type Address = Address;
+    type Pubkey = Public;
+
+    async fn get_withdraw_sender_address(
+        &self,
+        req: &WithdrawRequest,
+    ) -> MmResult<WithdrawSenderAddress<Self::Address, Self::Pubkey>, WithdrawError> {
+        eth_get_withdraw_from_address(self, req).await
+    }
+}
+
+async fn eth_get_withdraw_from_address(
+    coin: &EthCoin,
+    req: &WithdrawRequest,
+) -> MmResult<WithdrawSenderAddress<Address, Public>, WithdrawError> {
+    match coin.derivation_method() {
+        EthDerivationMethod::SingleAddress(my_address) => eth_get_withdraw_iguana_sender(coin, req, my_address),
+        EthDerivationMethod::HDWallet(hd_wallet) => {
+            let from = req.from.clone().or_mm_err(|| WithdrawError::FromAddressNotFound)?;
+            coin.get_withdraw_hd_sender(hd_wallet, &from)
+                .await
+                .mm_err(WithdrawError::from)
+        },
+    }
+}
+
+#[allow(clippy::result_large_err)]
+fn eth_get_withdraw_iguana_sender(
+    coin: &EthCoin,
+    req: &WithdrawRequest,
+    my_address: &Address,
+) -> MmResult<WithdrawSenderAddress<Address, Public>, WithdrawError> {
+    if req.from.is_some() {
+        let error = "'from' is not supported if the coin is initialized with an Iguana private key";
+        return MmError::err(WithdrawError::UnexpectedFromAddress(error.to_owned()));
+    }
+
+    let pubkey = match coin.priv_key_policy {
+        PrivKeyPolicy::Iguana(ref key_pair) => key_pair.public(),
+        _ => return MmError::err(WithdrawError::InternalError("not iguana private key policy".to_owned())),
+    };
+
+    Ok(WithdrawSenderAddress {
+        address: *my_address,
+        pubkey: *pubkey,
+        derivation_path: None,
+    })
 }

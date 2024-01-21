@@ -1962,11 +1962,12 @@ impl MarketCoinOps for EthCoin {
                 let uncompressed_without_prefix = hex::encode(key_pair.public());
                 Ok(format!("04{}", uncompressed_without_prefix))
             },
-            EthPrivKeyPolicy::Trezor {
-                ref activated_pubkey, ..
-            } => activated_pubkey
-                .clone()
-                .or_mm_err(|| UnexpectedDerivationMethod::InternalError("no trezor pubkey".to_string())),
+            EthPrivKeyPolicy::Trezor { ref activated_pubkey } => {
+                // TODO: we could use get_enabled_address() and eliminate activated_pubkey but that fn is async
+                activated_pubkey
+                    .clone()
+                    .or_mm_err(|| UnexpectedDerivationMethod::InternalError("no trezor pubkey".to_string()))
+            },
             #[cfg(target_arch = "wasm32")]
             EthPrivKeyPolicy::Metamask(ref metamask_policy) => {
                 Ok(format!("{:02x}", metamask_policy.public_key_uncompressed))

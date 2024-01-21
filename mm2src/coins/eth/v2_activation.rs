@@ -510,7 +510,6 @@ pub(crate) async fn build_address_and_priv_key_policy(
             Ok((
                 EthPrivKeyPolicy::Trezor {
                     activated_pubkey: Some(my_pubkey),
-                    derivation_path: Some(derivation_path),
                 },
                 derivation_method,
             ))

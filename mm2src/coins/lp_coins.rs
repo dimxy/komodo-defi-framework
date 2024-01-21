@@ -3256,12 +3256,9 @@ pub enum PrivKeyPolicy<T> {
     /// are abstracted away and are not directly managed by this policy.
     Trezor {
         /// Cached pubkey for the initially derived account.
-        /// Supposed to use in get_public_key rpc.
-        /// Used for Eth coin only.
+        /// Supposed to use in get_public_key rpc, for Eth coin only.
+        /// TODO: may be eliminated if use get_enabled_address()
         activated_pubkey: Option<String>,
-        /// Derivation path for the initially derived account.
-        /// Used for Eth coin only.
-        derivation_path: Option<DerivationPath>,
     },
     /// The Metamask private key policy, specific to the WASM target architecture.
     ///
@@ -3453,7 +3450,9 @@ where
     pub async fn single_addr(&self) -> Option<Address> {
         match self {
             DerivationMethod::SingleAddress(my_address) => Some(my_address.clone()),
-            DerivationMethod::HDWallet(hd_wallet) => hd_wallet.get_enabled_address().await.map(|addr| addr.into()),
+            DerivationMethod::HDWallet(hd_wallet) => {
+                hd_wallet.get_enabled_address().await.map(|addr| addr.address().into())
+            },
         }
     }
 
@@ -4833,11 +4832,6 @@ pub mod for_tests {
         from_derivation_path: Option<&str>,
         fee: Option<WithdrawFee>,
     ) -> MmResult<TransactionDetails, WithdrawError> {
-        println!(
-            "amount={} BigDecimal::from_str(amount).unwrap()={}",
-            amount,
-            BigDecimal::from_str(amount).unwrap()
-        );
         let withdraw_req = WithdrawRequest {
             amount: BigDecimal::from_str(amount).unwrap(),
             from: from_derivation_path.map(|from_derivation_path| WithdrawFrom::DerivationPath {
