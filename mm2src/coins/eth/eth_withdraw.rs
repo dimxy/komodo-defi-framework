@@ -19,9 +19,7 @@ use mm2_err_handle::mm_error::MmResult;
 use mm2_err_handle::prelude::{MapToMmResult, MmError, OrMmError};
 use std::ops::Deref;
 
-cfg_wasm32! {
-    use web3::types::TransactionRequest;
-}
+use web3::types::TransactionRequest;
 
 #[async_trait]
 pub trait EthWithdraw
@@ -118,10 +116,12 @@ where
         }
     }
 
+    #[allow(unused_variables)]
     async fn sign_withdraw_tx(
         &self,
         req: &WithdrawRequest,
-        tx: UnSignedEthTx,
+        tx: UnSignedEthTx, 
+        tx_to_send: Option<TransactionRequest>, 
     ) -> Result<(H256, BytesJson), MmError<WithdrawError>> {
         let coin = self.coin();
         match coin.priv_key_policy {
@@ -146,17 +146,7 @@ where
                         "Set 'broadcast' to generate, sign and broadcast a transaction with MetaMask".to_string();
                     return MmError::err(WithdrawError::BroadcastExpected(error));
                 }
-
-                let tx_to_send = TransactionRequest {
-                    from: my_address,
-                    to: Some(to_addr),
-                    gas: Some(gas),
-                    gas_price: Some(gas_price),
-                    value: Some(eth_value),
-                    data: Some(data.into()),
-                    nonce: None,
-                    ..TransactionRequest::default()
-                };
+                let tx_to_send = tx_to_send.unwrap_or_default();
 
                 // Wait for 10 seconds for the transaction to appear on the RPC node.
                 let wait_rpc_timeout = 10_000;
@@ -253,7 +243,22 @@ where
             gas_price,
         };
 
-        let (tx_hash, tx_hex) = self.sign_withdraw_tx(&req, tx).await?;
+        let tx_to_send = if cfg!(target_arch = "wasm32") {
+            Some(TransactionRequest {
+                from: my_address,
+                to: Some(to_addr),
+                gas: Some(gas),
+                gas_price: Some(gas_price),
+                value: Some(eth_value),
+                data: Some(data.into()),
+                nonce: None,
+                ..TransactionRequest::default()
+            })
+        } else {
+            None
+        };
+
+        let (tx_hash, tx_hex) = self.sign_withdraw_tx(&req, tx, tx_to_send).await?;
 
         let tx_hash_bytes = BytesJson::from(tx_hash.0.to_vec());
         let tx_hash_str = format!("{:02x}", tx_hash_bytes);
