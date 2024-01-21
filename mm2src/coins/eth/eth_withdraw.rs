@@ -120,8 +120,8 @@ where
     async fn sign_withdraw_tx(
         &self,
         req: &WithdrawRequest,
-        tx: UnSignedEthTx, 
-        tx_to_send: Option<TransactionRequest>, 
+        tx: UnSignedEthTx,
+        tx_to_send: Option<TransactionRequest>,
     ) -> Result<(H256, BytesJson), MmError<WithdrawError>> {
         let coin = self.coin();
         match coin.priv_key_policy {
