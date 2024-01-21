@@ -869,7 +869,7 @@ fn test_withdraw_impl_fee_details() {
         None,
     );
 
-    EthCoin::my_balance.mock_safe(|_| {
+    EthCoin::address_balance.mock_safe(|_,_| {
         let balance = wei_from_big_decimal(&1000000000.into(), 18).unwrap();
         MockResult::Return(Box::new(futures01::future::ok(balance)))
     });
