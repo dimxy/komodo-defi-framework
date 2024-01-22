@@ -825,7 +825,7 @@ fn test_search_for_swap_tx_spend_was_refunded() {
 fn test_withdraw_impl_manual_fee() {
     let (_ctx, coin) = eth_coin_for_test(EthCoinType::Eth, &["http://dummy.dummy"], None);
 
-    EthCoin::my_balance.mock_safe(|_| {
+    EthCoin::address_balance.mock_safe(|_, _| {
         let balance = wei_from_big_decimal(&1000000000.into(), 18).unwrap();
         MockResult::Return(Box::new(futures01::future::ok(balance)))
     });
