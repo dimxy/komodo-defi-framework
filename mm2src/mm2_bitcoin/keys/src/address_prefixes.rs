@@ -64,7 +64,7 @@ impl AddressPrefixes {
         if self.data.len() == 1 {
             self.data[0]
         } else {
-            0 // maybe assert should be here as it is not supposed to have other prefixes size for cahs_address
+            0 // maybe assert should be here as it is not supposed to have other prefixes size for cash_address
         }
     }
 }
@@ -97,6 +97,7 @@ impl fmt::Display for NetworkAddressPrefixes {
     }
 }
 
+/// Some prefixes used in tests
 pub mod prefixes {
     use super::ConstPrefixes;
 
