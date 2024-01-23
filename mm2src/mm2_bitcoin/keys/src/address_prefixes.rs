@@ -142,6 +142,13 @@ pub mod prefixes {
         p2sh: &QTUM_P2SH,
     };
 
+    pub const T_QTUM_P2PKH: [u8; 1] = [120];
+    pub const T_QTUM_P2SH: [u8; 1] = [110];
+    pub const T_QTUM_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
+        p2pkh: &T_QTUM_P2PKH,
+        p2sh: &T_QTUM_P2SH,
+    };
+
     pub const GRS_P2PKH: [u8; 1] = [36];
     pub const GRS_P2SH: [u8; 1] = [5];
     pub const GRS_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
