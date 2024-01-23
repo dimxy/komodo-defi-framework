@@ -5,7 +5,7 @@ use crate::qrc20::{contract_addr_into_rpc_format, ContractCallOutput, GenerateQr
 use crate::utxo::qtum::{QtumBasedCoin, QtumCoin, QtumDelegationOps, QtumDelegationRequest, QtumStakingInfosDetails};
 use crate::utxo::rpc_clients::UtxoRpcClientEnum;
 use crate::utxo::utxo_common::{big_decimal_from_sat_unsigned, UtxoTxBuilder};
-use crate::utxo::{output_script, qtum, utxo_common, Address, GetUtxoListOps, UtxoCommonOps};
+use crate::utxo::{qtum, utxo_common, Address, GetUtxoListOps, UtxoCommonOps};
 use crate::utxo::{PrivKeyPolicyNotAllowed, UTXO_LOCK};
 use crate::{DelegationError, DelegationFut, DelegationResult, MarketCoinOps, StakingInfos, StakingInfosError,
             StakingInfosFut, StakingInfosResult, TransactionDetails, TransactionType};
@@ -289,7 +289,9 @@ impl QtumCoin {
                 DelegationError::from_generate_tx_error(gen_tx_error, self.ticker().to_string(), utxo.decimals)
             })?;
 
-        let prev_script = output_script(my_address);
+        let prev_script = self
+            .script_for_address(my_address)
+            .map_err(|e| DelegationError::InternalError(e.to_string()))?;
         let signed = sign_tx(
             unsigned,
             key_pair,

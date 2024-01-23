@@ -1,6 +1,6 @@
 use super::*;
 use crate::utxo::rpc_clients::UnspentInfo;
-use crate::{TxFeeDetails, WaitForHTLCTxSpendArgs};
+use crate::{DexFee, TxFeeDetails, WaitForHTLCTxSpendArgs};
 use chain::OutPoint;
 use common::{block_on, wait_until_sec, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::Secp256k1Secret;
@@ -318,7 +318,7 @@ fn test_send_taker_fee() {
 
     let amount = BigDecimal::from_str("0.01").unwrap();
     let tx = coin
-        .send_taker_fee(&DEX_FEE_ADDR_RAW_PUBKEY, amount.clone(), &[])
+        .send_taker_fee(&DEX_FEE_ADDR_RAW_PUBKEY, DexFee::Standard(amount.clone().into()), &[])
         .wait()
         .unwrap();
     let tx_hash: H256Json = match tx {
@@ -332,7 +332,7 @@ fn test_send_taker_fee() {
             fee_tx: &tx,
             expected_sender: coin.my_public_key().unwrap(),
             fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
-            amount: &amount,
+            dex_fee: &DexFee::Standard(amount.into()),
             min_block_number: 0,
             uuid: &[],
         })
@@ -360,7 +360,7 @@ fn test_validate_fee() {
             fee_tx: &tx,
             expected_sender: &sender_pub,
             fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
-            amount: &amount,
+            dex_fee: &DexFee::Standard(amount.clone().into()),
             min_block_number: 0,
             uuid: &[],
         })
@@ -373,7 +373,7 @@ fn test_validate_fee() {
             fee_tx: &tx,
             expected_sender: &sender_pub,
             fee_addr: &fee_addr_dif,
-            amount: &amount,
+            dex_fee: &DexFee::Standard(amount.clone().into()),
             min_block_number: 0,
             uuid: &[],
         })
@@ -391,7 +391,7 @@ fn test_validate_fee() {
             fee_tx: &tx,
             expected_sender: &DEX_FEE_ADDR_RAW_PUBKEY,
             fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
-            amount: &amount,
+            dex_fee: &DexFee::Standard(amount.clone().into()),
             min_block_number: 0,
             uuid: &[],
         })
@@ -409,7 +409,7 @@ fn test_validate_fee() {
             fee_tx: &tx,
             expected_sender: &sender_pub,
             fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
-            amount: &amount,
+            dex_fee: &DexFee::Standard(amount.clone().into()),
             min_block_number: 2000000,
             uuid: &[],
         })
@@ -428,7 +428,7 @@ fn test_validate_fee() {
             fee_tx: &tx,
             expected_sender: &sender_pub,
             fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
-            amount: &amount_dif,
+            dex_fee: &DexFee::Standard(amount_dif.into()),
             min_block_number: 0,
             uuid: &[],
         })
@@ -451,7 +451,7 @@ fn test_validate_fee() {
             fee_tx: &tx,
             expected_sender: &sender_pub,
             fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
-            amount: &amount,
+            dex_fee: &DexFee::Standard(amount.into()),
             min_block_number: 0,
             uuid: &[],
         })
@@ -962,8 +962,11 @@ fn test_taker_fee_tx_fee() {
     assert_eq!(coin.my_balance().wait().expect("!my_balance"), expected_balance);
 
     let dex_fee_amount = BigDecimal::from(5u32);
-    let actual = block_on(coin.get_fee_to_send_taker_fee(dex_fee_amount, FeeApproxStage::WithoutApprox))
-        .expect("!get_fee_to_send_taker_fee");
+    let actual = block_on(coin.get_fee_to_send_taker_fee(
+        DexFee::Standard(MmNumber::from(dex_fee_amount)),
+        FeeApproxStage::WithoutApprox,
+    ))
+    .expect("!get_fee_to_send_taker_fee");
     // only one contract call should be included into the expected trade fee
     let expected_receiver_fee = big_decimal_from_sat(CONTRACT_CALL_GAS_FEE + EXPECTED_TX_FEE, coin.utxo.decimals);
     let expected = TradeFee {
