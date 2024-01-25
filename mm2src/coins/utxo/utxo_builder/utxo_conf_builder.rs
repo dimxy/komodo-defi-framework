@@ -61,6 +61,7 @@ impl<'a> UtxoConfBuilder<'a> {
             p2pkh_prefixes.push(pub_t_addr_prefix);
         }
         p2pkh_prefixes.push(pub_addr_prefix);
+        drop_mutability!(p2pkh_prefixes);
 
         let p2sh_addr_prefix = self.p2sh_address_prefix();
         let p2sh_t_addr_prefix = self.p2sh_t_address_prefix();
@@ -69,6 +70,7 @@ impl<'a> UtxoConfBuilder<'a> {
             p2sh_prefixes.push(p2sh_t_addr_prefix);
         }
         p2sh_prefixes.push(p2sh_addr_prefix);
+        drop_mutability!(p2sh_prefixes);
 
         let address_prefixes = NetworkAddressPrefixes {
             p2pkh: p2pkh_prefixes.as_slice().try_into().expect("prefixes valid"),
