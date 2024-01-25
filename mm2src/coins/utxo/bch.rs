@@ -753,7 +753,7 @@ impl UtxoCommonOps for BchCoin {
     }
 
     fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
-        utxo_common::get_script_for_address(self.as_ref(), address)
+        utxo_common::output_script_checked(self.as_ref(), address)
     }
 
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
@@ -826,7 +826,7 @@ impl UtxoCommonOps for BchCoin {
         let addr_format = self.addr_format().clone();
         utxo_common::address_from_pubkey(
             pubkey,
-            conf.address_prefixes.p2pkh.clone(),
+            conf.address_prefixes.clone(),
             conf.checksum_type,
             conf.bech32_hrp.clone(),
             addr_format,

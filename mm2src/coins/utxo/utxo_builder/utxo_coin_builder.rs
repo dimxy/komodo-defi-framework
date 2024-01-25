@@ -26,8 +26,8 @@ use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
 use futures::StreamExt;
 use keys::bytes::Bytes;
-pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, AddressScriptType, KeyPair, Private,
-               Public, Secret};
+pub use keys::{Address, AddressBuilder, AddressFormat as UtxoAddressFormat, AddressHashEnum, AddressScriptType,
+               KeyPair, Private, Public, Secret};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use primitives::hash::H160;
@@ -229,14 +229,15 @@ where
 {
     let key_pair = priv_key_policy.activated_key_or_err()?;
     let addr_format = builder.address_format()?;
-    let my_address = Address {
-        prefixes: conf.address_prefixes.p2pkh.clone(),
+    let my_address = AddressBuilder {
+        prefixes: conf.address_prefixes.clone(),
         hash: AddressHashEnum::AddressHash(key_pair.public().address_hash()),
         checksum_type: conf.checksum_type,
         hrp: conf.bech32_hrp.clone(),
         addr_format,
-        script_type: AddressScriptType::P2PKH,
-    };
+    }
+    .build_p2pkh()
+    .expect("valid address props");
 
     let my_script_pubkey = output_script(&my_address).to_bytes();
     let derivation_method = DerivationMethod::SingleAddress(my_address);

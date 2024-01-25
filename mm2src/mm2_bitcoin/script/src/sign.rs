@@ -647,7 +647,7 @@ mod tests {
         let to: Address =
             Address::from_legacyaddress("1KKKK6N21XKo48zWKuQKXdvSsCf95ibHFa", &BTC_PREFIXES.try_into().unwrap())
                 .unwrap();
-        assert!(to.hash.is_address_hash());
+        assert!(to.hash().is_address_hash());
         let previous_output = "76a914df3bd30160e6c6145baaf2c88a8844c13a00d1d588ac".into();
         let current_output: Bytes = "76a914c8e90996c7c6080ee06284600c684ed904d14c5c88ac".into();
         let value = 91234;
@@ -655,8 +655,8 @@ mod tests {
 
         // this is irrelevant
         let mut hash = H160::default();
-        if let AddressHashEnum::AddressHash(h) = to.hash {
-            hash = h;
+        if let AddressHashEnum::AddressHash(h) = to.hash() {
+            hash = *h;
         }
         assert_eq!(&current_output[3..23], &*hash);
 
@@ -710,7 +710,7 @@ mod tests {
             &T_BTC_PREFIXES.try_into().unwrap(),
         )
         .unwrap();
-        assert!(to.hash.is_address_hash());
+        assert!(to.hash().is_address_hash());
         let previous_output = "76a914df3bd30160e6c6145baaf2c88a8844c13a00d1d588ac".into();
         let current_output: Bytes = "76a91485ee21a7f8cdd9034fb55004e0d8ed27db1c03c288ac".into();
         let value = 100000000;

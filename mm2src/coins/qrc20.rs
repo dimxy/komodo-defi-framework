@@ -44,7 +44,7 @@ use futures::compat::Future01CompatExt;
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
 use keys::bytes::Bytes as ScriptBytes;
-use keys::{Address as UtxoAddress, AddressScriptType, KeyPair, Public};
+use keys::{Address as UtxoAddress, KeyPair, Public};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::{BigDecimal, MmNumber};
@@ -676,7 +676,7 @@ impl UtxoCommonOps for Qrc20Coin {
     }
 
     fn script_for_address(&self, address: &UtxoAddress) -> MmResult<Script, UnsupportedAddr> {
-        utxo_common::get_script_for_address(self.as_ref(), address)
+        utxo_common::output_script_checked(self.as_ref(), address)
     }
 
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
@@ -752,7 +752,7 @@ impl UtxoCommonOps for Qrc20Coin {
         let conf = &self.utxo.conf;
         utxo_common::address_from_pubkey(
             pubkey,
-            conf.address_prefixes.p2pkh.clone(),
+            conf.address_prefixes.clone(),
             conf.checksum_type,
             conf.bech32_hrp.clone(),
             self.addr_format().clone(),
@@ -1539,7 +1539,7 @@ async fn qrc20_withdraw(coin: Qrc20Coin, req: WithdrawRequest) -> WithdrawResult
     let to_addr = UtxoAddress::from_legacyaddress(&req.to, &coin.as_ref().conf.address_prefixes)
         .map_to_mm(WithdrawError::InvalidAddress)?;
     let conf = &coin.utxo.conf;
-    if to_addr.script_type != AddressScriptType::P2PKH {
+    if !to_addr.is_p2pkh() {
         let error = "QRC20 can be sent to P2PKH addresses only".to_owned();
         return MmError::err(WithdrawError::InvalidAddress(error));
     }

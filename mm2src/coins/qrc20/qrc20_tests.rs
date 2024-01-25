@@ -5,7 +5,7 @@ use chain::OutPoint;
 use common::{block_on, wait_until_sec, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::Secp256k1Secret;
 use itertools::Itertools;
-use keys::Address;
+use keys::{Address, AddressBuilder};
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_number::bigdecimal::Zero;
 use mocktopus::mocking::{MockResult, Mockable};
@@ -66,14 +66,15 @@ fn test_withdraw_to_p2sh_address_should_fail() {
     ];
     let (_, coin) = qrc20_coin_for_test(priv_key, None);
 
-    let p2sh_address = Address {
-        prefixes: coin.as_ref().conf.address_prefixes.p2sh.clone(),
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
-        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
+    let p2sh_address = AddressBuilder {
+        prefixes: coin.as_ref().conf.address_prefixes.clone(),
+        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        checksum_type: *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
-        script_type: AddressScriptType::P2SH,
-    };
+    }
+    .build_p2sh()
+    .expect("valid address props");
 
     let req = WithdrawRequest {
         amount: 10.into(),

@@ -16,7 +16,7 @@ use crate::{PrivKeyPolicyNotAllowed, TransactionEnum};
 use bitcrypto::dhash160;
 use derive_more::Display;
 use futures::compat::Future01CompatExt;
-use keys::{Address, AddressScriptType, KeyPair, Public};
+use keys::{AddressBuilder, KeyPair, Public};
 use mm2_err_handle::prelude::*;
 use mm2_number::BigDecimal;
 use script::Script;
@@ -46,14 +46,15 @@ pub async fn z_send_htlc(
 ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
     let payment_script = payment_script(time_lock, secret_hash, my_pub, other_pub);
     let script_hash = dhash160(&payment_script);
-    let htlc_address = Address {
-        prefixes: coin.utxo_arc.conf.address_prefixes.p2sh.clone(),
+    let htlc_address = AddressBuilder {
+        prefixes: coin.utxo_arc.conf.address_prefixes.clone(),
         hash: script_hash.into(),
         checksum_type: coin.utxo_arc.conf.checksum_type,
         addr_format: UtxoAddressFormat::Standard,
         hrp: None,
-        script_type: AddressScriptType::P2SH,
-    };
+    }
+    .build_p2sh()
+    .expect("valid address props");
 
     let amount_sat = sat_from_big_decimal(&amount, coin.utxo_arc.decimals)?;
     let address = htlc_address.to_string();

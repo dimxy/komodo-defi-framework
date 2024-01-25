@@ -14,6 +14,9 @@ use std::str::FromStr;
 use {AddressHashEnum, AddressPrefixes, CashAddrType, CashAddress, Error, LegacyAddress, NetworkAddressPrefixes,
      SegwitAddress};
 
+mod address_builder;
+pub use self::address_builder::{AddressBuilder, AddressBuilderOption};
+
 /// There are two address formats currently in use.
 /// https://bitcoin.org/en/developer-reference#address-conversion
 #[allow(clippy::upper_case_acronyms)]
@@ -93,26 +96,40 @@ pub fn detect_checksum(data: &[u8], checksum: &[u8]) -> Result<ChecksumType, Err
 }
 
 /// Struct for utxo address types representation
-/// Contains address hash, format, script type to generate output script
-/// Also added ScriptType field for easier output script building.
-/// TODO: remove 'pub' from the members and use from_legacyaddress, from_segwitaddress or from_cashaddress to create Address objects
+/// Contains address hash, format, prefixes to get as a string.
+/// Also has ScriptType field to create output script.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Address {
     /// The base58 prefixes of the address.
-    pub prefixes: AddressPrefixes,
+    prefixes: AddressPrefixes,
     /// Segwit addr human readable part
-    pub hrp: Option<String>,
+    hrp: Option<String>,
     /// Public key hash.
-    pub hash: AddressHashEnum,
+    hash: AddressHashEnum,
     /// Checksum type
-    pub checksum_type: ChecksumType,
+    checksum_type: ChecksumType,
     /// Address Format
-    pub addr_format: AddressFormat,
+    addr_format: AddressFormat,
     // which output script corresponds to this address format and prefixes
-    pub script_type: AddressScriptType,
+    script_type: AddressScriptType,
 }
 
 impl Address {
+    pub fn prefixes(&self) -> &AddressPrefixes { &self.prefixes }
+    pub fn hrp(&self) -> &Option<String> { &self.hrp }
+    pub fn hash(&self) -> &AddressHashEnum { &self.hash }
+    pub fn checksum_type(&self) -> &ChecksumType { &self.checksum_type }
+    pub fn addr_format(&self) -> &AddressFormat { &self.addr_format }
+    pub fn script_type(&self) -> &AddressScriptType { &self.script_type }
+
+    pub fn is_p2pkh(&self) -> bool {
+        if matches!(self.addr_format, AddressFormat::Segwit) {
+            self.script_type == AddressScriptType::P2WPKH
+        } else {
+            self.script_type == AddressScriptType::P2PKH
+        }
+    }
+
     pub fn display_address(&self) -> Result<String, String> {
         match &self.addr_format {
             AddressFormat::Standard => {
@@ -122,7 +139,6 @@ impl Address {
                 Some(hrp) => Ok(SegwitAddress::new(&self.hash, hrp.clone()).to_string()),
                 None => Err("Cannot display segwit address for a coin with no bech32_hrp in config".into()),
             },
-
             AddressFormat::CashAddress {
                 network,
                 pub_addr_prefix,
@@ -210,7 +226,6 @@ impl Address {
                 self.prefixes, prefixes.p2pkh, prefixes.p2sh
             ));
         };
-
         CashAddress::new(network_prefix, self.hash.to_vec(), address_type)
     }
 
@@ -279,75 +294,80 @@ mod tests {
     use std::convert::TryInto;
 
     use super::prefixes::*;
-    use super::{Address, AddressFormat, AddressHashEnum, AddressScriptType, CashAddrType, CashAddress, ChecksumType};
-    use crate::NetworkPrefix;
+    use super::{Address, AddressBuilder, AddressFormat, AddressHashEnum, CashAddrType, CashAddress, ChecksumType};
+    use crate::{NetworkAddressPrefixes, NetworkPrefix};
 
     #[test]
     fn test_address_to_string() {
-        let address = Address {
-            prefixes: BTC_P2PKH.into(),
+        let address = AddressBuilder {
+            prefixes: BTC_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("3f4aa1fedf1f54eeb03b759deadb36676b184911".into()),
             checksum_type: ChecksumType::DSHA256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2PKH,
-        };
+        }
+        .build_p2pkh()
+        .expect("valid address props");
 
         assert_eq!("16meyfSoQV6twkAAxPe51RtMVz7PGRmWna".to_owned(), address.to_string());
     }
 
     #[test]
     fn test_komodo_address_to_string() {
-        let address = Address {
-            prefixes: KMD_P2PKH.into(),
+        let address = AddressBuilder {
+            prefixes: KMD_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("05aab5342166f8594baf17a7d9bef5d567443327".into()),
             checksum_type: ChecksumType::DSHA256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2PKH,
-        };
+        }
+        .build_p2pkh()
+        .expect("valid address props");
 
         assert_eq!("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW".to_owned(), address.to_string());
     }
 
     #[test]
     fn test_zec_t_address_to_string() {
-        let address = Address {
-            prefixes: T_ZCASH_P2PKH.into(),
+        let address = AddressBuilder {
+            prefixes: T_ZCASH_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("05aab5342166f8594baf17a7d9bef5d567443327".into()),
             checksum_type: ChecksumType::DSHA256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2PKH,
-        };
+        }
+        .build_p2pkh()
+        .expect("valid address props");
 
         assert_eq!("tmAEKD7psc1ajK76QMGEW8WGQSBBHf9SqCp".to_owned(), address.to_string());
     }
 
     #[test]
     fn test_komodo_p2sh_address_to_string() {
-        let address = Address {
-            prefixes: KMD_P2SH.into(),
+        let address = AddressBuilder {
+            prefixes: KMD_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("ca0c3786c96ff7dacd40fdb0f7c196528df35f85".into()),
             checksum_type: ChecksumType::DSHA256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2SH, // TODO: check with P2PKH
-        };
+        }
+        .build_p2sh()
+        .expect("valid address props"); // TODO: check with P2PKH
 
         assert_eq!("bX9bppqdGvmCCAujd76Tq76zs1suuPnB9A".to_owned(), address.to_string());
     }
 
     #[test]
     fn test_address_from_str() {
-        let address = Address {
-            prefixes: BTC_P2PKH.into(),
+        let address = AddressBuilder {
+            prefixes: BTC_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("3f4aa1fedf1f54eeb03b759deadb36676b184911".into()),
             checksum_type: ChecksumType::DSHA256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2PKH,
-        };
+        }
+        .build_p2pkh()
+        .expect("valid address props");
 
         assert_eq!(
             address,
@@ -359,14 +379,15 @@ mod tests {
 
     #[test]
     fn test_komodo_address_from_str() {
-        let address = Address {
-            prefixes: KMD_P2PKH.into(),
+        let address = AddressBuilder {
+            prefixes: KMD_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("05aab5342166f8594baf17a7d9bef5d567443327".into()),
             checksum_type: ChecksumType::DSHA256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2PKH,
-        };
+        }
+        .build_p2pkh()
+        .expect("valid address props");
 
         assert_eq!(
             address,
@@ -378,14 +399,15 @@ mod tests {
 
     #[test]
     fn test_zec_address_from_str() {
-        let address = Address {
-            prefixes: T_ZCASH_P2PKH.into(),
+        let address = AddressBuilder {
+            prefixes: T_ZCASH_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("05aab5342166f8594baf17a7d9bef5d567443327".into()),
             checksum_type: ChecksumType::DSHA256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2PKH,
-        };
+        }
+        .build_p2pkh()
+        .expect("valid address props");
 
         assert_eq!(
             address,
@@ -400,14 +422,15 @@ mod tests {
 
     #[test]
     fn test_komodo_p2sh_address_from_str() {
-        let address = Address {
-            prefixes: KMD_P2SH.into(),
+        let address = AddressBuilder {
+            prefixes: KMD_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("ca0c3786c96ff7dacd40fdb0f7c196528df35f85".into()),
             checksum_type: ChecksumType::DSHA256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2SH,
-        };
+        }
+        .build_p2sh()
+        .expect("valid address props");
 
         assert_eq!(
             address,
@@ -419,14 +442,15 @@ mod tests {
 
     #[test]
     fn test_grs_addr_from_str() {
-        let address = Address {
-            prefixes: GRS_P2PKH.into(),
+        let address = AddressBuilder {
+            prefixes: GRS_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("c3f710deb7320b0efa6edb14e3ebeeb9155fa90d".into()),
             checksum_type: ChecksumType::DGROESTL512,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2PKH,
-        };
+        }
+        .build_p2pkh()
+        .expect("valid address props");
 
         assert_eq!(
             address,
@@ -438,14 +462,15 @@ mod tests {
 
     #[test]
     fn test_smart_addr_from_str() {
-        let address = Address {
-            prefixes: SYS_P2PKH.into(),
+        let address = AddressBuilder {
+            prefixes: SYS_PREFIXES.try_into().unwrap(),
             hash: AddressHashEnum::AddressHash("56bb05aa20f5a80cf84e90e5dab05be331333e27".into()),
             checksum_type: ChecksumType::KECCAK256,
             hrp: None,
             addr_format: AddressFormat::Standard,
-            script_type: AddressScriptType::P2PKH,
-        };
+        }
+        .build_p2pkh()
+        .expect("valid address props");
 
         assert_eq!(
             address,
@@ -503,9 +528,12 @@ mod tests {
 
     #[test]
     fn test_to_cashaddress_err() {
-        const UNKNOWN_PREFIX: [u8; 1] = [2];
-        let address = Address {
-            prefixes: UNKNOWN_PREFIX.into(),
+        let unknown_prefixes: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [2; 1].into(),
+            p2sh: [2; 1].into(),
+        };
+        let address = AddressBuilder {
+            prefixes: unknown_prefixes,
             hash: AddressHashEnum::AddressHash(
                 [
                     140, 0, 44, 191, 189, 83, 144, 173, 47, 216, 127, 59, 80, 232, 159, 100, 156, 132, 78, 192,
@@ -519,8 +547,9 @@ mod tests {
                 pub_addr_prefix: 0,
                 p2sh_addr_prefix: 5,
             },
-            script_type: AddressScriptType::P2PKH, // actually prefix == 2 is unknown and is neither P2PKH nor P2SH
-        };
+        }
+        .build_p2sh()
+        .expect("valid address props"); // actually prefix == 2 is unknown and is neither P2PKH nor P2SH
 
         assert_eq!(
             address.to_cashaddress("bitcoincash", &BCH_PREFIXES.try_into().unwrap()),

@@ -63,11 +63,15 @@ pub(super) fn utxo_coin_fields_for_test(
         },
     };
     let key_pair = key_pair_from_seed(&seed).unwrap();
-    let my_address = Address {
+
+    let my_address = AddressBuilder {
         prefixes: if is_segwit_coin {
-            AddressPrefixes::default()
+            NetworkAddressPrefixes::default()
         } else {
-            [60].into()
+            NetworkAddressPrefixes {
+                p2pkh: [60].into(),
+                p2sh: AddressPrefixes::default(),
+            }
         },
         hash: key_pair.public().address_hash().into(),
         checksum_type,
@@ -81,13 +85,10 @@ pub(super) fn utxo_coin_fields_for_test(
         } else {
             UtxoAddressFormat::Standard
         },
-        script_type: if is_segwit_coin {
-            AddressScriptType::P2WPKH
-        } else {
-            AddressScriptType::P2PKH
-        },
-    };
-    let my_script_pubkey = Builder::build_p2pkh(&my_address.hash).to_bytes();
+    }
+    .build_p2pkh()
+    .expect("valid address props");
+    let my_script_pubkey = Builder::build_p2pkh(my_address.hash()).to_bytes();
 
     let priv_key_policy = PrivKeyPolicy::Iguana(key_pair);
     let derivation_method = DerivationMethod::SingleAddress(my_address);

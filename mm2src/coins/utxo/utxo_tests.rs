@@ -240,7 +240,7 @@ fn test_generate_transaction() {
     }];
 
     let outputs = vec![TransactionOutput {
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(coin.as_ref().derivation_method.unwrap_single_addr().hash()).to_bytes(),
         value: 100000,
     }];
 
@@ -969,7 +969,7 @@ fn test_utxo_lock() {
     let coin = utxo_coin_for_test(client.into(), None, false);
     let output = TransactionOutput {
         value: 1000000,
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(coin.as_ref().derivation_method.unwrap_single_addr().hash()).to_bytes(),
     };
     let mut futures = vec![];
     for _ in 0..5 {
@@ -1545,7 +1545,7 @@ fn test_spam_rick() {
 
     let output = TransactionOutput {
         value: 1000000,
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(coin.as_ref().derivation_method.unwrap_single_addr().hash()).to_bytes(),
     };
     let mut futures = vec![];
     for _ in 0..5 {
@@ -1617,7 +1617,7 @@ fn test_qtum_generate_pod() {
         &coin.as_ref().conf.address_prefixes,
     )
     .unwrap();
-    let res = coin.generate_pod(address.hash).unwrap();
+    let res = coin.generate_pod(address.hash().clone()).unwrap();
     assert_eq!(expected_res, res.to_string());
 }
 
@@ -2039,7 +2039,7 @@ fn test_native_client_unspents_filtered_using_tx_cache_single_tx_in_cache() {
     let address: Address =
         Address::from_legacyaddress("RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN", &KMD_PREFIXES.try_into().unwrap()).unwrap();
     block_on(coin.as_ref().recently_spent_outpoints.lock()).for_script_pubkey =
-        Builder::build_p2pkh(&address.hash).to_bytes();
+        Builder::build_p2pkh(address.hash()).to_bytes();
 
     // https://morty.explorer.dexstats.info/tx/31c7aaae89ab1c39febae164a3190a86ed7c6c6f8c9dc98ec28d508b7929d347
     let tx: UtxoTx = "0400008085202f89027f57730fcbbc2c72fb18bcc3766a713044831a117bb1cade3ed88644864f7333020000006a47304402206e3737b2fcf078b61b16fa67340cc3e79c5d5e2dc9ffda09608371552a3887450220460a332aa1b8ad8f2de92d319666f70751078b221199951f80265b4f7cef8543012102d8c948c6af848c588517288168faa397d6ba3ea924596d03d1d84f224b5123c2ffffffff42b916a80430b80a77e114445b08cf120735447a524de10742fac8f6a9d4170f000000006a473044022004aa053edafb9d161ea8146e0c21ed1593aa6b9404dd44294bcdf920a1695fd902202365eac15dbcc5e9f83e2eed56a8f2f0e5aded36206f9c3fabc668fd4665fa2d012102d8c948c6af848c588517288168faa397d6ba3ea924596d03d1d84f224b5123c2ffffffff03547b16000000000017a9143e8ad0e2bf573d32cb0b3d3a304d9ebcd0c2023b870000000000000000166a144e2b3c0323ab3c2dc6f86dc5ec0729f11e42f56103970400000000001976a91450f4f098306f988d8843004689fae28c83ef16e888ac89c5925f000000000000000000000000000000".into();
@@ -2085,7 +2085,7 @@ fn test_native_client_unspents_filtered_using_tx_cache_single_several_chained_tx
 
     let address: Address =
         Address::from_legacyaddress("RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN", &KMD_PREFIXES.try_into().unwrap()).unwrap();
-    block_on(coin.recently_spent_outpoints.lock()).for_script_pubkey = Builder::build_p2pkh(&address.hash).to_bytes();
+    block_on(coin.recently_spent_outpoints.lock()).for_script_pubkey = Builder::build_p2pkh(address.hash()).to_bytes();
     let coin = utxo_coin_from_fields(coin);
 
     // https://morty.explorer.dexstats.info/tx/31c7aaae89ab1c39febae164a3190a86ed7c6c6f8c9dc98ec28d508b7929d347
@@ -3088,14 +3088,15 @@ fn test_withdraw_to_p2pkh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
     // Create a p2pkh address for the test coin
-    let p2pkh_address = Address {
-        prefixes: coin.as_ref().conf.address_prefixes.p2pkh.clone(),
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
-        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
+    let p2pkh_address = AddressBuilder {
+        prefixes: coin.as_ref().conf.address_prefixes.clone(),
+        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        checksum_type: *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
-        script_type: AddressScriptType::P2PKH,
-    };
+    }
+    .build_p2pkh()
+    .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
         amount: 1.into(),
@@ -3110,7 +3111,7 @@ fn test_withdraw_to_p2pkh() {
     let transaction: UtxoTx = deserialize(tx_details.tx_hex.as_slice()).unwrap();
     let output_script: Script = transaction.outputs[0].script_pubkey.clone().into();
 
-    let expected_script = Builder::build_p2pkh(&p2pkh_address.hash);
+    let expected_script = Builder::build_p2pkh(p2pkh_address.hash());
 
     assert_eq!(output_script, expected_script);
 }
@@ -3136,14 +3137,15 @@ fn test_withdraw_to_p2sh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
     // Create a p2sh address for the test coin
-    let p2sh_address = Address {
-        prefixes: coin.as_ref().conf.address_prefixes.p2sh.clone(),
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
-        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
+    let p2sh_address = AddressBuilder {
+        prefixes: coin.as_ref().conf.address_prefixes.clone(),
+        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        checksum_type: *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
-        script_type: AddressScriptType::P2SH,
-    };
+    }
+    .build_p2sh()
+    .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
         amount: 1.into(),
@@ -3158,7 +3160,7 @@ fn test_withdraw_to_p2sh() {
     let transaction: UtxoTx = deserialize(tx_details.tx_hex.as_slice()).unwrap();
     let output_script: Script = transaction.outputs[0].script_pubkey.clone().into();
 
-    let expected_script = Builder::build_p2sh(&p2sh_address.hash);
+    let expected_script = Builder::build_p2sh(p2sh_address.hash());
 
     assert_eq!(output_script, expected_script);
 }
@@ -3184,14 +3186,15 @@ fn test_withdraw_to_p2wpkh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, true);
 
     // Create a p2wpkh address for the test coin
-    let p2wpkh_address = Address {
-        prefixes: AddressPrefixes::default(),
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
-        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
+    let p2wpkh_address = AddressBuilder {
+        prefixes: NetworkAddressPrefixes::default(),
+        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        checksum_type: *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Segwit,
-        script_type: AddressScriptType::P2WPKH,
-    };
+    }
+    .build_p2pkh()
+    .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
         amount: 1.into(),
@@ -3206,7 +3209,7 @@ fn test_withdraw_to_p2wpkh() {
     let transaction: UtxoTx = deserialize(tx_details.tx_hex.as_slice()).unwrap();
     let output_script: Script = transaction.outputs[0].script_pubkey.clone().into();
 
-    let expected_script = Builder::build_p2witness(&p2wpkh_address.hash);
+    let expected_script = Builder::build_p2witness(p2wpkh_address.hash());
 
     assert_eq!(output_script, expected_script);
 }
@@ -3375,7 +3378,7 @@ fn test_split_qtum() {
     // fee_amount must be higher than the minimum fee
     assert!(data.fee_amount > 400_000);
     log!("Unsigned tx = {:?}", unsigned);
-    let signature_version = match p2pkh_address.addr_format {
+    let signature_version = match p2pkh_address.addr_format() {
         UtxoAddressFormat::Segwit => SignatureVersion::WitnessV0,
         _ => coin.as_ref().conf.signature_version,
     };

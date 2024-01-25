@@ -218,7 +218,7 @@ impl QtumCoin {
                 amount,
                 staker,
                 am_i_staking,
-                is_staking_supported: !my_address.addr_format.is_segwit(),
+                is_staking_supported: !my_address.addr_format().is_segwit(),
             }
             .into(),
         };
@@ -241,7 +241,7 @@ impl QtumCoin {
         let staker_address_hex = qtum::contract_addr_from_utxo_addr(to_addr.clone())?;
         let delegation_output = self.add_delegation_output(
             staker_address_hex,
-            to_addr.hash,
+            to_addr.hash().clone(),
             fee,
             QRC20_GAS_LIMIT_DELEGATION,
             QRC20_GAS_PRICE_DEFAULT,

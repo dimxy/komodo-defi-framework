@@ -26,7 +26,7 @@ mod signature;
 
 pub use primitives::{bytes, hash};
 
-pub use address::{Address, AddressFormat, AddressScriptType};
+pub use address::{Address, AddressBuilder, AddressBuilderOption, AddressFormat, AddressScriptType};
 pub use address_prefixes::prefixes;
 pub use address_prefixes::{AddressPrefixes, NetworkAddressPrefixes};
 pub use cashaddress::{CashAddrType, CashAddress, NetworkPrefix};

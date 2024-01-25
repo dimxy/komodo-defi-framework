@@ -6,6 +6,7 @@ pub struct ConstPrefixes<'a> {
     p2sh: &'a [u8],
 }
 
+/// Prefixes for a single legacy address type (p2pkh or p2sh)
 #[derive(Debug, Clone, Eq, Hash, PartialEq, Default)]
 pub struct AddressPrefixes {
     data: Vec<u8>,
@@ -67,9 +68,12 @@ impl AddressPrefixes {
             0 // maybe assert should be here as it is not supposed to have other prefixes size for cash_address
         }
     }
+
+    pub fn is_empty(&self) -> bool { self.data.is_empty() }
 }
 
-#[derive(Debug, Clone)]
+/// All prefixes for legacy address types supported for a coin, from coin config
+#[derive(Debug, Clone, Default)]
 pub struct NetworkAddressPrefixes {
     pub p2pkh: AddressPrefixes,
     pub p2sh: AddressPrefixes,

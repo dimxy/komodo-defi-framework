@@ -795,7 +795,8 @@ OP_ADD
         let address =
             Address::from_legacyaddress("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S", &BTC_PREFIXES.try_into().unwrap())
                 .unwrap()
-                .hash;
+                .hash()
+                .clone();
         let script = Builder::build_p2pkh(&address);
         assert_eq!(script.script_type(), ScriptType::PubKeyHash);
         assert_eq!(
@@ -809,7 +810,8 @@ OP_ADD
         let address =
             Address::from_legacyaddress("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S", &BTC_PREFIXES.try_into().unwrap())
                 .unwrap()
-                .hash;
+                .hash()
+                .clone();
         let script = Builder::build_p2sh(&address);
         assert_eq!(script.script_type(), ScriptType::ScriptHash);
         assert_eq!(
@@ -822,7 +824,8 @@ OP_ADD
     fn test_extract_destinations_witness_pub_key_hash() {
         let address = Address::from_segwitaddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", ChecksumType::DSHA256)
             .unwrap()
-            .hash;
+            .hash()
+            .clone();
         let script = Builder::build_p2witness(&address);
         assert_eq!(script.script_type(), ScriptType::WitnessKey);
         assert_eq!(
@@ -838,7 +841,8 @@ OP_ADD
             ChecksumType::DSHA256,
         )
         .unwrap()
-        .hash;
+        .hash()
+        .clone();
         let script = Builder::build_p2witness(&address);
         assert_eq!(script.script_type(), ScriptType::WitnessScript);
         assert_eq!(

@@ -63,8 +63,8 @@ use futures01::Future;
 use keys::bytes::Bytes;
 use keys::NetworkAddressPrefixes;
 use keys::Signature;
-pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, AddressPrefixes, AddressScriptType,
-               KeyPair, LegacyAddress, Private, Public, Secret};
+pub use keys::{Address, AddressBuilder, AddressFormat as UtxoAddressFormat, AddressHashEnum, AddressPrefixes,
+               AddressScriptType, KeyPair, LegacyAddress, Private, Public, Secret};
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::Currency as LightningCurrency;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
@@ -1879,12 +1879,12 @@ where
         })
         .collect();
 
-    let signature_version = match &my_address.addr_format {
+    let signature_version = match my_address.addr_format() {
         UtxoAddressFormat::Segwit => SignatureVersion::WitnessV0,
         _ => coin.as_ref().conf.signature_version,
     };
 
-    let prev_script = utxo_common::get_script_for_address(coin.as_ref(), my_address)
+    let prev_script = utxo_common::output_script_checked(coin.as_ref(), my_address)
         .map_err(|e| TransactionErr::Plain(ERRL!("{}", e)))?;
     let signed = try_tx_s!(sign_tx(
         unsigned,
@@ -1901,16 +1901,12 @@ where
     Ok(signed)
 }
 
+/// Builds transaction output script for an Address struct
 pub fn output_script(address: &Address) -> Script {
-    match address.addr_format {
-        UtxoAddressFormat::Segwit => Builder::build_p2witness(&address.hash),
-        _ => match address.script_type {
-            AddressScriptType::P2PKH => Builder::build_p2pkh(&address.hash),
-            AddressScriptType::P2SH => Builder::build_p2sh(&address.hash),
-            AddressScriptType::P2WPKH | AddressScriptType::P2WSH => {
-                panic!("internal error: wrong segwit script type");
-            },
-        },
+    match address.script_type() {
+        AddressScriptType::P2PKH => Builder::build_p2pkh(address.hash()),
+        AddressScriptType::P2SH => Builder::build_p2sh(address.hash()),
+        AddressScriptType::P2WPKH | AddressScriptType::P2WSH => Builder::build_p2witness(address.hash()),
     }
 }
 
@@ -1940,14 +1936,14 @@ pub fn address_by_conf_and_pubkey_str(
     let pubkey_bytes = try_s!(hex::decode(pubkey));
     let hash = dhash160(&pubkey_bytes);
 
-    let address = Address {
-        prefixes: utxo_conf.address_prefixes.p2pkh,
+    let address = AddressBuilder {
+        prefixes: utxo_conf.address_prefixes,
         hash: hash.into(),
         checksum_type: utxo_conf.checksum_type,
         hrp: utxo_conf.bech32_hrp,
         addr_format,
-        script_type: AddressScriptType::P2PKH,
-    };
+    }
+    .build_p2pkh()?;
     address.display_address()
 }
 
