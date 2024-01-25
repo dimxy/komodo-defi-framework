@@ -165,7 +165,7 @@ pub mod common_impl {
         let addresses: HashSet<_> = new_addresses
             .iter()
             .map(|address_balance| {
-                utxo_common::checked_address_from_str(coin, &address_balance.address).expect("Valid address")
+                utxo_common::address_from_str_unchecked(coin.as_ref(), &address_balance.address).expect("Valid address")
             })
             .collect();
 
