@@ -477,6 +477,7 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                     }
 
                     status.status(&[&"swap", &("uuid", uuid.as_str())], &event.status_str());
+                    debug!("[swap uuid={uuid}] {event:?}");
                     running_swap.apply_event(event);
                 }
                 match res.0 {
