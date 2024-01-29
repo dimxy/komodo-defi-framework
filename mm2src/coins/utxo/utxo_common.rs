@@ -2730,7 +2730,7 @@ pub fn check_if_my_payment_sent<T: UtxoCommonOps + SwapOps>(
                     hash: hash.into(),
                     checksum_type: coin.as_ref().conf.checksum_type,
                     hrp: coin.as_ref().conf.bech32_hrp.clone(),
-                    addr_format: coin.addr_format().clone(),
+                    addr_format: coin.addr_format_for_standard_scripts().clone(),
                 }
                 .build_p2sh()?;
                 let target_addr = target_addr.to_string();
