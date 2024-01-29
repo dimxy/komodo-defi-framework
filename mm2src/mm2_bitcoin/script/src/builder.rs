@@ -1,7 +1,7 @@
 //! Script builder
 
 use bytes::Bytes;
-use keys::{AddressHashEnum, Public, Error};
+use keys::{AddressHashEnum, Error, Public};
 use {Num, Opcode, Script};
 
 /// Script builder
@@ -44,7 +44,7 @@ impl Builder {
         match address_hash {
             AddressHashEnum::AddressHash(wpkh_hash) => Ok(Builder::default()
                 .push_opcode(Opcode::OP_0)
-                .push_bytes(&wpkh_hash.to_vec())
+                .push_bytes(wpkh_hash.as_ref())
                 .into_script()),
             _ => Err(Error::WitnessHashMismatched),
         }
@@ -55,7 +55,7 @@ impl Builder {
         match address_hash {
             AddressHashEnum::WitnessScriptHash(wsh_hash) => Ok(Builder::default()
                 .push_opcode(Opcode::OP_0)
-                .push_bytes(&wsh_hash.to_vec())
+                .push_bytes(wsh_hash.as_ref())
                 .into_script()),
             _ => Err(Error::WitnessHashMismatched),
         }

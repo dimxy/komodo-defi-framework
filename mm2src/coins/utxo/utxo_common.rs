@@ -634,7 +634,10 @@ pub fn addresses_from_script<T: UtxoCommonOps>(coin: &T, script: &Script) -> Res
                     coin.addr_format_for_standard_scripts(),
                     AddressBuilderOption::BuildPubkeyHash,
                 ),
-                AddressScriptType::P2SH => (coin.addr_format_for_standard_scripts(), AddressBuilderOption::BuildScriptHash),
+                AddressScriptType::P2SH => (
+                    coin.addr_format_for_standard_scripts(),
+                    AddressBuilderOption::BuildScriptHash,
+                ),
                 AddressScriptType::P2WPKH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildPubkeyHash),
                 AddressScriptType::P2WSH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildScriptHash),
             };
@@ -2730,7 +2733,7 @@ pub fn check_if_my_payment_sent<T: UtxoCommonOps + SwapOps>(
                     hash: hash.into(),
                     checksum_type: coin.as_ref().conf.checksum_type,
                     hrp: coin.as_ref().conf.bech32_hrp.clone(),
-                    addr_format: coin.addr_format_for_standard_scripts().clone(),
+                    addr_format: coin.addr_format_for_standard_scripts(),
                 }
                 .build_as_sh()?;
                 let target_addr = target_addr.to_string();

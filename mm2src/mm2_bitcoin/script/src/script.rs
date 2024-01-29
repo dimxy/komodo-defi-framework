@@ -822,10 +822,11 @@ OP_ADD
 
     #[test]
     fn test_extract_destinations_witness_pub_key_hash() {
-        let address_hash = Address::from_segwitaddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", ChecksumType::DSHA256)
-            .unwrap()
-            .hash()
-            .clone();
+        let address_hash =
+            Address::from_segwitaddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", ChecksumType::DSHA256)
+                .unwrap()
+                .hash()
+                .clone();
         let script = Builder::build_p2wpkh(&address_hash).expect("build p2wpkh ok");
         assert_eq!(script.script_type(), ScriptType::WitnessKey);
         assert_eq!(

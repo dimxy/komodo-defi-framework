@@ -109,13 +109,12 @@ where
         }
     }
 
+    #[allow(clippy::result_large_err)]
     fn prev_script(&self) -> Result<Script, MmError<WithdrawError>> {
         match self.sender_address().addr_format() {
-            UtxoAddressFormat::Segwit => {
-                match Builder::build_p2wpkh(self.sender_address().hash()) {
-                    Ok(script) => Ok(script),
-                    Err(e) => MmError::err(WithdrawError::InternalError(e.to_string())),
-                }
+            UtxoAddressFormat::Segwit => match Builder::build_p2wpkh(self.sender_address().hash()) {
+                Ok(script) => Ok(script),
+                Err(e) => MmError::err(WithdrawError::InternalError(e.to_string())),
             },
             _ => Ok(Builder::build_p2pkh(self.sender_address().hash())),
         }
