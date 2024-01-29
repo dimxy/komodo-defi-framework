@@ -822,32 +822,32 @@ OP_ADD
 
     #[test]
     fn test_extract_destinations_witness_pub_key_hash() {
-        let address = Address::from_segwitaddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", ChecksumType::DSHA256)
+        let address_hash = Address::from_segwitaddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", ChecksumType::DSHA256)
             .unwrap()
             .hash()
             .clone();
-        let script = Builder::build_p2witness(&address);
+        let script = Builder::build_p2wpkh(&address_hash).expect("build p2wpkh ok");
         assert_eq!(script.script_type(), ScriptType::WitnessKey);
         assert_eq!(
             script.extract_destinations(),
-            Ok(vec![ScriptAddress::new_p2wpkh(address),])
+            Ok(vec![ScriptAddress::new_p2wpkh(address_hash),])
         );
     }
 
     #[test]
     fn test_extract_destinations_witness_script_hash() {
-        let address = Address::from_segwitaddress(
+        let address_hash = Address::from_segwitaddress(
             "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3",
             ChecksumType::DSHA256,
         )
         .unwrap()
         .hash()
         .clone();
-        let script = Builder::build_p2witness(&address);
+        let script = Builder::build_p2wsh(&address_hash).expect("build p2wsh ok");
         assert_eq!(script.script_type(), ScriptType::WitnessScript);
         assert_eq!(
             script.extract_destinations(),
-            Ok(vec![ScriptAddress::new_p2wsh(address),])
+            Ok(vec![ScriptAddress::new_p2wsh(address_hash),])
         );
     }
 

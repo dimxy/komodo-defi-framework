@@ -109,10 +109,15 @@ where
         }
     }
 
-    fn prev_script(&self) -> Script {
+    fn prev_script(&self) -> Result<Script, MmError<WithdrawError>> {
         match self.sender_address().addr_format() {
-            UtxoAddressFormat::Segwit => Builder::build_p2witness(self.sender_address().hash()),
-            _ => Builder::build_p2pkh(self.sender_address().hash()),
+            UtxoAddressFormat::Segwit => {
+                match Builder::build_p2wpkh(self.sender_address().hash()) {
+                    Ok(script) => Ok(script),
+                    Err(e) => MmError::err(WithdrawError::InternalError(e.to_string())),
+                }
+            },
+            _ => Ok(Builder::build_p2pkh(self.sender_address().hash())),
         }
     }
 
@@ -421,7 +426,7 @@ where
         Ok(with_key_pair::sign_tx(
             unsigned_tx,
             &self.key_pair,
-            self.prev_script(),
+            self.prev_script()?,
             self.signature_version(),
             self.coin.as_ref().conf.fork_id,
         )?)

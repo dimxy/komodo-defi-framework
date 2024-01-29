@@ -1906,7 +1906,8 @@ pub fn output_script(address: &Address) -> Script {
     match address.script_type() {
         AddressScriptType::P2PKH => Builder::build_p2pkh(address.hash()),
         AddressScriptType::P2SH => Builder::build_p2sh(address.hash()),
-        AddressScriptType::P2WPKH | AddressScriptType::P2WSH => Builder::build_p2witness(address.hash()),
+        AddressScriptType::P2WPKH => Builder::build_p2wpkh(address.hash()).expect("valid p2wpkh"),
+        AddressScriptType::P2WSH => Builder::build_p2wsh(address.hash()).expect("valid p2wsh"),
     }
 }
 
