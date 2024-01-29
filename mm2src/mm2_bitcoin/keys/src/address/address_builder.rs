@@ -5,9 +5,9 @@ use {Address, AddressFormat, AddressHashEnum, AddressPrefixes, AddressScriptType
 #[derive(PartialEq)]
 pub enum AddressBuilderOption {
     /// build for pay to pubkey hash output (witness or legacy)
-    BuildP2Pkh,
+    BuildPubkeyHash,
     /// build for pay to script hash output (witness or legacy)
-    BuildP2Sh,
+    BuildScriptHash,
 }
 
 /// Builder for Address
@@ -27,10 +27,10 @@ pub struct AddressBuilder {
 
 impl AddressBuilder {
     /// Builds Address with the script type corresponding to p2pkh or p2wpkh
-    pub fn build_p2pkh(&self) -> Result<Address, String> { self.build(AddressBuilderOption::BuildP2Pkh) }
+    pub fn build_as_pkh(&self) -> Result<Address, String> { self.build(AddressBuilderOption::BuildPubkeyHash) }
 
     /// Builds Address with the script type corresponding to p2sh or p2wsh
-    pub fn build_p2sh(&self) -> Result<Address, String> { self.build(AddressBuilderOption::BuildP2Sh) }
+    pub fn build_as_sh(&self) -> Result<Address, String> { self.build(AddressBuilderOption::BuildScriptHash) }
 
     pub fn build(&self, build_option: AddressBuilderOption) -> Result<Address, String> {
         match &self.addr_format {
@@ -67,8 +67,8 @@ impl AddressBuilder {
 
     fn get_address_prefixes(&self, build_option: &AddressBuilderOption) -> Result<AddressPrefixes, String> {
         let prefixes = match build_option {
-            AddressBuilderOption::BuildP2Pkh => &self.prefixes.p2pkh,
-            AddressBuilderOption::BuildP2Sh => &self.prefixes.p2sh,
+            AddressBuilderOption::BuildPubkeyHash => &self.prefixes.p2pkh,
+            AddressBuilderOption::BuildScriptHash => &self.prefixes.p2sh,
         };
         if prefixes.is_empty() {
             return Err("no prefixes for address".to_owned());
@@ -78,15 +78,15 @@ impl AddressBuilder {
 
     fn get_legacy_script_type(&self, build_option: &AddressBuilderOption) -> AddressScriptType {
         match build_option {
-            AddressBuilderOption::BuildP2Pkh => AddressScriptType::P2PKH,
-            AddressBuilderOption::BuildP2Sh => AddressScriptType::P2SH,
+            AddressBuilderOption::BuildPubkeyHash => AddressScriptType::P2PKH,
+            AddressBuilderOption::BuildScriptHash => AddressScriptType::P2SH,
         }
     }
 
     fn get_segwit_script_type(&self, build_option: &AddressBuilderOption) -> AddressScriptType {
         match build_option {
-            AddressBuilderOption::BuildP2Pkh => AddressScriptType::P2WPKH,
-            AddressBuilderOption::BuildP2Sh => AddressScriptType::P2WSH,
+            AddressBuilderOption::BuildPubkeyHash => AddressScriptType::P2WPKH,
+            AddressBuilderOption::BuildScriptHash => AddressScriptType::P2WSH,
         }
     }
 
@@ -99,8 +99,8 @@ impl AddressBuilder {
 
     fn check_segwit_hash(&self, build_option: &AddressBuilderOption) -> Result<(), String> {
         let is_hash_valid = match build_option {
-            AddressBuilderOption::BuildP2Pkh => self.hash.is_address_hash(),
-            AddressBuilderOption::BuildP2Sh => self.hash.is_witness_script_hash(),
+            AddressBuilderOption::BuildPubkeyHash => self.hash.is_address_hash(),
+            AddressBuilderOption::BuildScriptHash => self.hash.is_witness_script_hash(),
         };
         if !is_hash_valid {
             return Err("invalid hash for segwit address".to_owned());

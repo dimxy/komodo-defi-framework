@@ -306,7 +306,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props");
 
         assert_eq!("16meyfSoQV6twkAAxPe51RtMVz7PGRmWna".to_owned(), address.to_string());
@@ -321,7 +321,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props");
 
         assert_eq!("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW".to_owned(), address.to_string());
@@ -336,7 +336,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props");
 
         assert_eq!("tmAEKD7psc1ajK76QMGEW8WGQSBBHf9SqCp".to_owned(), address.to_string());
@@ -351,7 +351,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2sh()
+        .build_as_sh()
         .expect("valid address props"); // TODO: check with P2PKH
 
         assert_eq!("bX9bppqdGvmCCAujd76Tq76zs1suuPnB9A".to_owned(), address.to_string());
@@ -366,7 +366,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props");
 
         assert_eq!(
@@ -386,7 +386,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props");
 
         assert_eq!(
@@ -406,7 +406,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props");
 
         assert_eq!(
@@ -429,7 +429,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2sh()
+        .build_as_sh()
         .expect("valid address props");
 
         assert_eq!(
@@ -449,7 +449,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props");
 
         assert_eq!(
@@ -469,7 +469,7 @@ mod tests {
             hrp: None,
             addr_format: AddressFormat::Standard,
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props");
 
         assert_eq!(
@@ -548,7 +548,7 @@ mod tests {
                 p2sh_addr_prefix: 5,
             },
         }
-        .build_p2sh()
+        .build_as_sh()
         .expect("valid address props"); // actually prefix == 2 is unknown and is neither P2PKH nor P2SH
 
         assert_eq!(

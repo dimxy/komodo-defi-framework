@@ -53,7 +53,7 @@ pub async fn z_send_htlc(
         addr_format: UtxoAddressFormat::Standard,
         hrp: None,
     }
-    .build_p2sh()
+    .build_as_sh()
     .expect("valid address props");
 
     let amount_sat = sat_from_big_decimal(&amount, coin.utxo_arc.decimals)?;

@@ -3095,7 +3095,7 @@ fn test_withdraw_to_p2pkh() {
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
     }
-    .build_p2pkh()
+    .build_as_pkh()
     .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
@@ -3144,7 +3144,7 @@ fn test_withdraw_to_p2sh() {
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
     }
-    .build_p2sh()
+    .build_as_sh()
     .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
@@ -3193,7 +3193,7 @@ fn test_withdraw_to_p2wpkh() {
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Segwit,
     }
-    .build_p2pkh()
+    .build_as_pkh()
     .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {

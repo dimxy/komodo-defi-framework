@@ -462,7 +462,7 @@ where
                     hrp: coin.as_ref().conf.bech32_hrp.clone(),
                     addr_format,
                 }
-                .build_p2pkh()
+                .build_as_pkh()
                 .expect("valid address props");
                 (key_pair, my_address)
             },

@@ -1943,7 +1943,7 @@ pub fn address_by_conf_and_pubkey_str(
         hrp: utxo_conf.bech32_hrp,
         addr_format,
     }
-    .build_p2pkh()?;
+    .build_as_pkh()?;
     address.display_address()
 }
 

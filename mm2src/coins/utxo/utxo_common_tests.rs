@@ -86,7 +86,7 @@ pub(super) fn utxo_coin_fields_for_test(
             UtxoAddressFormat::Standard
         },
     }
-    .build_p2pkh()
+    .build_as_pkh()
     .expect("valid address props");
     let my_script_pubkey = Builder::build_p2pkh(my_address.hash()).to_bytes();
 

@@ -632,11 +632,11 @@ pub fn addresses_from_script<T: UtxoCommonOps>(coin: &T, script: &Script) -> Res
             let (addr_format, build_option) = match dst.kind {
                 AddressScriptType::P2PKH => (
                     coin.addr_format_for_standard_scripts(),
-                    AddressBuilderOption::BuildP2Pkh,
+                    AddressBuilderOption::BuildPubkeyHash,
                 ),
-                AddressScriptType::P2SH => (coin.addr_format_for_standard_scripts(), AddressBuilderOption::BuildP2Sh),
-                AddressScriptType::P2WPKH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildP2Pkh),
-                AddressScriptType::P2WSH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildP2Sh),
+                AddressScriptType::P2SH => (coin.addr_format_for_standard_scripts(), AddressBuilderOption::BuildScriptHash),
+                AddressScriptType::P2WPKH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildPubkeyHash),
+                AddressScriptType::P2WSH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildScriptHash),
             };
             AddressBuilder {
                 hash: dst.hash,
@@ -1536,7 +1536,7 @@ pub async fn sign_and_send_taker_funding_spend<T: UtxoCommonOps>(
             hrp: coin.as_ref().conf.bech32_hrp.clone(),
             addr_format: UtxoAddressFormat::Standard,
         }
-        .build_p2sh()
+        .build_as_sh()
         .expect("valid address props");
         let payment_address_str = payment_address.to_string();
         try_tx_s!(
@@ -2732,7 +2732,7 @@ pub fn check_if_my_payment_sent<T: UtxoCommonOps + SwapOps>(
                     hrp: coin.as_ref().conf.bech32_hrp.clone(),
                     addr_format: coin.addr_format_for_standard_scripts().clone(),
                 }
-                .build_p2sh()?;
+                .build_as_sh()?;
                 let target_addr = target_addr.to_string();
                 let is_imported = try_s!(client.is_address_imported(&target_addr).await);
                 if !is_imported {
@@ -4578,7 +4578,7 @@ pub fn address_from_raw_pubkey(
         hrp,
         addr_format,
     }
-    .build_p2pkh()
+    .build_as_pkh()
 }
 
 pub fn address_from_pubkey(
@@ -4595,7 +4595,7 @@ pub fn address_from_pubkey(
         hrp,
         addr_format,
     }
-    .build_p2pkh()
+    .build_as_pkh()
     .expect("valid address props")
 }
 
@@ -4816,7 +4816,7 @@ where
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
     }
-    .build_p2sh()?;
+    .build_as_sh()?;
     let result = SwapPaymentOutputsResult {
         payment_address,
         outputs: vec![htlc_out, op_return_out],

@@ -73,7 +73,7 @@ fn test_withdraw_to_p2sh_address_should_fail() {
         hrp: coin.as_ref().conf.bech32_hrp.clone(),
         addr_format: UtxoAddressFormat::Standard,
     }
-    .build_p2sh()
+    .build_as_sh()
     .expect("valid address props");
 
     let req = WithdrawRequest {

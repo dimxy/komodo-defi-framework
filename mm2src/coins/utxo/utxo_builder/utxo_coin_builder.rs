@@ -236,7 +236,7 @@ where
         hrp: conf.bech32_hrp.clone(),
         addr_format,
     }
-    .build_p2pkh()
+    .build_as_pkh()
     .expect("valid address props");
 
     let my_script_pubkey = output_script(&my_address).to_bytes();

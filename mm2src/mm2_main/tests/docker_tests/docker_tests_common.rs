@@ -259,7 +259,7 @@ impl BchDockerOps {
                 checksum_type: Default::default(),
                 addr_format: Default::default(),
             }
-            .build_p2pkh()
+            .build_as_pkh()
             .expect("valid address props");
 
             self.native_client()
@@ -1004,7 +1004,7 @@ pub fn utxo_burn_address() -> Address {
         hrp: None,
         addr_format: UtxoAddressFormat::Standard,
     }
-    .build_p2pkh()
+    .build_as_pkh()
     .expect("valid address props")
 }
 

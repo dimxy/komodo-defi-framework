@@ -154,7 +154,7 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
             hrp: utxo.conf.bech32_hrp.clone(),
             addr_format: self.addr_format().clone(),
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props")
     }
 
@@ -172,7 +172,7 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
             hrp: utxo.conf.bech32_hrp.clone(),
             addr_format: self.addr_format().clone(),
         }
-        .build_p2pkh()
+        .build_as_pkh()
         .expect("valid address props")
     }
 
