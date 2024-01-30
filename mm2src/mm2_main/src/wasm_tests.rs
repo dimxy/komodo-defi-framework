@@ -9,7 +9,7 @@ use mm2_test_helpers::for_tests::{check_recent_swaps, enable_electrum_json, enab
                                   wait_for_swaps_finish_and_check_status, MarketMakerIt, Mm2InitPrivKeyPolicy,
                                   Mm2TestConf, Mm2TestConfForSwap, MORTY, RICK};
 use mm2_test_helpers::get_passphrase;
-use mm2_test_helpers::structs::HDAccountAddressId;
+use mm2_test_helpers::structs::{Bip44Chain, HDAccountAddressId};
 use serde_json::json;
 use wasm_bindgen_test::wasm_bindgen_test;
 
@@ -85,8 +85,8 @@ async fn test_mm2_stops_immediately() {
 async fn test_qrc20_tx_history() { test_qrc20_history_impl(Some(wasm_start)).await }
 
 async fn trade_base_rel_electrum(
-    bob_priv_key_policy: Mm2InitPrivKeyPolicy,
-    alice_priv_key_policy: Mm2InitPrivKeyPolicy,
+    mut mm_bob: MarketMakerIt,
+    mut mm_alice: MarketMakerIt,
     bob_path_to_address: Option<HDAccountAddressId>,
     alice_path_to_address: Option<HDAccountAddressId>,
     pairs: &[(&'static str, &'static str)],
@@ -94,58 +94,25 @@ async fn trade_base_rel_electrum(
     taker_price: f64,
     volume: f64,
 ) {
-    let coins = json!([rick_conf(), morty_conf(),]);
-
-    let bob_conf = Mm2TestConfForSwap::bob_conf_with_policy(&bob_priv_key_policy, &coins);
-    let mut mm_bob = MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, Some(wasm_start))
-        .await
-        .unwrap();
-
-    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
-    Timer::sleep(1.).await;
-
-    let alice_conf = Mm2TestConfForSwap::alice_conf_with_policy(&alice_priv_key_policy, &coins, &mm_bob.my_seed_addr());
-    let mut mm_alice = MarketMakerIt::start_async(alice_conf.conf, alice_conf.rpc_password, Some(wasm_start))
-        .await
-        .unwrap();
-    Timer::sleep(2.).await;
-
-    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
-
     // Enable coins on Bob side. Print the replies in case we need the address.
-    match bob_priv_key_policy {
-        Mm2InitPrivKeyPolicy::Iguana => {
-            let rc = enable_electrum_json(&mm_bob, RICK, true, doc_electrums()).await;
-            log!("enable RICK (bob): {:?}", rc);
-
-            let rc = enable_electrum_json(&mm_bob, MORTY, true, marty_electrums()).await;
-            log!("enable MORTY (bob): {:?}", rc);
-        },
-        Mm2InitPrivKeyPolicy::GlobalHDAccount => {
-            let rc = enable_utxo_v2_electrum(&mm_bob, "RICK", doc_electrums(), bob_path_to_address.clone(), 60).await;
-            log!("enable RICK (bob): {:?}", rc);
-            let rc = enable_utxo_v2_electrum(&mm_bob, "MORTY", marty_electrums(), bob_path_to_address, 60).await;
-            log!("enable MORTY (bob): {:?}", rc);
-        },
-    }
+    let rc = enable_utxo_v2_electrum(&mm_bob, "RICK", doc_electrums(), None, bob_path_to_address.clone(), 60).await;
+    log!("enable RICK (bob): {:?}", rc);
+    let rc = enable_utxo_v2_electrum(&mm_bob, "MORTY", marty_electrums(), None, bob_path_to_address, 60).await;
+    log!("enable MORTY (bob): {:?}", rc);
 
     // Enable coins on Alice side. Print the replies in case we need the address.
-    match alice_priv_key_policy {
-        Mm2InitPrivKeyPolicy::Iguana => {
-            let rc = enable_electrum_json(&mm_alice, RICK, true, doc_electrums()).await;
-            log!("enable RICK (alice): {:?}", rc);
-
-            let rc = enable_electrum_json(&mm_alice, MORTY, true, marty_electrums()).await;
-            log!("enable MORTY (alice): {:?}", rc);
-        },
-        Mm2InitPrivKeyPolicy::GlobalHDAccount => {
-            let rc =
-                enable_utxo_v2_electrum(&mm_alice, "RICK", doc_electrums(), alice_path_to_address.clone(), 60).await;
-            log!("enable RICK (alice): {:?}", rc);
-            let rc = enable_utxo_v2_electrum(&mm_alice, "MORTY", marty_electrums(), alice_path_to_address, 60).await;
-            log!("enable MORTY (alice): {:?}", rc);
-        },
-    }
+    let rc = enable_utxo_v2_electrum(
+        &mm_alice,
+        "RICK",
+        doc_electrums(),
+        None,
+        alice_path_to_address.clone(),
+        60,
+    )
+    .await;
+    log!("enable RICK (alice): {:?}", rc);
+    let rc = enable_utxo_v2_electrum(&mm_alice, "MORTY", marty_electrums(), None, alice_path_to_address, 60).await;
+    log!("enable MORTY (alice): {:?}", rc);
 
     let uuids = start_swaps(&mut mm_bob, &mut mm_alice, pairs, maker_price, taker_price, volume).await;
 
@@ -155,6 +122,7 @@ async fn trade_base_rel_electrum(
     check_recent_swaps(&mm_alice, uuids.len()).await;
     log!("Checking bob recent swaps..");
     check_recent_swaps(&mm_bob, uuids.len()).await;
+
     for (base, rel) in pairs.iter() {
         log!("Get {}/{} orderbook", base, rel);
         let rc = mm_bob
@@ -186,14 +154,87 @@ async fn trade_base_rel_electrum(
 
 #[wasm_bindgen_test]
 async fn trade_test_rick_and_morty() {
+    let coins = json!([rick_conf(), morty_conf()]);
+
     let bob_policy = Mm2InitPrivKeyPolicy::Iguana;
+
+    let bob_conf = Mm2TestConfForSwap::bob_conf_with_policy(&bob_policy, &coins);
+    let mm_bob = MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, Some(wasm_start))
+        .await
+        .unwrap();
+
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    Timer::sleep(1.).await;
+
     let alice_policy = Mm2InitPrivKeyPolicy::GlobalHDAccount;
+    let alice_conf = Mm2TestConfForSwap::alice_conf_with_policy(&alice_policy, &coins, &mm_bob.my_seed_addr());
+    let mm_alice = MarketMakerIt::start_async(alice_conf.conf, alice_conf.rpc_password, Some(wasm_start))
+        .await
+        .unwrap();
+    Timer::sleep(2.).await;
+
+    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
+
     let alice_path_to_address = HDAccountAddressId::default();
+
     let pairs: &[_] = &[("RICK", "MORTY")];
     trade_base_rel_electrum(
-        bob_policy,
-        alice_policy,
+        mm_bob,
+        mm_alice,
         None,
+        Some(alice_path_to_address),
+        pairs,
+        1.,
+        1.,
+        0.0001,
+    )
+    .await;
+}
+
+#[wasm_bindgen_test]
+async fn trade_v2_test_rick_and_morty() {
+    register_wasm_log();
+
+    let coins = json!([rick_conf(), morty_conf()]);
+
+    let bob_conf = Mm2TestConf::seednode_with_hd_account_trade_v2(Mm2TestConfForSwap::BOB_HD_PASSPHRASE, &coins);
+    let mm_bob = MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, Some(wasm_start))
+        .await
+        .unwrap();
+
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    Timer::sleep(1.).await;
+
+    let alice_conf =
+        Mm2TestConf::light_node_with_hd_account_trade_v2(Mm2TestConfForSwap::ALICE_HD_PASSPHRASE, &coins, &[
+            &mm_bob.my_seed_addr()
+        ]);
+    let mm_alice = MarketMakerIt::start_async(alice_conf.conf, alice_conf.rpc_password, Some(wasm_start))
+        .await
+        .unwrap();
+    Timer::sleep(2.).await;
+
+    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
+
+    // use account: 1 to avoid possible UTXO re-usage between trade_v2_test_rick_and_morty and trade_test_rick_and_morty
+    let bob_path_to_address = HDAccountAddressId {
+        account_id: 1,
+        chain: Bip44Chain::External,
+        address_id: 0,
+    };
+
+    // use account: 1 to avoid possible UTXO re-usage between trade_v2_test_rick_and_morty and trade_test_rick_and_morty
+    let alice_path_to_address = HDAccountAddressId {
+        account_id: 1,
+        chain: Bip44Chain::External,
+        address_id: 0,
+    };
+
+    let pairs: &[_] = &[("RICK", "MORTY")];
+    trade_base_rel_electrum(
+        mm_bob,
+        mm_alice,
+        Some(bob_path_to_address),
         Some(alice_path_to_address),
         pairs,
         1.,

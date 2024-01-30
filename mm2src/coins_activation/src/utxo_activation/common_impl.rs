@@ -1,4 +1,4 @@
-use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandle};
+use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandleShared};
 use crate::utxo_activation::init_utxo_standard_activation_error::InitUtxoStandardError;
 use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingStatus, UtxoStandardInProgressStatus,
                                                           UtxoStandardUserAction};
@@ -22,7 +22,7 @@ use std::collections::HashMap;
 pub(crate) async fn get_activation_result<Coin>(
     ctx: &MmArc,
     coin: &Coin,
-    task_handle: &InitStandaloneCoinTaskHandle<Coin>,
+    task_handle: InitStandaloneCoinTaskHandleShared<Coin>,
     activation_params: &UtxoActivationParams,
 ) -> MmResult<UtxoStandardActivationResult, InitUtxoStandardError>
 where
@@ -43,7 +43,7 @@ where
 
     let xpub_extractor = if coin.is_trezor() {
         Some(
-            RpcTaskXPubExtractor::new(ctx, task_handle, xpub_extractor_rpc_statuses())
+            RpcTaskXPubExtractor::new(ctx, task_handle.clone(), xpub_extractor_rpc_statuses())
                 .mm_err(|_| InitUtxoStandardError::HwError(HwRpcError::NotInitialized))?,
         )
     } else {

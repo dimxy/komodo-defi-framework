@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright © 2023 Pampex LTD and TillyHK LTD              *
+ * Copyright © 2023 Pampex LTD and TillyHK LTD                                *
  *                                                                            *
  * See the CONTRIBUTOR-LICENSE-AGREEMENT, COPYING, LICENSE-COPYRIGHT-NOTICE   *
  * and DEVELOPER-CERTIFICATE-OF-ORIGIN files in the LEGAL directory in        *
@@ -7,7 +7,7 @@
  * holder information and the developer policies on copyright and licensing.  *
  *                                                                            *
  * Unless otherwise agreed in a custom licensing agreement, no part of the    *
- * Komodo DeFi Framework software, including this file may be copied, modified, propagated*
+ * Komodo DeFi Framework software, including this file may be copied, modified, propagated *
  * or distributed except according to the terms contained in the              *
  * LICENSE-COPYRIGHT-NOTICE file.                                             *
  *                                                                            *
@@ -50,6 +50,7 @@ use futures01::Future;
 use http::StatusCode;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::behaviour::{EventBehaviour, EventInitStatus};
 use mm2_net::transport::{slurp_url, GuiAuthValidation, GuiAuthValidationGenerator, SlurpError};
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, MmNumber};
@@ -89,19 +90,20 @@ use super::{coin_conf, lp_coinfind_or_err, AsyncMutex, BalanceError, BalanceFut,
             PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut,
             RawTransactionRequest, RawTransactionRes, RawTransactionResult, RefundError, RefundPaymentArgs,
             RefundResult, RewardTarget, RpcClientType, RpcTransportEventHandler, RpcTransportEventHandlerShared,
-            SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignatureError,
-            SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageError,
-            TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction, TransactionDetails,
-            TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxMarshalingErr,
-            UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
-            ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationError,
-            VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError,
-            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
-            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult, EARLY_CONFIRMATION_ERR_LOG,
-            INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG, INVALID_RECEIVER_ERR_LOG,
-            INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG};
+            SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignEthTransactionParams,
+            SignRawTransactionEnum, SignRawTransactionRequest, SignatureError, SignatureResult, SpendPaymentArgs,
+            SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
+            TradePreimageValue, Transaction, TransactionDetails, TransactionEnum, TransactionErr, TransactionFut,
+            TransactionType, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
+            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
+            ValidatePaymentInput, VerificationError, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps,
+            WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest, WithdrawResult,
+            EARLY_CONFIRMATION_ERR_LOG, INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG,
+            INVALID_RECEIVER_ERR_LOG, INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG};
 pub use rlp;
 
+mod eth_balance_events;
 #[cfg(test)] mod eth_tests;
 #[cfg(target_arch = "wasm32")] mod eth_wasm_tests;
 mod web3_transport;
@@ -423,7 +425,7 @@ pub struct EthCoinImpl {
     swap_contract_address: Address,
     fallback_swap_contract: Option<Address>,
     contract_supports_watchers: bool,
-    web3: Web3<Web3Transport>,
+    pub(crate) web3: Web3<Web3Transport>,
     /// The separate web3 instances kept to get nonce, will replace the web3 completely soon
     web3_instances: Vec<Web3Instance>,
     decimals: u8,
@@ -873,7 +875,7 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
 /// `withdraw_erc1155` function returns details of `ERC-1155` transaction including tx hex,
 /// which should be sent to`send_raw_transaction` RPC to broadcast the transaction.
 pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> WithdrawNftResult {
-    let coin = lp_coinfind_or_err(&ctx, &withdraw_type.chain.to_ticker()).await?;
+    let coin = lp_coinfind_or_err(&ctx, withdraw_type.chain.to_ticker()).await?;
     let (to_addr, token_addr, eth_coin) =
         get_valid_nft_add_to_withdraw(coin, &withdraw_type.to, &withdraw_type.token_address)?;
     let my_address = eth_coin.my_address()?;
@@ -975,7 +977,7 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
 /// `withdraw_erc721` function returns details of `ERC-721` transaction including tx hex,
 /// which should be sent to`send_raw_transaction` RPC to broadcast the transaction.
 pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> WithdrawNftResult {
-    let coin = lp_coinfind_or_err(&ctx, &withdraw_type.chain.to_ticker()).await?;
+    let coin = lp_coinfind_or_err(&ctx, withdraw_type.chain.to_ticker()).await?;
     let (to_addr, token_addr, eth_coin) =
         get_valid_nft_add_to_withdraw(coin, &withdraw_type.to, &withdraw_type.token_address)?;
     let my_address = eth_coin.my_address()?;
@@ -2056,6 +2058,7 @@ impl WatcherOps for EthCoin {
     }
 }
 
+#[async_trait]
 #[cfg_attr(test, mockable)]
 impl MarketCoinOps for EthCoin {
     fn ticker(&self) -> &str { &self.ticker[..] }
@@ -2165,6 +2168,14 @@ impl MarketCoinOps for EthCoin {
                 .map(|res| format!("{:02x}", res))
                 .map_err(|e| ERRL!("{}", e)),
         )
+    }
+
+    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> RawTransactionResult {
+        if let SignRawTransactionEnum::ETH(eth_args) = &args.tx {
+            sign_raw_eth_tx(self, eth_args).await
+        } else {
+            MmError::err(RawTransactionError::InvalidParam("eth type expected".to_string()))
+        }
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
@@ -2406,7 +2417,7 @@ lazy_static! {
 
 type EthTxFut = Box<dyn Future<Item = SignedEthTx, Error = TransactionErr> + Send + 'static>;
 
-async fn sign_and_send_transaction_with_keypair(
+async fn sign_transaction_with_keypair(
     ctx: MmArc,
     coin: &EthCoin,
     key_pair: &KeyPair,
@@ -2414,11 +2425,11 @@ async fn sign_and_send_transaction_with_keypair(
     action: Action,
     data: Vec<u8>,
     gas: U256,
-) -> Result<SignedEthTx, TransactionErr> {
+) -> Result<(SignedEthTx, Vec<Web3Instance>), TransactionErr> {
     let mut status = ctx.log.status_handle();
     macro_rules! tags {
         () => {
-            &[&"sign-and-send"]
+            &[&"sign"]
         };
     }
     let _nonce_lock = coin.nonce_lock.lock().await;
@@ -2440,7 +2451,29 @@ async fn sign_and_send_transaction_with_keypair(
         data,
     };
 
-    let signed = tx.sign(key_pair.secret(), coin.chain_id);
+    Ok((
+        tx.sign(key_pair.secret(), coin.chain_id),
+        web3_instances_with_latest_nonce,
+    ))
+}
+
+async fn sign_and_send_transaction_with_keypair(
+    ctx: MmArc,
+    coin: &EthCoin,
+    key_pair: &KeyPair,
+    value: U256,
+    action: Action,
+    data: Vec<u8>,
+    gas: U256,
+) -> Result<SignedEthTx, TransactionErr> {
+    let mut status = ctx.log.status_handle();
+    macro_rules! tags {
+        () => {
+            &[&"sign-and-send"]
+        };
+    }
+    let (signed, web3_instances_with_latest_nonce) =
+        sign_transaction_with_keypair(ctx, coin, key_pair, value, action, data, gas).await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
     status.status(tags!(), "send_raw_transaction…");
 
@@ -2450,7 +2483,8 @@ async fn sign_and_send_transaction_with_keypair(
     try_tx_s!(select_ok(futures).await.map_err(|e| ERRL!("{}", e)), signed);
 
     status.status(tags!(), "get_addr_nonce…");
-    coin.wait_for_addr_nonce_increase(coin.my_address, nonce).await;
+    coin.wait_for_addr_nonce_increase(coin.my_address, signed.transaction.unsigned.nonce)
+        .await;
     Ok(signed)
 }
 
@@ -2499,6 +2533,42 @@ async fn sign_and_send_transaction_with_metamask(
             "Waited too long until the transaction {:?} appear on the RPC node",
             tx_hash
         ),
+    }
+}
+
+/// Sign eth transaction
+async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> RawTransactionResult {
+    let ctx = MmArc::from_weak(&coin.ctx)
+        .ok_or("!ctx")
+        .map_to_mm(|err| RawTransactionError::TransactionError(err.to_string()))?;
+    let value = wei_from_big_decimal(args.value.as_ref().unwrap_or(&BigDecimal::from(0)), coin.decimals)?;
+    let action = if let Some(to) = &args.to {
+        Call(Address::from_str(to).map_to_mm(|err| RawTransactionError::InvalidParam(err.to_string()))?)
+    } else {
+        Create
+    };
+    let data = hex::decode(args.data.as_ref().unwrap_or(&String::from("")))?;
+    match coin.priv_key_policy {
+        // TODO: use zeroise for privkey
+        EthPrivKeyPolicy::Iguana(ref key_pair)
+        | EthPrivKeyPolicy::HDWallet {
+            activated_key: ref key_pair,
+            ..
+        } => {
+            return sign_transaction_with_keypair(ctx, coin, key_pair, value, action, data, args.gas_limit)
+                .await
+                .map(|(signed_tx, _)| RawTransactionRes {
+                    tx_hex: signed_tx.tx_hex().into(),
+                })
+                .map_to_mm(|err| RawTransactionError::TransactionError(err.get_plain_text_format()));
+        },
+        #[cfg(target_arch = "wasm32")]
+        EthPrivKeyPolicy::Metamask(_) => MmError::err(RawTransactionError::InvalidParam(
+            "sign raw eth tx not implemented for Metamask".into(),
+        )),
+        EthPrivKeyPolicy::Trezor => MmError::err(RawTransactionError::InvalidParam(
+            "sign raw eth tx not implemented for Trezor".into(),
+        )),
     }
 }
 
@@ -4704,6 +4774,16 @@ impl EthCoin {
         };
         Box::new(fut.boxed().compat())
     }
+
+    async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
+        if let Some(stream_config) = &ctx.event_stream_configuration {
+            if let EventInitStatus::Failed(err) = EventBehaviour::spawn_if_active(self.clone(), stream_config).await {
+                return ERR!("Failed spawning balance events. Error: {}", err);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -4716,7 +4796,7 @@ pub struct EthTxFeeDetails {
 }
 
 impl EthTxFeeDetails {
-    fn new(gas: U256, gas_price: U256, coin: &str) -> NumConversResult<EthTxFeeDetails> {
+    pub(crate) fn new(gas: U256, gas_price: U256, coin: &str) -> NumConversResult<EthTxFeeDetails> {
         let total_fee = gas * gas_price;
         // Fees are always paid in ETH, can use 18 decimals by default
         let total_fee = u256_to_big_decimal(total_fee, ETH_DECIMALS)?;
@@ -5493,9 +5573,10 @@ pub async fn eth_coin_from_conf_and_request(
         EthCoinType::Erc20 { ref platform, .. } => String::from(platform),
     };
 
-    let mut map = NONCE_LOCK.lock().unwrap();
-
-    let nonce_lock = map.entry(key_lock).or_insert_with(new_nonce_lock).clone();
+    let nonce_lock = {
+        let mut map = NONCE_LOCK.lock().unwrap();
+        map.entry(key_lock).or_insert_with(new_nonce_lock).clone()
+    };
 
     // Create an abortable system linked to the `MmCtx` so if the context is stopped via `MmArc::stop`,
     // all spawned futures related to `ETH` coin will be aborted as well.
@@ -5525,7 +5606,11 @@ pub async fn eth_coin_from_conf_and_request(
         erc20_tokens_infos: Default::default(),
         abortable_system,
     };
-    Ok(EthCoin(Arc::new(coin)))
+
+    let coin = EthCoin(Arc::new(coin));
+    coin.spawn_balance_stream_if_enabled(ctx).await?;
+
+    Ok(coin)
 }
 
 /// Displays the address in mixed-case checksum form
