@@ -66,14 +66,15 @@ fn test_withdraw_to_p2sh_address_should_fail() {
     ];
     let (_, coin) = qrc20_coin_for_test(priv_key, None);
 
-    let p2sh_address = AddressBuilder {
-        prefixes: coin.as_ref().conf.address_prefixes.clone(),
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
-        checksum_type: *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Standard,
-    }
-    .build_as_sh()
+    let p2sh_address = AddressBuilder::new(
+        UtxoAddressFormat::Standard,
+        coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.bech32_hrp.clone(),
+    )
+    .as_sh()
+    .build()
     .expect("valid address props");
 
     let req = WithdrawRequest {

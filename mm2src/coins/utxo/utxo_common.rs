@@ -632,23 +632,25 @@ pub fn addresses_from_script<T: UtxoCommonOps>(coin: &T, script: &Script) -> Res
             let (addr_format, build_option) = match dst.kind {
                 AddressScriptType::P2PKH => (
                     coin.addr_format_for_standard_scripts(),
-                    AddressBuilderOption::BuildPubkeyHash,
+                    AddressBuilderOption::BuildAsPubkeyHash,
                 ),
                 AddressScriptType::P2SH => (
                     coin.addr_format_for_standard_scripts(),
-                    AddressBuilderOption::BuildScriptHash,
+                    AddressBuilderOption::BuildAsScriptHash,
                 ),
-                AddressScriptType::P2WPKH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildPubkeyHash),
-                AddressScriptType::P2WSH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildScriptHash),
+                AddressScriptType::P2WPKH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildAsPubkeyHash),
+                AddressScriptType::P2WSH => (UtxoAddressFormat::Segwit, AddressBuilderOption::BuildAsScriptHash),
             };
-            AddressBuilder {
-                hash: dst.hash,
-                checksum_type: conf.checksum_type,
-                prefixes: conf.address_prefixes.clone(),
-                hrp: conf.bech32_hrp.clone(),
+
+            AddressBuilder::new(
                 addr_format,
-            }
-            .build(build_option)
+                dst.hash,
+                conf.checksum_type,
+                conf.address_prefixes.clone(),
+                conf.bech32_hrp.clone(),
+            )
+            .with_build_option(build_option)
+            .build()
             .expect("valid address props")
         })
         .collect();
@@ -1532,14 +1534,15 @@ pub async fn sign_and_send_taker_funding_spend<T: UtxoCommonOps>(
             gen_args.taker_pub,
             gen_args.maker_pub,
         );
-        let payment_address = AddressBuilder {
-            checksum_type: coin.as_ref().conf.checksum_type,
-            hash: AddressHashEnum::AddressHash(dhash160(&payment_redeem_script)),
-            prefixes: coin.as_ref().conf.address_prefixes.clone(),
-            hrp: coin.as_ref().conf.bech32_hrp.clone(),
-            addr_format: UtxoAddressFormat::Standard,
-        }
-        .build_as_sh()
+        let payment_address = AddressBuilder::new(
+            UtxoAddressFormat::Standard,
+            AddressHashEnum::AddressHash(dhash160(&payment_redeem_script)),
+            coin.as_ref().conf.checksum_type,
+            coin.as_ref().conf.address_prefixes.clone(),
+            coin.as_ref().conf.bech32_hrp.clone(),
+        )
+        .as_sh()
+        .build()
         .expect("valid address props");
         let payment_address_str = payment_address.to_string();
         try_tx_s!(
@@ -2728,14 +2731,15 @@ pub fn check_if_my_payment_sent<T: UtxoCommonOps + SwapOps>(
                 }
             },
             UtxoRpcClientEnum::Native(client) => {
-                let target_addr = AddressBuilder {
-                    prefixes: coin.as_ref().conf.address_prefixes.clone(),
-                    hash: hash.into(),
-                    checksum_type: coin.as_ref().conf.checksum_type,
-                    hrp: coin.as_ref().conf.bech32_hrp.clone(),
-                    addr_format: coin.addr_format_for_standard_scripts(),
-                }
-                .build_as_sh()?;
+                let target_addr = AddressBuilder::new(
+                    coin.addr_format_for_standard_scripts(),
+                    hash.into(),
+                    coin.as_ref().conf.checksum_type,
+                    coin.as_ref().conf.address_prefixes.clone(),
+                    coin.as_ref().conf.bech32_hrp.clone(),
+                )
+                .as_sh()
+                .build()?;
                 let target_addr = target_addr.to_string();
                 let is_imported = try_s!(client.is_address_imported(&target_addr).await);
                 if !is_imported {
@@ -4574,14 +4578,15 @@ pub fn address_from_raw_pubkey(
     hrp: Option<String>,
     addr_format: UtxoAddressFormat,
 ) -> Result<Address, String> {
-    AddressBuilder {
-        prefixes,
-        hash: try_s!(Public::from_slice(pub_key)).address_hash().into(),
-        checksum_type,
-        hrp,
+    AddressBuilder::new(
         addr_format,
-    }
-    .build_as_pkh()
+        try_s!(Public::from_slice(pub_key)).address_hash().into(),
+        checksum_type,
+        prefixes,
+        hrp,
+    )
+    .as_pkh()
+    .build()
 }
 
 pub fn address_from_pubkey(
@@ -4591,15 +4596,10 @@ pub fn address_from_pubkey(
     hrp: Option<String>,
     addr_format: UtxoAddressFormat,
 ) -> Address {
-    AddressBuilder {
-        prefixes,
-        hash: pub_key.address_hash().into(),
-        checksum_type,
-        hrp,
-        addr_format,
-    }
-    .build_as_pkh()
-    .expect("valid address props")
+    AddressBuilder::new(addr_format, pub_key.address_hash().into(), checksum_type, prefixes, hrp)
+        .as_pkh()
+        .build()
+        .expect("valid address props")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4812,14 +4812,15 @@ where
         script_pubkey: op_return_script,
     };
 
-    let payment_address = AddressBuilder {
-        checksum_type: coin.as_ref().conf.checksum_type,
-        hash: redeem_script_hash.into(),
-        prefixes: coin.as_ref().conf.address_prefixes.clone(),
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Standard,
-    }
-    .build_as_sh()?;
+    let payment_address = AddressBuilder::new(
+        UtxoAddressFormat::Standard,
+        redeem_script_hash.into(),
+        coin.as_ref().conf.checksum_type,
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.bech32_hrp.clone(),
+    )
+    .as_sh()
+    .build()?;
     let result = SwapPaymentOutputsResult {
         payment_address,
         outputs: vec![htlc_out, op_return_out],

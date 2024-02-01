@@ -3088,14 +3088,15 @@ fn test_withdraw_to_p2pkh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
     // Create a p2pkh address for the test coin
-    let p2pkh_address = AddressBuilder {
-        prefixes: coin.as_ref().conf.address_prefixes.clone(),
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
-        checksum_type: *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Standard,
-    }
-    .build_as_pkh()
+    let p2pkh_address = AddressBuilder::new(
+        UtxoAddressFormat::Standard,
+        coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.bech32_hrp.clone(),
+    )
+    .as_pkh()
+    .build()
     .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
@@ -3137,14 +3138,15 @@ fn test_withdraw_to_p2sh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
     // Create a p2sh address for the test coin
-    let p2sh_address = AddressBuilder {
-        prefixes: coin.as_ref().conf.address_prefixes.clone(),
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
-        checksum_type: *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Standard,
-    }
-    .build_as_sh()
+    let p2sh_address = AddressBuilder::new(
+        UtxoAddressFormat::Standard,
+        coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.bech32_hrp.clone(),
+    )
+    .as_sh()
+    .build()
     .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
@@ -3186,14 +3188,15 @@ fn test_withdraw_to_p2wpkh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, true);
 
     // Create a p2wpkh address for the test coin
-    let p2wpkh_address = AddressBuilder {
-        prefixes: NetworkAddressPrefixes::default(),
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
-        checksum_type: *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Segwit,
-    }
-    .build_as_pkh()
+    let p2wpkh_address = AddressBuilder::new(
+        UtxoAddressFormat::Segwit,
+        coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
+        NetworkAddressPrefixes::default(),
+        coin.as_ref().conf.bech32_hrp.clone(),
+    )
+    .as_pkh()
+    .build()
     .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {

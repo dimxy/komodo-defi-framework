@@ -229,14 +229,15 @@ where
 {
     let key_pair = priv_key_policy.activated_key_or_err()?;
     let addr_format = builder.address_format()?;
-    let my_address = AddressBuilder {
-        prefixes: conf.address_prefixes.clone(),
-        hash: AddressHashEnum::AddressHash(key_pair.public().address_hash()),
-        checksum_type: conf.checksum_type,
-        hrp: conf.bech32_hrp.clone(),
+    let my_address = AddressBuilder::new(
         addr_format,
-    }
-    .build_as_pkh()
+        AddressHashEnum::AddressHash(key_pair.public().address_hash()),
+        conf.checksum_type,
+        conf.address_prefixes.clone(),
+        conf.bech32_hrp.clone(),
+    )
+    .as_pkh()
+    .build()
     .expect("valid address props");
 
     let my_script_pubkey = output_script(&my_address).to_bytes();

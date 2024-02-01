@@ -46,14 +46,15 @@ pub async fn z_send_htlc(
 ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
     let payment_script = payment_script(time_lock, secret_hash, my_pub, other_pub);
     let script_hash = dhash160(&payment_script);
-    let htlc_address = AddressBuilder {
-        prefixes: coin.utxo_arc.conf.address_prefixes.clone(),
-        hash: script_hash.into(),
-        checksum_type: coin.utxo_arc.conf.checksum_type,
-        addr_format: UtxoAddressFormat::Standard,
-        hrp: None,
-    }
-    .build_as_sh()
+    let htlc_address = AddressBuilder::new(
+        UtxoAddressFormat::Standard,
+        script_hash.into(),
+        coin.utxo_arc.conf.checksum_type,
+        coin.utxo_arc.conf.address_prefixes.clone(),
+        None,
+    )
+    .as_sh()
+    .build()
     .expect("valid address props");
 
     let amount_sat = sat_from_big_decimal(&amount, coin.utxo_arc.decimals)?;

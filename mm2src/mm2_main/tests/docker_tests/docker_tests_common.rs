@@ -252,14 +252,15 @@ impl BchDockerOps {
         for _ in 0..18 {
             let key_pair = KeyPair::random_compressed();
             let address_hash = key_pair.public().address_hash();
-            let address = AddressBuilder {
-                prefixes: self.coin.as_ref().conf.address_prefixes.clone(),
-                hrp: None,
-                hash: address_hash.into(),
-                checksum_type: Default::default(),
-                addr_format: Default::default(),
-            }
-            .build_as_pkh()
+            let address = AddressBuilder::new(
+                Default::default(),
+                address_hash.into(),
+                Default::default(),
+                self.coin.as_ref().conf.address_prefixes.clone(),
+                None,
+            )
+            .as_pkh()
+            .build()
             .expect("valid address props");
 
             self.native_client()
@@ -994,17 +995,18 @@ pub fn get_balance(mm: &MarketMakerIt, coin: &str) -> BalanceResponse {
 }
 
 pub fn utxo_burn_address() -> Address {
-    AddressBuilder {
-        prefixes: NetworkAddressPrefixes {
+    AddressBuilder::new(
+        UtxoAddressFormat::Standard,
+        AddressHashEnum::default_address_hash(),
+        ChecksumType::DSHA256,
+        NetworkAddressPrefixes {
             p2pkh: [60].into(),
             p2sh: AddressPrefixes::default(),
         },
-        hash: AddressHashEnum::default_address_hash(),
-        checksum_type: ChecksumType::DSHA256,
-        hrp: None,
-        addr_format: UtxoAddressFormat::Standard,
-    }
-    .build_as_pkh()
+        None,
+    )
+    .as_pkh()
+    .build()
     .expect("valid address props")
 }
 

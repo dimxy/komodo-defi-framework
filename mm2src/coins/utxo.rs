@@ -1937,14 +1937,15 @@ pub fn address_by_conf_and_pubkey_str(
     let pubkey_bytes = try_s!(hex::decode(pubkey));
     let hash = dhash160(&pubkey_bytes);
 
-    let address = AddressBuilder {
-        prefixes: utxo_conf.address_prefixes,
-        hash: hash.into(),
-        checksum_type: utxo_conf.checksum_type,
-        hrp: utxo_conf.bech32_hrp,
+    let address = AddressBuilder::new(
         addr_format,
-    }
-    .build_as_pkh()?;
+        hash.into(),
+        utxo_conf.checksum_type,
+        utxo_conf.address_prefixes,
+        utxo_conf.bech32_hrp,
+    )
+    .as_pkh()
+    .build()?;
     address.display_address()
 }
 

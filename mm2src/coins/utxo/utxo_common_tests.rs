@@ -63,30 +63,33 @@ pub(super) fn utxo_coin_fields_for_test(
         },
     };
     let key_pair = key_pair_from_seed(&seed).unwrap();
-
-    let my_address = AddressBuilder {
-        prefixes: if is_segwit_coin {
-            NetworkAddressPrefixes::default()
-        } else {
-            NetworkAddressPrefixes {
-                p2pkh: [60].into(),
-                p2sh: AddressPrefixes::default(),
-            }
-        },
-        hash: key_pair.public().address_hash().into(),
+    let prefixes = if is_segwit_coin {
+        NetworkAddressPrefixes::default()
+    } else {
+        NetworkAddressPrefixes {
+            p2pkh: [60].into(),
+            p2sh: AddressPrefixes::default(),
+        }
+    };
+    let hrp = if is_segwit_coin {
+        Some(TEST_COIN_HRP.to_string())
+    } else {
+        None
+    };
+    let addr_format = if is_segwit_coin {
+        UtxoAddressFormat::Segwit
+    } else {
+        UtxoAddressFormat::Standard
+    };
+    let my_address = AddressBuilder::new(
+        addr_format,
+        key_pair.public().address_hash().into(),
         checksum_type,
-        hrp: if is_segwit_coin {
-            Some(TEST_COIN_HRP.to_string())
-        } else {
-            None
-        },
-        addr_format: if is_segwit_coin {
-            UtxoAddressFormat::Segwit
-        } else {
-            UtxoAddressFormat::Standard
-        },
-    }
-    .build_as_pkh()
+        prefixes,
+        hrp,
+    )
+    .as_pkh()
+    .build()
     .expect("valid address props");
     let my_script_pubkey = Builder::build_p2pkh(my_address.hash()).to_bytes();
 

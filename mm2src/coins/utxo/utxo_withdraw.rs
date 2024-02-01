@@ -459,14 +459,15 @@ where
                     .clone()
                     .addr_format()
                     .clone();
-                let my_address = AddressBuilder {
-                    prefixes: coin.as_ref().conf.address_prefixes.clone(),
-                    hash: AddressHashEnum::AddressHash(key_pair.public().address_hash()),
-                    checksum_type: coin.as_ref().conf.checksum_type,
-                    hrp: coin.as_ref().conf.bech32_hrp.clone(),
+                let my_address = AddressBuilder::new(
                     addr_format,
-                }
-                .build_as_pkh()
+                    AddressHashEnum::AddressHash(key_pair.public().address_hash()),
+                    coin.as_ref().conf.checksum_type,
+                    coin.as_ref().conf.address_prefixes.clone(),
+                    coin.as_ref().conf.bech32_hrp.clone(),
+                )
+                .as_pkh()
+                .build()
                 .expect("valid address props");
                 (key_pair, my_address)
             },

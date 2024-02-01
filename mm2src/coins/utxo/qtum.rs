@@ -115,7 +115,7 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
     fn utxo_address_from_any_format(&self, from: &str) -> Result<Address, String> {
         let utxo_err = match Address::from_legacyaddress(from, &self.as_ref().conf.address_prefixes) {
             Ok(addr) => {
-                if addr.is_p2pkh() {
+                if addr.is_pubkey_hash() {
                     return Ok(addr);
                 }
                 "Address has invalid prefixes".to_string()
@@ -147,14 +147,15 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
 
     fn utxo_addr_from_contract_addr(&self, address: H160) -> Address {
         let utxo = self.as_ref();
-        AddressBuilder {
-            prefixes: utxo.conf.address_prefixes.clone(),
-            hash: AddressHashEnum::AddressHash(address.0.into()),
-            checksum_type: utxo.conf.checksum_type,
-            hrp: utxo.conf.bech32_hrp.clone(),
-            addr_format: self.addr_format().clone(),
-        }
-        .build_as_pkh()
+        AddressBuilder::new(
+            self.addr_format().clone(),
+            AddressHashEnum::AddressHash(address.0.into()),
+            utxo.conf.checksum_type,
+            utxo.conf.address_prefixes.clone(),
+            utxo.conf.bech32_hrp.clone(),
+        )
+        .as_pkh()
+        .build()
         .expect("valid address props")
     }
 
@@ -165,14 +166,15 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
 
     fn utxo_address_from_contract_addr(&self, address: H160) -> Address {
         let utxo = self.as_ref();
-        AddressBuilder {
-            prefixes: utxo.conf.address_prefixes.clone(),
-            hash: AddressHashEnum::AddressHash(address.0.into()),
-            checksum_type: utxo.conf.checksum_type,
-            hrp: utxo.conf.bech32_hrp.clone(),
-            addr_format: self.addr_format().clone(),
-        }
-        .build_as_pkh()
+        AddressBuilder::new(
+            self.addr_format().clone(),
+            AddressHashEnum::AddressHash(address.0.into()),
+            utxo.conf.checksum_type,
+            utxo.conf.address_prefixes.clone(),
+            utxo.conf.bech32_hrp.clone(),
+        )
+        .as_pkh()
+        .build()
         .expect("valid address props")
     }
 

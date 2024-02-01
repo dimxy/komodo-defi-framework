@@ -534,8 +534,12 @@ impl LightningEventHandler {
         let fut = async move {
             let change_destination_script = match Builder::build_p2wpkh(my_address.hash()) {
                 Ok(script) => script.to_bytes().take().into(),
-                Err(_) => {
-                    error!("Error building change script");
+                Err(err) => {
+                    error!(
+                        "Could not create witness script for change output {}: {}",
+                        my_address.to_string(),
+                        err.to_string()
+                    );
                     return;
                 },
             };

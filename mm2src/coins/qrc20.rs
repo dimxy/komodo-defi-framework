@@ -1539,7 +1539,7 @@ async fn qrc20_withdraw(coin: Qrc20Coin, req: WithdrawRequest) -> WithdrawResult
     let to_addr = UtxoAddress::from_legacyaddress(&req.to, &coin.as_ref().conf.address_prefixes)
         .map_to_mm(WithdrawError::InvalidAddress)?;
     let conf = &coin.utxo.conf;
-    if !to_addr.is_p2pkh() {
+    if !to_addr.is_pubkey_hash() {
         let error = "QRC20 can be sent to P2PKH addresses only".to_owned();
         return MmError::err(WithdrawError::InvalidAddress(error));
     }
