@@ -131,7 +131,10 @@ impl EventBehaviour for UtxoStandardCoin {
                     .find_map(|addr| {
                         let script = match output_script(&addr) {
                             Ok(script) => script,
-                            Err(_) => return None,
+                            Err(e) => {
+                                log::error!("{e}");
+                                return None;
+                            },
                         };
                         let script_hash = electrum_script_hash(&script);
                         let scripthash = hex::encode(script_hash);

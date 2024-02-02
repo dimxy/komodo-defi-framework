@@ -2220,7 +2220,7 @@ impl ElectrumClient {
 #[cfg_attr(test, mockable)]
 impl UtxoRpcClientOps for ElectrumClient {
     fn list_unspent(&self, address: &Address, _decimals: u8) -> UtxoRpcFut<Vec<UnspentInfo>> {
-        let script = try_f!(output_script(address).map_err(UtxoRpcError::from));
+        let script = try_f!(output_script(address));
         let script_hash = electrum_script_hash(&script);
         Box::new(
             self.scripthash_list_unspent(&hex::encode(script_hash))

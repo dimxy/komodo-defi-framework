@@ -10,7 +10,7 @@ pub enum AddressBuilderOption {
     BuildAsScriptHash,
 }
 
-/// Builds Address struct depending on addr_format and validates builder params
+/// Builds Address struct depending on addr_format, validates params to build Address
 pub struct AddressBuilder {
     /// Coin base58 address prefixes from coin config
     prefixes: NetworkAddressPrefixes,
