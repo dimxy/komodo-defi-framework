@@ -2348,8 +2348,7 @@ impl UtxoRpcClientOps for ElectrumClient {
 
                     Ok(hex::encode(hash))
                 })
-                .collect::<Result<Vec<_>, keys::Error>>()
-                .map_to_mm(UtxoRpcError::from)?;
+                .collect::<Result<Vec<_>, keys::Error>>()?;
 
             let electrum_balances = this.scripthash_get_balances(hashes).compat().await?;
             let balances = electrum_balances
