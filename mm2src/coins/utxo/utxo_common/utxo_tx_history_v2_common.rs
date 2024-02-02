@@ -365,14 +365,18 @@ async fn request_tx_history_with_electrum(
     metrics: MetricsArc,
     for_addresses: &HashSet<Address>,
 ) -> RequestTxHistoryResult {
-    fn addr_to_script_hash(addr: &Address) -> String {
-        let script = output_script(addr);
+    fn addr_to_script_hash(addr: &Address) -> Result<String, keys::Error> {
+        let script = output_script(addr)?;
         let script_hash = electrum_script_hash(&script);
-        hex::encode(script_hash)
+        Ok(hex::encode(script_hash))
     }
 
     let script_hashes_count = for_addresses.len() as u64;
-    let script_hashes = for_addresses.iter().map(addr_to_script_hash);
+    let script_hashes: Result<Vec<_>, _> = for_addresses.iter().map(addr_to_script_hash).collect();
+    let script_hashes = match script_hashes {
+        Ok(script_hashes) => script_hashes,
+        Err(err) => return RequestTxHistoryResult::CriticalError(err.to_string()),
+    };
 
     mm_counter!(metrics, "tx.history.request.count", script_hashes_count,
         "coin" => ticker, "client" => "electrum", "method" => "blockchain.scripthash.get_history");

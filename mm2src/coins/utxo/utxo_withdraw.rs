@@ -88,6 +88,10 @@ impl From<RpcTaskError> for WithdrawError {
     }
 }
 
+impl From<keys::Error> for WithdrawError {
+    fn from(e: keys::Error) -> Self { WithdrawError::InternalError(e.to_string()) }
+}
+
 #[async_trait]
 pub trait UtxoWithdraw<Coin>
 where
@@ -105,7 +109,9 @@ where
     fn signature_version(&self) -> SignatureVersion {
         match self.sender_address().addr_format() {
             UtxoAddressFormat::Segwit => SignatureVersion::WitnessV0,
-            _ => self.coin().as_ref().conf.signature_version,
+            UtxoAddressFormat::Standard | UtxoAddressFormat::CashAddress { .. } => {
+                self.coin().as_ref().conf.signature_version
+            },
         }
     }
 
@@ -116,7 +122,9 @@ where
                 Ok(script) => Ok(script),
                 Err(e) => MmError::err(WithdrawError::InternalError(e.to_string())),
             },
-            _ => Ok(Builder::build_p2pkh(self.sender_address().hash())),
+            UtxoAddressFormat::Standard | UtxoAddressFormat::CashAddress { .. } => {
+                Ok(Builder::build_p2pkh(self.sender_address().hash()))
+            },
         }
     }
 
@@ -139,7 +147,7 @@ where
         // Generate unsigned transaction.
         self.on_generating_transaction()?;
 
-        let script_pubkey = output_script(&to).to_bytes();
+        let script_pubkey = output_script(&to).map(|script| script.to_bytes())?;
 
         let _utxo_lock = UTXO_LOCK.lock().await;
         let (unspents, _) = coin.get_unspent_ordered_list(&self.sender_address()).await?;
@@ -468,7 +476,7 @@ where
                 )
                 .as_pkh()
                 .build()
-                .expect("valid address props");
+                .map_to_mm(WithdrawError::InternalError)?;
                 (key_pair, my_address)
             },
             Some(WithdrawFrom::AddressId(_)) | Some(WithdrawFrom::DerivationPath { .. }) => {

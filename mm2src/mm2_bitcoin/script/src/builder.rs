@@ -46,7 +46,7 @@ impl Builder {
                 .push_opcode(Opcode::OP_0)
                 .push_bytes(wpkh_hash.as_ref())
                 .into_script()),
-            _ => Err(Error::WitnessHashMismatched),
+            AddressHashEnum::WitnessScriptHash(_) => Err(Error::WitnessHashMismatched),
         }
     }
 
@@ -57,7 +57,7 @@ impl Builder {
                 .push_opcode(Opcode::OP_0)
                 .push_bytes(wsh_hash.as_ref())
                 .into_script()),
-            _ => Err(Error::WitnessHashMismatched),
+            AddressHashEnum::AddressHash(_) => Err(Error::WitnessHashMismatched),
         }
     }
 

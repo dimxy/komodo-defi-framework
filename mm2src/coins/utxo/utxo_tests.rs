@@ -3363,7 +3363,7 @@ fn test_split_qtum() {
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
     let p2pkh_address = coin.as_ref().derivation_method.unwrap_single_addr();
-    let script: Script = output_script(p2pkh_address);
+    let script: Script = output_script(p2pkh_address).expect("valid previous script must be built");
     let key_pair = coin.as_ref().priv_key_policy.activated_key_or_err().unwrap();
     let (unspents, _) = block_on(coin.get_mature_unspent_ordered_list(p2pkh_address)).expect("Unspent list is empty");
     log!("Mature unspents vec = {:?}", unspents.mature);
@@ -3385,7 +3385,7 @@ fn test_split_qtum() {
         UtxoAddressFormat::Segwit => SignatureVersion::WitnessV0,
         _ => coin.as_ref().conf.signature_version,
     };
-    let prev_script = output_script(p2pkh_address);
+    let prev_script = output_script(p2pkh_address).expect("valid previous script must be built");
     let signed = sign_tx(
         unsigned,
         key_pair,

@@ -784,7 +784,7 @@ pub fn output_script_checked(coin: &UtxoCoinFields, addr: &Address) -> MmResult<
             }
         },
     }
-    Ok(output_script(addr))
+    output_script(addr).map_to_mm(UnsupportedAddr::from)
 }
 
 pub struct UtxoTxBuilder<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> {
@@ -961,7 +961,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             .from
             .clone()
             .or_mm_err(|| GenerateTxError::Internal("'from' address is not specified".to_owned()))?;
-        let change_script_pubkey = output_script(&from).to_bytes();
+        let change_script_pubkey = output_script(&from).map(|script| script.to_bytes())?;
 
         let actual_tx_fee = match self.fee {
             Some(fee) => fee,
@@ -1543,7 +1543,7 @@ pub async fn sign_and_send_taker_funding_spend<T: UtxoCommonOps>(
         )
         .as_sh()
         .build()
-        .expect("valid address props");
+        .map_err(TransactionErr::Plain)?;
         let payment_address_str = payment_address.to_string();
         try_tx_s!(
             client
@@ -1700,9 +1700,10 @@ pub async fn sign_and_broadcast_taker_payment_spend<T: UtxoCommonOps>(
     }
 
     let maker_address = try_tx_s!(coin.as_ref().derivation_method.single_addr_or_err());
+    let script_pubkey = output_script(maker_address).map(|script| script.to_bytes())?;
     let maker_output = TransactionOutput {
         value: maker_sat - miner_fee,
-        script_pubkey: output_script(maker_address).to_bytes(),
+        script_pubkey,
     };
     signer.outputs.push(maker_output);
     drop_mutability!(signer);
@@ -1889,7 +1890,7 @@ pub fn send_maker_spends_taker_payment<T: UtxoCommonOps + SwapOps>(coin: T, args
                 payment_value
             );
         }
-        let script_pubkey = output_script(&my_address).to_bytes();
+        let script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
         let output = TransactionOutput {
             value: payment_value - fee,
             script_pubkey,
@@ -1995,7 +1996,7 @@ pub fn create_maker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
                 payment_value
             );
         }
-        let script_pubkey = output_script(&my_address).to_bytes();
+        let script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
         let output = TransactionOutput {
             value: payment_value - fee,
             script_pubkey,
@@ -2054,7 +2055,7 @@ pub fn create_taker_payment_refund_preimage<T: UtxoCommonOps + SwapOps>(
                 payment_value
             );
         }
-        let script_pubkey = output_script(&my_address).to_bytes();
+        let script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
         let output = TransactionOutput {
             value: payment_value - fee,
             script_pubkey,
@@ -2111,7 +2112,7 @@ pub fn send_taker_spends_maker_payment<T: UtxoCommonOps + SwapOps>(coin: T, args
                 payment_value
             );
         }
-        let script_pubkey = output_script(&my_address).to_bytes();
+        let script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
         let output = TransactionOutput {
             value: payment_value - fee,
             script_pubkey,
@@ -2177,7 +2178,7 @@ async fn refund_htlc_payment<T: UtxoCommonOps + SwapOps>(
             payment_value
         );
     }
-    let script_pubkey = output_script(&my_address).to_bytes();
+    let script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
     let output = TransactionOutput {
         value: payment_value - fee,
         script_pubkey,
@@ -2680,13 +2681,13 @@ pub fn validate_payment_spend_or_refund<T: UtxoCommonOps + SwapOps>(
     payment_spend_tx.tx_hash_algo = coin.as_ref().tx_hash_algo;
 
     let my_address = try_f!(coin.as_ref().derivation_method.single_addr_or_err());
-    let expected_script_pubkey = &output_script(my_address).to_bytes();
+    let expected_script_pubkey = try_f!(output_script(my_address).map(|script| script.to_bytes()));
     let output = try_f!(payment_spend_tx
         .outputs
         .get(DEFAULT_SWAP_VOUT)
         .ok_or_else(|| ValidatePaymentError::WrongPaymentTx("Payment tx has no outputs".to_string(),)));
 
-    if expected_script_pubkey != &output.script_pubkey {
+    if expected_script_pubkey != output.script_pubkey {
         return Box::new(futures01::future::err(
             ValidatePaymentError::WrongPaymentTx(format!(
                 "Provided payment tx script pubkey doesn't match expected {:?} {:?}",
@@ -3828,7 +3829,10 @@ where
                 Ok(my_address) => my_address,
                 Err(e) => return RequestTxHistoryResult::CriticalError(e.to_string()),
             };
-            let script = output_script(my_address);
+            let script = match output_script(my_address) {
+                Ok(script) => script,
+                Err(err) => return RequestTxHistoryResult::CriticalError(err.to_string()),
+            };
             let script_hash = electrum_script_hash(&script);
 
             mm_counter!(metrics, "tx.history.request.count", 1,
@@ -5218,7 +5222,7 @@ where
             payment_value
         );
     }
-    let script_pubkey = output_script(&my_address).to_bytes();
+    let script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
     let output = TransactionOutput {
         value: payment_value - fee,
         script_pubkey,
@@ -5299,10 +5303,10 @@ where
     refund_htlc_payment(coin, args, SwapPaymentType::TakerPaymentV2).await
 }
 
-pub fn address_to_scripthash(address: &Address) -> String {
-    let script = output_script(address);
+pub fn address_to_scripthash(address: &Address) -> Result<String, keys::Error> {
+    let script = output_script(address)?;
     let script_hash = electrum_script_hash(&script);
-    hex::encode(script_hash)
+    Ok(hex::encode(script_hash))
 }
 
 pub async fn utxo_prepare_addresses_for_balance_stream_if_enabled<T>(
@@ -5428,13 +5432,13 @@ fn test_generate_taker_fee_tx_outputs_with_burn() {
 fn test_address_to_scripthash() {
     let address =
         Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES.try_into().unwrap()).unwrap();
-    let actual = address_to_scripthash(&address);
+    let actual = address_to_scripthash(&address).expect("valid script hash to be built");
     let expected = "e850499408c6ebcf6b3340282747e540fb23748429fca5f2b36cdeef54ddf5b1".to_owned();
     assert_eq!(expected, actual);
 
     let address =
         Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES.try_into().unwrap()).unwrap();
-    let actual = address_to_scripthash(&address);
+    let actual = address_to_scripthash(&address).expect("valid script hash to be built");
     let expected = "a70a7a7041ef172ce4b5f8208aabed44c81e2af75493540f50af7bd9afa9955d".to_owned();
     assert_eq!(expected, actual);
 
@@ -5443,7 +5447,7 @@ fn test_address_to_scripthash() {
         &T_QTUM_PREFIXES.try_into().unwrap(),
     )
     .unwrap();
-    let actual = address_to_scripthash(&address);
+    let actual = address_to_scripthash(&address).expect("valid script hash to be built");
     let expected = "c5b5922c86830289231539d1681d8ce621aac8326c96d6ac55400b4d1485f769".to_owned();
     assert_eq!(expected, actual);
 }

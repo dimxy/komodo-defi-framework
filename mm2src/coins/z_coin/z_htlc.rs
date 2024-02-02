@@ -55,7 +55,7 @@ pub async fn z_send_htlc(
     )
     .as_sh()
     .build()
-    .expect("valid address props");
+    .map_to_mm(SendOutputsErr::InternalError)?;
 
     let amount_sat = sat_from_big_decimal(&amount, coin.utxo_arc.decimals)?;
     let address = htlc_address.to_string();

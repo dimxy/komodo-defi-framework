@@ -657,6 +657,10 @@ impl TransactionErr {
     }
 }
 
+impl From<keys::Error> for TransactionErr {
+    fn from(e: keys::Error) -> Self { TransactionErr::Plain(e.to_string()) }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum FoundSwapTxSpend {
     Spent(TransactionEnum),

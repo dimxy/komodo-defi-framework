@@ -202,6 +202,10 @@ impl From<UtxoRpcError> for BalanceError {
     }
 }
 
+impl From<keys::Error> for BalanceError {
+    fn from(e: keys::Error) -> Self { BalanceError::Internal(e.to_string()) }
+}
+
 impl From<UtxoRpcError> for WithdrawError {
     fn from(e: UtxoRpcError) -> Self {
         match e {
@@ -644,10 +648,16 @@ pub enum UnsupportedAddr {
     HrpError { ticker: String, hrp: String },
     #[display(fmt = "Segwit not activated in the config for {}", _0)]
     SegwitNotActivated(String),
+    #[display(fmt = "Internal error {}", _0)]
+    InternalError(String),
 }
 
 impl From<UnsupportedAddr> for WithdrawError {
     fn from(e: UnsupportedAddr) -> Self { WithdrawError::InvalidAddress(e.to_string()) }
+}
+
+impl From<keys::Error> for UnsupportedAddr {
+    fn from(e: keys::Error) -> Self { UnsupportedAddr::InternalError(e.to_string()) }
 }
 
 #[derive(Debug)]
@@ -877,7 +887,7 @@ impl HDAddressBalanceScanner for UtxoAddressScanner {
         let is_used = match self {
             UtxoAddressScanner::Native { non_empty_addresses } => non_empty_addresses.contains(&address.to_string()),
             UtxoAddressScanner::Electrum(electrum_client) => {
-                let script = output_script(address);
+                let script = output_script(address)?;
                 let script_hash = electrum_script_hash(&script);
 
                 let electrum_history = electrum_client
@@ -1261,6 +1271,10 @@ impl From<UtxoRpcError> for GenerateTxError {
 
 impl From<NumConversError> for GenerateTxError {
     fn from(e: NumConversError) -> Self { GenerateTxError::Internal(e.to_string()) }
+}
+
+impl From<keys::Error> for GenerateTxError {
+    fn from(e: keys::Error) -> Self { GenerateTxError::Internal(e.to_string()) }
 }
 
 pub enum RequestTxHistoryResult {
@@ -1902,12 +1916,12 @@ where
 }
 
 /// Builds transaction output script for an Address struct
-pub fn output_script(address: &Address) -> Script {
+pub fn output_script(address: &Address) -> Result<Script, keys::Error> {
     match address.script_type() {
-        AddressScriptType::P2PKH => Builder::build_p2pkh(address.hash()),
-        AddressScriptType::P2SH => Builder::build_p2sh(address.hash()),
-        AddressScriptType::P2WPKH => Builder::build_p2wpkh(address.hash()).expect("valid p2wpkh"),
-        AddressScriptType::P2WSH => Builder::build_p2wsh(address.hash()).expect("valid p2wsh"),
+        AddressScriptType::P2PKH => Ok(Builder::build_p2pkh(address.hash())),
+        AddressScriptType::P2SH => Ok(Builder::build_p2sh(address.hash())),
+        AddressScriptType::P2WPKH => Builder::build_p2wpkh(address.hash()),
+        AddressScriptType::P2WSH => Builder::build_p2wsh(address.hash()),
     }
 }
 

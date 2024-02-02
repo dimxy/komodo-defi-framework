@@ -44,28 +44,19 @@ impl AddressBuilder {
         }
     }
 
-    /*pub fn with_hrp(&mut self, hrp: String) -> Self {
-        self.hrp = Some(hrp);
-        self
-    }
-
-    pub fn with_address_prefixes(&mut self, prefixes: NetworkAddressPrefixes) -> Self {
-        self.prefixes = prefixes;
-        self
-    }*/
-
+    /// Sets build option for Address tx output script type
     pub fn with_build_option(mut self, build_option: AddressBuilderOption) -> Self {
         self.build_option = Some(build_option);
         self
     }
 
-    /// Sets Address output script type as p2pkh or p2wpkh
+    /// Sets Address tx output script type as p2pkh or p2wpkh
     pub fn as_pkh(mut self) -> Self {
         self.build_option = Some(AddressBuilderOption::BuildAsPubkeyHash);
         self
     }
 
-    /// Sets Address output script type as p2sh or p2wsh
+    /// Sets Address tx output script type as p2sh or p2wsh
     pub fn as_sh(mut self) -> Self {
         self.build_option = Some(AddressBuilderOption::BuildAsScriptHash);
         self

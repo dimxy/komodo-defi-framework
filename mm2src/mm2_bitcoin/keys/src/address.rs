@@ -122,7 +122,7 @@ impl Address {
     pub fn addr_format(&self) -> &AddressFormat { &self.addr_format }
     pub fn script_type(&self) -> &AddressScriptType { &self.script_type }
 
-    /// Returns true if output scrupt type is pubkey hash (p2pkh or p2wpkh)
+    /// Returns true if output script type is pubkey hash (p2pkh or p2wpkh)
     pub fn is_pubkey_hash(&self) -> bool {
         if matches!(self.addr_format, AddressFormat::Segwit) {
             self.script_type == AddressScriptType::P2WPKH

@@ -127,6 +127,10 @@ impl From<PrivKeyPolicyNotAllowed> for UtxoCoinBuildError {
     fn from(e: PrivKeyPolicyNotAllowed) -> Self { UtxoCoinBuildError::PrivKeyPolicyNotAllowed(e) }
 }
 
+impl From<keys::Error> for UtxoCoinBuildError {
+    fn from(e: keys::Error) -> Self { UtxoCoinBuildError::Internal(e.to_string()) }
+}
+
 #[async_trait]
 pub trait UtxoCoinBuilder:
     UtxoFieldsWithIguanaSecretBuilder + UtxoFieldsWithGlobalHDBuilder + UtxoFieldsWithHardwareWalletBuilder
@@ -238,9 +242,9 @@ where
     )
     .as_pkh()
     .build()
-    .expect("valid address props");
+    .map_to_mm(UtxoCoinBuildError::Internal)?;
 
-    let my_script_pubkey = output_script(&my_address).to_bytes();
+    let my_script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
     let derivation_method = DerivationMethod::SingleAddress(my_address);
 
     let (scripthash_notification_sender, scripthash_notification_handler) =
