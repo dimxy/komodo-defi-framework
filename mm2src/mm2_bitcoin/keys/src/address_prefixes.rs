@@ -1,42 +1,32 @@
 use std::{convert::TryFrom, fmt, u8};
 
-/// Prefixes for a single legacy address type (p2pkh or p2sh)
+/// Prefix for a legacy address (p2pkh or p2sh)
 #[derive(Debug, Clone, Eq, Hash, PartialEq, Default)]
-pub struct AddressPrefixes {
+pub struct AddressPrefix {
     data: Vec<u8>,
 }
 
-impl TryFrom<&[u8]> for AddressPrefixes {
+impl TryFrom<&[u8]> for AddressPrefix {
     type Error = ();
 
-    fn try_from(prefixes: &[u8]) -> Result<Self, Self::Error> {
-        if !prefixes.is_empty() && prefixes.len() <= 2 {
-            Ok(Self {
-                data: prefixes.to_vec(),
-            })
+    fn try_from(prefix: &[u8]) -> Result<Self, Self::Error> {
+        if !prefix.is_empty() && prefix.len() <= 2 {
+            Ok(Self { data: prefix.to_vec() })
         } else {
             Err(())
         }
     }
 }
 
-impl From<[u8; 1]> for AddressPrefixes {
-    fn from(prefixes: [u8; 1]) -> Self {
-        Self {
-            data: prefixes.to_vec(),
-        }
-    }
+impl From<[u8; 1]> for AddressPrefix {
+    fn from(prefix: [u8; 1]) -> Self { Self { data: prefix.to_vec() } }
 }
 
-impl From<[u8; 2]> for AddressPrefixes {
-    fn from(prefixes: [u8; 2]) -> Self {
-        Self {
-            data: prefixes.to_vec(),
-        }
-    }
+impl From<[u8; 2]> for AddressPrefix {
+    fn from(prefix: [u8; 2]) -> Self { Self { data: prefix.to_vec() } }
 }
 
-impl fmt::Display for AddressPrefixes {
+impl fmt::Display for AddressPrefix {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[")?;
         for i in 0..self.data.len() {
@@ -50,16 +40,16 @@ impl fmt::Display for AddressPrefixes {
     }
 }
 
-impl AddressPrefixes {
+impl AddressPrefix {
     /// Get as vec of u8
     pub fn to_vec(&self) -> Vec<u8> { self.data.to_vec() }
 
-    /// Get if prefixes size is 1, for use in cash_address
+    /// Get if prefix size is 1, for use in cash_address
     pub fn get_size_1_prefix(&self) -> u8 {
         if self.data.len() == 1 {
             self.data[0]
         } else {
-            0 // maybe assert should be here as it is not supposed to have other prefixes size for cash_address
+            0 // maybe assert should be here as it is not supposed to have other prefix size for cash_address
         }
     }
 
@@ -69,8 +59,8 @@ impl AddressPrefixes {
 /// All prefixes for legacy address types supported for a coin, from coin config
 #[derive(Debug, Clone, Default)]
 pub struct NetworkAddressPrefixes {
-    pub p2pkh: AddressPrefixes,
-    pub p2sh: AddressPrefixes,
+    pub p2pkh: AddressPrefix,
+    pub p2sh: AddressPrefix,
 }
 
 impl fmt::Display for NetworkAddressPrefixes {

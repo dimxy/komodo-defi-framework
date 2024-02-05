@@ -10,7 +10,7 @@ use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
-use {AddressHashEnum, AddressPrefixes, CashAddrType, CashAddress, Error, LegacyAddress, NetworkAddressPrefixes,
+use {AddressHashEnum, AddressPrefix, CashAddrType, CashAddress, Error, LegacyAddress, NetworkAddressPrefixes,
      SegwitAddress};
 
 mod address_builder;
@@ -95,12 +95,12 @@ pub fn detect_checksum(data: &[u8], checksum: &[u8]) -> Result<ChecksumType, Err
 }
 
 /// Struct for utxo address types representation
-/// Contains address hash, format, prefixes to get as a string.
-/// Also has ScriptType field to create output script.
+/// Contains address hash, format, prefix to get as a string.
+/// Also has output ScriptType field to create output script.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Address {
-    /// The base58 prefixes of the address.
-    prefixes: AddressPrefixes,
+    /// The base58 prefix of the address.
+    prefix: AddressPrefix,
     /// Segwit addr human readable part
     hrp: Option<String>,
     /// Public key hash.
@@ -109,12 +109,12 @@ pub struct Address {
     checksum_type: ChecksumType,
     /// Address Format
     addr_format: AddressFormat,
-    // which output script corresponds to this address format and prefixes
+    // which output script corresponds to this address format and prefix
     script_type: AddressScriptType,
 }
 
 impl Address {
-    pub fn prefixes(&self) -> &AddressPrefixes { &self.prefixes }
+    pub fn prefix(&self) -> &AddressPrefix { &self.prefix }
     pub fn hrp(&self) -> &Option<String> { &self.hrp }
     pub fn hash(&self) -> &AddressHashEnum { &self.hash }
     pub fn checksum_type(&self) -> &ChecksumType { &self.checksum_type }
@@ -133,7 +133,7 @@ impl Address {
     pub fn display_address(&self) -> Result<String, String> {
         match &self.addr_format {
             AddressFormat::Standard => {
-                Ok(LegacyAddress::new(&self.hash, self.prefixes.clone(), self.checksum_type).to_string())
+                Ok(LegacyAddress::new(&self.hash, self.prefix.clone(), self.checksum_type).to_string())
             },
             AddressFormat::Segwit => match &self.hrp {
                 Some(hrp) => Ok(SegwitAddress::new(&self.hash, hrp.clone()).to_string()),
@@ -160,16 +160,16 @@ impl Address {
         let mut hash = AddressHashEnum::default_address_hash();
         hash.copy_from_slice(address.hash.as_slice());
 
-        let script_type = if address.prefixes == prefixes.p2pkh {
+        let script_type = if address.prefix == prefixes.p2pkh {
             AddressScriptType::P2PKH
-        } else if address.prefixes == prefixes.p2sh {
+        } else if address.prefix == prefixes.p2sh {
             AddressScriptType::P2SH
         } else {
             return Err(String::from("invalid address prefix"));
         };
 
         Ok(Address {
-            prefixes: address.prefixes,
+            prefix: address.prefix,
             hash,
             checksum_type: address.checksum_type,
             hrp: None,
@@ -192,13 +192,13 @@ impl Address {
         let mut hash = AddressHashEnum::default_address_hash();
         hash.copy_from_slice(address.hash.as_slice());
 
-        let (script_type, addr_prefixes) = match address.address_type {
+        let (script_type, addr_prefix) = match address.address_type {
             CashAddrType::P2PKH => (AddressScriptType::P2PKH, net_addr_prefixes.p2pkh.clone()),
             CashAddrType::P2SH => (AddressScriptType::P2SH, net_addr_prefixes.p2sh.clone()),
         };
 
         Ok(Address {
-            prefixes: addr_prefixes,
+            prefix: addr_prefix,
             hash,
             checksum_type,
             hrp: None,
@@ -214,16 +214,16 @@ impl Address {
     pub fn to_cashaddress(
         &self,
         network_prefix: &str,
-        prefixes: &NetworkAddressPrefixes,
+        network_addr_prefixes: &NetworkAddressPrefixes,
     ) -> Result<CashAddress, String> {
-        let address_type = if self.prefixes == prefixes.p2pkh {
+        let address_type = if self.prefix == network_addr_prefixes.p2pkh {
             CashAddrType::P2PKH
-        } else if self.prefixes == prefixes.p2sh {
+        } else if self.prefix == network_addr_prefixes.p2sh {
             CashAddrType::P2SH
         } else {
             return Err(format!(
                 "Unknown address prefix {}. Expect: {}, {}",
-                self.prefixes, prefixes.p2pkh, prefixes.p2sh
+                self.prefix, network_addr_prefixes.p2pkh, network_addr_prefixes.p2sh
             ));
         };
         CashAddress::new(network_prefix, self.hash.to_vec(), address_type)
@@ -244,7 +244,7 @@ impl Address {
         let hrp = Some(address.hrp);
 
         Ok(Address {
-            prefixes: AddressPrefixes::default(),
+            prefix: AddressPrefix::default(),
             hash,
             checksum_type,
             hrp,
@@ -280,7 +280,7 @@ impl fmt::Display for Address {
                     .expect("A valid address");
                 cash_address.encode().expect("A valid address").fmt(f)
             },
-            AddressFormat::Standard => LegacyAddress::new(&self.hash, self.prefixes.clone(), self.checksum_type).fmt(f),
+            AddressFormat::Standard => LegacyAddress::new(&self.hash, self.prefix.clone(), self.checksum_type).fmt(f),
         }
     }
 }

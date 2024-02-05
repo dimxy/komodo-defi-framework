@@ -118,7 +118,7 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
                 if addr.is_pubkey_hash() {
                     return Ok(addr);
                 }
-                "Address has invalid prefixes".to_string()
+                "Address has invalid prefix".to_string()
             },
             Err(e) => e,
         };

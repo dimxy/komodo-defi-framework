@@ -750,9 +750,7 @@ pub fn tx_size_in_v_bytes(from_addr_format: &UtxoAddressFormat, tx: &UtxoTx) -> 
 pub fn output_script_checked(coin: &UtxoCoinFields, addr: &Address) -> MmResult<Script, UnsupportedAddr> {
     match addr.addr_format() {
         UtxoAddressFormat::Standard => {
-            if addr.prefixes() != &coin.conf.address_prefixes.p2pkh
-                && addr.prefixes() != &coin.conf.address_prefixes.p2sh
-            {
+            if addr.prefix() != &coin.conf.address_prefixes.p2pkh && addr.prefix() != &coin.conf.address_prefixes.p2sh {
                 return MmError::err(UnsupportedAddr::PrefixError(coin.conf.ticker.clone()));
             }
         },
@@ -777,8 +775,8 @@ pub fn output_script_checked(coin: &UtxoCoinFields, addr: &Address) -> MmResult<
             pub_addr_prefix,
             p2sh_addr_prefix,
         } => {
-            if AddressPrefixes::from([*pub_addr_prefix]) != coin.conf.address_prefixes.p2pkh
-                && AddressPrefixes::from([*p2sh_addr_prefix]) != coin.conf.address_prefixes.p2sh
+            if AddressPrefix::from([*pub_addr_prefix]) != coin.conf.address_prefixes.p2pkh
+                && AddressPrefix::from([*p2sh_addr_prefix]) != coin.conf.address_prefixes.p2sh
             {
                 return MmError::err(UnsupportedAddr::PrefixError(coin.conf.ticker.clone()));
             }
@@ -3448,8 +3446,8 @@ pub fn validate_address<T: UtxoCommonOps>(coin: &T, address: &str) -> ValidateAd
         },
     };
 
-    let is_p2pkh = address.prefixes() == &coin.as_ref().conf.address_prefixes.p2pkh;
-    let is_p2sh = address.prefixes() == &coin.as_ref().conf.address_prefixes.p2sh;
+    let is_p2pkh = address.prefix() == &coin.as_ref().conf.address_prefixes.p2pkh;
+    let is_p2sh = address.prefix() == &coin.as_ref().conf.address_prefixes.p2sh;
     let is_segwit =
         address.hrp().is_some() && address.hrp() == &coin.as_ref().conf.bech32_hrp && coin.as_ref().conf.segwit;
 
@@ -3461,7 +3459,7 @@ pub fn validate_address<T: UtxoCommonOps>(coin: &T, address: &str) -> ValidateAd
     } else {
         ValidateAddressResult {
             is_valid: false,
-            reason: Some(ERRL!("Address {} has invalid prefixes", address)),
+            reason: Some(ERRL!("Address {} has invalid prefix", address)),
         }
     }
 }
@@ -5053,8 +5051,8 @@ where
         // Considering that legacy is supported with any configured formats
         // This can be changed depending on the coins implementation
         UtxoAddressFormat::Standard => {
-            let is_p2pkh = addr.prefixes() == &conf.address_prefixes.p2pkh;
-            let is_p2sh = addr.prefixes() == &conf.address_prefixes.p2sh;
+            let is_p2pkh = addr.prefix() == &conf.address_prefixes.p2pkh;
+            let is_p2sh = addr.prefix() == &conf.address_prefixes.p2sh;
             if !is_p2pkh && !is_p2sh {
                 MmError::err(UnsupportedAddr::PrefixError(conf.ticker.clone()))
             } else {

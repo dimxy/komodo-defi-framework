@@ -68,7 +68,7 @@ pub(super) fn utxo_coin_fields_for_test(
     } else {
         NetworkAddressPrefixes {
             p2pkh: [60].into(),
-            p2sh: AddressPrefixes::default(),
+            p2sh: AddressPrefix::default(),
         }
     };
     let hrp = if is_segwit_coin {

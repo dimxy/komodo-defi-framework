@@ -26,7 +26,7 @@ use crypto::Secp256k1Secret;
 use ethereum_types::H160 as H160Eth;
 use futures01::Future;
 use http::StatusCode;
-use keys::{Address, AddressBuilder, AddressHashEnum, AddressPrefixes, KeyPair, NetworkAddressPrefixes,
+use keys::{Address, AddressBuilder, AddressHashEnum, AddressPrefix, KeyPair, NetworkAddressPrefixes,
            NetworkPrefix as CashAddrPrefix};
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::BigDecimal;
@@ -1001,7 +1001,7 @@ pub fn utxo_burn_address() -> Address {
         ChecksumType::DSHA256,
         NetworkAddressPrefixes {
             p2pkh: [60].into(),
-            p2sh: AddressPrefixes::default(),
+            p2sh: AddressPrefix::default(),
         },
         None,
     )

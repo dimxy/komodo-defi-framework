@@ -4,7 +4,7 @@ use std::{convert::TryInto, fmt};
 use base58::{FromBase58, ToBase58};
 use crypto::{checksum, ChecksumType};
 use std::ops::Deref;
-use {AddressHashEnum, AddressPrefixes, DisplayLayout};
+use {AddressHashEnum, AddressPrefix, DisplayLayout};
 
 use crate::{address::detect_checksum, Error};
 
@@ -12,8 +12,8 @@ use crate::{address::detect_checksum, Error};
 /// Note: LegacyAddress::from_str deserialization is added, which is used at least in the convertaddress rpc.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Default)]
 pub struct LegacyAddress {
-    /// The prefixes of the address.
-    pub prefixes: AddressPrefixes,
+    /// The prefix of the address.
+    pub prefix: AddressPrefix,
     /// Checksum type
     pub checksum_type: ChecksumType,
     /// Public key hash.
@@ -32,7 +32,7 @@ impl DisplayLayout for LegacyAddress {
     type Target = LegacyAddressDisplayLayout;
 
     fn layout(&self) -> Self::Target {
-        let mut result = self.prefixes.to_vec();
+        let mut result = self.prefix.to_vec();
         result.extend_from_slice(&self.hash.to_vec());
         let cs = checksum(&result, &self.checksum_type);
         result.extend_from_slice(&*cs);
@@ -50,7 +50,7 @@ impl DisplayLayout for LegacyAddress {
                 let hash = data[1..21].to_vec();
 
                 let address = LegacyAddress {
-                    prefixes: data[0..1].try_into().expect("prefixes conversion should not fail"),
+                    prefix: data[0..1].try_into().expect("prefix conversion should not fail"),
                     checksum_type,
                     hash,
                 };
@@ -62,7 +62,7 @@ impl DisplayLayout for LegacyAddress {
                 let hash = data[2..22].to_vec();
 
                 let address = LegacyAddress {
-                    prefixes: data[0..2].try_into().expect("prefixes conversion should not fail"),
+                    prefix: data[0..2].try_into().expect("prefix conversion should not fail"),
                     checksum_type,
                     hash,
                 };
@@ -96,9 +96,9 @@ impl fmt::Display for LegacyAddress {
 }
 
 impl LegacyAddress {
-    pub fn new(hash: &AddressHashEnum, prefixes: AddressPrefixes, checksum_type: ChecksumType) -> LegacyAddress {
+    pub fn new(hash: &AddressHashEnum, prefix: AddressPrefix, checksum_type: ChecksumType) -> LegacyAddress {
         LegacyAddress {
-            prefixes,
+            prefix,
             checksum_type,
             hash: hash.to_vec(),
         }

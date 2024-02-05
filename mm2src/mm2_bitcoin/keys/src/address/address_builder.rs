@@ -1,5 +1,5 @@
 use crypto::ChecksumType;
-use {Address, AddressFormat, AddressHashEnum, AddressPrefixes, AddressScriptType, NetworkAddressPrefixes};
+use {Address, AddressFormat, AddressHashEnum, AddressPrefix, AddressScriptType, NetworkAddressPrefixes};
 
 /// Params for AddressBuilder to select output script type
 #[derive(PartialEq)]
@@ -66,7 +66,7 @@ impl AddressBuilder {
         let build_option = self.build_option.as_ref().ok_or("no address builder option set")?;
         match &self.addr_format {
             AddressFormat::Standard => Ok(Address {
-                prefixes: self.get_address_prefixes(build_option)?,
+                prefix: self.get_address_prefix(build_option)?,
                 hrp: None,
                 hash: self.hash.clone(),
                 checksum_type: self.checksum_type,
@@ -77,7 +77,7 @@ impl AddressBuilder {
                 self.check_segwit_hrp()?;
                 self.check_segwit_hash(build_option)?;
                 Ok(Address {
-                    prefixes: AddressPrefixes::default(),
+                    prefix: AddressPrefix::default(),
                     hrp: self.hrp.clone(),
                     hash: self.hash.clone(),
                     checksum_type: self.checksum_type,
@@ -86,7 +86,7 @@ impl AddressBuilder {
                 })
             },
             AddressFormat::CashAddress { .. } => Ok(Address {
-                prefixes: self.get_address_prefixes(build_option)?,
+                prefix: self.get_address_prefix(build_option)?,
                 hrp: None,
                 hash: self.hash.clone(),
                 checksum_type: self.checksum_type,
@@ -96,15 +96,15 @@ impl AddressBuilder {
         }
     }
 
-    fn get_address_prefixes(&self, build_option: &AddressBuilderOption) -> Result<AddressPrefixes, String> {
-        let prefixes = match build_option {
+    fn get_address_prefix(&self, build_option: &AddressBuilderOption) -> Result<AddressPrefix, String> {
+        let prefix = match build_option {
             AddressBuilderOption::BuildAsPubkeyHash => &self.prefixes.p2pkh,
             AddressBuilderOption::BuildAsScriptHash => &self.prefixes.p2sh,
         };
-        if prefixes.is_empty() {
-            return Err("no prefixes for address".to_owned());
+        if prefix.is_empty() {
+            return Err("no prefix for address set".to_owned());
         }
-        Ok(prefixes.clone())
+        Ok(prefix.clone())
     }
 
     fn get_legacy_script_type(&self, build_option: &AddressBuilderOption) -> AddressScriptType {

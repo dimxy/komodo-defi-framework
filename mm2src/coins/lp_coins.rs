@@ -4271,7 +4271,7 @@ pub async fn convert_utxo_address(ctx: MmArc, req: Json) -> Result<Response<Vec<
         MmCoinEnum::UtxoCoin(utxo) => utxo,
         _ => return ERR!("Coin {} is not utxo", req.to_coin),
     };
-    addr.prefixes = coin.as_ref().conf.address_prefixes.p2pkh.clone();
+    addr.prefix = coin.as_ref().conf.address_prefixes.p2pkh.clone();
     addr.checksum_type = coin.as_ref().conf.checksum_type;
 
     let response = try_s!(json::to_vec(&json!({
