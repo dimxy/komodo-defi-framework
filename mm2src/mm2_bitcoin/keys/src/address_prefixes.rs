@@ -1,10 +1,4 @@
-use std::{convert::{TryFrom, TryInto},
-          fmt, u8};
-
-pub struct ConstPrefixes<'a> {
-    p2pkh: &'a [u8],
-    p2sh: &'a [u8],
-}
+use std::{convert::TryFrom, fmt, u8};
 
 /// Prefixes for a single legacy address type (p2pkh or p2sh)
 #[derive(Debug, Clone, Eq, Hash, PartialEq, Default)]
@@ -79,17 +73,6 @@ pub struct NetworkAddressPrefixes {
     pub p2sh: AddressPrefixes,
 }
 
-impl TryFrom<ConstPrefixes<'_>> for NetworkAddressPrefixes {
-    type Error = ();
-
-    fn try_from(const_prefixes: ConstPrefixes) -> Result<Self, Self::Error> {
-        Ok(Self {
-            p2pkh: const_prefixes.p2pkh.try_into()?,
-            p2sh: const_prefixes.p2sh.try_into()?,
-        })
-    }
-}
-
 impl fmt::Display for NetworkAddressPrefixes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{{")?;
@@ -103,82 +86,53 @@ impl fmt::Display for NetworkAddressPrefixes {
 
 /// Some prefixes used in tests
 pub mod prefixes {
-    use super::ConstPrefixes;
+    use super::NetworkAddressPrefixes;
+    use lazy_static::lazy_static;
 
-    pub const KMD_P2PKH: [u8; 1] = [60];
-    pub const KMD_P2SH: [u8; 1] = [85];
-    pub const KMD_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &KMD_P2PKH,
-        p2sh: &KMD_P2SH,
-    };
-
-    pub const BTC_P2PKH: [u8; 1] = [0];
-    pub const BTC_P2SH: [u8; 1] = [5];
-    pub const BTC_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &BTC_P2PKH,
-        p2sh: &BTC_P2SH,
-    };
-
-    pub const T_BTC_P2PKH: [u8; 1] = [111];
-    pub const T_BTC_P2SH: [u8; 1] = [196];
-    pub const T_BTC_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &T_BTC_P2PKH,
-        p2sh: &T_BTC_P2SH,
-    };
-
-    pub const BCH_P2PKH: [u8; 1] = [0];
-    pub const BCH_P2SH: [u8; 1] = [5];
-    pub const BCH_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &BCH_P2PKH,
-        p2sh: &BCH_P2SH,
-    };
-
-    pub const QRC20_P2PKH: [u8; 1] = [120];
-    pub const QRC20_P2SH: [u8; 1] = [50];
-    pub const QRC20_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &QRC20_P2PKH,
-        p2sh: &QRC20_P2SH,
-    };
-
-    pub const QTUM_P2PKH: [u8; 1] = [58];
-    pub const QTUM_P2SH: [u8; 1] = [50];
-    pub const QTUM_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &QTUM_P2PKH,
-        p2sh: &QTUM_P2SH,
-    };
-
-    pub const T_QTUM_P2PKH: [u8; 1] = [120];
-    pub const T_QTUM_P2SH: [u8; 1] = [110];
-    pub const T_QTUM_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &T_QTUM_P2PKH,
-        p2sh: &T_QTUM_P2SH,
-    };
-
-    pub const GRS_P2PKH: [u8; 1] = [36];
-    pub const GRS_P2SH: [u8; 1] = [5];
-    pub const GRS_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &GRS_P2PKH,
-        p2sh: &GRS_P2SH,
-    };
-
-    pub const SYS_P2PKH: [u8; 1] = [63];
-    pub const SYS_P2SH: [u8; 1] = [5];
-    pub const SYS_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &SYS_P2PKH,
-        p2sh: &SYS_P2SH,
-    };
-
-    pub const ZCASH_P2PKH: [u8; 2] = [28, 184];
-    pub const ZCASH_P2SH: [u8; 2] = [28, 189];
-    pub const ZCASH_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &ZCASH_P2PKH,
-        p2sh: &ZCASH_P2SH,
-    };
-
-    pub const T_ZCASH_P2PKH: [u8; 2] = [29, 37];
-    pub const T_ZCASH_P2SH: [u8; 2] = [28, 186];
-    pub const T_ZCASH_PREFIXES: ConstPrefixes<'static> = ConstPrefixes {
-        p2pkh: &T_ZCASH_P2PKH,
-        p2sh: &T_ZCASH_P2SH,
-    };
+    lazy_static! {
+        pub static ref KMD_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [60].into(),
+            p2sh: [85].into(),
+        };
+        pub static ref BTC_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [0].into(),
+            p2sh: [5].into(),
+        };
+        pub static ref T_BTC_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [111].into(),
+            p2sh: [196].into(),
+        };
+        pub static ref BCH_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [0].into(),
+            p2sh: [5].into(),
+        };
+        pub static ref QRC20_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [120].into(),
+            p2sh: [50].into(),
+        };
+        pub static ref QTUM_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [58].into(),
+            p2sh: [50].into(),
+        };
+        pub static ref T_QTUM_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [120].into(),
+            p2sh: [110].into(),
+        };
+        pub static ref GRS_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [36].into(),
+            p2sh: [5].into(),
+        };
+        pub static ref SYS_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [63].into(),
+            p2sh: [5].into(),
+        };
+        pub static ref ZCASH_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [28, 184].into(),
+            p2sh: [28, 189].into(),
+        };
+        pub static ref T_ZCASH_PREFIXES: NetworkAddressPrefixes = NetworkAddressPrefixes {
+            p2pkh: [29, 37].into(),
+            p2sh: [28, 186].into(),
+        };
+    }
 }

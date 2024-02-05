@@ -612,8 +612,6 @@ pub fn is_witness_commitment_script(script: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
-
     use super::{Script, ScriptAddress, ScriptType};
     use crypto::ChecksumType;
     use keys::{prefixes::BTC_PREFIXES, Address, Public};
@@ -792,11 +790,10 @@ OP_ADD
 
     #[test]
     fn test_extract_destinations_pub_key_hash() {
-        let address =
-            Address::from_legacyaddress("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S", &BTC_PREFIXES.try_into().unwrap())
-                .unwrap()
-                .hash()
-                .clone();
+        let address = Address::from_legacyaddress("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S", &BTC_PREFIXES)
+            .unwrap()
+            .hash()
+            .clone();
         let script = Builder::build_p2pkh(&address);
         assert_eq!(script.script_type(), ScriptType::PubKeyHash);
         assert_eq!(
@@ -807,11 +804,10 @@ OP_ADD
 
     #[test]
     fn test_extract_destinations_script_hash() {
-        let address =
-            Address::from_legacyaddress("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S", &BTC_PREFIXES.try_into().unwrap())
-                .unwrap()
-                .hash()
-                .clone();
+        let address = Address::from_legacyaddress("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S", &BTC_PREFIXES)
+            .unwrap()
+            .hash()
+            .clone();
         let script = Builder::build_p2sh(&address);
         assert_eq!(script.script_type(), ScriptType::ScriptHash);
         assert_eq!(

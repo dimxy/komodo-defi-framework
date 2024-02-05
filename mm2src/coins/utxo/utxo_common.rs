@@ -5430,23 +5430,17 @@ fn test_generate_taker_fee_tx_outputs_with_burn() {
 
 #[test]
 fn test_address_to_scripthash() {
-    let address =
-        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES.try_into().unwrap()).unwrap();
+    let address = Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap();
     let actual = address_to_scripthash(&address).expect("valid script hash to be built");
     let expected = "e850499408c6ebcf6b3340282747e540fb23748429fca5f2b36cdeef54ddf5b1".to_owned();
     assert_eq!(expected, actual);
 
-    let address =
-        Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES.try_into().unwrap()).unwrap();
+    let address = Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES).unwrap();
     let actual = address_to_scripthash(&address).expect("valid script hash to be built");
     let expected = "a70a7a7041ef172ce4b5f8208aabed44c81e2af75493540f50af7bd9afa9955d".to_owned();
     assert_eq!(expected, actual);
 
-    let address = Address::from_legacyaddress(
-        "qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE",
-        &T_QTUM_PREFIXES.try_into().unwrap(),
-    )
-    .unwrap();
+    let address = Address::from_legacyaddress("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE", &T_QTUM_PREFIXES).unwrap();
     let actual = address_to_scripthash(&address).expect("valid script hash to be built");
     let expected = "c5b5922c86830289231539d1681d8ce621aac8326c96d6ac55400b4d1485f769".to_owned();
     assert_eq!(expected, actual);

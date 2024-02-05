@@ -7,7 +7,6 @@
 
 use crypto::{dgroestl512, dhash256, keccak256, ChecksumType};
 use derive_more::Display;
-#[cfg(test)] use prefixes;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
@@ -266,9 +265,7 @@ impl fmt::Display for Address {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.addr_format {
             AddressFormat::Segwit => {
-                SegwitAddress::new(&self.hash, self.hrp.clone().expect("Segwit address should have an hrp"))
-                    .to_string()
-                    .fmt(f)
+                SegwitAddress::new(&self.hash, self.hrp.clone().expect("Segwit address should have an hrp")).fmt(f)
             },
             AddressFormat::CashAddress {
                 network,
@@ -283,19 +280,15 @@ impl fmt::Display for Address {
                     .expect("A valid address");
                 cash_address.encode().expect("A valid address").fmt(f)
             },
-            AddressFormat::Standard => LegacyAddress::new(&self.hash, self.prefixes.clone(), self.checksum_type)
-                .to_string()
-                .fmt(f),
+            AddressFormat::Standard => LegacyAddress::new(&self.hash, self.prefixes.clone(), self.checksum_type).fmt(f),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::convert::TryInto;
-
-    use super::prefixes::*;
     use super::{Address, AddressBuilder, AddressFormat, AddressHashEnum, CashAddrType, CashAddress, ChecksumType};
+    use crate::address_prefixes::prefixes::*;
     use crate::{NetworkAddressPrefixes, NetworkPrefix};
 
     #[test]
@@ -304,7 +297,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("3f4aa1fedf1f54eeb03b759deadb36676b184911".into()),
             ChecksumType::DSHA256,
-            BTC_PREFIXES.try_into().unwrap(),
+            (*BTC_PREFIXES).clone(),
             None,
         )
         .as_pkh()
@@ -320,7 +313,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("05aab5342166f8594baf17a7d9bef5d567443327".into()),
             ChecksumType::DSHA256,
-            KMD_PREFIXES.try_into().unwrap(),
+            (*KMD_PREFIXES).clone(),
             None,
         )
         .as_pkh()
@@ -336,7 +329,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("05aab5342166f8594baf17a7d9bef5d567443327".into()),
             ChecksumType::DSHA256,
-            T_ZCASH_PREFIXES.try_into().unwrap(),
+            (*T_ZCASH_PREFIXES).clone(),
             None,
         )
         .as_pkh()
@@ -352,7 +345,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("ca0c3786c96ff7dacd40fdb0f7c196528df35f85".into()),
             ChecksumType::DSHA256,
-            KMD_PREFIXES.try_into().unwrap(),
+            (*KMD_PREFIXES).clone(),
             None,
         )
         .as_sh()
@@ -368,7 +361,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("3f4aa1fedf1f54eeb03b759deadb36676b184911".into()),
             ChecksumType::DSHA256,
-            BTC_PREFIXES.try_into().unwrap(),
+            (*BTC_PREFIXES).clone(),
             None,
         )
         .as_pkh()
@@ -377,8 +370,7 @@ mod tests {
 
         assert_eq!(
             address,
-            Address::from_legacyaddress("16meyfSoQV6twkAAxPe51RtMVz7PGRmWna", &BTC_PREFIXES.try_into().unwrap())
-                .unwrap()
+            Address::from_legacyaddress("16meyfSoQV6twkAAxPe51RtMVz7PGRmWna", &BTC_PREFIXES).unwrap()
         );
         assert_eq!(address.to_string(), "16meyfSoQV6twkAAxPe51RtMVz7PGRmWna".to_owned());
     }
@@ -389,7 +381,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("05aab5342166f8594baf17a7d9bef5d567443327".into()),
             ChecksumType::DSHA256,
-            KMD_PREFIXES.try_into().unwrap(),
+            (*KMD_PREFIXES).clone(),
             None,
         )
         .as_pkh()
@@ -398,8 +390,7 @@ mod tests {
 
         assert_eq!(
             address,
-            Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap()
+            Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES).unwrap()
         );
         assert_eq!(address.to_string(), "R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW".to_owned());
     }
@@ -410,7 +401,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("05aab5342166f8594baf17a7d9bef5d567443327".into()),
             ChecksumType::DSHA256,
-            T_ZCASH_PREFIXES.try_into().unwrap(),
+            (*T_ZCASH_PREFIXES).clone(),
             None,
         )
         .as_pkh()
@@ -419,11 +410,7 @@ mod tests {
 
         assert_eq!(
             address,
-            Address::from_legacyaddress(
-                "tmAEKD7psc1ajK76QMGEW8WGQSBBHf9SqCp",
-                &T_ZCASH_PREFIXES.try_into().unwrap()
-            )
-            .unwrap()
+            Address::from_legacyaddress("tmAEKD7psc1ajK76QMGEW8WGQSBBHf9SqCp", &T_ZCASH_PREFIXES).unwrap()
         );
         assert_eq!(address.to_string(), "tmAEKD7psc1ajK76QMGEW8WGQSBBHf9SqCp".to_owned());
     }
@@ -434,7 +421,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("ca0c3786c96ff7dacd40fdb0f7c196528df35f85".into()),
             ChecksumType::DSHA256,
-            KMD_PREFIXES.try_into().unwrap(),
+            (*KMD_PREFIXES).clone(),
             None,
         )
         .as_sh()
@@ -443,8 +430,7 @@ mod tests {
 
         assert_eq!(
             address,
-            Address::from_legacyaddress("bX9bppqdGvmCCAujd76Tq76zs1suuPnB9A", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap()
+            Address::from_legacyaddress("bX9bppqdGvmCCAujd76Tq76zs1suuPnB9A", &KMD_PREFIXES).unwrap()
         );
         assert_eq!(address.to_string(), "bX9bppqdGvmCCAujd76Tq76zs1suuPnB9A".to_owned());
     }
@@ -455,7 +441,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("c3f710deb7320b0efa6edb14e3ebeeb9155fa90d".into()),
             ChecksumType::DGROESTL512,
-            GRS_PREFIXES.try_into().unwrap(),
+            (*GRS_PREFIXES).clone(),
             None,
         )
         .as_pkh()
@@ -464,8 +450,7 @@ mod tests {
 
         assert_eq!(
             address,
-            Address::from_legacyaddress("Fo2tBkpzaWQgtjFUkemsYnKyfvd2i8yTki", &GRS_PREFIXES.try_into().unwrap())
-                .unwrap()
+            Address::from_legacyaddress("Fo2tBkpzaWQgtjFUkemsYnKyfvd2i8yTki", &GRS_PREFIXES).unwrap()
         );
         assert_eq!(address.to_string(), "Fo2tBkpzaWQgtjFUkemsYnKyfvd2i8yTki".to_owned());
     }
@@ -476,7 +461,7 @@ mod tests {
             AddressFormat::Standard,
             AddressHashEnum::AddressHash("56bb05aa20f5a80cf84e90e5dab05be331333e27".into()),
             ChecksumType::KECCAK256,
-            SYS_PREFIXES.try_into().unwrap(),
+            (*SYS_PREFIXES).clone(),
             None,
         )
         .as_pkh()
@@ -485,8 +470,7 @@ mod tests {
 
         assert_eq!(
             address,
-            Address::from_legacyaddress("SVCbBs6FvPYxJrYoJc4TdCe47QNCgmTabv", &SYS_PREFIXES.try_into().unwrap())
-                .unwrap()
+            Address::from_legacyaddress("SVCbBs6FvPYxJrYoJc4TdCe47QNCgmTabv", &SYS_PREFIXES).unwrap()
         );
         assert_eq!(address.to_string(), "SVCbBs6FvPYxJrYoJc4TdCe47QNCgmTabv".to_owned());
     }
@@ -505,18 +489,13 @@ mod tests {
         ];
 
         for i in 0..3 {
-            let actual_address = Address::from_cashaddress(
-                cashaddresses[i],
-                ChecksumType::DSHA256,
-                &BCH_PREFIXES.try_into().unwrap(),
-            )
-            .unwrap();
-            let expected_address: Address =
-                Address::from_legacyaddress(expected[i], &BCH_PREFIXES.try_into().unwrap()).unwrap();
+            let actual_address =
+                Address::from_cashaddress(cashaddresses[i], ChecksumType::DSHA256, &BCH_PREFIXES).unwrap();
+            let expected_address: Address = Address::from_legacyaddress(expected[i], &BCH_PREFIXES).unwrap();
             // comparing only hashes here as Address::from_cashaddress has a different internal format from into()
             assert_eq!(actual_address.hash, expected_address.hash);
             let actual_cashaddress = actual_address
-                .to_cashaddress("bitcoincash", &BCH_PREFIXES.try_into().unwrap())
+                .to_cashaddress("bitcoincash", &BCH_PREFIXES)
                 .unwrap()
                 .encode()
                 .unwrap();
@@ -531,7 +510,7 @@ mod tests {
             Address::from_cashaddress(
                 "bitcoincash:qgagf7w02x4wnz3mkwnchut2vxphjzccwxgjvvjmlsxqwkcw59jxxuz",
                 ChecksumType::DSHA256,
-                &BCH_PREFIXES.try_into().unwrap(),
+                &BCH_PREFIXES,
             ),
             Err("Expect 20 bytes long hash".into())
         );
@@ -564,7 +543,7 @@ mod tests {
         .expect("valid address props"); // actually prefix == 2 is unknown and is neither P2PKH nor P2SH
 
         assert_eq!(
-            address.to_cashaddress("bitcoincash", &BCH_PREFIXES.try_into().unwrap()),
+            address.to_cashaddress("bitcoincash", &BCH_PREFIXES),
             Err("Unknown address prefix [2]. Expect: [0], [5]".into())
         );
     }
@@ -579,12 +558,9 @@ mod tests {
             address_type: CashAddrType::P2PKH,
         };
         let address: Address =
-            Address::from_legacyaddress("1DmFp16U73RrVZtYUbo2Ectt8mAnYScpqM", &BCH_PREFIXES.try_into().unwrap())
-                .unwrap();
+            Address::from_legacyaddress("1DmFp16U73RrVZtYUbo2Ectt8mAnYScpqM", &BCH_PREFIXES).unwrap();
         assert_eq!(
-            address
-                .to_cashaddress("prefix", &BCH_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            address.to_cashaddress("prefix", &BCH_PREFIXES).unwrap(),
             expected_address
         );
     }

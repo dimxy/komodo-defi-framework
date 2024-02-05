@@ -210,32 +210,28 @@ pub(super) fn get_morty_hd_transactions_ordered(tx_hashes: &[&str]) -> Vec<Trans
 
 pub(super) async fn test_electrum_display_balances(rpc_client: &ElectrumClient) {
     let addresses = vec![
-        Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
-        Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
-        Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
-        Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
+        Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES).unwrap(),
     ];
     let actual = rpc_client.display_balances(addresses, 8).compat().await.unwrap();
 
     let expected: Vec<(Address, BigDecimal)> = vec![
         (
-            Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(5.77699).unwrap(),
         ),
         (
-            Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(3.33).unwrap(),
         ),
         (
-            Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(0.77699).unwrap(),
         ),
         (
-            Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(16.55398).unwrap(),
         ),
     ];

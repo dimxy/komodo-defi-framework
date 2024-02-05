@@ -1895,7 +1895,7 @@ fn test_get_mature_unspent_ordered_map_from_cache_impl(
     // run test
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Electrum(client), None, false);
     let (unspents, _) = block_on(coin.get_mature_unspent_ordered_list(
-        &Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
+        &Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES).unwrap(),
     ))
     .expect("Expected an empty unspent list");
     // unspents should be empty because `is_unspent_mature()` always returns false
@@ -2036,8 +2036,7 @@ fn test_native_client_unspents_filtered_using_tx_cache_single_tx_in_cache() {
     let client = native_client_for_test();
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
-    let address: Address =
-        Address::from_legacyaddress("RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN", &KMD_PREFIXES.try_into().unwrap()).unwrap();
+    let address: Address = Address::from_legacyaddress("RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN", &KMD_PREFIXES).unwrap();
     block_on(coin.as_ref().recently_spent_outpoints.lock()).for_script_pubkey =
         Builder::build_p2pkh(address.hash()).to_bytes();
 
@@ -2083,8 +2082,7 @@ fn test_native_client_unspents_filtered_using_tx_cache_single_several_chained_tx
     let client = native_client_for_test();
     let coin = utxo_coin_fields_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
-    let address: Address =
-        Address::from_legacyaddress("RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN", &KMD_PREFIXES.try_into().unwrap()).unwrap();
+    let address: Address = Address::from_legacyaddress("RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN", &KMD_PREFIXES).unwrap();
     block_on(coin.recently_spent_outpoints.lock()).for_script_pubkey = Builder::build_p2pkh(address.hash()).to_bytes();
     let coin = utxo_coin_from_fields(coin);
 
@@ -2905,7 +2903,7 @@ fn test_tx_details_kmd_rewards() {
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
     fields.derivation_method = DerivationMethod::SingleAddress(
-        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
+        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap(),
     );
     let coin = utxo_coin_from_fields(fields);
 
@@ -2944,7 +2942,7 @@ fn test_tx_details_kmd_rewards_claimed_by_other() {
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
     fields.derivation_method = DerivationMethod::SingleAddress(
-        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
+        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap(),
     );
     let coin = utxo_coin_from_fields(fields);
 
@@ -2992,7 +2990,7 @@ fn test_update_kmd_rewards() {
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
     fields.derivation_method = DerivationMethod::SingleAddress(
-        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
+        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap(),
     );
     let coin = utxo_coin_from_fields(fields);
 
@@ -3026,7 +3024,7 @@ fn test_update_kmd_rewards_claimed_not_by_me() {
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
     fields.derivation_method = DerivationMethod::SingleAddress(
-        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
+        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap(),
     );
     let coin = utxo_coin_from_fields(fields);
 
@@ -3243,8 +3241,7 @@ fn test_utxo_standard_with_check_utxo_maturity_true() {
     let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
 
-    let address =
-        Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES.try_into().unwrap()).unwrap();
+    let address = Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES).unwrap();
     // Don't use `block_on` here because it's used within a mock of [`GetUtxoListOps::get_mature_unspent_ordered_list`].
     coin.get_unspent_ordered_list(&address).compat().wait().unwrap();
     assert!(unsafe { GET_MATURE_UNSPENT_ORDERED_LIST_CALLED });
@@ -3280,8 +3277,7 @@ fn test_utxo_standard_without_check_utxo_maturity() {
     let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
 
-    let address =
-        Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES.try_into().unwrap()).unwrap();
+    let address = Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES).unwrap();
     // Don't use `block_on` here because it's used within a mock of [`UtxoStandardCoin::get_all_unspent_ordered_list`].
     coin.get_unspent_ordered_list(&address).compat().wait().unwrap();
     assert!(unsafe { GET_ALL_UNSPENT_ORDERED_LIST_CALLED });
@@ -4198,10 +4194,10 @@ fn test_native_display_balances() {
     let rpc_client = native_client_for_test();
 
     let addresses = vec![
-        Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
-        Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
-        Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
-        Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES.try_into().unwrap()).unwrap(),
+        Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES).unwrap(),
     ];
     let actual = rpc_client
         .display_balances(addresses, TEST_COIN_DECIMALS)
@@ -4210,23 +4206,19 @@ fn test_native_display_balances() {
 
     let expected: Vec<(Address, BigDecimal)> = vec![
         (
-            Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(5.77699).unwrap(),
         ),
         (
-            Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES).unwrap(),
             BigDecimal::from(0),
         ),
         (
-            Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(0.77699).unwrap(),
         ),
         (
-            Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES.try_into().unwrap())
-                .unwrap(),
+            Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(0.99998).unwrap(),
         ),
     ];
