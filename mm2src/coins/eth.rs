@@ -37,6 +37,7 @@ use common::{now_ms, wait_until_ms};
 use crypto::privkey::key_pair_from_secret;
 use crypto::{CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy, StandardHDCoinAddress};
 use derive_more::Display;
+pub use eip1559_gas_fee::FeePerGasEstimated;
 use enum_from::EnumFromStringify;
 use ethabi::{Contract, Function, Token};
 pub use ethcore_transaction::SignedTransaction as SignedEthTx;
@@ -44,9 +45,8 @@ use ethcore_transaction::{Action, Transaction as UnSignedEthTx, UnverifiedTransa
 use ethereum_types::{Address, H160, H256, U256};
 use ethkey::{public_to_address, KeyPair, Public, Signature};
 use ethkey::{sign, verify_address};
-pub use fee_estimator::GasFeeEstimatedInternal;
 use futures::compat::Future01CompatExt;
-use futures::future::{join_all, select_ok, try_join_all, Either, FutureExt, TryFutureExt};
+use futures::future::{join, join_all, select_ok, try_join_all, Either, FutureExt, TryFutureExt};
 use futures01::Future;
 use http::StatusCode;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
@@ -115,8 +115,8 @@ mod nonce;
 use crate::{PrivKeyPolicy, TransactionResult, WithdrawFrom};
 use nonce::ParityNonce;
 
-mod fee_estimator;
-use fee_estimator::GasPriorityFeeEstimator;
+mod eip1559_gas_fee;
+use eip1559_gas_fee::{BlocknativeGasApiCaller, FeePerGasSimpleEstimator};
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
@@ -146,6 +146,8 @@ const DEFAULT_LOGS_BLOCK_RANGE: u64 = 1000;
 const DEFAULT_REQUIRED_CONFIRMATIONS: u8 = 1;
 
 pub(crate) const ETH_DECIMALS: u8 = 18;
+
+pub(crate) const ETH_GWEI_DECIMALS: u8 = 9;
 
 /// Take into account that the dynamic fee may increase by 3% during the swap.
 const GAS_PRICE_APPROXIMATION_PERCENT_ON_START_SWAP: u64 = 3;
@@ -4642,21 +4644,20 @@ impl EthCoin {
         Box::new(fut.boxed().compat())
     }
 
-    /// Get base fee and suggest priority tip fees (introduced in EIP1559)
-    pub async fn get_eip1559_gas_price(&self) -> Result<GasFeeEstimatedInternal, MmError<Web3RpcError>> {
+    /// Get base gas fee and suggest priority tip fees for the next block (see EIP1559)
+    pub async fn get_eip1559_gas_price(&self) -> Result<FeePerGasEstimated, MmError<Web3RpcError>> {
         let coin = self.clone();
         let fee_history_namespace: EthFeeHistoryNamespace<_> = coin.web3.api();
-        let res = fee_history_namespace
-            .eth_fee_history(
-                U256::from(GasPriorityFeeEstimator::history_depth()),
-                BlockNumber::Latest,
-                GasPriorityFeeEstimator::history_percentiles(),
-            )
-            .await;
+        let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(fee_history_namespace);
+        let provider_estimator_fut = BlocknativeGasApiCaller::fetch_blocknative_fee_estimation();
+        // To call infura use:
+        // let provider_estimator_fut = InfuraGasApiCaller::fetch_infura_fee_estimation();
 
-        match res {
-            Ok(fee_history) => Ok(GasPriorityFeeEstimator::estimate_fees(&fee_history)),
-            Err(_) => Err(MmError::new(Web3RpcError::Internal("All requests failed".into()))),
+        let (res_history, res_provider) = join(history_estimator_fut, provider_estimator_fut).await;
+        match (res_history, res_provider) {
+            (Ok(ref history_est), Err(_)) => Ok(history_est.clone()),
+            (_, Ok(ref provider_est)) => Ok(provider_est.clone()),
+            (_, _) => MmError::err(Web3RpcError::Internal("All gas api requests failed".into())), // TODO: send errors
         }
     }
 
