@@ -1148,12 +1148,13 @@ impl WatcherOps for BchCoin {
     }
 }
 
+#[async_trait]
 impl MarketCoinOps for BchCoin {
     fn ticker(&self) -> &str { &self.utxo_arc.conf.ticker }
 
     fn my_address(&self) -> MmResult<String, MyAddressError> { utxo_common::my_address(self) }
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
         let pubkey = utxo_common::my_public_key(&self.utxo_arc)?;
         Ok(pubkey.to_string())
     }

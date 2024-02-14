@@ -230,12 +230,13 @@ impl SplToken {
     }
 }
 
+#[async_trait]
 impl MarketCoinOps for SplToken {
     fn ticker(&self) -> &str { &self.conf.ticker }
 
     fn my_address(&self) -> MmResult<String, MyAddressError> { Ok(self.platform_coin.my_address.clone()) }
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> { unimplemented!() }
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> { unimplemented!() }
 
     fn sign_message_hash(&self, _message: &str) -> Option<[u8; 32]> { unimplemented!() }
 

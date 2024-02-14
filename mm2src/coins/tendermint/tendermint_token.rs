@@ -539,13 +539,14 @@ impl WatcherOps for TendermintToken {
     }
 }
 
+#[async_trait]
 impl MarketCoinOps for TendermintToken {
     fn ticker(&self) -> &str { &self.ticker }
 
     fn my_address(&self) -> MmResult<String, MyAddressError> { self.platform_coin.my_address() }
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
-        self.platform_coin.get_public_key()
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
+        self.platform_coin.get_public_key().await
     }
 
     fn sign_message_hash(&self, message: &str) -> Option<[u8; 32]> { self.platform_coin.sign_message_hash(message) }

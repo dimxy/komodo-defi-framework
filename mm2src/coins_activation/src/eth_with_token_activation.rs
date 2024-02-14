@@ -288,7 +288,7 @@ impl PlatformCoinWithTokensActivationOps for EthCoin {
 
         // Todo: We only return the enabled address for swaps in the response for now, init_platform_coin_with_token method should allow scanning and returning all addresses with balances
         let my_address = display_eth_address(&self.derivation_method().single_addr_or_err().await?);
-        let pubkey = self.get_public_key()?;
+        let pubkey = self.get_public_key().await?;
 
         let mut eth_address_info = CoinAddressInfo {
             derivation_method: DerivationMethod::Iguana,

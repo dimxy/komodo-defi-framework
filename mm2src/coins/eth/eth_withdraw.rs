@@ -51,55 +51,43 @@ where
     #[allow(clippy::result_large_err)]
     fn get_key_pair(&self, req: &WithdrawRequest) -> Result<KeyPair, MmError<WithdrawError>> {
         let coin = self.coin();
+        if coin.priv_key_policy.is_trezor() {
+            return MmError::err(WithdrawError::InternalError("no keypair for hw wallet".to_owned()));
+        }
+
         match req.from {
             Some(ref from) => {
-                let path_to_coin = &coin
-                    .deref()
-                    .derivation_method
-                    .hd_wallet()
-                    .ok_or(WithdrawError::UnexpectedDerivationMethod)?
-                    .derivation_path;
-                let path_to_address = from.to_address_path(path_to_coin.coin_type())?;
-                let derivation_path = path_to_address.to_derivation_path(path_to_coin)?;
-                match coin.priv_key_policy {
-                    EthPrivKeyPolicy::Trezor { .. } => {
-                        MmError::err(WithdrawError::InternalError("no keypair for hw wallet".to_owned()))
-                    },
-                    _ => {
-                        let raw_priv_key = coin
-                            .priv_key_policy
-                            .hd_wallet_derived_priv_key_or_err(&derivation_path)?;
-
-                        let key_pair = KeyPair::from_secret_slice(raw_priv_key.as_slice())
-                            .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
-
-                        Ok(key_pair)
-                    },
-                }
+                let derivation_path = self.get_from_derivation_path(from)?;
+                let raw_priv_key = coin
+                    .priv_key_policy
+                    .hd_wallet_derived_priv_key_or_err(&derivation_path)?;
+                KeyPair::from_secret_slice(raw_priv_key.as_slice())
+                    .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))
             },
-            None => match coin.priv_key_policy {
-                EthPrivKeyPolicy::Trezor { .. } => {
-                    MmError::err(WithdrawError::InternalError("no keypair for hw wallet".to_owned()))
-                },
-                _ => Ok(coin.priv_key_policy.activated_key_or_err()?.clone()),
-            },
+            None => coin
+                .priv_key_policy
+                .activated_key_or_err()
+                .mm_err(|e| WithdrawError::InternalError(e.to_string()))
+                .cloned(),
         }
     }
 
-    async fn get_from_derivation_path(&self, req: &WithdrawRequest) -> Result<DerivationPath, MmError<WithdrawError>> {
+    #[allow(clippy::result_large_err)]
+    fn get_from_derivation_path(&self, from: &WithdrawFrom) -> Result<DerivationPath, MmError<WithdrawError>> {
+        let coin = self.coin();
+        let path_to_coin = &coin.deref().derivation_method.hd_wallet_or_err()?.derivation_path;
+        let path_to_address = from.to_address_path(path_to_coin.coin_type())?;
+        let derivation_path = path_to_address.to_derivation_path(path_to_coin)?;
+        Ok(derivation_path)
+    }
+
+    async fn get_withdraw_derivation_path(
+        &self,
+        req: &WithdrawRequest,
+    ) -> Result<DerivationPath, MmError<WithdrawError>> {
         let coin = self.coin();
         match req.from {
-            Some(ref from) => {
-                let path_to_coin = &coin
-                    .deref()
-                    .derivation_method
-                    .hd_wallet()
-                    .ok_or(WithdrawError::UnexpectedDerivationMethod)?
-                    .derivation_path;
-                let path_to_address = from.to_address_path(path_to_coin.coin_type())?;
-                let derivation_path = path_to_address.to_derivation_path(path_to_coin)?;
-                Ok(derivation_path)
-            },
+            Some(ref from) => self.get_from_derivation_path(from),
             None => {
                 let default_hd_address = &coin
                     .deref()
@@ -131,8 +119,8 @@ where
 
                 Ok((signed.hash, BytesJson::from(bytes.to_vec())))
             },
-            EthPrivKeyPolicy::Trezor { .. } => {
-                let derivation_path = self.get_from_derivation_path(req).await?;
+            EthPrivKeyPolicy::Trezor => {
+                let derivation_path = self.get_withdraw_derivation_path(req).await?;
                 let signed = self.sign_tx_with_trezor(&derivation_path, &tx).await?;
                 let bytes = rlp::encode(&signed);
                 Ok((signed.hash, BytesJson::from(bytes.to_vec())))

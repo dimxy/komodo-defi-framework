@@ -2208,12 +2208,13 @@ impl MmCoin for TendermintCoin {
     fn on_token_deactivated(&self, _ticker: &str) {}
 }
 
+#[async_trait]
 impl MarketCoinOps for TendermintCoin {
     fn ticker(&self) -> &str { &self.ticker }
 
     fn my_address(&self) -> MmResult<String, MyAddressError> { Ok(self.account_id.to_string()) }
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
         let key = SigningKey::from_bytes(self.priv_key_policy.activated_key_or_err()?.as_slice())
             .expect("privkey validity is checked on coin creation");
         Ok(key.public_key().to_string())

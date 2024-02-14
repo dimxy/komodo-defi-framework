@@ -345,6 +345,7 @@ where
     }
 
     async fn get_enabled_address(&self) -> Option<<Self::HDAccount as HDAccountOps>::HDAddress> {
+        println!("get_enabled_address={:?}", self.enabled_address);
         let enabled_address = self.enabled_address?;
         let account = self.get_account(enabled_address.account_id).await?;
         let hd_address_id = HDAddressId {

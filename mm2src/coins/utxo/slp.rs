@@ -1085,6 +1085,7 @@ impl UtxoTxGenerationOps for SlpToken {
     }
 }
 
+#[async_trait]
 impl MarketCoinOps for SlpToken {
     fn ticker(&self) -> &str { &self.conf.ticker }
 
@@ -1104,7 +1105,7 @@ impl MarketCoinOps for SlpToken {
         slp_address.encode().map_to_mm(MyAddressError::InternalError)
     }
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
         let pubkey = utxo_common::my_public_key(self.platform_coin.as_ref())?;
         Ok(pubkey.to_string())
     }

@@ -287,7 +287,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
     ticker: &str,
     conf: &Json,
     req: EthActivationV2Request,
-    priv_key_policy: EthPrivKeyBuildPolicy,
+    priv_key_build_policy: EthPrivKeyBuildPolicy,
 ) -> MmResult<EthCoin, EthActivationV2Error> {
     if req.swap_contract_address == Address::default() {
         return Err(EthActivationV2Error::InvalidSwapContractAddr(
@@ -305,45 +305,38 @@ pub async fn eth_coin_from_conf_and_request_v2(
         }
     }
 
-    let (priv_key_policy, derivation_method) =
-        build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, &req.path_to_address, req.gap_limit)
-            .await?;
-    let enabled_address = match priv_key_policy {
-        PrivKeyPolicy::Trezor {
-            ref activated_pubkey, ..
-        } => {
-            let my_pubkey = activated_pubkey
-                .as_ref()
-                .or_mm_err(|| EthActivationV2Error::InternalError("empty trezor xpub".to_string()))?;
-            let my_pubkey = pubkey_from_xpub_str(my_pubkey)
-                .map_to_mm(|_| EthActivationV2Error::InternalError("invalid trezor xpub".to_string()))?;
-            public_to_address(&my_pubkey)
-        },
-        _ => priv_key_policy
-            .activated_key_or_err()
-            .mm_err(EthActivationV2Error::PrivKeyPolicyNotAllowed)?
-            .address(),
-    };
-    let enabled_address_str = display_eth_address(&enabled_address);
+    let (priv_key_policy, derivation_method) = build_address_and_priv_key_policy(
+        ctx,
+        ticker,
+        conf,
+        priv_key_build_policy,
+        &req.path_to_address,
+        req.gap_limit,
+    )
+    .await?;
 
     let chain_id = conf["chain_id"].as_u64();
-
     let (web3, web3_instances) = match (req.rpc_mode, &priv_key_policy) {
         (
             EthRpcMode::Http,
-            EthPrivKeyPolicy::Iguana(key_pair)
-            | EthPrivKeyPolicy::HDWallet {
-                activated_key: key_pair,
-                ..
-            },
-        ) => build_http_transport(ctx, ticker.to_string(), enabled_address_str, key_pair, &req.nodes).await?,
-        (EthRpcMode::Http, EthPrivKeyPolicy::Trezor { .. }) => {
-            // Get in-memory internal privkey, which for now must be initialised if trezor policy is set
-            let crypto_ctx = CryptoCtx::from_ctx(ctx)?;
-            let secp256k1_key_pair = crypto_ctx.mm2_internal_key_pair();
-            let eth_key_pair = eth::KeyPair::from_secret_slice(&secp256k1_key_pair.private_bytes())
-                .map_to_mm(|_| EthActivationV2Error::InternalError("could not get internal keypair".to_string()))?;
-            build_http_transport(ctx, ticker.to_string(), enabled_address_str, &eth_key_pair, &req.nodes).await?
+            EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. } | EthPrivKeyPolicy::Trezor,
+        ) => {
+            let auth_key_pair = match priv_key_policy {
+                EthPrivKeyPolicy::Trezor => {
+                    let crypto_ctx = CryptoCtx::from_ctx(ctx)?;
+                    let secp256k1_key_pair = crypto_ctx.mm2_internal_key_pair();
+                    eth::KeyPair::from_secret_slice(&secp256k1_key_pair.private_bytes()).map_to_mm(|_| {
+                        EthActivationV2Error::InternalError("could not get internal keypair".to_string())
+                    })?
+                },
+                _ => priv_key_policy
+                    .activated_key_or_err()
+                    .mm_err(EthActivationV2Error::PrivKeyPolicyNotAllowed)?
+                    .clone(),
+            };
+            let auth_address = auth_key_pair.address();
+            let auth_address_str = display_eth_address(&auth_address);
+            build_http_transport(ctx, ticker.to_string(), auth_address_str, &auth_key_pair, &req.nodes).await?
         },
         #[cfg(target_arch = "wasm32")]
         (EthRpcMode::Metamask, EthPrivKeyPolicy::Metamask(_)) => {
@@ -420,11 +413,11 @@ pub(crate) async fn build_address_and_priv_key_policy(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
-    priv_key_policy: EthPrivKeyBuildPolicy,
+    priv_key_build_policy: EthPrivKeyBuildPolicy,
     path_to_address: &HDAccountAddressId,
     gap_limit: Option<u32>,
 ) -> MmResult<(EthPrivKeyPolicy, EthDerivationMethod), EthActivationV2Error> {
-    match priv_key_policy {
+    match priv_key_build_policy {
         EthPrivKeyBuildPolicy::IguanaPrivKey(iguana) => {
             let key_pair = KeyPair::from_secret_slice(iguana.as_slice())
                 .map_to_mm(|e| EthActivationV2Error::InternalError(e.to_string()))?;
@@ -500,19 +493,7 @@ pub(crate) async fn build_address_and_priv_key_policy(
                 gap_limit,
             };
             let derivation_method = DerivationMethod::HDWallet(hd_wallet);
-            let derivation_path = path_to_address.to_derivation_path(&path_to_coin)?;
-            let mut trezor_session = hw_ctx.trezor().await?;
-            let my_pubkey = trezor_session
-                .get_eth_public_key(&derivation_path, false)
-                .await?
-                .ack_all()
-                .await?;
-            Ok((
-                EthPrivKeyPolicy::Trezor {
-                    activated_pubkey: Some(my_pubkey),
-                },
-                derivation_method,
-            ))
+            Ok((EthPrivKeyPolicy::Trezor, derivation_method))
         },
         #[cfg(target_arch = "wasm32")]
         EthPrivKeyBuildPolicy::Metamask(metamask_ctx) => {

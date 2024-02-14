@@ -1408,12 +1408,13 @@ pub trait SwapOpsV2: CoinAssocTypes + Send + Sync + 'static {
 
 /// Operations that coins have independently from the MarketMaker.
 /// That is, things implemented by the coin wallets or public coin services.
+#[async_trait]
 pub trait MarketCoinOps {
     fn ticker(&self) -> &str;
 
     fn my_address(&self) -> MmResult<String, MyAddressError>;
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>>;
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>>;
 
     fn sign_message_hash(&self, _message: &str) -> Option<[u8; 32]>;
 
@@ -3254,12 +3255,7 @@ pub enum PrivKeyPolicy<T> {
     ///
     /// Details about how the keys are managed with the Trezor device
     /// are abstracted away and are not directly managed by this policy.
-    Trezor {
-        /// Cached pubkey for the initially derived account.
-        /// Supposed to use in get_public_key rpc, for Eth coin only.
-        /// TODO: may be eliminated if use get_enabled_address()
-        activated_pubkey: Option<String>,
-    },
+    Trezor,
     /// The Metamask private key policy, specific to the WASM target architecture.
     ///
     /// This variant encapsulates details about how keys are managed when interfacing
@@ -3287,7 +3283,7 @@ impl<T> PrivKeyPolicy<T> {
                 activated_key: activated_key_pair,
                 ..
             } => Some(activated_key_pair),
-            PrivKeyPolicy::Trezor { .. } => None,
+            PrivKeyPolicy::Trezor => None,
             #[cfg(target_arch = "wasm32")]
             PrivKeyPolicy::Metamask(_) => None,
         }
@@ -3307,7 +3303,7 @@ impl<T> PrivKeyPolicy<T> {
             PrivKeyPolicy::HDWallet {
                 bip39_secp_priv_key, ..
             } => Some(bip39_secp_priv_key),
-            PrivKeyPolicy::Iguana(_) | PrivKeyPolicy::Trezor { .. } => None,
+            PrivKeyPolicy::Iguana(_) | PrivKeyPolicy::Trezor => None,
             #[cfg(target_arch = "wasm32")]
             PrivKeyPolicy::Metamask(_) => None,
         }
@@ -3329,7 +3325,7 @@ impl<T> PrivKeyPolicy<T> {
                 path_to_coin: derivation_path,
                 ..
             } => Some(derivation_path),
-            PrivKeyPolicy::Trezor { .. } => None,
+            PrivKeyPolicy::Trezor => None,
             PrivKeyPolicy::Iguana(_) => None,
             #[cfg(target_arch = "wasm32")]
             PrivKeyPolicy::Metamask(_) => None,
@@ -3354,7 +3350,7 @@ impl<T> PrivKeyPolicy<T> {
             .mm_err(|e| PrivKeyPolicyNotAllowed::InternalError(e.to_string()))
     }
 
-    fn is_trezor(&self) -> bool { matches!(self, PrivKeyPolicy::Trezor { .. }) }
+    fn is_trezor(&self) -> bool { matches!(self, PrivKeyPolicy::Trezor) }
 }
 
 /// 'CoinWithPrivKeyPolicy' trait is used to get the private key policy of a coin.

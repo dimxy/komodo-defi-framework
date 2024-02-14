@@ -1198,7 +1198,7 @@ impl SwapOps for EthCoin {
                 activated_key: ref key_pair,
                 ..
             } => key_pair_from_secret(key_pair.secret().as_bytes()).expect("valid key"),
-            EthPrivKeyPolicy::Trezor { .. } => todo!(),
+            EthPrivKeyPolicy::Trezor => todo!(),
             #[cfg(target_arch = "wasm32")]
             EthPrivKeyPolicy::Metamask(_) => todo!(),
         }
@@ -1215,7 +1215,7 @@ impl SwapOps for EthCoin {
                 .expect("valid key")
                 .public_slice()
                 .to_vec(),
-            EthPrivKeyPolicy::Trezor { .. } => todo!(),
+            EthPrivKeyPolicy::Trezor => todo!(),
             #[cfg(target_arch = "wasm32")]
             EthPrivKeyPolicy::Metamask(ref metamask_policy) => metamask_policy.public_key.as_bytes().to_vec(),
         }
@@ -1941,6 +1941,7 @@ impl WatcherOps for EthCoin {
 }
 
 #[cfg_attr(test, mockable)]
+#[async_trait]
 impl MarketCoinOps for EthCoin {
     fn ticker(&self) -> &str { &self.ticker[..] }
 
@@ -1953,7 +1954,7 @@ impl MarketCoinOps for EthCoin {
         }
     }
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
         match self.priv_key_policy {
             EthPrivKeyPolicy::Iguana(ref key_pair)
             | EthPrivKeyPolicy::HDWallet {
@@ -1963,11 +1964,17 @@ impl MarketCoinOps for EthCoin {
                 let uncompressed_without_prefix = hex::encode(key_pair.public());
                 Ok(format!("04{}", uncompressed_without_prefix))
             },
-            EthPrivKeyPolicy::Trezor { ref activated_pubkey } => {
-                // TODO: we could use get_enabled_address() and eliminate activated_pubkey but that fn is async
-                activated_pubkey
-                    .clone()
-                    .or_mm_err(|| UnexpectedDerivationMethod::InternalError("no trezor pubkey".to_string()))
+            EthPrivKeyPolicy::Trezor => {
+                let enabled_address = self
+                    .deref()
+                    .derivation_method
+                    .hd_wallet()
+                    .ok_or(UnexpectedDerivationMethod::ExpectedHDWallet)?
+                    .get_enabled_address()
+                    .await
+                    .ok_or_else(|| UnexpectedDerivationMethod::InternalError("no enabled address".to_owned()))?
+                    .address();
+                Ok(display_eth_address(&enabled_address))
             },
             #[cfg(target_arch = "wasm32")]
             EthPrivKeyPolicy::Metamask(ref metamask_policy) => {
@@ -2268,9 +2275,9 @@ impl MarketCoinOps for EthCoin {
                 activated_key: ref key_pair,
                 ..
             } => Ok(format!("{:#02x}", key_pair.secret())),
-            EthPrivKeyPolicy::Trezor { .. } => ERR!("'display_priv_key' doesn't support Trezor yet!"),
+            EthPrivKeyPolicy::Trezor => ERR!("'display_priv_key' is not supported for Hardware Wallets"),
             #[cfg(target_arch = "wasm32")]
-            EthPrivKeyPolicy::Metamask(_) => ERR!("'display_priv_key' doesn't support MetaMask"),
+            EthPrivKeyPolicy::Metamask(_) => ERR!("'display_priv_key' is not supported for MetaMask"),
         }
     }
 
@@ -2347,6 +2354,8 @@ async fn sign_and_send_transaction_with_keypair(
 }
 
 /// TODO: use when Trezor is supported for swaps
+/// If implement Trezor support for swaps this should be done as a RpcTaskManager task
+/// also consider passing an RpcTaskHandle<..> param here to update task status
 #[allow(dead_code)]
 async fn sign_and_send_transaction_with_trezor(
     ctx: MmArc,
@@ -3212,9 +3221,7 @@ impl EthCoin {
                     activated_key: ref key_pair,
                     ..
                 } => sign_and_send_transaction_with_keypair(ctx, &coin, key_pair, value, action, data, gas).await,
-                EthPrivKeyPolicy::Trezor { .. } => {
-                    Err(TransactionErr::Plain(ERRL!("Trezor is not supported for EVM yet!")))
-                },
+                EthPrivKeyPolicy::Trezor => Err(TransactionErr::Plain(ERRL!("Trezor is not supported for swaps yet!"))),
                 #[cfg(target_arch = "wasm32")]
                 EthPrivKeyPolicy::Metamask(_) => {
                     sign_and_send_transaction_with_metamask(coin, value, action, data, gas).await
