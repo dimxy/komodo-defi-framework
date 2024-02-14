@@ -58,16 +58,19 @@ macro_rules! trim_left {
 }
 
 impl<'a> TrezorSession<'a> {
-    pub async fn get_eth_address(&mut self, derivation_path: DerivationPath) -> TrezorResult<Option<String>> {
+    /// Unused for now. Added for future use like implementation of an rpc returning eth address
+    pub async fn get_eth_address<'b>(
+        &'b mut self,
+        derivation_path: DerivationPath,
+    ) -> TrezorResult<TrezorResponse<'a, 'b, Option<String>>> {
         let req = proto_ethereum::EthereumGetAddress {
             address_n: derivation_path.iter().map(|child| child.0).collect(),
             show_display: None,
             encoded_network: None,
             chunkify: None,
         };
-        let result_handler = ResultHandler::<proto_ethereum::EthereumAddress>::new(Ok);
-        let result = self.call(req, result_handler).await?.ack_all().await?;
-        Ok(result.address)
+        let result_handler = ResultHandler::new(|m: proto_ethereum::EthereumAddress| Ok(m.address));
+        self.call(req, result_handler).await
     }
 
     pub async fn get_eth_public_key<'b>(
@@ -148,7 +151,7 @@ fn to_sign_eth_message(
     unsigned_tx.value.to_big_endian(&mut value);
 
     let addr_hex = if let Action::Call(addr) = unsigned_tx.action {
-        Some(format!("{:X}", addr))
+        Some(format!("{:X}", addr)) // Trezor works okay with both '0x' prefixed and non-prefixed addresses in hex
     } else {
         None
     };
