@@ -130,13 +130,10 @@ pub async fn cancel_scan_for_new_addresses(
 pub mod common_impl {
     use super::*;
     use crate::coin_balance::HDWalletBalanceOps;
-    use crate::hd_wallet::{HDAccountOps, HDCoinAddress, HDWalletOps};
+    use crate::hd_wallet::{HDAccountOps, HDWalletOps};
     use crate::CoinWithDerivationMethod;
     use std::collections::HashSet;
-    use std::fmt::Debug;
-    use std::hash::Hash;
     use std::ops::DerefMut;
-    use std::str::FromStr;
 
     pub async fn scan_for_new_addresses_rpc<Coin>(
         coin: &Coin,
@@ -144,8 +141,6 @@ pub mod common_impl {
     ) -> MmResult<ScanAddressesResponse, HDAccountBalanceRpcError>
     where
         Coin: CoinWithDerivationMethod + HDWalletBalanceOps + Sync,
-        HDCoinAddress<Coin>: Debug + Eq + Hash + FromStr,
-        <HDCoinAddress<Coin> as FromStr>::Err: Debug,
     {
         let hd_wallet = coin.derivation_method().hd_wallet_or_err()?;
 
@@ -164,8 +159,7 @@ pub mod common_impl {
 
         let addresses: HashSet<_> = new_addresses
             .iter()
-            // Todo: remove expect maybe by handling the conversion from str inside prepare_addresses_for_balance_stream_if_enabled
-            .map(|address_balance| HDCoinAddress::<Coin>::from_str(&address_balance.address).expect("Valid address"))
+            .map(|address_balance| address_balance.address.clone())
             .collect();
 
         coin.prepare_addresses_for_balance_stream_if_enabled(addresses)

@@ -190,7 +190,7 @@ impl UtxoCommonOps for UtxoStandardCoin {
     }
 
     fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
-        utxo_common::get_script_for_address(self.as_ref(), address)
+        utxo_common::output_script_checked(self.as_ref(), address)
     }
 
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
@@ -262,8 +262,7 @@ impl UtxoCommonOps for UtxoStandardCoin {
         let conf = &self.utxo_arc.conf;
         utxo_common::address_from_pubkey(
             pubkey,
-            conf.pub_addr_prefix,
-            conf.pub_t_addr_prefix,
+            conf.address_prefixes.clone(),
             conf.checksum_type,
             conf.bech32_hrp.clone(),
             self.addr_format().clone(),
@@ -1026,8 +1025,13 @@ impl HDWalletBalanceOps for UtxoStandardCoin {
 
     async fn prepare_addresses_for_balance_stream_if_enabled(
         &self,
-        addresses: HashSet<HDCoinAddress<Self>>,
+        addresses: HashSet<String>,
     ) -> MmResult<(), String> {
+        let addresses = addresses
+            .iter()
+            // Todo: remove expect if possible
+            .map(|address| utxo_common::address_from_str_unchecked(self.as_ref(), address).expect("Valid address"))
+            .collect();
         utxo_prepare_addresses_for_balance_stream_if_enabled(self, addresses).await
     }
 }
