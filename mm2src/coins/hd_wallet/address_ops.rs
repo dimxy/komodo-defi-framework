@@ -1,8 +1,11 @@
 use bip32::DerivationPath;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::str::FromStr;
 
 pub trait HDAddressOps {
-    type Address: Clone + Display + Send + Sync;
+    // Todo: revise this
+    type Address: Clone + Display + Send + Sync + FromStr + Eq + Debug + Hash;
     type Pubkey: Clone;
 
     fn address(&self) -> Self::Address;

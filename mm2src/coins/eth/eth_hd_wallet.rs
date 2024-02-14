@@ -222,4 +222,11 @@ impl HDWalletBalanceOps for EthCoin {
         }
         try_join_all(balance_futs).await
     }
+
+    async fn prepare_addresses_for_balance_stream_if_enabled(
+        &self,
+        _addresses: HashSet<HDCoinAddress<Self>>,
+    ) -> MmResult<(), String> {
+        todo!()
+    }
 }

@@ -202,6 +202,7 @@ impl From<HwProcessingError<RpcTaskError>> for HDExtractPubkeyError {
         match e {
             HwProcessingError::HwError(hw) => HDExtractPubkeyError::from(hw),
             HwProcessingError::ProcessorError(rpc) => HDExtractPubkeyError::RpcTaskError(rpc),
+            HwProcessingError::InternalError(internal) => HDExtractPubkeyError::Internal(internal),
         }
     }
 }

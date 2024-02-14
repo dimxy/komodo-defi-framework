@@ -8,13 +8,13 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 
 pub type ScanAddressesUserAction = SerdeInfallible;
 pub type ScanAddressesAwaitingStatus = SerdeInfallible;
 pub type ScanAddressesTaskManager = RpcTaskManager<InitScanAddressesTask>;
 pub type ScanAddressesTaskManagerShared = RpcTaskManagerShared<InitScanAddressesTask>;
-pub type ScanAddressesTaskHandle = RpcTaskHandle<InitScanAddressesTask>;
+pub type ScanAddressesTaskHandleShared = RpcTaskHandleShared<InitScanAddressesTask>;
 pub type ScanAddressesRpcTaskStatus = RpcTaskStatus<
     ScanAddressesResponse,
     HDAccountBalanceRpcError,
@@ -78,7 +78,7 @@ impl RpcTask for InitScanAddressesTask {
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}
 
-    async fn run(&mut self, _task_handle: &ScanAddressesTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, _task_handle: ScanAddressesTaskHandleShared) -> Result<Self::Item, MmError<Self::Error>> {
         match self.coin {
             MmCoinEnum::UtxoCoin(ref utxo) => utxo.init_scan_for_new_addresses_rpc(self.req.params.clone()).await,
             MmCoinEnum::QtumCoin(ref qtum) => qtum.init_scan_for_new_addresses_rpc(self.req.params.clone()).await,
@@ -132,8 +132,10 @@ pub mod common_impl {
     use crate::coin_balance::HDWalletBalanceOps;
     use crate::hd_wallet::{HDAccountOps, HDCoinAddress, HDWalletOps};
     use crate::CoinWithDerivationMethod;
+    use std::collections::HashSet;
     use std::fmt;
     use std::ops::DerefMut;
+    use std::str::FromStr;
 
     pub async fn scan_for_new_addresses_rpc<Coin>(
         coin: &Coin,
@@ -141,7 +143,10 @@ pub mod common_impl {
     ) -> MmResult<ScanAddressesResponse, HDAccountBalanceRpcError>
     where
         Coin: CoinWithDerivationMethod + HDWalletBalanceOps + Sync,
-        HDCoinAddress<Coin>: fmt::Display,
+        HDCoinAddress<Coin>: fmt::Display + fmt::Debug + FromStr,
+        <HDCoinAddress<Coin> as FromStr>::Err: fmt::Debug,
+        // Todo
+        // HashSet<<Coin as HDWalletCoinOps>::Address>: From<HashSet<Address>>,
     {
         let hd_wallet = coin.derivation_method().hd_wallet_or_err()?;
 
@@ -157,6 +162,15 @@ pub mod common_impl {
         let new_addresses = coin
             .scan_for_new_addresses(hd_wallet, hd_account.deref_mut(), &address_scanner, gap_limit)
             .await?;
+
+        let addresses: HashSet<_> = new_addresses
+            .iter()
+            .map(|address_balance| HDCoinAddress::<Coin>::from_str(&address_balance.address).expect("Valid address"))
+            .collect();
+
+        coin.prepare_addresses_for_balance_stream_if_enabled(addresses)
+            .await
+            .map_err(|e| HDAccountBalanceRpcError::FailedScripthashSubscription(e.to_string()))?;
 
         Ok(ScanAddressesResponse {
             account_index: account_id,

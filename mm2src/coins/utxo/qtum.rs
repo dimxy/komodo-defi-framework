@@ -1,3 +1,4 @@
+use super::utxo_common::utxo_prepare_addresses_for_balance_stream_if_enabled;
 use super::*;
 use crate::coin_balance::{self, EnableCoinBalanceError, EnabledCoinBalanceParams, HDAccountBalance, HDAddressBalance,
                           HDBalanceAddress, HDWalletBalance, HDWalletBalanceOps};
@@ -14,7 +15,7 @@ use crate::rpc_command::init_create_account::{self, CreateAccountRpcError, Creat
                                               InitCreateAccountRpcOps};
 use crate::rpc_command::init_scan_for_new_addresses::{self, InitScanAddressesRpcOps, ScanAddressesParams,
                                                       ScanAddressesResponse};
-use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
+use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandleShared};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
@@ -24,14 +25,15 @@ use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetails
 use crate::{eth, CanRefundHtlc, CheckIfMyPaymentSentArgs, CoinBalance, CoinWithDerivationMethod,
             CoinWithPrivKeyPolicy, ConfirmPaymentInput, DelegationError, DelegationFut, DexFee,
             GetWithdrawSenderAddress, IguanaPrivKey, MakerSwapTakerCoin, MmCoinEnum, NegotiateSwapContractAddrErr,
-            PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, RefundError,
-            RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput,
-            SendPaymentArgs, SignatureResult, SpendPaymentArgs, StakingInfosFut, SwapOps, TakerSwapMakerCoin,
-            TradePreimageValue, TransactionFut, TransactionResult, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, ValidateWatcherSpendInput,
-            VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError,
-            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut};
+            PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy,
+            RawTransactionRequest, RawTransactionResult, RefundError, RefundPaymentArgs, RefundResult,
+            SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest,
+            SignatureResult, SpendPaymentArgs, StakingInfosFut, SwapOps, TakerSwapMakerCoin, TradePreimageValue,
+            TransactionFut, TransactionResult, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
+            ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError,
+            ValidatePaymentFut, ValidatePaymentInput, ValidateWatcherSpendInput, VerificationResult,
+            WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut};
 use common::executor::{AbortableSystem, AbortedError};
 use ethereum_types::H160;
 use futures::{FutureExt, TryFutureExt};
@@ -412,6 +414,10 @@ impl UtxoCommonOps for QtumCoin {
 
     fn address_from_str(&self, address: &str) -> MmResult<Address, AddrFromStrError> {
         utxo_common::checked_address_from_str(self, address)
+    }
+
+    fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
+        utxo_common::get_script_for_address(self.as_ref(), address)
     }
 
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
@@ -813,6 +819,7 @@ impl WatcherOps for QtumCoin {
     }
 }
 
+#[async_trait]
 impl MarketCoinOps for QtumCoin {
     fn ticker(&self) -> &str { &self.utxo_arc.conf.ticker }
 
@@ -849,6 +856,11 @@ impl MarketCoinOps for QtumCoin {
     #[inline(always)]
     fn send_raw_tx_bytes(&self, tx: &[u8]) -> Box<dyn Future<Item = String, Error = String> + Send> {
         utxo_common::send_raw_tx_bytes(&self.utxo_arc, tx)
+    }
+
+    #[inline(always)]
+    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> RawTransactionResult {
+        utxo_common::sign_raw_tx(self, args).await
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
@@ -1005,7 +1017,7 @@ impl InitWithdrawCoin for QtumCoin {
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: WithdrawTaskHandleShared,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         utxo_common::init_withdraw(ctx, self.clone(), req, task_handle).await
     }
@@ -1123,6 +1135,13 @@ impl HDWalletBalanceOps for QtumCoin {
         addresses: Vec<HDBalanceAddress<Self>>,
     ) -> BalanceResult<Vec<(HDBalanceAddress<Self>, CoinBalance)>> {
         utxo_common::addresses_balances(self, addresses).await
+    }
+
+    async fn prepare_addresses_for_balance_stream_if_enabled(
+        &self,
+        addresses: HashSet<HDCoinAddress<Self>>,
+    ) -> MmResult<(), String> {
+        utxo_prepare_addresses_for_balance_stream_if_enabled(self, addresses).await
     }
 }
 
