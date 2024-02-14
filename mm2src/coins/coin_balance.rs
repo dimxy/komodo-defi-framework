@@ -319,11 +319,10 @@ pub trait HDWalletBalanceOps: HDWalletCoinOps {
         Ok(AddressBalanceStatus::Used(balance))
     }
 
+    // Todo: should probably be moved to a separate trait. Addresses should be HashSet<HDCoinAddress> too
     /// Prepares addresses for real time balance streaming if coin balance event is enabled.
-    async fn prepare_addresses_for_balance_stream_if_enabled(
-        &self,
-        addresses: HashSet<Self::Address>,
-    ) -> MmResult<(), String>;
+    async fn prepare_addresses_for_balance_stream_if_enabled(&self, addresses: HashSet<String>)
+        -> MmResult<(), String>;
 }
 
 #[async_trait]

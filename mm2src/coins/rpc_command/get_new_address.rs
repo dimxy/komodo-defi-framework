@@ -8,7 +8,7 @@ use common::{HttpStatusCode, SuccessResponse};
 use crypto::hw_rpc_task::{HwConnectStatuses, HwRpcTaskAwaitingStatus, HwRpcTaskUserAction, HwRpcTaskUserActionRequest};
 use crypto::{from_hw_error, Bip44Chain, HwError, HwRpcError, WithHwRpcError};
 use derive_more::Display;
-use enum_from::EnumFromTrait;
+use enum_derives::EnumFromTrait;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
@@ -466,15 +466,13 @@ pub(crate) mod common_impl {
 
         let balance = coin.known_address_balance(&address).await?;
 
-        let address_as_string = address.to_string();
-
-        coin.prepare_addresses_for_balance_stream_if_enabled(HashSet::from([address]))
+        coin.prepare_addresses_for_balance_stream_if_enabled(HashSet::from([address.to_string()]))
             .await
             .map_err(|e| GetNewAddressRpcError::FailedScripthashSubscription(e.to_string()))?;
 
         Ok(GetNewAddressResponse {
             new_address: HDAddressBalance {
-                address: address_as_string,
+                address: address.to_string(),
                 derivation_path: RpcDerivationPath(derivation_path),
                 chain,
                 balance,

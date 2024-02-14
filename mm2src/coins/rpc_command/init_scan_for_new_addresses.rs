@@ -134,7 +134,6 @@ pub mod common_impl {
     use keys::Address;
     use std::collections::HashSet;
     use std::ops::DerefMut;
-    use std::str::FromStr;
 
     pub async fn scan_for_new_addresses_rpc<Coin>(
         coin: &Coin,
@@ -161,10 +160,10 @@ pub mod common_impl {
 
         let addresses: HashSet<_> = new_addresses
             .iter()
-            .map(|address_balance| Address::from_str(&address_balance.address).expect("Valid address"))
+            .map(|address_balance| address_balance.address.clone())
             .collect();
 
-        coin.prepare_addresses_for_balance_stream_if_enabled(addresses.into())
+        coin.prepare_addresses_for_balance_stream_if_enabled(addresses)
             .await
             .map_err(|e| HDAccountBalanceRpcError::FailedScripthashSubscription(e.to_string()))?;
 

@@ -26,8 +26,8 @@ use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
 use futures::StreamExt;
 use keys::bytes::Bytes;
-pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, KeyPair, Private, Public, Secret,
-               Type as ScriptType};
+pub use keys::{Address, AddressBuilder, AddressFormat as UtxoAddressFormat, AddressHashEnum, AddressScriptType,
+               KeyPair, Private, Public, Secret};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use primitives::hash::H160;
@@ -128,6 +128,10 @@ impl From<PrivKeyPolicyNotAllowed> for UtxoCoinBuildError {
     fn from(e: PrivKeyPolicyNotAllowed) -> Self { UtxoCoinBuildError::PrivKeyPolicyNotAllowed(e) }
 }
 
+impl From<keys::Error> for UtxoCoinBuildError {
+    fn from(e: keys::Error) -> Self { UtxoCoinBuildError::Internal(e.to_string()) }
+}
+
 #[async_trait]
 pub trait UtxoCoinBuilder:
     UtxoFieldsWithIguanaSecretBuilder + UtxoFieldsWithGlobalHDBuilder + UtxoFieldsWithHardwareWalletBuilder
@@ -166,14 +170,16 @@ pub trait UtxoFieldsWithIguanaSecretBuilder: UtxoCoinBuilderCommonOps {
         let key_pair = KeyPair::from_private(private).map_to_mm(|e| UtxoCoinBuildError::Internal(e.to_string()))?;
         let priv_key_policy = PrivKeyPolicy::Iguana(key_pair);
         let addr_format = self.address_format()?;
-        let my_address = Address {
-            prefix: conf.pub_addr_prefix,
-            t_addr_prefix: conf.pub_t_addr_prefix,
-            hash: AddressHashEnum::AddressHash(key_pair.public().address_hash()),
-            checksum_type: conf.checksum_type,
-            hrp: conf.bech32_hrp.clone(),
+        let my_address = AddressBuilder::new(
             addr_format,
-        };
+            AddressHashEnum::AddressHash(key_pair.public().address_hash()),
+            conf.checksum_type,
+            conf.address_prefixes.clone(),
+            conf.bech32_hrp.clone(),
+        )
+        .as_pkh()
+        .build()
+        .map_to_mm(UtxoCoinBuildError::Internal)?;
         let derivation_method = DerivationMethod::SingleAddress(my_address);
         build_utxo_coin_fields_with_conf_and_policy(self, conf, priv_key_policy, derivation_method).await
     }
@@ -275,16 +281,18 @@ where
 {
     let key_pair = priv_key_policy.activated_key_or_err()?;
     let addr_format = builder.address_format()?;
-    let my_address = Address {
-        prefix: conf.pub_addr_prefix,
-        t_addr_prefix: conf.pub_t_addr_prefix,
-        hash: AddressHashEnum::AddressHash(key_pair.public().address_hash()),
-        checksum_type: conf.checksum_type,
-        hrp: conf.bech32_hrp.clone(),
+    let my_address = AddressBuilder::new(
         addr_format,
-    };
+        AddressHashEnum::AddressHash(key_pair.public().address_hash()),
+        conf.checksum_type,
+        conf.address_prefixes.clone(),
+        conf.bech32_hrp.clone(),
+    )
+    .as_pkh()
+    .build()
+    .map_to_mm(UtxoCoinBuildError::Internal)?;
 
-    let my_script_pubkey = output_script(&my_address, ScriptType::P2PKH).to_bytes();
+    let my_script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
 
     let (scripthash_notification_sender, scripthash_notification_handler) =
         match get_scripthash_notification_handlers(builder.ctx()) {

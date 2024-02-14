@@ -3,7 +3,7 @@ use crate::hd_wallet::HDAccountAddressId;
 #[cfg(target_arch = "wasm32")] use crate::EthMetamaskPolicy;
 use common::executor::AbortedError;
 use crypto::CryptoCtxError;
-use enum_from::EnumFromTrait;
+use enum_derives::EnumFromTrait;
 use mm2_err_handle::common_errors::WithInternal;
 #[cfg(target_arch = "wasm32")]
 use mm2_metamask::{from_metamask_error, MetamaskError, MetamaskRpcError, WithMetamaskRpcError};
