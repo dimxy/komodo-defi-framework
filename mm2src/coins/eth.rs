@@ -2496,7 +2496,6 @@ async fn sign_transaction_with_keypair(
     ))
 }
 
-// Todo: fix this if possible
 #[allow(clippy::too_many_arguments)]
 async fn sign_and_send_transaction_with_keypair(
     ctx: MmArc,

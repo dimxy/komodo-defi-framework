@@ -164,7 +164,7 @@ pub mod common_impl {
 
         let addresses: HashSet<_> = new_addresses
             .iter()
-            // Todo: remove expect
+            // Todo: remove expect maybe by handling the conversion from str inside prepare_addresses_for_balance_stream_if_enabled
             .map(|address_balance| HDCoinAddress::<Coin>::from_str(&address_balance.address).expect("Valid address"))
             .collect();
 
