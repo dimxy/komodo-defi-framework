@@ -2861,6 +2861,18 @@ pub async fn init_utxo_electrum(
     path_to_address: Option<HDAccountAddressId>,
     priv_key_policy: Option<&str>,
 ) -> Json {
+    let mut activation_params = json!({
+        "mode": {
+            "rpc": "Electrum",
+            "rpc_data": {
+                "servers": servers,
+                "path_to_address": path_to_address
+            }
+        }
+    });
+    if let Some(priv_key_policy) = priv_key_policy {
+        activation_params["priv_key_policy"] = priv_key_policy.into();
+    }
     let request = mm
         .rpc(&json!({
             "userpass": mm.userpass,
@@ -2868,16 +2880,7 @@ pub async fn init_utxo_electrum(
             "mmrpc": "2.0",
             "params": {
                 "ticker": coin,
-                "activation_params": {
-                    "mode": {
-                        "rpc": "Electrum",
-                        "rpc_data": {
-                            "servers": servers,
-                            "path_to_address": path_to_address
-                        }
-                    },
-                    "priv_key_policy": priv_key_policy
-                }
+                "activation_params": activation_params
             }
         }))
         .await
