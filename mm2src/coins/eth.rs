@@ -28,7 +28,6 @@ use crate::hd_wallet::{HDAccountAddressId, HDAccountOps, HDCoinAddress, HDCoinHD
 use crate::lp_price::get_base_price_in_rel;
 use crate::nft::nft_structs::{ContractType, ConvertChain, TransactionNftDetails, WithdrawErc1155, WithdrawErc721};
 use crate::nft::{find_wallet_nft_amount, WithdrawNftResult};
-use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::{coin_balance, scan_for_new_addresses_impl, BalanceResult, CoinWithDerivationMethod, DerivationMethod,
             DexFee, PrivKeyPolicy, TransactionResult, ValidateWatcherSpendInput, WatcherSpendType};
 use async_trait::async_trait;
@@ -39,16 +38,15 @@ use common::executor::{abortable_queue::AbortableQueue, AbortableSystem, Aborted
 use common::log::{debug, error, info, warn};
 use common::number_type_casting::SafeTypeCastingNumbers;
 use common::{get_utc_timestamp, now_sec, small_rng, DEX_FEE_ADDR_RAW_PUBKEY};
-use crypto::privkey::key_pair_from_secret;
 use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
+use crypto::privkey::key_pair_from_secret;
 use derive_more::Display;
 use enum_from::EnumFromStringify;
 use ethabi::{Contract, Function, Token};
 pub use ethcore_transaction::SignedTransaction as SignedEthTx;
 use ethcore_transaction::{Action, Transaction as UnSignedEthTx, UnverifiedTransaction};
 use ethereum_types::{Address, H160, H256, U256};
-use ethkey::{public_to_address, KeyPair, Public, Signature};
-use ethkey::{sign, verify_address};
+use ethkey::{public_to_address, KeyPair, Public, Signature, sign, verify_address};
 use futures::compat::Future01CompatExt;
 use futures::future::{join_all, select_ok, try_join_all, Either, FutureExt, TryFutureExt};
 use futures01::Future;
@@ -72,10 +70,9 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
+use web3::{self, Web3};
 use web3::types::{Action as TraceAction, BlockId, BlockNumber, Bytes, CallRequest, FilterBuilder, Log, Trace,
                   TraceFilterBuilder, Transaction as Web3Transaction, TransactionId, U64};
-use web3::{self, Web3};
-use web3_transport::{http_transport::HttpTransportNode, EthFeeHistoryNamespace, Web3Transport};
 
 cfg_wasm32! {
     use common::{now_ms, wait_until_ms};
@@ -92,6 +89,7 @@ cfg_native! {
 #[cfg(test)] mod eth_tests;
 #[cfg(target_arch = "wasm32")] mod eth_wasm_tests;
 mod web3_transport;
+use web3_transport::{http_transport::HttpTransportNode, EthFeeHistoryNamespace, Web3Transport};
 
 pub mod eth_hd_wallet;
 use eth_hd_wallet::EthHDWallet;
@@ -100,7 +98,11 @@ use eth_hd_wallet::EthHDWallet;
 use v2_activation::{build_address_and_priv_key_policy, EthActivationV2Error};
 
 mod eth_withdraw;
+use eth_withdraw::{EthWithdraw, InitEthWithdraw, StandardEthWithdraw};
+
 mod nonce;
+use nonce::ParityNonce;
+
 use crate::coin_balance::{EnableCoinBalanceError, EnabledCoinBalanceParams, HDAccountBalance, HDAddressBalance,
                           HDAddressBalanceScanner, HDBalanceAddress, HDWalletBalance, HDWalletBalanceOps};
 use crate::rpc_command::account_balance::{AccountBalanceParams, AccountBalanceRpcOps, HDAccountBalanceResponse};
@@ -112,10 +114,9 @@ use crate::rpc_command::init_create_account::{CreateAccountRpcError, CreateAccou
                                               InitCreateAccountRpcOps};
 use crate::rpc_command::init_scan_for_new_addresses::{InitScanAddressesRpcOps, ScanAddressesParams,
                                                       ScanAddressesResponse};
+use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
 use crate::rpc_command::{account_balance, get_new_address, init_account_balance, init_create_account,
                          init_scan_for_new_addresses};
-use eth_withdraw::{EthWithdraw, InitEthWithdraw, StandardEthWithdraw};
-use nonce::ParityNonce;
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852

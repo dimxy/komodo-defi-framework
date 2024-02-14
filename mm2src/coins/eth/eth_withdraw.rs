@@ -2,10 +2,9 @@ use super::{checksum_address, get_addr_nonce, get_eth_gas_details, u256_to_big_d
             EthCoinType, EthDerivationMethod, EthPrivKeyPolicy, Public, WithdrawError, WithdrawRequest,
             WithdrawResult, ERC20_CONTRACT, H160, H256};
 use crate::eth::{Action, Address, EthTxFeeDetails, KeyPair, SignedEthTx, UnSignedEthTx};
-use crate::hd_wallet::{HDCoinWithdrawOps, HDWalletOps, WithdrawSenderAddress};
+use crate::hd_wallet::{HDCoinWithdrawOps, HDWalletOps, WithdrawFrom, WithdrawSenderAddress};
 use crate::rpc_command::init_withdraw::{WithdrawInProgressStatus, WithdrawTaskHandle};
-use crate::{BytesJson, EthCoin, GetWithdrawSenderAddress, TransactionDetails};
-use crate::{CoinWithDerivationMethod, PrivKeyPolicy};
+use crate::{BytesJson, EthCoin, GetWithdrawSenderAddress, TransactionDetails, CoinWithDerivationMethod, PrivKeyPolicy};
 use async_trait::async_trait;
 use bip32::DerivationPath;
 use common::custom_futures::timeout::FutureTimerExt;
@@ -18,7 +17,6 @@ use mm2_err_handle::map_mm_error::MapMmError;
 use mm2_err_handle::mm_error::MmResult;
 use mm2_err_handle::prelude::{MapToMmResult, MmError, OrMmError};
 use std::ops::Deref;
-
 use web3::types::TransactionRequest;
 
 #[async_trait]
