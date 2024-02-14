@@ -4,7 +4,7 @@ use super::{checksum_address, get_addr_nonce, get_eth_gas_details, u256_to_big_d
 use crate::eth::{Action, Address, EthTxFeeDetails, KeyPair, SignedEthTx, UnSignedEthTx};
 use crate::hd_wallet::{HDCoinWithdrawOps, HDWalletOps, WithdrawFrom, WithdrawSenderAddress};
 use crate::rpc_command::init_withdraw::{WithdrawInProgressStatus, WithdrawTaskHandle};
-use crate::{BytesJson, EthCoin, GetWithdrawSenderAddress, TransactionDetails, CoinWithDerivationMethod, PrivKeyPolicy};
+use crate::{BytesJson, CoinWithDerivationMethod, EthCoin, GetWithdrawSenderAddress, PrivKeyPolicy, TransactionDetails};
 use async_trait::async_trait;
 use bip32::DerivationPath;
 use common::custom_futures::timeout::FutureTimerExt;

@@ -38,15 +38,15 @@ use common::executor::{abortable_queue::AbortableQueue, AbortableSystem, Aborted
 use common::log::{debug, error, info, warn};
 use common::number_type_casting::SafeTypeCastingNumbers;
 use common::{get_utc_timestamp, now_sec, small_rng, DEX_FEE_ADDR_RAW_PUBKEY};
-use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
 use crypto::privkey::key_pair_from_secret;
+use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
 use derive_more::Display;
 use enum_from::EnumFromStringify;
 use ethabi::{Contract, Function, Token};
 pub use ethcore_transaction::SignedTransaction as SignedEthTx;
 use ethcore_transaction::{Action, Transaction as UnSignedEthTx, UnverifiedTransaction};
 use ethereum_types::{Address, H160, H256, U256};
-use ethkey::{public_to_address, KeyPair, Public, Signature, sign, verify_address};
+use ethkey::{public_to_address, sign, verify_address, KeyPair, Public, Signature};
 use futures::compat::Future01CompatExt;
 use futures::future::{join_all, select_ok, try_join_all, Either, FutureExt, TryFutureExt};
 use futures01::Future;
@@ -70,9 +70,9 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
-use web3::{self, Web3};
 use web3::types::{Action as TraceAction, BlockId, BlockNumber, Bytes, CallRequest, FilterBuilder, Log, Trace,
                   TraceFilterBuilder, Transaction as Web3Transaction, TransactionId, U64};
+use web3::{self, Web3};
 
 cfg_wasm32! {
     use common::{now_ms, wait_until_ms};
