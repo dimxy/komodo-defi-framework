@@ -145,7 +145,7 @@ const DEFAULT_LOGS_BLOCK_RANGE: u64 = 1000;
 
 const DEFAULT_REQUIRED_CONFIRMATIONS: u8 = 1;
 
-pub const ETH_DECIMALS: u8 = 18;
+const ETH_DECIMALS: u8 = 18;
 
 /// Take into account that the dynamic fee may increase by 3% during the swap.
 const GAS_PRICE_APPROXIMATION_PERCENT_ON_START_SWAP: u64 = 3;
