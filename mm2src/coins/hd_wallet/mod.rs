@@ -7,8 +7,7 @@ use mm2_err_handle::prelude::*;
 use primitives::hash::H160;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
+use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -79,8 +78,7 @@ pub struct HDAddress<Address, Pubkey> {
 
 impl<Address, Pubkey> HDAddressOps for HDAddress<Address, Pubkey>
 where
-    // Todo: revise this
-    Address: Clone + Display + Send + Sync + FromStr + Eq + Hash + Debug,
+    Address: Clone + Display + Send + Sync,
     Pubkey: Clone,
 {
     type Address = Address;

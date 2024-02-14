@@ -133,7 +133,8 @@ pub mod common_impl {
     use crate::hd_wallet::{HDAccountOps, HDCoinAddress, HDWalletOps};
     use crate::CoinWithDerivationMethod;
     use std::collections::HashSet;
-    use std::fmt;
+    use std::fmt::Debug;
+    use std::hash::Hash;
     use std::ops::DerefMut;
     use std::str::FromStr;
 
@@ -143,10 +144,8 @@ pub mod common_impl {
     ) -> MmResult<ScanAddressesResponse, HDAccountBalanceRpcError>
     where
         Coin: CoinWithDerivationMethod + HDWalletBalanceOps + Sync,
-        HDCoinAddress<Coin>: fmt::Display + fmt::Debug + FromStr,
-        <HDCoinAddress<Coin> as FromStr>::Err: fmt::Debug,
-        // Todo
-        // HashSet<<Coin as HDWalletCoinOps>::Address>: From<HashSet<Address>>,
+        HDCoinAddress<Coin>: Debug + Eq + Hash + FromStr,
+        <HDCoinAddress<Coin> as FromStr>::Err: Debug,
     {
         let hd_wallet = coin.derivation_method().hd_wallet_or_err()?;
 
@@ -165,6 +164,7 @@ pub mod common_impl {
 
         let addresses: HashSet<_> = new_addresses
             .iter()
+            // Todo: remove expect
             .map(|address_balance| HDCoinAddress::<Coin>::from_str(&address_balance.address).expect("Valid address"))
             .collect();
 

@@ -392,6 +392,8 @@ pub(crate) mod common_impl {
     use crypto::RpcDerivationPath;
     use std::collections::HashSet;
     use std::fmt;
+    use std::fmt::Display;
+    use std::hash::Hash;
     use std::ops::DerefMut;
 
     /// TODO remove once GUI integrates `task::get_new_address::init`.
@@ -441,9 +443,7 @@ pub(crate) mod common_impl {
     where
         ConfirmAddress: HDConfirmAddress,
         Coin: HDWalletBalanceOps + CoinWithDerivationMethod + Send + Sync,
-        HDCoinAddress<Coin>: fmt::Display,
-        // Todo
-        // <Coin as HDWalletCoinOps>::Address: fmt::Display + Into<keys::Address> + std::hash::Hash + Eq,
+        HDCoinAddress<Coin>: Display + Eq + Hash,
     {
         let hd_wallet = coin.derivation_method().hd_wallet_or_err()?;
 
