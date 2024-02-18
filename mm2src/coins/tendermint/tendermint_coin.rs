@@ -20,16 +20,16 @@ use crate::{big_decimal_from_sat_unsigned, BalanceError, BalanceFut, BigDecimal,
             HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin, MmCoinEnum, NegotiateSwapContractAddrErr,
             PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, PrivKeyPolicy,
             PrivKeyPolicyNotAllowed, RawTransactionError, RawTransactionFut, RawTransactionRequest, RawTransactionRes,
-            RefundError, RefundPaymentArgs, RefundResult, RpcCommonOps, SearchForSwapTxSpendInput,
-            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignatureError, SignatureResult, SpendPaymentArgs,
-            SwapOps, TakerSwapMakerCoin, TradeFee, TradePreimageError, TradePreimageFut, TradePreimageResult,
-            TradePreimageValue, TransactionDetails, TransactionEnum, TransactionErr, TransactionFut,
-            TransactionResult, TransactionType, TxFeeDetails, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentFut, ValidatePaymentInput, ValidateWatcherSpendInput, VerificationError,
-            VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError,
-            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput,
-            WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest};
+            RawTransactionResult, RefundError, RefundPaymentArgs, RefundResult, RpcCommonOps,
+            SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest,
+            SignatureError, SignatureResult, SpendPaymentArgs, SwapOps, TakerSwapMakerCoin, TradeFee,
+            TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, TransactionDetails,
+            TransactionEnum, TransactionErr, TransactionFut, TransactionResult, TransactionType, TxFeeDetails,
+            TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs,
+            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentFut, ValidatePaymentInput,
+            ValidateWatcherSpendInput, VerificationError, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps,
+            WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
+            WatcherValidateTakerFeeInput, WithdrawError, WithdrawFee, WithdrawFut, WithdrawRequest};
 use async_std::prelude::FutureExt as AsyncStdFutureExt;
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
@@ -285,9 +285,10 @@ pub enum TendermintInitErrorKind {
     BalanceStreamInitError(String),
 }
 
-#[derive(Display, Debug)]
+#[derive(Display, Debug, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
 pub enum TendermintCoinRpcError {
-    Prost(DecodeError),
+    Prost(String),
     InvalidResponse(String),
     PerformError(String),
     RpcClientError(String),
@@ -295,7 +296,7 @@ pub enum TendermintCoinRpcError {
 }
 
 impl From<DecodeError> for TendermintCoinRpcError {
-    fn from(err: DecodeError) -> Self { TendermintCoinRpcError::Prost(err) }
+    fn from(err: DecodeError) -> Self { TendermintCoinRpcError::Prost(err.to_string()) }
 }
 
 impl From<PrivKeyPolicyNotAllowed> for TendermintCoinRpcError {
@@ -310,7 +311,7 @@ impl From<TendermintCoinRpcError> for BalanceError {
     fn from(err: TendermintCoinRpcError) -> Self {
         match err {
             TendermintCoinRpcError::InvalidResponse(e) => BalanceError::InvalidResponse(e),
-            TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e.to_string()),
+            TendermintCoinRpcError::Prost(e) => BalanceError::InvalidResponse(e),
             TendermintCoinRpcError::PerformError(e) => BalanceError::Transport(e),
             TendermintCoinRpcError::RpcClientError(e) => BalanceError::Transport(e),
             TendermintCoinRpcError::InternalError(e) => BalanceError::Internal(e),
@@ -322,7 +323,7 @@ impl From<TendermintCoinRpcError> for ValidatePaymentError {
     fn from(err: TendermintCoinRpcError) -> Self {
         match err {
             TendermintCoinRpcError::InvalidResponse(e) => ValidatePaymentError::InvalidRpcResponse(e),
-            TendermintCoinRpcError::Prost(e) => ValidatePaymentError::InvalidRpcResponse(e.to_string()),
+            TendermintCoinRpcError::Prost(e) => ValidatePaymentError::InvalidRpcResponse(e),
             TendermintCoinRpcError::PerformError(e) => ValidatePaymentError::Transport(e),
             TendermintCoinRpcError::RpcClientError(e) => ValidatePaymentError::Transport(e),
             TendermintCoinRpcError::InternalError(e) => ValidatePaymentError::InternalError(e),
@@ -1076,10 +1077,10 @@ impl TendermintCoin {
 
                 ethermint_account
                     .base_account
-                    .or_mm_err(|| TendermintCoinRpcError::Prost(err))?
+                    .or_mm_err(|| TendermintCoinRpcError::Prost(err.to_string()))?
             },
             Err(err) => {
-                return MmError::err(TendermintCoinRpcError::Prost(err));
+                return MmError::err(TendermintCoinRpcError::Prost(err.to_string()));
             },
         };
 
@@ -2296,6 +2297,13 @@ impl MarketCoinOps for TendermintCoin {
             Ok(broadcast_res.hash.to_string())
         };
         Box::new(fut.boxed().compat())
+    }
+
+    #[inline(always)]
+    async fn sign_raw_tx(&self, _args: &SignRawTransactionRequest) -> RawTransactionResult {
+        MmError::err(RawTransactionError::NotImplemented {
+            coin: self.ticker().to_string(),
+        })
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {

@@ -4,7 +4,7 @@ use crate::hd_wallet::{load_hd_accounts_from_storage, HDAccountAddressId, HDAcco
 #[cfg(target_arch = "wasm32")] use crate::EthMetamaskPolicy;
 use common::executor::AbortedError;
 use crypto::{trezor::TrezorError, Bip32Error, CryptoCtxError, HwError};
-use enum_from::EnumFromTrait;
+use enum_derives::EnumFromTrait;
 use mm2_err_handle::common_errors::WithInternal;
 #[cfg(target_arch = "wasm32")]
 use mm2_metamask::{from_metamask_error, MetamaskError, MetamaskRpcError, WithMetamaskRpcError};
@@ -32,6 +32,8 @@ pub enum EthActivationV2Error {
     #[display(fmt = "Error deserializing 'derivation_path': {}", _0)]
     ErrorDeserializingDerivationPath(String),
     PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
+    #[display(fmt = "Failed spawning balance events. Error: {_0}")]
+    FailedSpawningBalanceEvents(String),
     HDWalletStorageError(String),
     #[cfg(target_arch = "wasm32")]
     #[from_trait(WithMetamaskRpcError::metamask_rpc_error)]
@@ -369,8 +371,10 @@ pub async fn eth_coin_from_conf_and_request_v2(
 
     let trezor_coin: Option<String> = json::from_value(conf["trezor_coin"].clone()).ok();
 
-    let mut map = NONCE_LOCK.lock().unwrap();
-    let nonce_lock = map.entry(ticker.to_string()).or_insert_with(new_nonce_lock).clone();
+    let nonce_lock = {
+        let mut map = NONCE_LOCK.lock().unwrap();
+        map.entry(ticker.to_string()).or_insert_with(new_nonce_lock).clone()
+    };
 
     // Create an abortable system linked to the `MmCtx` so if the app is stopped on `MmArc::stop`,
     // all spawned futures related to `ETH` coin will be aborted as well.
@@ -402,7 +406,12 @@ pub async fn eth_coin_from_conf_and_request_v2(
         abortable_system,
     };
 
-    Ok(EthCoin(Arc::new(coin)))
+    let coin = EthCoin(Arc::new(coin));
+    coin.spawn_balance_stream_if_enabled(ctx)
+        .await
+        .map_err(EthActivationV2Error::FailedSpawningBalanceEvents)?;
+
+    Ok(coin)
 }
 
 // Todo: This function can be refactored to use builder pattern like UTXO

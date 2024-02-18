@@ -1,13 +1,11 @@
+use crate::eth::EthTxFeeDetails;
 use crate::nft::nft_structs::{Chain, Nft, NftList, NftListFilters, NftTokenAddrId, NftTransferHistory,
                               NftTransferHistoryFilters, NftsTransferHistoryList, TransferMeta};
-use crate::WithdrawError;
 use async_trait::async_trait;
-use derive_more::Display;
 use ethereum_types::Address;
-use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::mm_error::MmResult;
 use mm2_err_handle::mm_error::{NotEqual, NotMmError};
-use mm2_number::BigDecimal;
+use mm2_number::{BigDecimal, BigUint};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
@@ -28,10 +26,6 @@ pub enum RemoveNftResult {
 
 /// Defines the standard errors that can occur in NFT storage operations
 pub trait NftStorageError: std::fmt::Debug + NotMmError + NotEqual + Send {}
-
-impl<T: NftStorageError> From<T> for WithdrawError {
-    fn from(err: T) -> Self { WithdrawError::DbError(format!("{:?}", err)) }
-}
 
 /// Provides asynchronous operations for handling and querying NFT listings.
 #[async_trait]
@@ -62,14 +56,14 @@ pub trait NftListStorageOps {
         &self,
         chain: &Chain,
         token_address: String,
-        token_id: BigDecimal,
+        token_id: BigUint,
     ) -> MmResult<Option<Nft>, Self::Error>;
 
     async fn remove_nft_from_list(
         &self,
         chain: &Chain,
         token_address: String,
-        token_id: BigDecimal,
+        token_id: BigUint,
         scanned_block: u64,
     ) -> MmResult<RemoveNftResult, Self::Error>;
 
@@ -77,7 +71,7 @@ pub trait NftListStorageOps {
         &self,
         chain: &Chain,
         token_address: String,
-        token_id: BigDecimal,
+        token_id: BigUint,
     ) -> MmResult<Option<String>, Self::Error>;
 
     async fn refresh_nft_metadata(&self, chain: &Chain, nft: Nft) -> MmResult<(), Self::Error>;
@@ -113,6 +107,11 @@ pub trait NftListStorageOps {
         domain: String,
         possible_phishing: bool,
     ) -> MmResult<(), Self::Error>;
+
+    async fn clear_nft_data(&self, chain: &Chain) -> MmResult<(), Self::Error>;
+
+    /// Clears all nft list tables related to each chain.
+    async fn clear_all_nft_data(&self) -> MmResult<(), Self::Error>;
 }
 
 /// Provides asynchronous operations related to the history of NFT transfers.
@@ -154,7 +153,7 @@ pub trait NftTransferHistoryStorageOps {
         &self,
         chain: Chain,
         token_address: String,
-        token_id: BigDecimal,
+        token_id: BigUint,
     ) -> MmResult<Vec<NftTransferHistory>, Self::Error>;
 
     async fn get_transfer_by_tx_hash_and_log_index(
@@ -202,41 +201,11 @@ pub trait NftTransferHistoryStorageOps {
         domain: String,
         possible_phishing: bool,
     ) -> MmResult<(), Self::Error>;
-}
 
-/// Represents potential errors that can occur when creating an NFT storage.
-#[derive(Debug, Deserialize, Display, Serialize)]
-pub enum CreateNftStorageError {
-    Internal(String),
-}
+    async fn clear_history_data(&self, chain: &Chain) -> MmResult<(), Self::Error>;
 
-impl From<CreateNftStorageError> for WithdrawError {
-    fn from(e: CreateNftStorageError) -> Self {
-        match e {
-            CreateNftStorageError::Internal(err) => WithdrawError::InternalError(err),
-        }
-    }
-}
-
-/// `NftStorageBuilder` is used to create an instance that implements the [`NftListStorageOps`]
-/// and [`NftTransferHistoryStorageOps`] traits.
-pub struct NftStorageBuilder<'a> {
-    ctx: &'a MmArc,
-}
-
-impl<'a> NftStorageBuilder<'a> {
-    /// Creates a new `NftStorageBuilder` instance with the provided context.
-    #[inline]
-    pub fn new(ctx: &MmArc) -> NftStorageBuilder<'_> { NftStorageBuilder { ctx } }
-
-    /// `build` function is used to build nft storage which implements [`NftListStorageOps`] and [`NftTransferHistoryStorageOps`] traits.
-    #[inline]
-    pub fn build(&self) -> MmResult<impl NftListStorageOps + NftTransferHistoryStorageOps, CreateNftStorageError> {
-        #[cfg(target_arch = "wasm32")]
-        return wasm::wasm_storage::IndexedDbNftStorage::new(self.ctx);
-        #[cfg(not(target_arch = "wasm32"))]
-        sql_storage::SqliteNftStorage::new(self.ctx)
-    }
+    /// Clears all nft history tables related to each chain.
+    async fn clear_all_history_data(&self) -> MmResult<(), Self::Error>;
 }
 
 /// `get_offset_limit` function calculates offset and limit for final result if we use pagination.
@@ -272,4 +241,5 @@ pub(crate) struct TransferDetailsJson {
     pub(crate) operator: Option<String>,
     pub(crate) from_address: Address,
     pub(crate) to_address: Address,
+    pub(crate) fee_details: Option<EthTxFeeDetails>,
 }

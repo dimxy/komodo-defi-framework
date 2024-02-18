@@ -9,10 +9,10 @@ use crypto::trezor::ProcessTrezorResponse;
 use crypto::trezor::TrezorMessageType;
 use crypto::{CryptoCtx, DerivationPath, EcdsaCurve, HardwareWalletArc, XPub, XPubConverter};
 use mm2_core::mm_ctx::MmArc;
-use rpc_task::{RpcTask, RpcTaskHandle};
+use rpc_task::{RpcTask, RpcTaskHandleShared};
+use std::sync::Arc;
 
 const SHOW_PUBKEY_ON_DISPLAY: bool = false;
-
 #[async_trait]
 pub trait ExtractExtendedPubkey {
     type ExtendedPublicKey;
@@ -35,17 +35,17 @@ pub trait HDXPubExtractor: Sync {
     ) -> MmResult<XPub, HDExtractPubkeyError>;
 }
 
-pub enum RpcTaskXPubExtractor<'task, Task: RpcTask> {
+pub enum RpcTaskXPubExtractor<Task: RpcTask> {
     Trezor {
         hw_ctx: HardwareWalletArc,
-        task_handle: &'task RpcTaskHandle<Task>,
+        task_handle: RpcTaskHandleShared<Task>,
         statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
         trezor_message_type: TrezorMessageType,
     },
 }
 
 #[async_trait]
-impl<'task, Task> HDXPubExtractor for RpcTaskXPubExtractor<'task, Task>
+impl<Task> HDXPubExtractor for RpcTaskXPubExtractor<Task>
 where
     Task: RpcTask,
     Task::UserAction: TryIntoUserAction + Send,
@@ -63,28 +63,34 @@ where
                 trezor_message_type,
             } => match trezor_message_type {
                 TrezorMessageType::Bitcoin => {
-                    Self::extract_utxo_xpub_from_trezor(hw_ctx, task_handle, statuses, trezor_coin, derivation_path)
-                        .await
+                    Self::extract_utxo_xpub_from_trezor(
+                        hw_ctx,
+                        task_handle.clone(),
+                        statuses,
+                        trezor_coin,
+                        derivation_path,
+                    )
+                    .await
                 },
                 TrezorMessageType::Ethereum => {
-                    Self::extract_eth_xpub_from_trezor(hw_ctx, task_handle, statuses, derivation_path).await
+                    Self::extract_eth_xpub_from_trezor(hw_ctx, task_handle.clone(), statuses, derivation_path).await
                 },
             },
         }
     }
 }
 
-impl<'task, Task> RpcTaskXPubExtractor<'task, Task>
+impl<Task> RpcTaskXPubExtractor<Task>
 where
     Task: RpcTask,
     Task::UserAction: TryIntoUserAction + Send,
 {
     pub fn new_trezor_extractor(
         ctx: &MmArc,
-        task_handle: &'task RpcTaskHandle<Task>,
+        task_handle: RpcTaskHandleShared<Task>,
         statuses: HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
         coin_protocol: CoinProtocol,
-    ) -> MmResult<RpcTaskXPubExtractor<'task, Task>, HDExtractPubkeyError> {
+    ) -> MmResult<RpcTaskXPubExtractor<Task>, HDExtractPubkeyError> {
         let crypto_ctx = CryptoCtx::from_ctx(ctx)?;
         let hw_ctx = crypto_ctx
             .hw_ctx()
@@ -106,14 +112,14 @@ where
 
     async fn extract_utxo_xpub_from_trezor(
         hw_ctx: &HardwareWalletArc,
-        task_handle: &RpcTaskHandle<Task>,
+        task_handle: RpcTaskHandleShared<Task>,
         statuses: &HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
         trezor_coin: String,
         derivation_path: DerivationPath,
     ) -> MmResult<XPub, HDExtractPubkeyError> {
-        let mut trezor_session = hw_ctx.trezor().await?;
-
         let pubkey_processor = TrezorRpcTaskProcessor::new(task_handle, statuses.to_trezor_request_statuses());
+        let pubkey_processor = Arc::new(pubkey_processor);
+        let mut trezor_session = hw_ctx.trezor(pubkey_processor.clone()).await?;
         let xpub = trezor_session
             .get_public_key(
                 derivation_path,
@@ -123,7 +129,7 @@ where
                 IGNORE_XPUB_MAGIC,
             )
             .await?
-            .process(&pubkey_processor)
+            .process(pubkey_processor.clone())
             .await?;
         // Despite we pass `IGNORE_XPUB_MAGIC` to the [`TrezorSession::get_public_key`] method,
         // Trezor sometimes returns pubkeys with magic prefixes like `dgub` prefix for DOGE coin.
@@ -133,16 +139,17 @@ where
 
     async fn extract_eth_xpub_from_trezor(
         hw_ctx: &HardwareWalletArc,
-        task_handle: &RpcTaskHandle<Task>,
+        task_handle: RpcTaskHandleShared<Task>,
         statuses: &HwConnectStatuses<Task::InProgressStatus, Task::AwaitingStatus>,
         derivation_path: DerivationPath,
     ) -> MmResult<XPub, HDExtractPubkeyError> {
-        let mut trezor_session = hw_ctx.trezor().await?;
         let pubkey_processor = TrezorRpcTaskProcessor::new(task_handle, statuses.to_trezor_request_statuses());
+        let pubkey_processor = Arc::new(pubkey_processor);
+        let mut trezor_session = hw_ctx.trezor(pubkey_processor.clone()).await?;
         trezor_session
             .get_eth_public_key(&derivation_path, SHOW_PUBKEY_ON_DISPLAY)
             .await?
-            .process(&pubkey_processor)
+            .process(pubkey_processor)
             .await
             .mm_err(HDExtractPubkeyError::from)
     }

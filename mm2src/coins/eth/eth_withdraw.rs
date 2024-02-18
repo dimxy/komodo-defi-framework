@@ -3,12 +3,14 @@ use super::{checksum_address, get_addr_nonce, get_eth_gas_details, u256_to_big_d
             WithdrawResult, ERC20_CONTRACT, H160, H256};
 use crate::eth::{Action, Address, EthTxFeeDetails, KeyPair, SignedEthTx, UnSignedEthTx};
 use crate::hd_wallet::{HDCoinWithdrawOps, HDWalletOps, WithdrawFrom, WithdrawSenderAddress};
-use crate::rpc_command::init_withdraw::{WithdrawInProgressStatus, WithdrawTaskHandle};
+use crate::rpc_command::init_withdraw::{WithdrawInProgressStatus, WithdrawTaskHandleShared};
 use crate::{BytesJson, CoinWithDerivationMethod, EthCoin, GetWithdrawSenderAddress, PrivKeyPolicy, TransactionDetails};
 use async_trait::async_trait;
 use bip32::DerivationPath;
 use common::custom_futures::timeout::FutureTimerExt;
 use common::now_sec;
+use crypto::hw_rpc_task::HwRpcTaskAwaitingStatus;
+use crypto::trezor::trezor_rpc_task::{TrezorRequestStatuses, TrezorRpcTaskProcessor};
 use crypto::{CryptoCtx, HwRpcError};
 use ethabi::Token;
 use futures::compat::Future01CompatExt;
@@ -17,6 +19,7 @@ use mm2_err_handle::map_mm_error::MapMmError;
 use mm2_err_handle::mm_error::MmResult;
 use mm2_err_handle::prelude::{MapToMmResult, MmError, OrMmError};
 use std::ops::Deref;
+use std::sync::Arc;
 use web3::types::TransactionRequest;
 
 #[async_trait]
@@ -282,15 +285,15 @@ where
 }
 
 /// Eth withdraw version with user interaction support
-pub struct InitEthWithdraw<'a> {
+pub struct InitEthWithdraw {
     ctx: MmArc,
     coin: EthCoin,
-    task_handle: &'a WithdrawTaskHandle,
+    task_handle: WithdrawTaskHandleShared,
     req: WithdrawRequest,
 }
 
 #[async_trait]
-impl<'a> EthWithdraw for InitEthWithdraw<'a> {
+impl EthWithdraw for InitEthWithdraw {
     fn coin(&self) -> &EthCoin { &self.coin }
 
     fn request(&self) -> &WithdrawRequest { &self.req }
@@ -317,7 +320,15 @@ impl<'a> EthWithdraw for InitEthWithdraw<'a> {
         let hw_ctx = crypto_ctx
             .hw_ctx()
             .or_mm_err(|| WithdrawError::HwError(HwRpcError::NoTrezorDeviceAvailable))?;
-        let mut trezor_session = hw_ctx.trezor().await?;
+        let trezor_statuses = TrezorRequestStatuses {
+            on_button_request: WithdrawInProgressStatus::FollowHwDeviceInstructions,
+            on_pin_request: HwRpcTaskAwaitingStatus::EnterTrezorPin,
+            on_passphrase_request: HwRpcTaskAwaitingStatus::EnterTrezorPassphrase,
+            on_ready: WithdrawInProgressStatus::FollowHwDeviceInstructions,
+        };
+        let sign_processor = TrezorRpcTaskProcessor::new(self.task_handle.clone(), trezor_statuses);
+        let sign_processor = Arc::new(sign_processor);
+        let mut trezor_session = hw_ctx.trezor(sign_processor).await?;
         let chain_id = coin
             .chain_id
             .or_mm_err(|| WithdrawError::ChainIdRequired(String::from("chain_id is required for Trezor wallet")))?;
@@ -329,13 +340,13 @@ impl<'a> EthWithdraw for InitEthWithdraw<'a> {
 }
 
 #[allow(clippy::result_large_err)]
-impl<'a> InitEthWithdraw<'a> {
+impl InitEthWithdraw {
     pub fn new(
         ctx: MmArc,
         coin: EthCoin,
         req: WithdrawRequest,
-        task_handle: &'a WithdrawTaskHandle,
-    ) -> Result<InitEthWithdraw<'a>, MmError<WithdrawError>> {
+        task_handle: WithdrawTaskHandleShared,
+    ) -> Result<InitEthWithdraw, MmError<WithdrawError>> {
         Ok(InitEthWithdraw {
             ctx,
             coin,

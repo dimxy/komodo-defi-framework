@@ -28,7 +28,7 @@ use mm2_event_stream::EventStreamConfiguration;
 #[cfg(target_arch = "wasm32")]
 use mm2_metamask::MetamaskRpcError;
 use mm2_number::BigDecimal;
-use rpc_task::RpcTaskHandle;
+use rpc_task::RpcTaskHandleShared;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -38,7 +38,8 @@ impl From<EthActivationV2Error> for EnablePlatformCoinWithTokensError {
         match err {
             EthActivationV2Error::InvalidPayload(e)
             | EthActivationV2Error::InvalidSwapContractAddr(e)
-            | EthActivationV2Error::InvalidFallbackSwapContract(e) => {
+            | EthActivationV2Error::InvalidFallbackSwapContract(e)
+            | EthActivationV2Error::ErrorDeserializingDerivationPath(e) => {
                 EnablePlatformCoinWithTokensError::InvalidPayload(e)
             },
             EthActivationV2Error::InvalidPathToAddress(e) => EnablePlatformCoinWithTokensError::InvalidPayload(e),
@@ -55,11 +56,11 @@ impl From<EthActivationV2Error> for EnablePlatformCoinWithTokensError {
             EthActivationV2Error::CouldNotFetchBalance(e) | EthActivationV2Error::UnreachableNodes(e) => {
                 EnablePlatformCoinWithTokensError::Transport(e)
             },
-            EthActivationV2Error::ErrorDeserializingDerivationPath(e) => {
-                EnablePlatformCoinWithTokensError::InvalidPayload(e)
-            },
             EthActivationV2Error::PrivKeyPolicyNotAllowed(e) => {
                 EnablePlatformCoinWithTokensError::PrivKeyPolicyNotAllowed(e)
+            },
+            EthActivationV2Error::FailedSpawningBalanceEvents(e) => {
+                EnablePlatformCoinWithTokensError::FailedSpawningBalanceEvents(e)
             },
             EthActivationV2Error::HDWalletStorageError(e) => EnablePlatformCoinWithTokensError::Internal(e),
             #[cfg(target_arch = "wasm32")]
@@ -247,7 +248,7 @@ impl PlatformCoinWithTokensActivationOps for EthCoin {
 
     async fn get_activation_result(
         &self,
-        task_handle: Option<&RpcTaskHandle<InitPlatformCoinWithTokensTask<EthCoin>>>,
+        task_handle: Option<RpcTaskHandleShared<InitPlatformCoinWithTokensTask<EthCoin>>>,
         activation_request: &Self::ActivationRequest,
     ) -> Result<EthWithTokensActivationResult, MmError<EthActivationV2Error>> {
         let current_block = self

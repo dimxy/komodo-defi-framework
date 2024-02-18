@@ -17,7 +17,7 @@ use mm2_event_stream::EventStreamConfiguration;
 use mm2_number::BigDecimal;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError, RpcTaskUserActionRequest};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
                RpcTaskTypes, TaskId};
 use ser_error_derive::SerializeErrorType;
 use serde_derive::{Deserialize, Serialize};
@@ -192,7 +192,7 @@ pub trait PlatformCoinWithTokensActivationOps: Into<MmCoinEnum> + Clone + Send +
 
     async fn get_activation_result(
         &self,
-        task_handle: Option<&RpcTaskHandle<InitPlatformCoinWithTokensTask<Self>>>,
+        task_handle: Option<RpcTaskHandleShared<InitPlatformCoinWithTokensTask<Self>>>,
         activation_request: &Self::ActivationRequest,
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>>
     where
@@ -262,6 +262,8 @@ pub enum EnablePlatformCoinWithTokensError {
     Transport(String),
     AtLeastOneNodeRequired(String),
     InvalidPayload(String),
+    #[display(fmt = "Failed spawning balance events. Error: {_0}")]
+    FailedSpawningBalanceEvents(String),
     Internal(String),
     #[display(fmt = "No such task '{}'", _0)]
     NoSuchTask(TaskId),
@@ -352,9 +354,10 @@ impl HttpStatusCode for EnablePlatformCoinWithTokensError {
             | EnablePlatformCoinWithTokensError::UnexpectedPlatformProtocol { .. }
             | EnablePlatformCoinWithTokensError::InvalidPayload { .. }
             | EnablePlatformCoinWithTokensError::AtLeastOneNodeRequired(_)
-            | EnablePlatformCoinWithTokensError::UnexpectedTokenProtocol { .. }
             | EnablePlatformCoinWithTokensError::NoSuchTask(_)
-            | EnablePlatformCoinWithTokensError::UnexpectedDeviceActivationPolicy => StatusCode::BAD_REQUEST,
+            | EnablePlatformCoinWithTokensError::UnexpectedDeviceActivationPolicy
+            | EnablePlatformCoinWithTokensError::FailedSpawningBalanceEvents(_)
+            | EnablePlatformCoinWithTokensError::UnexpectedTokenProtocol { .. } => StatusCode::BAD_REQUEST,
         }
     }
 }
@@ -404,7 +407,7 @@ where
 
 pub async fn enable_platform_coin_with_tokens_impl<Platform>(
     ctx: MmArc,
-    task_handle: Option<&RpcTaskHandle<InitPlatformCoinWithTokensTask<Platform>>>,
+    task_handle: Option<RpcTaskHandleShared<InitPlatformCoinWithTokensTask<Platform>>>,
     req: EnablePlatformCoinWithTokensReq<Platform::ActivationRequest>,
 ) -> Result<Platform::ActivationResult, MmError<EnablePlatformCoinWithTokensError>>
 where
@@ -492,7 +495,7 @@ where
     /// Try to disable the coin in case if we managed to register it already.
     async fn cancel(self) {}
 
-    async fn run(&mut self, task_handle: &RpcTaskHandle<Self>) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, task_handle: RpcTaskHandleShared<Self>) -> Result<Self::Item, MmError<Self::Error>> {
         enable_platform_coin_with_tokens_impl::<Platform>(self.ctx.clone(), Some(task_handle), self.request.clone())
             .await
     }

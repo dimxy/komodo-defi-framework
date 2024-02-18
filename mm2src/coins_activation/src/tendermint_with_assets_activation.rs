@@ -22,7 +22,7 @@ use mm2_err_handle::prelude::*;
 use mm2_event_stream::behaviour::{EventBehaviour, EventInitStatus};
 use mm2_event_stream::EventStreamConfiguration;
 use mm2_number::BigDecimal;
-use rpc_task::RpcTaskHandle;
+use rpc_task::RpcTaskHandleShared;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -232,7 +232,7 @@ impl PlatformCoinWithTokensActivationOps for TendermintCoin {
 
     async fn get_activation_result(
         &self,
-        _task_handle: Option<&RpcTaskHandle<InitPlatformCoinWithTokensTask<TendermintCoin>>>,
+        _task_handle: Option<RpcTaskHandleShared<InitPlatformCoinWithTokensTask<TendermintCoin>>>,
         activation_request: &Self::ActivationRequest,
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>> {
         let current_block = self.current_block().compat().await.map_to_mm(|e| TendermintInitError {

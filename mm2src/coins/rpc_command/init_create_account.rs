@@ -7,14 +7,15 @@ use common::{true_f, HttpStatusCode, SuccessResponse};
 use crypto::hw_rpc_task::{HwConnectStatuses, HwRpcTaskAwaitingStatus, HwRpcTaskUserAction, HwRpcTaskUserActionRequest};
 use crypto::{from_hw_error, Bip44Chain, HwError, HwRpcError, RpcDerivationPath, WithHwRpcError};
 use derive_more::Display;
-use enum_from::EnumFromTrait;
+use enum_derives::EnumFromTrait;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use parking_lot::Mutex as PaMutex;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+               RpcTaskTypes};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,11 +23,11 @@ pub type CreateAccountUserAction = HwRpcTaskUserAction;
 pub type CreateAccountAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type CreateAccountTaskManager = RpcTaskManager<InitCreateAccountTask>;
 pub type CreateAccountTaskManagerShared = RpcTaskManagerShared<InitCreateAccountTask>;
-pub type CreateAccountTaskHandle = RpcTaskHandle<InitCreateAccountTask>;
+pub type CreateAccountTaskHandleShared = RpcTaskHandleShared<InitCreateAccountTask>;
 pub type CreateAccountRpcTaskStatus =
     RpcTaskStatus<HDAccountBalance, CreateAccountRpcError, CreateAccountInProgressStatus, CreateAccountAwaitingStatus>;
 
-type CreateAccountXPubExtractor<'task> = RpcTaskXPubExtractor<'task, InitCreateAccountTask>;
+type CreateAccountXPubExtractor = RpcTaskXPubExtractor<InitCreateAccountTask>;
 
 #[derive(Clone, Debug, Display, EnumFromTrait, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -154,7 +155,7 @@ impl HttpStatusCode for CreateAccountRpcError {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct CreateNewAccountRequest {
     coin: String,
     #[serde(flatten)]
@@ -210,6 +211,7 @@ pub trait InitCreateAccountRpcOps {
     async fn revert_creating_account(&self, account_id: u32);
 }
 
+#[derive(Clone)]
 pub struct InitCreateAccountTask {
     ctx: MmArc,
     coin: MmCoinEnum,
@@ -241,13 +243,13 @@ impl RpcTask for InitCreateAccountTask {
         };
     }
 
-    async fn run(&mut self, task_handle: &CreateAccountTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, task_handle: CreateAccountTaskHandleShared) -> Result<Self::Item, MmError<Self::Error>> {
         async fn create_new_account_helper<Coin>(
             ctx: &MmArc,
             coin: &Coin,
             params: CreateNewAccountParams,
             state: CreateAccountState,
-            task_handle: &CreateAccountTaskHandle,
+            task_handle: CreateAccountTaskHandleShared,
             is_trezor: bool,
             coin_protocol: CoinProtocol,
         ) -> MmResult<HDAccountBalance, CreateAccountRpcError>

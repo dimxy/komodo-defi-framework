@@ -1,3 +1,4 @@
+use super::utxo_common::utxo_prepare_addresses_for_balance_stream_if_enabled;
 use super::*;
 use crate::coin_balance::{self, EnableCoinBalanceError, EnabledCoinBalanceParams, HDAccountBalance, HDAddressBalance,
                           HDBalanceAddress, HDWalletBalance, HDWalletBalanceOps};
@@ -14,7 +15,7 @@ use crate::rpc_command::init_create_account::{self, CreateAccountRpcError, Creat
                                               InitCreateAccountRpcOps};
 use crate::rpc_command::init_scan_for_new_addresses::{self, InitScanAddressesRpcOps, ScanAddressesParams,
                                                       ScanAddressesResponse};
-use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
+use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandleShared};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
@@ -24,14 +25,15 @@ use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetails
 use crate::{eth, CanRefundHtlc, CheckIfMyPaymentSentArgs, CoinBalance, CoinWithDerivationMethod,
             CoinWithPrivKeyPolicy, ConfirmPaymentInput, DelegationError, DelegationFut, DexFee,
             GetWithdrawSenderAddress, IguanaPrivKey, MakerSwapTakerCoin, MmCoinEnum, NegotiateSwapContractAddrErr,
-            PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, RefundError,
-            RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput,
-            SendPaymentArgs, SignatureResult, SpendPaymentArgs, StakingInfosFut, SwapOps, TakerSwapMakerCoin,
-            TradePreimageValue, TransactionFut, TransactionResult, TxMarshalingErr, UnexpectedDerivationMethod,
-            ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr,
-            ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, ValidateWatcherSpendInput,
-            VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError,
-            WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut};
+            PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy,
+            RawTransactionRequest, RawTransactionResult, RefundError, RefundPaymentArgs, RefundResult,
+            SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SignRawTransactionRequest,
+            SignatureResult, SpendPaymentArgs, StakingInfosFut, SwapOps, TakerSwapMakerCoin, TradePreimageValue,
+            TransactionFut, TransactionResult, TxMarshalingErr, UnexpectedDerivationMethod, ValidateAddressResult,
+            ValidateFeeArgs, ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError,
+            ValidatePaymentFut, ValidatePaymentInput, ValidateWatcherSpendInput, VerificationResult,
+            WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut};
 use common::executor::{AbortableSystem, AbortedError};
 use ethereum_types::H160;
 use futures::{FutureExt, TryFutureExt};
@@ -107,26 +109,19 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
 
     /// Try to parse address from either wallet (UTXO) format or contract format.
     fn utxo_address_from_any_format(&self, from: &str) -> Result<Address, String> {
-        let utxo_err = match Address::from_str(from) {
+        let utxo_err = match Address::from_legacyaddress(from, &self.as_ref().conf.address_prefixes) {
             Ok(addr) => {
-                let is_p2pkh = addr.prefix == self.as_ref().conf.pub_addr_prefix
-                    && addr.t_addr_prefix == self.as_ref().conf.pub_t_addr_prefix;
-                if is_p2pkh {
+                if addr.is_pubkey_hash() {
                     return Ok(addr);
                 }
-                "Address has invalid prefixes".to_string()
+                "Address has invalid prefix".to_string()
             },
-            Err(e) => e.to_string(),
+            Err(e) => e,
         };
-        let utxo_segwit_err = match Address::from_segwitaddress(
-            from,
-            self.as_ref().conf.checksum_type,
-            self.as_ref().conf.pub_addr_prefix,
-            self.as_ref().conf.pub_t_addr_prefix,
-        ) {
+        let utxo_segwit_err = match Address::from_segwitaddress(from, self.as_ref().conf.checksum_type) {
             Ok(addr) => {
                 let is_segwit =
-                    addr.hrp.is_some() && addr.hrp == self.as_ref().conf.bech32_hrp && self.as_ref().conf.segwit;
+                    addr.hrp().is_some() && addr.hrp() == &self.as_ref().conf.bech32_hrp && self.as_ref().conf.segwit;
                 if is_segwit {
                     return Ok(addr);
                 }
@@ -148,14 +143,16 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
 
     fn utxo_addr_from_contract_addr(&self, address: H160) -> Address {
         let utxo = self.as_ref();
-        Address {
-            prefix: utxo.conf.pub_addr_prefix,
-            t_addr_prefix: utxo.conf.pub_t_addr_prefix,
-            hash: AddressHashEnum::AddressHash(address.0.into()),
-            checksum_type: utxo.conf.checksum_type,
-            hrp: utxo.conf.bech32_hrp.clone(),
-            addr_format: self.addr_format().clone(),
-        }
+        AddressBuilder::new(
+            self.addr_format().clone(),
+            AddressHashEnum::AddressHash(address.0.into()),
+            utxo.conf.checksum_type,
+            utxo.conf.address_prefixes.clone(),
+            utxo.conf.bech32_hrp.clone(),
+        )
+        .as_pkh()
+        .build()
+        .expect("valid address props")
     }
 
     async fn my_addr_as_contract_addr(&self) -> MmResult<H160, Qrc20AddressError> {
@@ -165,22 +162,23 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
 
     fn utxo_address_from_contract_addr(&self, address: H160) -> Address {
         let utxo = self.as_ref();
-        Address {
-            prefix: utxo.conf.pub_addr_prefix,
-            t_addr_prefix: utxo.conf.pub_t_addr_prefix,
-            hash: AddressHashEnum::AddressHash(address.0.into()),
-            checksum_type: utxo.conf.checksum_type,
-            hrp: utxo.conf.bech32_hrp.clone(),
-            addr_format: self.addr_format().clone(),
-        }
+        AddressBuilder::new(
+            self.addr_format().clone(),
+            AddressHashEnum::AddressHash(address.0.into()),
+            utxo.conf.checksum_type,
+            utxo.conf.address_prefixes.clone(),
+            utxo.conf.bech32_hrp.clone(),
+        )
+        .as_pkh()
+        .build()
+        .expect("valid address props")
     }
 
     fn contract_address_from_raw_pubkey(&self, pubkey: &[u8]) -> Result<H160, String> {
         let utxo = self.as_ref();
         let qtum_address = try_s!(utxo_common::address_from_raw_pubkey(
             pubkey,
-            utxo.conf.pub_addr_prefix,
-            utxo.conf.pub_t_addr_prefix,
+            utxo.conf.address_prefixes.clone(),
             utxo.conf.checksum_type,
             utxo.conf.bech32_hrp.clone(),
             self.addr_format().clone()
@@ -414,6 +412,10 @@ impl UtxoCommonOps for QtumCoin {
         utxo_common::checked_address_from_str(self, address)
     }
 
+    fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
+        utxo_common::output_script_checked(self.as_ref(), address)
+    }
+
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
         utxo_common::get_current_mtp(&self.utxo_arc, CoinVariant::Qtum).await
     }
@@ -487,8 +489,7 @@ impl UtxoCommonOps for QtumCoin {
         let conf = &self.utxo_arc.conf;
         utxo_common::address_from_pubkey(
             pubkey,
-            conf.pub_addr_prefix,
-            conf.pub_t_addr_prefix,
+            conf.address_prefixes.clone(),
             conf.checksum_type,
             conf.bech32_hrp.clone(),
             self.addr_format().clone(),
@@ -852,6 +853,11 @@ impl MarketCoinOps for QtumCoin {
         utxo_common::send_raw_tx_bytes(&self.utxo_arc, tx)
     }
 
+    #[inline(always)]
+    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> RawTransactionResult {
+        utxo_common::sign_raw_tx(self, args).await
+    }
+
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         utxo_common::wait_for_confirmations(&self.utxo_arc, input)
     }
@@ -1006,7 +1012,7 @@ impl InitWithdrawCoin for QtumCoin {
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: WithdrawTaskHandleShared,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         utxo_common::init_withdraw(ctx, self.clone(), req, task_handle).await
     }
@@ -1124,6 +1130,18 @@ impl HDWalletBalanceOps for QtumCoin {
         addresses: Vec<HDBalanceAddress<Self>>,
     ) -> BalanceResult<Vec<(HDBalanceAddress<Self>, CoinBalance)>> {
         utxo_common::addresses_balances(self, addresses).await
+    }
+
+    async fn prepare_addresses_for_balance_stream_if_enabled(
+        &self,
+        addresses: HashSet<String>,
+    ) -> MmResult<(), String> {
+        let addresses = addresses
+            .iter()
+            // Todo: remove expect if possible
+            .map(|address| utxo_common::address_from_str_unchecked(self.as_ref(), address).expect("Valid address"))
+            .collect();
+        utxo_prepare_addresses_for_balance_stream_if_enabled(self, addresses).await
     }
 }
 
@@ -1263,7 +1281,7 @@ impl UtxoTxHistoryOps for QtumCoin {
 pub fn contract_addr_from_str(addr: &str) -> Result<H160, String> { eth::addr_from_str(addr) }
 
 pub fn contract_addr_from_utxo_addr(address: Address) -> MmResult<H160, ScriptHashTypeNotSupported> {
-    match address.hash {
+    match address.hash() {
         AddressHashEnum::AddressHash(h) => Ok(h.take().into()),
         AddressHashEnum::WitnessScriptHash(_) => MmError::err(ScriptHashTypeNotSupported {
             script_hash_type: "Witness".to_owned(),

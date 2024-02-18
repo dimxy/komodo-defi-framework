@@ -1,4 +1,5 @@
 use crate::proto::{messages_ethereum as proto_ethereum, messages_ethereum_definitions as proto_ethereum_definitions};
+use crate::response_processor::ProcessTrezorResponse;
 use crate::result_handler::ResultHandler;
 use crate::{serialize_derivation_path, OperationFailure, TrezorError, TrezorResponse, TrezorResult, TrezorSession};
 use ethcore_transaction::{signature, Action, Transaction as UnSignedEthTx, UnverifiedTransaction as UnverifiedEthTx};
@@ -6,6 +7,8 @@ use ethereum_types::H256;
 use ethkey::Signature;
 use hw_common::primitives::{DerivationPath, XPub};
 use lazy_static::lazy_static;
+use mm2_err_handle::map_mm_error::MapMmError;
+use mm2_err_handle::or_mm_error::OrMmError;
 use mm2_err_handle::prelude::MmError;
 use std::collections::BTreeMap;
 
@@ -94,14 +97,29 @@ impl<'a> TrezorSession<'a> {
     ) -> TrezorResult<UnverifiedEthTx> {
         let mut data: Vec<u8> = vec![];
         let req = to_sign_eth_message(unsigned_tx, derivation_path, chain_id, &mut data);
-        let mut tx_request = self.send_sign_eth_tx(req).await?.ack_all().await?;
+        let processor = self
+            .processor
+            .as_ref()
+            .or_mm_err(|| TrezorError::InternalNoProcessor)?
+            .clone();
+        let mut tx_request = self
+            .send_sign_eth_tx(req)
+            .await?
+            .process(processor.clone())
+            .await
+            .mm_err(|e| TrezorError::Internal(e.to_string()))?;
 
         while let Some(data_length) = tx_request.data_length {
             if data_length > 0 {
                 let req = proto_ethereum::EthereumTxAck {
                     data_chunk: data.splice(..data_length as usize, []).collect(),
                 };
-                tx_request = self.send_eth_tx_ack(req).await?.ack_all().await?;
+                tx_request = self
+                    .send_eth_tx_ack(req)
+                    .await?
+                    .process(processor.clone())
+                    .await
+                    .mm_err(|e| TrezorError::Internal(e.to_string()))?;
             } else {
                 break;
             }

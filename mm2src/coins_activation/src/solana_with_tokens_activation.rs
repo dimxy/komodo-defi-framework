@@ -24,7 +24,7 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_event_stream::EventStreamConfiguration;
 use mm2_number::BigDecimal;
-use rpc_task::RpcTaskHandle;
+use rpc_task::RpcTaskHandleShared;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::HashMap;
@@ -235,7 +235,7 @@ impl PlatformCoinWithTokensActivationOps for SolanaCoin {
 
     async fn get_activation_result(
         &self,
-        _task_handle: Option<&RpcTaskHandle<InitPlatformCoinWithTokensTask<SolanaCoin>>>,
+        _task_handle: Option<RpcTaskHandleShared<InitPlatformCoinWithTokensTask<SolanaCoin>>>,
         activation_request: &Self::ActivationRequest,
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>> {
         let current_block = self

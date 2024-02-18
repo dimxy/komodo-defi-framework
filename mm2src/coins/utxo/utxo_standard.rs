@@ -1,3 +1,4 @@
+use super::utxo_common::utxo_prepare_addresses_for_balance_stream_if_enabled;
 use super::*;
 use crate::coin_balance::{self, EnableCoinBalanceError, EnabledCoinBalanceParams, HDAccountBalance, HDAddressBalance,
                           HDBalanceAddress, HDWalletBalance, HDWalletBalanceOps};
@@ -14,7 +15,7 @@ use crate::rpc_command::init_create_account::{self, CreateAccountRpcError, Creat
                                               InitCreateAccountRpcOps};
 use crate::rpc_command::init_scan_for_new_addresses::{self, InitScanAddressesRpcOps, ScanAddressesParams,
                                                       ScanAddressesResponse};
-use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
+use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandleShared};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{UtxoArcBuilder, UtxoCoinBuilder};
 use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetailsError, UtxoTxDetailsParams,
@@ -22,17 +23,17 @@ use crate::utxo::utxo_tx_history_v2::{UtxoMyAddressesHistoryError, UtxoTxDetails
 use crate::{CanRefundHtlc, CheckIfMyPaymentSentArgs, CoinBalance, CoinWithDerivationMethod, CoinWithPrivKeyPolicy,
             ConfirmPaymentInput, DexFee, GenPreimageResult, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs,
             GetWithdrawSenderAddress, IguanaPrivKey, MakerSwapTakerCoin, MmCoinEnum, NegotiateSwapContractAddrErr,
-            PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy, RefundError,
-            RefundFundingSecretArgs, RefundPaymentArgs, RefundResult, SearchForSwapTxSpendInput,
-            SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SendTakerFundingArgs, SignatureResult,
-            SpendPaymentArgs, SwapOps, SwapOpsV2, TakerSwapMakerCoin, ToBytes, TradePreimageValue, TransactionFut,
-            TransactionResult, TxMarshalingErr, TxPreimageWithSig, ValidateAddressResult, ValidateFeeArgs,
-            ValidateInstructionsErr, ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut,
-            ValidatePaymentInput, ValidateTakerFundingArgs, ValidateTakerFundingResult,
-            ValidateTakerFundingSpendPreimageResult, ValidateTakerPaymentSpendPreimageResult,
-            ValidateWatcherSpendInput, VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward,
-            WatcherRewardError, WatcherSearchForSwapTxSpendInput, WatcherValidatePaymentInput,
-            WatcherValidateTakerFeeInput, WithdrawFut};
+            PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, PrivKeyBuildPolicy,
+            RawTransactionRequest, RawTransactionResult, RefundError, RefundFundingSecretArgs, RefundPaymentArgs,
+            RefundResult, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs,
+            SendTakerFundingArgs, SignRawTransactionRequest, SignatureResult, SpendPaymentArgs, SwapOps, SwapOpsV2,
+            TakerSwapMakerCoin, ToBytes, TradePreimageValue, TransactionFut, TransactionResult, TxMarshalingErr,
+            TxPreimageWithSig, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
+            ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput,
+            ValidateTakerFundingArgs, ValidateTakerFundingResult, ValidateTakerFundingSpendPreimageResult,
+            ValidateTakerPaymentSpendPreimageResult, ValidateWatcherSpendInput, VerificationResult,
+            WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError, WatcherSearchForSwapTxSpendInput,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, WithdrawFut};
 use common::executor::{AbortableSystem, AbortedError};
 use futures::{FutureExt, TryFutureExt};
 use mm2_metrics::MetricsArc;
@@ -75,6 +76,7 @@ pub async fn utxo_standard_coin_with_policy(
         .build()
         .await
     );
+
     Ok(coin)
 }
 
@@ -187,6 +189,10 @@ impl UtxoCommonOps for UtxoStandardCoin {
         utxo_common::checked_address_from_str(self, address)
     }
 
+    fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
+        utxo_common::output_script_checked(self.as_ref(), address)
+    }
+
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
         utxo_common::get_current_mtp(&self.utxo_arc, self.ticker().into()).await
     }
@@ -256,8 +262,7 @@ impl UtxoCommonOps for UtxoStandardCoin {
         let conf = &self.utxo_arc.conf;
         utxo_common::address_from_pubkey(
             pubkey,
-            conf.pub_addr_prefix,
-            conf.pub_t_addr_prefix,
+            conf.address_prefixes.clone(),
             conf.checksum_type,
             conf.bech32_hrp.clone(),
             self.addr_format().clone(),
@@ -719,6 +724,11 @@ impl MarketCoinOps for UtxoStandardCoin {
         utxo_common::send_raw_tx_bytes(&self.utxo_arc, tx)
     }
 
+    #[inline(always)]
+    async fn sign_raw_tx(&self, args: &SignRawTransactionRequest) -> RawTransactionResult {
+        utxo_common::sign_raw_tx(self, args).await
+    }
+
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         utxo_common::wait_for_confirmations(&self.utxo_arc, input)
     }
@@ -872,7 +882,7 @@ impl InitWithdrawCoin for UtxoStandardCoin {
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: WithdrawTaskHandleShared,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         utxo_common::init_withdraw(ctx, self.clone(), req, task_handle).await
     }
@@ -1011,6 +1021,18 @@ impl HDWalletBalanceOps for UtxoStandardCoin {
         addresses: Vec<HDBalanceAddress<Self>>,
     ) -> BalanceResult<Vec<(HDBalanceAddress<Self>, CoinBalance)>> {
         utxo_common::addresses_balances(self, addresses).await
+    }
+
+    async fn prepare_addresses_for_balance_stream_if_enabled(
+        &self,
+        addresses: HashSet<String>,
+    ) -> MmResult<(), String> {
+        let addresses = addresses
+            .iter()
+            // Todo: remove expect if possible
+            .map(|address| utxo_common::address_from_str_unchecked(self.as_ref(), address).expect("Valid address"))
+            .collect();
+        utxo_prepare_addresses_for_balance_stream_if_enabled(self, addresses).await
     }
 }
 
