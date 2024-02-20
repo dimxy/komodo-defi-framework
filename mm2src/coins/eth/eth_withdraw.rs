@@ -20,6 +20,8 @@ use mm2_err_handle::mm_error::MmResult;
 use mm2_err_handle::prelude::{MapToMmResult, MmError, OrMmError};
 use std::ops::Deref;
 use std::sync::Arc;
+
+#[cfg(target_arch = "wasm32")]
 use web3::types::TransactionRequest;
 
 #[async_trait]
@@ -109,33 +111,42 @@ where
     async fn sign_withdraw_tx(
         &self,
         req: &WithdrawRequest,
-        tx: UnSignedEthTx,
-        tx_to_send: Option<TransactionRequest>,
+        unsigned_tx: UnSignedEthTx,
     ) -> Result<(H256, BytesJson), MmError<WithdrawError>> {
         let coin = self.coin();
         match coin.priv_key_policy {
             EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. } => {
                 let key_pair = self.get_key_pair(req)?;
-                // Todo: nonce_lock is still global for all addresses but this needs to be per address
-                let signed = tx.sign(key_pair.secret(), coin.chain_id);
+                let signed = unsigned_tx.sign(key_pair.secret(), coin.chain_id);
                 let bytes = rlp::encode(&signed);
 
                 Ok((signed.hash, BytesJson::from(bytes.to_vec())))
             },
             EthPrivKeyPolicy::Trezor => {
                 let derivation_path = self.get_withdraw_derivation_path(req).await?;
-                let signed = self.sign_tx_with_trezor(&derivation_path, &tx).await?;
+                let signed = self.sign_tx_with_trezor(&derivation_path, &unsigned_tx).await?;
                 let bytes = rlp::encode(&signed);
                 Ok((signed.hash, BytesJson::from(bytes.to_vec())))
             },
             #[cfg(target_arch = "wasm32")]
+            EthPrivKeyPolicy::Metamask(_) => MmError::err(WithdrawError::InternalError("invalid policy".to_owned())),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn send_withdraw_tx(
+        &self,
+        req: &WithdrawRequest,
+        tx_to_send: TransactionRequest,
+    ) -> Result<(H256, BytesJson), MmError<WithdrawError>> {
+        let coin = self.coin();
+        match coin.priv_key_policy {
             EthPrivKeyPolicy::Metamask(_) => {
                 if !req.broadcast {
                     let error =
                         "Set 'broadcast' to generate, sign and broadcast a transaction with MetaMask".to_string();
                     return MmError::err(WithdrawError::BroadcastExpected(error));
                 }
-                let tx_to_send = tx_to_send.unwrap_or_default();
 
                 // Wait for 10 seconds for the transaction to appear on the RPC node.
                 let wait_rpc_timeout = 10_000;
@@ -149,18 +160,25 @@ where
                     .wait_for_tx_appears_on_rpc(tx_hash, wait_rpc_timeout, check_every)
                     .await?;
                 let tx_hex = signed_tx
-                    .map(|tx| BytesJson::from(rlp::encode(&tx).to_vec()))
+                    .map(|signed_tx| BytesJson::from(rlp::encode(&signed_tx).to_vec()))
                     // Return an empty `tx_hex` if the transaction is still not appeared on the RPC node.
                     .unwrap_or_default();
                 Ok((tx_hash, tx_hex))
             },
+            EthPrivKeyPolicy::Iguana(_) 
+            | EthPrivKeyPolicy::HDWallet { .. } 
+            | EthPrivKeyPolicy::Trezor 
+                => MmError::err(WithdrawError::InternalError("invalid policy".to_owned())),
         }
     }
+
 
     async fn build(self) -> WithdrawResult {
         let coin = self.coin();
         let ticker = coin.deref().ticker.clone();
         let req = self.request().clone();
+
+        self.on_generating_transaction()?;
 
         let to_addr = coin
             .address_from_str(&req.to)
@@ -216,39 +234,45 @@ where
             wei_amount -= total_fee;
         };
 
-        let _nonce_lock = coin.nonce_lock.lock().await;
-        let (nonce, _) = get_addr_nonce(my_address, coin.web3_instances.clone())
-            .compat()
-            .timeout_secs(30.)
-            .await?
-            .map_to_mm(WithdrawError::Transport)?;
+        let (tx_hash, tx_hex) = match coin.priv_key_policy {
+            EthPrivKeyPolicy::Iguana(_) 
+            | EthPrivKeyPolicy::HDWallet { .. } 
+            | EthPrivKeyPolicy::Trezor => {
+                // Todo: nonce_lock is still global for all addresses but this needs to be per address
+                let _nonce_lock = coin.nonce_lock.lock().await;
+                let (nonce, _) = get_addr_nonce(my_address, coin.web3_instances.clone())
+                    .compat()
+                    .timeout_secs(30.)
+                    .await?
+                    .map_to_mm(WithdrawError::Transport)?;
 
-        let tx = UnSignedEthTx {
-            nonce,
-            value: eth_value,
-            action: Action::Call(call_addr),
-            data: data.clone(),
-            gas,
-            gas_price,
+                let unsigned_tx = UnSignedEthTx {
+                    nonce,
+                    value: eth_value,
+                    action: Action::Call(call_addr),
+                    data: data.clone(),
+                    gas,
+                    gas_price,
+                };
+                self.sign_withdraw_tx(&req, unsigned_tx).await?
+            },
+            #[cfg(target_arch = "wasm32")]
+            EthPrivKeyPolicy::Metamask(_) => {
+                let tx_to_send = TransactionRequest {
+                    from: my_address,
+                    to: Some(to_addr),
+                    gas: Some(gas),
+                    gas_price: Some(gas_price),
+                    value: Some(eth_value),
+                    data: Some(data.into()),
+                    nonce: None,
+                    ..TransactionRequest::default()
+                };
+                self.send_withdraw_tx(&req, tx_to_send).await?
+            },
         };
 
-        let tx_to_send = if cfg!(target_arch = "wasm32") {
-            Some(TransactionRequest {
-                from: my_address,
-                to: Some(to_addr),
-                gas: Some(gas),
-                gas_price: Some(gas_price),
-                value: Some(eth_value),
-                data: Some(data.into()),
-                nonce: None,
-                ..TransactionRequest::default()
-            })
-        } else {
-            None
-        };
-
-        let (tx_hash, tx_hex) = self.sign_withdraw_tx(&req, tx, tx_to_send).await?;
-
+        self.on_finishing()?;
         let tx_hash_bytes = BytesJson::from(tx_hash.0.to_vec());
         let tx_hash_str = format!("{:02x}", tx_hash_bytes);
 

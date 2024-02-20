@@ -1970,7 +1970,7 @@ impl MarketCoinOps for EthCoin {
                 Ok(format!("04{}", uncompressed_without_prefix))
             },
             EthPrivKeyPolicy::Trezor => {
-                let enabled_address = self
+                let public_key = self
                     .deref()
                     .derivation_method
                     .hd_wallet()
@@ -1978,8 +1978,9 @@ impl MarketCoinOps for EthCoin {
                     .get_enabled_address()
                     .await
                     .ok_or_else(|| UnexpectedDerivationMethod::InternalError("no enabled address".to_owned()))?
-                    .address();
-                Ok(display_eth_address(&enabled_address))
+                    .pubkey();
+                let uncompressed_without_prefix = hex::encode(public_key);
+                Ok(format!("04{}", uncompressed_without_prefix))
             },
             #[cfg(target_arch = "wasm32")]
             EthPrivKeyPolicy::Metamask(ref metamask_policy) => {
@@ -6005,7 +6006,3 @@ pub fn pubkey_from_extended(extended_pubkey: &Secp256k1ExtendedPublicKey) -> Pub
     pubkey_uncompressed
 }
 
-pub fn pubkey_from_xpub_str(xpub: &str) -> Result<Public, String> {
-    let extended_pubkey = Secp256k1ExtendedPublicKey::from_str(xpub).map_err(|e| ERRL!("{}", e))?;
-    Ok(pubkey_from_extended(&extended_pubkey))
-}
