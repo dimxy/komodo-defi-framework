@@ -1,7 +1,7 @@
 use coins::utxo::UtxoActivationParams;
 #[cfg(not(target_arch = "wasm32"))]
 use coins::z_coin::ZcoinActivationParams;
-use coins::{coin_conf, CoinBalance, CoinProtocol, MmCoinEnum};
+use coins::{coin_conf, CoinBalance, CoinProtocol, DerivationMethodResponse, MmCoinEnum};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::BigDecimal;
@@ -31,18 +31,8 @@ pub trait GetAddressesBalances {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "type", content = "data")]
-pub enum DerivationMethod {
-    /// Legacy iguana's privkey derivation, used by default
-    Iguana,
-    /// HD wallet derivation path, String is temporary here
-    #[allow(dead_code)]
-    HDWallet(String),
-}
-
-#[derive(Clone, Debug, Serialize)]
 pub struct CoinAddressInfo<Balance> {
-    pub(crate) derivation_method: DerivationMethod,
+    pub(crate) derivation_method: DerivationMethodResponse,
     pub(crate) pubkey: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) balances: Option<Balance>,

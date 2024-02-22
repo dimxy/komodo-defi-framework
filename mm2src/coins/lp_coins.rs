@@ -3504,6 +3504,17 @@ impl PrivKeyBuildPolicy {
     }
 }
 
+/// Serializable struct for compatibility with the discontinued DerivationMethod struct
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum DerivationMethodResponse {
+    /// Legacy iguana's privkey derivation, used by default
+    Iguana,
+    /// HD wallet derivation path, String is temporary here
+    #[allow(dead_code)]
+    HDWallet(String),
+}
+
 /// Enum representing methods for deriving cryptographic addresses.
 ///
 /// This enum distinguishes between two primary strategies for address generation:
@@ -3562,6 +3573,16 @@ where
     ///
     /// Panic if the address mode is [`DerivationMethod::HDWallet`].
     pub async fn unwrap_single_addr(&self) -> Address { self.single_addr_or_err().await.unwrap() }
+
+    pub async fn to_response(&self) -> DerivationMethodResponse {
+        match self {
+            DerivationMethod::SingleAddress(_) => DerivationMethodResponse::Iguana,
+            DerivationMethod::HDWallet(hd_wallet) => {
+                let enabled_address = hd_wallet.get_enabled_address().await.unwrap();
+                DerivationMethodResponse::HDWallet(enabled_address.derivation_path().to_string())
+            },
+        }
+    }
 }
 
 /// A trait representing coins with specific address derivation methods.

@@ -14,8 +14,8 @@ use coins::coin_errors::MyAddressError;
 use coins::my_tx_history_v2::TxHistoryStorage;
 use coins::solana::solana_coin_with_policy;
 use coins::solana::spl::{SplProtocolConf, SplTokenCreationError};
-use coins::{BalanceError, CoinBalance, CoinProtocol, MarketCoinOps, MmCoinEnum, PrivKeyBuildPolicy,
-            SolanaActivationParams, SolanaCoin, SplToken};
+use coins::{BalanceError, CoinBalance, CoinProtocol, DerivationMethodResponse, MarketCoinOps, MmCoinEnum,
+            PrivKeyBuildPolicy, SolanaActivationParams, SolanaCoin, SplToken};
 use common::Future01CompatExt;
 use common::{drop_mutability, true_f};
 use crypto::CryptoCtxError;
@@ -247,14 +247,14 @@ impl PlatformCoinWithTokensActivationOps for SolanaCoin {
         let my_address = self.my_address()?;
 
         let mut solana_address_info = CoinAddressInfo {
-            derivation_method: DerivationMethod::Iguana,
+            derivation_method: DerivationMethodResponse::Iguana,
             pubkey: my_address.clone(),
             balances: None,
             tickers: None,
         };
 
         let mut spl_address_info = CoinAddressInfo {
-            derivation_method: DerivationMethod::Iguana,
+            derivation_method: DerivationMethodResponse::Iguana,
             pubkey: my_address.clone(),
             balances: None,
             tickers: None,
