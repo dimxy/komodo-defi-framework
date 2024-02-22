@@ -165,13 +165,11 @@ where
                     .unwrap_or_default();
                 Ok((tx_hash, tx_hex))
             },
-            EthPrivKeyPolicy::Iguana(_) 
-            | EthPrivKeyPolicy::HDWallet { .. } 
-            | EthPrivKeyPolicy::Trezor 
-                => MmError::err(WithdrawError::InternalError("invalid policy".to_owned())),
+            EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. } | EthPrivKeyPolicy::Trezor => {
+                MmError::err(WithdrawError::InternalError("invalid policy".to_owned()))
+            },
         }
     }
-
 
     async fn build(self) -> WithdrawResult {
         let coin = self.coin();
@@ -235,9 +233,7 @@ where
         };
 
         let (tx_hash, tx_hex) = match coin.priv_key_policy {
-            EthPrivKeyPolicy::Iguana(_) 
-            | EthPrivKeyPolicy::HDWallet { .. } 
-            | EthPrivKeyPolicy::Trezor => {
+            EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. } | EthPrivKeyPolicy::Trezor => {
                 // Todo: nonce_lock is still global for all addresses but this needs to be per address
                 let _nonce_lock = coin.nonce_lock.lock().await;
                 let (nonce, _) = get_addr_nonce(my_address, coin.web3_instances.clone())
