@@ -1501,7 +1501,7 @@ pub trait MarketCoinOps {
 
     fn my_address(&self) -> MmResult<String, MyAddressError>;
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>>;
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>>;
 
     fn sign_message_hash(&self, _message: &str) -> Option<[u8; 32]>;
 
@@ -1812,7 +1812,7 @@ pub struct TransactionDetails {
     /// Raw bytes of signed transaction, this should be sent as is to `send_raw_transaction_bytes` RPC to broadcast the transaction
     pub tx_hex: BytesJson,
     /// Transaction hash in hexadecimal format
-    tx_hash: String,
+    pub tx_hash: String,
     /// Coins are sent from these addresses
     from: Vec<String>,
     /// Coins are sent to these addresses
@@ -2424,6 +2424,10 @@ pub enum WithdrawError {
     },
     #[display(fmt = "DB error {}", _0)]
     DbError(String),
+    #[display(fmt = "chain id not set: {}", _0)]
+    ChainIdRequired(String),
+    #[display(fmt = "Must use hierarchical deterministic wallet")]
+    UnexpectedDerivationMethod,
     #[display(fmt = "My address is {}, while current Nft owner is {}", my_address, token_owner)]
     MyAddressNotNftOwner {
         my_address: String,
@@ -2454,13 +2458,15 @@ impl HttpStatusCode for WithdrawError {
             | WithdrawError::ContractTypeDoesntSupportNftWithdrawing(_)
             | WithdrawError::CoinDoesntSupportNftWithdraw { .. }
             | WithdrawError::NotEnoughNftsAmount { .. }
+            | WithdrawError::ChainIdRequired(_)
             | WithdrawError::MyAddressNotNftOwner { .. } => StatusCode::BAD_REQUEST,
             WithdrawError::HwError(_) => StatusCode::GONE,
             #[cfg(target_arch = "wasm32")]
             WithdrawError::BroadcastExpected(_) => StatusCode::BAD_REQUEST,
-            WithdrawError::Transport(_) | WithdrawError::InternalError(_) | WithdrawError::DbError(_) => {
-                StatusCode::INTERNAL_SERVER_ERROR
-            },
+            WithdrawError::Transport(_)
+            | WithdrawError::InternalError(_)
+            | WithdrawError::DbError(_)
+            | WithdrawError::UnexpectedDerivationMethod => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -3299,6 +3305,10 @@ impl Default for PrivKeyActivationPolicy {
     fn default() -> Self { PrivKeyActivationPolicy::ContextPrivKey }
 }
 
+impl PrivKeyActivationPolicy {
+    pub fn is_hw_policy(&self) -> bool { matches!(self, PrivKeyActivationPolicy::Trezor) }
+}
+
 /// Enum representing various private key management policies.
 ///
 /// This enum defines the various ways in which private keys can be managed
@@ -3403,12 +3413,14 @@ impl<T> PrivKeyPolicy<T> {
                 path_to_coin: derivation_path,
                 ..
             } => Some(derivation_path),
-            PrivKeyPolicy::Iguana(_) | PrivKeyPolicy::Trezor => None,
+            PrivKeyPolicy::Trezor => None,
+            PrivKeyPolicy::Iguana(_) => None,
             #[cfg(target_arch = "wasm32")]
             PrivKeyPolicy::Metamask(_) => None,
         }
     }
 
+    // TODO: eliminate and use hdwallet.derivation_path
     fn path_to_coin_or_err(&self) -> Result<&StandardHDPathToCoin, MmError<PrivKeyPolicyNotAllowed>> {
         self.path_to_coin().or_mm_err(|| {
             PrivKeyPolicyNotAllowed::UnsupportedMethod(
@@ -3492,6 +3504,17 @@ impl PrivKeyBuildPolicy {
     }
 }
 
+/// Serializable struct for compatibility with the discontinued DerivationMethod struct
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "type", content = "data")]
+pub enum DerivationMethodResponse {
+    /// Legacy iguana's privkey derivation, used by default
+    Iguana,
+    /// HD wallet derivation path, String is temporary here
+    #[allow(dead_code)]
+    HDWallet(String),
+}
+
 /// Enum representing methods for deriving cryptographic addresses.
 ///
 /// This enum distinguishes between two primary strategies for address generation:
@@ -3522,7 +3545,9 @@ where
     pub async fn single_addr(&self) -> Option<Address> {
         match self {
             DerivationMethod::SingleAddress(my_address) => Some(my_address.clone()),
-            DerivationMethod::HDWallet(hd_wallet) => hd_wallet.get_enabled_address().await.map(|addr| addr.into()),
+            DerivationMethod::HDWallet(hd_wallet) => {
+                hd_wallet.get_enabled_address().await.map(|addr| addr.address().into())
+            },
         }
     }
 
@@ -3548,6 +3573,16 @@ where
     ///
     /// Panic if the address mode is [`DerivationMethod::HDWallet`].
     pub async fn unwrap_single_addr(&self) -> Address { self.single_addr_or_err().await.unwrap() }
+
+    pub async fn to_response(&self) -> DerivationMethodResponse {
+        match self {
+            DerivationMethod::SingleAddress(_) => DerivationMethodResponse::Iguana,
+            DerivationMethod::HDWallet(hd_wallet) => {
+                let enabled_address = hd_wallet.get_enabled_address().await.unwrap();
+                DerivationMethodResponse::HDWallet(enabled_address.derivation_path().to_string())
+            },
+        }
+    }
 }
 
 /// A trait representing coins with specific address derivation methods.
@@ -4881,5 +4916,62 @@ mod tests {
         let _found = common::block_on(lp_coinfind_any(&ctx, RICK)).unwrap();
 
         assert!(matches!(Some(coin), _found));
+    }
+}
+
+#[cfg(all(feature = "for-tests", not(target_arch = "wasm32")))]
+pub mod for_tests {
+    use crate::rpc_command::init_withdraw::WithdrawStatusRequest;
+    use crate::rpc_command::init_withdraw::{init_withdraw, withdraw_status};
+    use crate::{TransactionDetails, WithdrawError, WithdrawFee, WithdrawFrom, WithdrawRequest};
+    use common::executor::Timer;
+    use common::{now_ms, wait_until_ms};
+    use mm2_core::mm_ctx::MmArc;
+    use mm2_err_handle::prelude::MmResult;
+    use mm2_number::BigDecimal;
+    use rpc_task::RpcTaskStatus;
+    use std::str::FromStr;
+
+    /// Helper to call init_withdraw and wait for completion
+    pub async fn test_withdraw_init_loop(
+        ctx: MmArc,
+        ticker: &str,
+        to: &str,
+        amount: &str,
+        from_derivation_path: Option<&str>,
+        fee: Option<WithdrawFee>,
+    ) -> MmResult<TransactionDetails, WithdrawError> {
+        let withdraw_req = WithdrawRequest {
+            amount: BigDecimal::from_str(amount).unwrap(),
+            from: from_derivation_path.map(|from_derivation_path| WithdrawFrom::DerivationPath {
+                derivation_path: from_derivation_path.to_owned(),
+            }),
+            to: to.to_owned(),
+            coin: ticker.to_owned(),
+            max: false,
+            fee,
+            memo: None,
+        };
+        let init = init_withdraw(ctx.clone(), withdraw_req).await.unwrap();
+        let timeout = wait_until_ms(150000);
+        loop {
+            if now_ms() > timeout {
+                panic!("{} init_withdraw timed out", ticker);
+            }
+            let status = withdraw_status(ctx.clone(), WithdrawStatusRequest {
+                task_id: init.task_id,
+                forget_if_finished: true,
+            })
+            .await;
+            if let Ok(status) = status {
+                match status {
+                    RpcTaskStatus::Ok(tx_details) => break Ok(tx_details),
+                    RpcTaskStatus::Error(e) => break Err(e),
+                    _ => Timer::sleep(1.).await,
+                }
+            } else {
+                panic!("{} could not get withdraw_status", ticker)
+            }
+        }
     }
 }

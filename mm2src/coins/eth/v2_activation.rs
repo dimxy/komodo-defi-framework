@@ -3,11 +3,12 @@ use crate::hd_wallet::{load_hd_accounts_from_storage, HDAccountAddressId, HDAcco
                        HDWalletStorageError, DEFAULT_GAP_LIMIT};
 #[cfg(target_arch = "wasm32")] use crate::EthMetamaskPolicy;
 use common::executor::AbortedError;
-use crypto::CryptoCtxError;
+use crypto::{trezor::TrezorError, Bip32Error, CryptoCtxError, HwError};
 use enum_derives::EnumFromTrait;
 use mm2_err_handle::common_errors::WithInternal;
 #[cfg(target_arch = "wasm32")]
 use mm2_metamask::{from_metamask_error, MetamaskError, MetamaskRpcError, WithMetamaskRpcError};
+use rpc_task::RpcTaskError;
 
 #[derive(Clone, Debug, Deserialize, Display, EnumFromTrait, PartialEq, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -41,6 +42,15 @@ pub enum EthActivationV2Error {
     #[from_trait(WithInternal::internal)]
     #[display(fmt = "Internal: {}", _0)]
     InternalError(String),
+    CoinDoesntSupportTrezor,
+    HwContextNotInitialized,
+    #[display(fmt = "Initialization task has timed out {:?}", duration)]
+    TaskTimedOut {
+        duration: Duration,
+    },
+    HwError(HwRpcError),
+    #[display(fmt = "Hardware wallet must be called within rpc task framework")]
+    InvalidHardwareWalletCall,
 }
 
 impl From<MyAddressError> for EthActivationV2Error {
@@ -63,6 +73,27 @@ impl From<HDWalletStorageError> for EthActivationV2Error {
     fn from(e: HDWalletStorageError) -> Self { EthActivationV2Error::HDWalletStorageError(e.to_string()) }
 }
 
+impl From<HwError> for EthActivationV2Error {
+    fn from(e: HwError) -> Self { EthActivationV2Error::InternalError(e.to_string()) }
+}
+
+impl From<Bip32Error> for EthActivationV2Error {
+    fn from(e: Bip32Error) -> Self { EthActivationV2Error::InternalError(e.to_string()) }
+}
+
+impl From<TrezorError> for EthActivationV2Error {
+    fn from(e: TrezorError) -> Self { EthActivationV2Error::InternalError(e.to_string()) }
+}
+
+impl From<RpcTaskError> for EthActivationV2Error {
+    fn from(rpc_err: RpcTaskError) -> Self {
+        match rpc_err {
+            RpcTaskError::Timeout(duration) => EthActivationV2Error::TaskTimedOut { duration },
+            internal_error => EthActivationV2Error::InternalError(internal_error.to_string()),
+        }
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 impl From<MetamaskError> for EthActivationV2Error {
     fn from(e: MetamaskError) -> Self { from_metamask_error(e) }
@@ -74,10 +105,15 @@ pub enum EthPrivKeyActivationPolicy {
     ContextPrivKey,
     #[cfg(target_arch = "wasm32")]
     Metamask,
+    Trezor,
 }
 
 impl Default for EthPrivKeyActivationPolicy {
     fn default() -> Self { EthPrivKeyActivationPolicy::ContextPrivKey }
+}
+
+impl EthPrivKeyActivationPolicy {
+    pub fn is_hw_policy(&self) -> bool { matches!(self, EthPrivKeyActivationPolicy::Trezor) }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -246,12 +282,14 @@ impl EthCoin {
     }
 }
 
+/// Activate eth coin from coin config and private key build policy,
+/// version 2 of the activation function, with no intrinsic tokens creation  
 pub async fn eth_coin_from_conf_and_request_v2(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
     req: EthActivationV2Request,
-    priv_key_policy: EthPrivKeyBuildPolicy,
+    priv_key_build_policy: EthPrivKeyBuildPolicy,
 ) -> MmResult<EthCoin, EthActivationV2Error> {
     if req.swap_contract_address == Address::default() {
         return Err(EthActivationV2Error::InvalidSwapContractAddr(
@@ -269,30 +307,38 @@ pub async fn eth_coin_from_conf_and_request_v2(
         }
     }
 
-    let (priv_key_policy, derivation_method) =
-        build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, &req.path_to_address, req.gap_limit)
-            .await?;
-    let enabled_address = priv_key_policy
-        .activated_key_or_err()
-        .map_err(|e| EthActivationV2Error::PrivKeyPolicyNotAllowed(e.into_inner()))?
-        .address();
-    let enabled_address_str = display_eth_address(&enabled_address);
+    let (priv_key_policy, derivation_method) = build_address_and_priv_key_policy(
+        ctx,
+        ticker,
+        conf,
+        priv_key_build_policy,
+        &req.path_to_address,
+        req.gap_limit,
+    )
+    .await?;
 
     let chain_id = conf["chain_id"].as_u64();
-
     let (web3, web3_instances) = match (req.rpc_mode, &priv_key_policy) {
         (
             EthRpcMode::Http,
-            EthPrivKeyPolicy::Iguana(key_pair)
-            | EthPrivKeyPolicy::HDWallet {
-                activated_key: key_pair,
-                ..
-            },
-        ) => build_http_transport(ctx, ticker.to_string(), enabled_address_str, key_pair, &req.nodes).await?,
-        (EthRpcMode::Http, EthPrivKeyPolicy::Trezor) => {
-            return MmError::err(EthActivationV2Error::PrivKeyPolicyNotAllowed(
-                PrivKeyPolicyNotAllowed::HardwareWalletNotSupported,
-            ));
+            EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. } | EthPrivKeyPolicy::Trezor,
+        ) => {
+            let auth_key_pair = match priv_key_policy {
+                EthPrivKeyPolicy::Trezor => {
+                    let crypto_ctx = CryptoCtx::from_ctx(ctx)?;
+                    let secp256k1_key_pair = crypto_ctx.mm2_internal_key_pair();
+                    eth::KeyPair::from_secret_slice(&secp256k1_key_pair.private_bytes()).map_to_mm(|_| {
+                        EthActivationV2Error::InternalError("could not get internal keypair".to_string())
+                    })?
+                },
+                _ => priv_key_policy
+                    .activated_key_or_err()
+                    .mm_err(EthActivationV2Error::PrivKeyPolicyNotAllowed)?
+                    .clone(),
+            };
+            let auth_address = auth_key_pair.address();
+            let auth_address_str = display_eth_address(&auth_address);
+            build_http_transport(ctx, ticker.to_string(), auth_address_str, &auth_key_pair, &req.nodes).await?
         },
         #[cfg(target_arch = "wasm32")]
         (EthRpcMode::Metamask, EthPrivKeyPolicy::Metamask(_)) => {
@@ -376,11 +422,11 @@ pub(crate) async fn build_address_and_priv_key_policy(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
-    priv_key_policy: EthPrivKeyBuildPolicy,
+    priv_key_build_policy: EthPrivKeyBuildPolicy,
     path_to_address: &HDAccountAddressId,
     gap_limit: Option<u32>,
 ) -> MmResult<(EthPrivKeyPolicy, EthDerivationMethod), EthActivationV2Error> {
-    match priv_key_policy {
+    match priv_key_build_policy {
         EthPrivKeyBuildPolicy::IguanaPrivKey(iguana) => {
             let key_pair = KeyPair::from_secret_slice(iguana.as_slice())
                 .map_to_mm(|e| EthActivationV2Error::InternalError(e.to_string()))?;
@@ -426,6 +472,37 @@ pub(crate) async fn build_address_and_priv_key_policy(
                 },
                 derivation_method,
             ))
+        },
+        EthPrivKeyBuildPolicy::Trezor => {
+            let path_to_coin = json::from_value(conf["derivation_path"].clone())
+                .map_to_mm(|e| EthActivationV2Error::ErrorDeserializingDerivationPath(e.to_string()))?;
+
+            let trezor_coin: Option<String> = json::from_value(conf["trezor_coin"].clone()).ok();
+            if trezor_coin.is_none() {
+                return MmError::err(EthActivationV2Error::CoinDoesntSupportTrezor);
+            }
+            let crypto_ctx = CryptoCtx::from_ctx(ctx)?;
+            let hw_ctx = crypto_ctx
+                .hw_ctx()
+                .or_mm_err(|| EthActivationV2Error::HwContextNotInitialized)?;
+            let hd_wallet_rmd160 = hw_ctx.rmd160();
+            let hd_wallet_storage = HDWalletCoinStorage::init_with_rmd160(ctx, ticker.to_string(), hd_wallet_rmd160)
+                .await
+                .mm_err(EthActivationV2Error::from)?;
+            let accounts = load_hd_accounts_from_storage(&hd_wallet_storage, &path_to_coin).await?;
+            // Todo: use fn gap_limit(&self) -> u32 { self.activation_params().gap_limit.unwrap_or(DEFAULT_GAP_LIMIT) } like UTXO
+            let gap_limit = gap_limit.unwrap_or(DEFAULT_GAP_LIMIT);
+            // Todo: Maybe we can make a constructor for HDWallet struct
+            let hd_wallet = EthHDWallet {
+                hd_wallet_rmd160,
+                hd_wallet_storage,
+                derivation_path: path_to_coin.clone(),
+                accounts: HDAccountsMutex::new(accounts),
+                enabled_address: Some(*path_to_address),
+                gap_limit,
+            };
+            let derivation_method = DerivationMethod::HDWallet(hd_wallet);
+            Ok((EthPrivKeyPolicy::Trezor, derivation_method))
         },
         #[cfg(target_arch = "wasm32")]
         EthPrivKeyBuildPolicy::Metamask(metamask_ctx) => {
