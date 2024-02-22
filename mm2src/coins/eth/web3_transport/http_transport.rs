@@ -65,7 +65,7 @@ pub struct HttpTransportNode {
 }
 
 impl HttpTransport {
-    #[cfg(test)]
+    #[cfg(any(test, target_arch = "wasm32"))]
     #[inline]
     pub fn new(nodes: Vec<HttpTransportNode>) -> Self {
         let client_impl = HttpTransportRpcClientImpl { nodes };

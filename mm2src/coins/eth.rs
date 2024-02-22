@@ -104,6 +104,7 @@ cfg_native! {
 mod eth_balance_events;
 #[cfg(test)] mod eth_tests;
 #[cfg(target_arch = "wasm32")] mod eth_wasm_tests;
+#[cfg(any(test, target_arch = "wasm32"))] mod for_tests;
 mod web3_transport;
 use web3_transport::{http_transport::HttpTransportNode, EthFeeHistoryNamespace, Web3Transport};
 
@@ -6005,4 +6006,3 @@ pub fn pubkey_from_extended(extended_pubkey: &Secp256k1ExtendedPublicKey) -> Pub
     pubkey_uncompressed.as_mut().copy_from_slice(&serialized[1..]);
     pubkey_uncompressed
 }
-

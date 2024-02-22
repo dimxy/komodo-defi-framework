@@ -7929,7 +7929,7 @@ mod trezor_tests {
                                       init_trezor_user_action_rpc, init_withdraw, jst_sepolia_trezor_conf,
                                       mm_ctx_with_custom_db_with_conf, tbtc_legacy_conf, tbtc_segwit_conf,
                                       withdraw_status, MarketMakerIt, Mm2TestConf, ETH_DEV_NODE,
-                                      ETH_DEV_SWAP_CONTRACT, ETH_SEPOLIA_NODE};
+                                      ETH_DEV_SWAP_CONTRACT, ETH_SEPOLIA_NODES};
     use mm2_test_helpers::structs::{InitTaskResult, RpcV2Response, TransactionDetails, WithdrawStatus};
     use rpc_task::{rpc_common::RpcTaskStatusRequest, RpcTaskStatus};
     use serde_json::{self as json, json, Value as Json};
@@ -8014,7 +8014,7 @@ mod trezor_tests {
         let req = json!({
             "method": "enable",
             "coin": "ETH",
-            "urls": ETH_SEPOLIA_NODE,
+            "urls": ETH_SEPOLIA_NODES,
             "swap_contract_address": ETH_DEV_SWAP_CONTRACT,
             "priv_key_policy": "Trezor",
         });

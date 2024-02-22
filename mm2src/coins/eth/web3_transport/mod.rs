@@ -39,7 +39,7 @@ impl Web3Transport {
         Ok(metamask_transport::MetamaskTransport::detect(eth_config, event_handlers)?.into())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, target_arch = "wasm32"))]
     pub fn with_nodes(nodes: Vec<http_transport::HttpTransportNode>) -> Web3Transport {
         http_transport::HttpTransport::new(nodes).into()
     }

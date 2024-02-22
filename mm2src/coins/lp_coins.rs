@@ -4919,7 +4919,7 @@ mod tests {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "for-tests", not(target_arch = "wasm32")))]
 pub mod for_tests {
     use crate::rpc_command::init_withdraw::WithdrawStatusRequest;
     use crate::rpc_command::init_withdraw::{init_withdraw, withdraw_status};
