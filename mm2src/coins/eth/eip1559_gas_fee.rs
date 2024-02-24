@@ -1,28 +1,28 @@
+//! Provides estimations of base and priority fee per gas or fetch estimations from a gas api provider
+
 use super::web3_transport::{EthFeeHistoryNamespace, FeeHistoryResult};
 use super::{u256_to_big_decimal, Web3RpcError, Web3RpcResult, ETH_GWEI_DECIMALS};
-use common::log::info;
 use ethereum_types::U256;
-use http::StatusCode;
 use mm2_err_handle::mm_error::MmError;
-use mm2_err_handle::prelude::*;
-use mm2_net::transport::slurp_url_with_headers;
 use mm2_number::BigDecimal;
 use num_traits::FromPrimitive;
-use serde::de::{Deserializer, SeqAccess, Visitor};
-use serde_json::{self as json};
-use std::collections::HashMap;
-use std::fmt;
+use url::Url;
 use web3::{types::BlockNumber, Transport};
 
-// Estimate base and priority fee per gas
-// or fetch estimations from a gas api provider
+pub(crate) use gas_api::BlocknativeGasApiCaller;
+#[allow(unused_imports)]
+pub(crate) use gas_api::InfuraGasApiCaller;
+
+use gas_api::{BlocknativeBlockPricesResponse, InfuraFeePerGas};
 
 const FEE_PER_GAS_LEVELS: usize = 3;
 
+/// Indicates which provider was used to get fee per gas estimations
 #[derive(Clone, Debug, Serialize)]
 pub enum EstimationSource {
     /// filled by default values
     Empty,
+    /// internal simple estimator
     Simple,
     Infura,
     Blocknative,
@@ -32,6 +32,7 @@ impl Default for EstimationSource {
     fn default() -> Self { Self::Empty }
 }
 
+/// Estimated fee per gas units
 #[derive(Clone, Debug, Serialize)]
 pub enum EstimationUnits {
     Gwei,
@@ -41,7 +42,28 @@ impl Default for EstimationUnits {
     fn default() -> Self { Self::Gwei }
 }
 
-/// One priority level estimated max fees
+enum PriorityLevelId {
+    Low = 0,
+    Medium = 1,
+    High = 2,
+}
+
+/// Supported gas api providers
+#[derive(Deserialize)]
+pub enum GasApiProvider {
+    Infura,
+    Blocknative,
+}
+
+#[derive(Deserialize)]
+pub struct GasApiConfig {
+    /// gas api provider name to use
+    pub provider: GasApiProvider,
+    /// gas api provider or proxy base url (scheme, host and port without the relative part)
+    pub url: Url,
+}
+
+/// Priority level estimated max fee per gas
 #[derive(Clone, Debug, Serialize)]
 pub struct FeePerGasLevel {
     /// estimated max priority tip fee per gas in gwei
@@ -122,7 +144,7 @@ impl From<BlocknativeBlockPricesResponse> for FeePerGasEstimated {
         if block_prices.block_prices.is_empty() {
             return FeePerGasEstimated::default();
         }
-        if block_prices.block_prices[0].estimated_prices.len() < 3 {
+        if block_prices.block_prices[0].estimated_prices.len() < FEE_PER_GAS_LEVELS {
             return FeePerGasEstimated::default();
         }
         Self {
@@ -161,7 +183,7 @@ impl From<BlocknativeBlockPricesResponse> for FeePerGasEstimated {
 
 /// Simple priority fee per gas estimator based on fee history
 /// normally used if gas api provider is not available
-pub(super) struct FeePerGasSimpleEstimator {}
+pub(crate) struct FeePerGasSimpleEstimator {}
 
 impl FeePerGasSimpleEstimator {
     // TODO: add minimal max fee and priority fee
@@ -216,39 +238,48 @@ impl FeePerGasSimpleEstimator {
         }
     }
 
+    fn priority_fee_for_level(
+        level: PriorityLevelId,
+        base_fee: &BigDecimal,
+        fee_history: &FeeHistoryResult,
+    ) -> FeePerGasLevel {
+        let level_i = level as usize;
+        let mut level_rewards = fee_history
+            .priority_rewards
+            .iter()
+            .map(|rewards| {
+                if level_i < rewards.len() {
+                    rewards[level_i]
+                } else {
+                    U256::from(0)
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let max_priority_fee_per_gas = Self::percentile_of(&mut level_rewards, Self::CALC_PERCENTILES[level_i]);
+        let max_priority_fee_per_gas =
+            u256_to_big_decimal(max_priority_fee_per_gas, ETH_GWEI_DECIMALS).unwrap_or_else(|_| BigDecimal::from(0));
+        let max_fee_per_gas = base_fee
+            * BigDecimal::from_f64(Self::ADJUST_MAX_FEE[level_i]).unwrap_or_else(|| BigDecimal::from(0))
+            + max_priority_fee_per_gas.clone()
+                * BigDecimal::from_f64(Self::ADJUST_MAX_PRIORITY_FEE[level_i]).unwrap_or_else(|| BigDecimal::from(0)); // TODO maybe use checked ops
+        FeePerGasLevel {
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+            min_wait_time: None,
+            max_wait_time: None, // TODO: maybe fill with some default values (and mark as uncertain)?
+        }
+    }
+
     /// estimate priority fees by fee history
     fn calculate_with_history(fee_history: &FeeHistoryResult) -> FeePerGasEstimated {
         let base_fee = *fee_history.base_fee_per_gas.first().unwrap_or(&U256::from(0));
         let base_fee = u256_to_big_decimal(base_fee, ETH_GWEI_DECIMALS).unwrap_or_else(|_| BigDecimal::from(0));
-        let mut priority_fees = vec![];
-        for i in 0..Self::HISTORY_PERCENTILES.len() {
-            let mut level_rewards = fee_history
-                .priority_rewards
-                .iter()
-                .map(|rewards| if i < rewards.len() { rewards[i] } else { U256::from(0) })
-                .collect::<Vec<_>>();
-
-            let max_priority_fee_per_gas = Self::percentile_of(&mut level_rewards, Self::CALC_PERCENTILES[i]);
-            let max_priority_fee_per_gas = u256_to_big_decimal(max_priority_fee_per_gas, ETH_GWEI_DECIMALS)
-                .unwrap_or_else(|_| BigDecimal::from(0));
-            let max_fee_per_gas = base_fee.clone()
-                * BigDecimal::from_f64(Self::ADJUST_MAX_FEE[i]).unwrap_or_else(|| BigDecimal::from(0))
-                + max_priority_fee_per_gas.clone()
-                    * BigDecimal::from_f64(Self::ADJUST_MAX_PRIORITY_FEE[i]).unwrap_or_else(|| BigDecimal::from(0)); // TODO maybe use checked ops
-            let priority_fee = FeePerGasLevel {
-                max_priority_fee_per_gas,
-                max_fee_per_gas,
-                min_wait_time: None,
-                max_wait_time: None, // TODO: maybe fill with some default values (and mark as uncertain)?
-            };
-            priority_fees.push(priority_fee);
-        }
-        drop_mutability!(priority_fees);
         FeePerGasEstimated {
-            base_fee,
-            low: priority_fees[0].clone(),
-            medium: priority_fees[1].clone(),
-            high: priority_fees[2].clone(),
+            base_fee: base_fee.clone(),
+            low: Self::priority_fee_for_level(PriorityLevelId::Low, &base_fee, fee_history),
+            medium: Self::priority_fee_for_level(PriorityLevelId::Medium, &base_fee, fee_history),
+            high: Self::priority_fee_for_level(PriorityLevelId::High, &base_fee, fee_history),
             source: EstimationSource::Simple,
             units: EstimationUnits::Gwei,
             base_fee_trend: String::default(),
@@ -257,213 +288,240 @@ impl FeePerGasSimpleEstimator {
     }
 }
 
-// Infura provider caller:
+mod gas_api {
+    use super::FeePerGasEstimated;
+    use crate::eth::{Web3RpcError, Web3RpcResult};
+    use common::log::debug;
+    use http::StatusCode;
+    use mm2_err_handle::mm_error::MmError;
+    use mm2_err_handle::prelude::*;
+    use mm2_net::transport::slurp_url_with_headers;
+    use mm2_number::BigDecimal;
+    use serde::de::{Deserializer, SeqAccess, Visitor};
+    use serde_json::{self as json};
+    use std::collections::HashMap;
+    use std::fmt;
+    use url::Url;
 
-#[derive(Clone, Debug, Deserialize)]
-struct InfuraFeePerGasLevel {
-    #[serde(rename = "suggestedMaxPriorityFeePerGas")]
-    suggested_max_priority_fee_per_gas: BigDecimal,
-    #[serde(rename = "suggestedMaxFeePerGas")]
-    suggested_max_fee_per_gas: BigDecimal,
-    #[serde(rename = "minWaitTimeEstimate")]
-    min_wait_time_estimate: u32,
-    #[serde(rename = "maxWaitTimeEstimate")]
-    max_wait_time_estimate: u32,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct InfuraFeePerGas {
-    low: InfuraFeePerGasLevel,
-    medium: InfuraFeePerGasLevel,
-    high: InfuraFeePerGasLevel,
-    #[serde(rename = "estimatedBaseFee")]
-    estimated_base_fee: BigDecimal,
-    #[serde(rename = "networkCongestion")]
-    network_congestion: BigDecimal,
-    #[serde(rename = "latestPriorityFeeRange")]
-    latest_priority_fee_range: Vec<BigDecimal>,
-    #[serde(rename = "historicalPriorityFeeRange")]
-    historical_priority_fee_range: Vec<BigDecimal>,
-    #[serde(rename = "historicalBaseFeeRange")]
-    historical_base_fee_range: Vec<BigDecimal>,
-    #[serde(rename = "priorityFeeTrend")]
-    priority_fee_trend: String, // we are not using enum here bcz values not mentioned in docs could be received
-    #[serde(rename = "baseFeeTrend")]
-    base_fee_trend: String,
-}
-
-lazy_static! {
-    static ref INFURA_GAS_API_AUTH_TEST: String = std::env::var("INFURA_GAS_API_AUTH_TEST").unwrap_or_default();
-}
-
-#[allow(dead_code)]
-pub(super) struct InfuraGasApiCaller {}
-
-#[allow(dead_code)]
-impl InfuraGasApiCaller {
-    const INFURA_GAS_API_URL: &'static str = "https://gas.api.infura.io/networks/1";
-    const INFURA_GAS_FEES_CALL: &'static str = "suggestedGasFees";
-
-    fn get_infura_gas_api_url() -> (String, Vec<(&'static str, &'static str)>) {
-        let url = format!("{}/{}", Self::INFURA_GAS_API_URL, Self::INFURA_GAS_FEES_CALL);
-        let headers = vec![("Authorization", INFURA_GAS_API_AUTH_TEST.as_str())];
-        (url, headers)
+    lazy_static! {
+        /// API key for testing
+        static ref INFURA_GAS_API_AUTH_TEST: String = std::env::var("INFURA_GAS_API_AUTH_TEST").unwrap_or_default();
     }
 
-    async fn make_infura_gas_api_request() -> Result<InfuraFeePerGas, MmError<String>> {
-        let (url, headers) = Self::get_infura_gas_api_url();
-        let resp = slurp_url_with_headers(&url, headers).await.mm_err(|e| e.to_string())?;
-        if resp.0 != StatusCode::OK {
-            let error = format!("{} failed with status code {}", Self::INFURA_GAS_FEES_CALL, resp.0);
-            info!("gas api error: {}", error);
-            return MmError::err(error);
+    #[derive(Clone, Debug, Deserialize)]
+    pub(crate) struct InfuraFeePerGasLevel {
+        #[serde(rename = "suggestedMaxPriorityFeePerGas")]
+        pub suggested_max_priority_fee_per_gas: BigDecimal,
+        #[serde(rename = "suggestedMaxFeePerGas")]
+        pub suggested_max_fee_per_gas: BigDecimal,
+        #[serde(rename = "minWaitTimeEstimate")]
+        pub min_wait_time_estimate: u32,
+        #[serde(rename = "maxWaitTimeEstimate")]
+        pub max_wait_time_estimate: u32,
+    }
+
+    /// Infura gas api response
+    /// see https://docs.infura.io/api/infura-expansion-apis/gas-api/api-reference/gasprices-type2
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    pub(crate) struct InfuraFeePerGas {
+        pub low: InfuraFeePerGasLevel,
+        pub medium: InfuraFeePerGasLevel,
+        pub high: InfuraFeePerGasLevel,
+        #[serde(rename = "estimatedBaseFee")]
+        pub estimated_base_fee: BigDecimal,
+        #[serde(rename = "networkCongestion")]
+        pub network_congestion: BigDecimal,
+        #[serde(rename = "latestPriorityFeeRange")]
+        pub latest_priority_fee_range: Vec<BigDecimal>,
+        #[serde(rename = "historicalPriorityFeeRange")]
+        pub historical_priority_fee_range: Vec<BigDecimal>,
+        #[serde(rename = "historicalBaseFeeRange")]
+        pub historical_base_fee_range: Vec<BigDecimal>,
+        #[serde(rename = "priorityFeeTrend")]
+        pub priority_fee_trend: String, // we are not using enum here bcz values not mentioned in docs could be received
+        #[serde(rename = "baseFeeTrend")]
+        pub base_fee_trend: String,
+    }
+
+    /// Infura gas api provider caller
+    #[allow(dead_code)]
+    pub(crate) struct InfuraGasApiCaller {}
+
+    #[allow(dead_code)]
+    impl InfuraGasApiCaller {
+        const INFURA_GAS_FEES_ENDPOINT: &'static str = "networks/1/suggestedGasFees"; // Support only main chain
+
+        fn get_infura_gas_api_url(base_url: &Url) -> (Url, Vec<(&'static str, &'static str)>) {
+            let mut url = base_url.clone();
+            url.set_path(Self::INFURA_GAS_FEES_ENDPOINT);
+            let headers = vec![("Authorization", INFURA_GAS_API_AUTH_TEST.as_str())];
+            (url, headers)
         }
-        let estimated_fees = json::from_slice(&resp.2).map_err(|e| e.to_string())?;
-        Ok(estimated_fees)
-    }
 
-    /// Fetch api provider gas fee estimations
-    pub async fn fetch_infura_fee_estimation() -> Web3RpcResult<FeePerGasEstimated> {
-        let infura_estimated_fees = Self::make_infura_gas_api_request()
-            .await
-            .mm_err(Web3RpcError::Transport)?;
-        Ok(infura_estimated_fees.into())
-    }
-}
-
-// Blocknative provider caller
-
-#[allow(dead_code)]
-#[derive(Clone, Debug, Deserialize)]
-struct BlocknativeBlockPrices {
-    #[serde(rename = "blockNumber")]
-    block_number: u32,
-    #[serde(rename = "estimatedTransactionCount")]
-    estimated_transaction_count: u32,
-    #[serde(rename = "baseFeePerGas")]
-    base_fee_per_gas: BigDecimal,
-    #[serde(rename = "estimatedPrices")]
-    estimated_prices: Vec<BlocknativeEstimatedPrices>,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Debug, Deserialize)]
-struct BlocknativeEstimatedPrices {
-    confidence: u32,
-    price: u64,
-    #[serde(rename = "maxPriorityFeePerGas")]
-    max_priority_fee_per_gas: BigDecimal,
-    #[serde(rename = "maxFeePerGas")]
-    max_fee_per_gas: BigDecimal,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Debug, Deserialize)]
-struct BlocknativeBaseFee {
-    confidence: u32,
-    #[serde(rename = "baseFee")]
-    base_fee: BigDecimal,
-}
-
-struct BlocknativeEstimatedBaseFees {}
-
-impl BlocknativeEstimatedBaseFees {
-    /// Parse blocknative's base_fees in pending blocks : '[ "pending+1" : {}, "pending+2" : {}, ..]' removing 'pending+n'
-    fn parse_pending<'de, D>(deserializer: D) -> Result<Vec<Vec<BlocknativeBaseFee>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct PendingBlockFeeParser;
-        impl<'de> Visitor<'de> for PendingBlockFeeParser {
-            type Value = Vec<Vec<BlocknativeBaseFee>>;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("[u32, BigDecimal]")
+        async fn make_infura_gas_api_request(
+            url: &Url,
+            headers: Vec<(&'static str, &'static str)>,
+        ) -> Result<InfuraFeePerGas, MmError<String>> {
+            let resp = slurp_url_with_headers(url.as_str(), headers)
+                .await
+                .mm_err(|e| e.to_string())?;
+            if resp.0 != StatusCode::OK {
+                let error = format!("{} failed with status code {}", url, resp.0);
+                debug!("infura gas api error: {}", error);
+                return MmError::err(error);
             }
+            let estimated_fees = json::from_slice(&resp.2).map_to_mm(|e| e.to_string())?;
+            Ok(estimated_fees)
+        }
 
-            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                let mut pending_block_fees = Vec::<Vec<BlocknativeBaseFee>>::new();
-                while let Some(fees) = seq.next_element::<HashMap<String, Vec<BlocknativeBaseFee>>>()? {
-                    if let Some(fees) = fees.iter().next() {
-                        pending_block_fees.push(fees.1.clone());
-                    }
+        /// Fetch fee per gas estimations from infura provider
+        pub async fn fetch_infura_fee_estimation(base_url: &Url) -> Web3RpcResult<FeePerGasEstimated> {
+            let (url, headers) = Self::get_infura_gas_api_url(base_url);
+            let infura_estimated_fees = Self::make_infura_gas_api_request(&url, headers)
+                .await
+                .mm_err(Web3RpcError::Transport)?;
+            Ok(infura_estimated_fees.into())
+        }
+    }
+
+    lazy_static! {
+        /// API key for testing
+        static ref BLOCKNATIVE_GAS_API_AUTH_TEST: String = std::env::var("BLOCKNATIVE_GAS_API_AUTH_TEST").unwrap_or_default();
+    }
+
+    #[allow(dead_code)]
+    #[derive(Clone, Debug, Deserialize)]
+    pub(crate) struct BlocknativeBlockPrices {
+        #[serde(rename = "blockNumber")]
+        pub block_number: u32,
+        #[serde(rename = "estimatedTransactionCount")]
+        pub estimated_transaction_count: u32,
+        #[serde(rename = "baseFeePerGas")]
+        pub base_fee_per_gas: BigDecimal,
+        #[serde(rename = "estimatedPrices")]
+        pub estimated_prices: Vec<BlocknativeEstimatedPrices>,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Clone, Debug, Deserialize)]
+    pub(crate) struct BlocknativeEstimatedPrices {
+        pub confidence: u32,
+        pub price: u64,
+        #[serde(rename = "maxPriorityFeePerGas")]
+        pub max_priority_fee_per_gas: BigDecimal,
+        #[serde(rename = "maxFeePerGas")]
+        pub max_fee_per_gas: BigDecimal,
+    }
+
+    #[allow(dead_code)]
+    #[derive(Clone, Debug, Deserialize)]
+    pub(crate) struct BlocknativeBaseFee {
+        pub confidence: u32,
+        #[serde(rename = "baseFee")]
+        pub base_fee: BigDecimal,
+    }
+
+    struct BlocknativeEstimatedBaseFees {}
+
+    impl BlocknativeEstimatedBaseFees {
+        /// Parse blocknative's base_fees in pending blocks : '[ "pending+1" : {}, "pending+2" : {}, ..]' removing 'pending+n'
+        fn parse_pending<'de, D>(deserializer: D) -> Result<Vec<Vec<BlocknativeBaseFee>>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            struct PendingBlockFeeParser;
+            impl<'de> Visitor<'de> for PendingBlockFeeParser {
+                type Value = Vec<Vec<BlocknativeBaseFee>>;
+
+                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                    formatter.write_str("[u32, BigDecimal]")
                 }
-                Ok(pending_block_fees)
+
+                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                    let mut pending_block_fees = Vec::<Vec<BlocknativeBaseFee>>::new();
+                    while let Some(fees) = seq.next_element::<HashMap<String, Vec<BlocknativeBaseFee>>>()? {
+                        if let Some(fees) = fees.iter().next() {
+                            pending_block_fees.push(fees.1.clone());
+                        }
+                    }
+                    Ok(pending_block_fees)
+                }
             }
+            deserializer.deserialize_any(PendingBlockFeeParser {})
         }
-        deserializer.deserialize_any(PendingBlockFeeParser {})
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-struct BlocknativeBlockPricesResponse {
-    system: String,
-    network: String,
-    unit: String,
-    #[serde(rename = "maxPrice")]
-    max_price: u32,
-    #[serde(rename = "currentBlockNumber")]
-    current_block_number: u32,
-    #[serde(rename = "msSinceLastBlock")]
-    ms_since_last_block: u32,
-    #[serde(rename = "blockPrices")]
-    block_prices: Vec<BlocknativeBlockPrices>,
-    #[serde(
-        rename = "estimatedBaseFees",
-        deserialize_with = "BlocknativeEstimatedBaseFees::parse_pending"
-    )]
-    estimated_base_fees: Vec<Vec<BlocknativeBaseFee>>,
-}
-
-lazy_static! {
-    static ref BLOCKNATIVE_GAS_API_AUTH_TEST: String =
-        std::env::var("BLOCKNATIVE_GAS_API_AUTH_TEST").unwrap_or_default();
-}
-
-#[allow(dead_code)]
-pub(super) struct BlocknativeGasApiCaller {}
-
-#[allow(dead_code)]
-impl BlocknativeGasApiCaller {
-    const BLOCKNATIVE_GAS_API_URL: &'static str = "https://api.blocknative.com/gasprices";
-    const BLOCKNATIVE_GAS_PRICES_CALL: &'static str = "blockprices";
-    const BLOCKNATIVE_GAS_PRICES_PARAMS: &'static str =
-        "confidenceLevels=10&confidenceLevels=50&confidenceLevels=90&withBaseFees=true";
-
-    fn get_blocknative_gas_api_url() -> (String, Vec<(&'static str, &'static str)>) {
-        let url = format!(
-            "{}/{}?{}",
-            Self::BLOCKNATIVE_GAS_API_URL,
-            Self::BLOCKNATIVE_GAS_PRICES_CALL,
-            Self::BLOCKNATIVE_GAS_PRICES_PARAMS
-        );
-        let headers = vec![("Authorization", BLOCKNATIVE_GAS_API_AUTH_TEST.as_str())];
-        (url, headers)
     }
 
-    async fn make_blocknative_gas_api_request() -> Result<BlocknativeBlockPricesResponse, MmError<String>> {
-        let (url, headers) = Self::get_blocknative_gas_api_url();
-        let resp = slurp_url_with_headers(&url, headers).await.mm_err(|e| e.to_string())?;
-        if resp.0 != StatusCode::OK {
-            let error = format!(
-                "{} failed with status code {}",
-                Self::BLOCKNATIVE_GAS_PRICES_CALL,
-                resp.0
-            );
-            info!("gas api error: {}", error);
-            return MmError::err(error);
+    /// Blocknative gas prices response
+    /// see https://docs.blocknative.com/gas-prediction/gas-platform
+    #[allow(dead_code)]
+    #[derive(Debug, Deserialize)]
+    pub(crate) struct BlocknativeBlockPricesResponse {
+        pub system: String,
+        pub network: String,
+        pub unit: String,
+        #[serde(rename = "maxPrice")]
+        pub max_price: u32,
+        #[serde(rename = "currentBlockNumber")]
+        pub current_block_number: u32,
+        #[serde(rename = "msSinceLastBlock")]
+        pub ms_since_last_block: u32,
+        #[serde(rename = "blockPrices")]
+        pub block_prices: Vec<BlocknativeBlockPrices>,
+        #[serde(
+            rename = "estimatedBaseFees",
+            deserialize_with = "BlocknativeEstimatedBaseFees::parse_pending"
+        )]
+        pub estimated_base_fees: Vec<Vec<BlocknativeBaseFee>>,
+    }
+
+    /// Blocknative gas api provider caller
+    #[allow(dead_code)]
+    pub(crate) struct BlocknativeGasApiCaller {}
+
+    #[allow(dead_code)]
+    impl BlocknativeGasApiCaller {
+        const BLOCKNATIVE_GAS_PRICES_ENDPOINT: &'static str = "gasprices/blockprices";
+        const BLOCKNATIVE_GAS_PRICES_LOW: &'static str = "10";
+        const BLOCKNATIVE_GAS_PRICES_MEDIUM: &'static str = "50";
+        const BLOCKNATIVE_GAS_PRICES_HIGH: &'static str = "90";
+
+        fn get_blocknative_gas_api_url(base_url: &Url) -> (Url, Vec<(&'static str, &'static str)>) {
+            let mut url = base_url.clone();
+            url.set_path(Self::BLOCKNATIVE_GAS_PRICES_ENDPOINT);
+            url.query_pairs_mut()
+                .append_pair("confidenceLevels", Self::BLOCKNATIVE_GAS_PRICES_LOW)
+                .append_pair("confidenceLevels", Self::BLOCKNATIVE_GAS_PRICES_MEDIUM)
+                .append_pair("confidenceLevels", Self::BLOCKNATIVE_GAS_PRICES_HIGH)
+                .append_pair("withBaseFees", "true");
+
+            let headers = vec![("Authorization", BLOCKNATIVE_GAS_API_AUTH_TEST.as_str())];
+            (url, headers)
         }
-        let block_prices = json::from_slice(&resp.2).map_err(|e| e.to_string())?;
-        Ok(block_prices)
-    }
 
-    /// Fetch api provider gas fee estimations
-    pub async fn fetch_blocknative_fee_estimation() -> Web3RpcResult<FeePerGasEstimated> {
-        let block_prices = Self::make_blocknative_gas_api_request()
-            .await
-            .mm_err(Web3RpcError::Transport)?;
-        Ok(block_prices.into())
+        async fn make_blocknative_gas_api_request(
+            url: &Url,
+            headers: Vec<(&'static str, &'static str)>,
+        ) -> Result<BlocknativeBlockPricesResponse, MmError<String>> {
+            let resp = slurp_url_with_headers(url.as_str(), headers)
+                .await
+                .mm_err(|e| e.to_string())?;
+            if resp.0 != StatusCode::OK {
+                let error = format!("{} failed with status code {}", url, resp.0);
+                debug!("blocknative gas api error: {}", error);
+                return MmError::err(error);
+            }
+            let block_prices = json::from_slice(&resp.2).map_err(|e| e.to_string())?;
+            Ok(block_prices)
+        }
+
+        /// Fetch fee per gas estimations from blocknative provider
+        pub async fn fetch_blocknative_fee_estimation(base_url: &Url) -> Web3RpcResult<FeePerGasEstimated> {
+            let (url, headers) = Self::get_blocknative_gas_api_url(base_url);
+            let block_prices = Self::make_blocknative_gas_api_request(&url, headers)
+                .await
+                .mm_err(Web3RpcError::Transport)?;
+            Ok(block_prices.into())
+        }
     }
 }

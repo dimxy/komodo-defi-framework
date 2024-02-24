@@ -37,7 +37,7 @@ use common::{now_ms, wait_until_ms};
 use crypto::privkey::key_pair_from_secret;
 use crypto::{CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy, StandardHDCoinAddress};
 use derive_more::Display;
-pub use eip1559_gas_fee::FeePerGasEstimated;
+pub(crate) use eip1559_gas_fee::FeePerGasEstimated;
 use enum_from::EnumFromStringify;
 use ethabi::{Contract, Function, Token};
 pub use ethcore_transaction::SignedTransaction as SignedEthTx;
@@ -116,7 +116,8 @@ use crate::{PrivKeyPolicy, TransactionResult, WithdrawFrom};
 use nonce::ParityNonce;
 
 mod eip1559_gas_fee;
-use eip1559_gas_fee::{BlocknativeGasApiCaller, FeePerGasSimpleEstimator};
+use eip1559_gas_fee::{BlocknativeGasApiCaller, FeePerGasSimpleEstimator, GasApiConfig, GasApiProvider,
+                      InfuraGasApiCaller};
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
@@ -220,6 +221,8 @@ pub enum Web3RpcError {
     Timeout(String),
     #[display(fmt = "Internal: {}", _0)]
     Internal(String),
+    #[display(fmt = "Invalid gas api provider config: {}", _0)]
+    InvalidGasApiConfig(String),
 }
 
 impl From<GasStationReqErr> for Web3RpcError {
@@ -259,9 +262,9 @@ impl From<Web3RpcError> for RawTransactionError {
     fn from(e: Web3RpcError) -> Self {
         match e {
             Web3RpcError::Transport(tr) | Web3RpcError::InvalidResponse(tr) => RawTransactionError::Transport(tr),
-            Web3RpcError::Internal(internal) | Web3RpcError::Timeout(internal) => {
-                RawTransactionError::InternalError(internal)
-            },
+            Web3RpcError::Internal(internal)
+            | Web3RpcError::Timeout(internal)
+            | Web3RpcError::InvalidGasApiConfig(internal) => RawTransactionError::InternalError(internal),
         }
     }
 }
@@ -300,9 +303,9 @@ impl From<Web3RpcError> for WithdrawError {
     fn from(e: Web3RpcError) -> Self {
         match e {
             Web3RpcError::Transport(err) | Web3RpcError::InvalidResponse(err) => WithdrawError::Transport(err),
-            Web3RpcError::Internal(internal) | Web3RpcError::Timeout(internal) => {
-                WithdrawError::InternalError(internal)
-            },
+            Web3RpcError::Internal(internal)
+            | Web3RpcError::Timeout(internal)
+            | Web3RpcError::InvalidGasApiConfig(internal) => WithdrawError::InternalError(internal),
         }
     }
 }
@@ -315,9 +318,9 @@ impl From<Web3RpcError> for TradePreimageError {
     fn from(e: Web3RpcError) -> Self {
         match e {
             Web3RpcError::Transport(err) | Web3RpcError::InvalidResponse(err) => TradePreimageError::Transport(err),
-            Web3RpcError::Internal(internal) | Web3RpcError::Timeout(internal) => {
-                TradePreimageError::InternalError(internal)
-            },
+            Web3RpcError::Internal(internal)
+            | Web3RpcError::Timeout(internal)
+            | Web3RpcError::InvalidGasApiConfig(internal) => TradePreimageError::InternalError(internal),
         }
     }
 }
@@ -346,7 +349,9 @@ impl From<Web3RpcError> for BalanceError {
     fn from(e: Web3RpcError) -> Self {
         match e {
             Web3RpcError::Transport(tr) | Web3RpcError::InvalidResponse(tr) => BalanceError::Transport(tr),
-            Web3RpcError::Internal(internal) | Web3RpcError::Timeout(internal) => BalanceError::Internal(internal),
+            Web3RpcError::Internal(internal)
+            | Web3RpcError::Timeout(internal)
+            | Web3RpcError::InvalidGasApiConfig(internal) => BalanceError::Internal(internal),
         }
     }
 }
@@ -440,7 +445,7 @@ pub struct EthCoinImpl {
     /// Coin needs access to the context in order to reuse the logging and shutdown facilities.
     /// Using a weak reference by default in order to avoid circular references and leaks.
     pub ctx: MmWeak,
-    chain_id: Option<u64>,
+    pub(crate) chain_id: Option<u64>,
     /// the block range used for eth_getLogs
     logs_block_range: u64,
     nonce_lock: Arc<AsyncMutex<()>>,
@@ -4649,15 +4654,31 @@ impl EthCoin {
         let coin = self.clone();
         let fee_history_namespace: EthFeeHistoryNamespace<_> = coin.web3.api();
         let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(fee_history_namespace);
-        let provider_estimator_fut = BlocknativeGasApiCaller::fetch_blocknative_fee_estimation();
-        // To call infura use:
-        // let provider_estimator_fut = InfuraGasApiCaller::fetch_infura_fee_estimation();
+        let ctx = MmArc::from_weak(&self.ctx)
+            .ok_or("!ctx")
+            .map_to_mm(|err| Web3RpcError::Internal(err.to_string()))?;
+        let gas_api_conf = ctx.conf["gas_api"].clone();
+        if !gas_api_conf.is_null() {
+            let gas_api_conf: GasApiConfig =
+                json::from_value(gas_api_conf).map_to_mm(|e| Web3RpcError::InvalidGasApiConfig(e.to_string()))?;
+            let provider_estimator_fut = match gas_api_conf.provider {
+                GasApiProvider::Infura => InfuraGasApiCaller::fetch_infura_fee_estimation(&gas_api_conf.url).boxed(),
+                GasApiProvider::Blocknative => {
+                    BlocknativeGasApiCaller::fetch_blocknative_fee_estimation(&gas_api_conf.url).boxed()
+                },
+            };
 
-        let (res_history, res_provider) = join(history_estimator_fut, provider_estimator_fut).await;
-        match (res_history, res_provider) {
-            (Ok(ref history_est), Err(_)) => Ok(history_est.clone()),
-            (_, Ok(ref provider_est)) => Ok(provider_est.clone()),
-            (_, _) => MmError::err(Web3RpcError::Internal("All gas api requests failed".into())), // TODO: send errors
+            let (res_history, res_provider) = join(history_estimator_fut, provider_estimator_fut).await;
+            match (res_history, res_provider) {
+                (Ok(ref history_est), Err(_)) => Ok(history_est.clone()),
+                (_, Ok(ref provider_est)) => Ok(provider_est.clone()),
+                (_, _) => MmError::err(Web3RpcError::Internal("All gas api requests failed".into())), // TODO: send errors
+            }
+        } else {
+            // use only internal fee per gas estimator
+            history_estimator_fut
+                .await
+                .mm_err(|e| Web3RpcError::Internal(e.to_string()))
         }
     }
 
@@ -5840,7 +5861,9 @@ impl From<Web3RpcError> for EthGasDetailsErr {
     fn from(e: Web3RpcError) -> Self {
         match e {
             Web3RpcError::Transport(tr) | Web3RpcError::InvalidResponse(tr) => EthGasDetailsErr::Transport(tr),
-            Web3RpcError::Internal(internal) | Web3RpcError::Timeout(internal) => EthGasDetailsErr::Internal(internal),
+            Web3RpcError::Internal(internal)
+            | Web3RpcError::Timeout(internal)
+            | Web3RpcError::InvalidGasApiConfig(internal) => EthGasDetailsErr::Internal(internal),
         }
     }
 }

@@ -1,3 +1,5 @@
+//! RPCs to start/stop gas price estimator and get estimated base and priority fee per gas
+
 use crate::eth::{EthCoin, FeePerGasEstimated};
 use crate::AsyncMutex;
 use crate::{from_ctx, lp_coinfind, MarketCoinOps, MmCoinEnum, NumConversError};
@@ -13,11 +15,10 @@ use std::collections::HashSet;
 use std::pin::Pin;
 use std::sync::Arc;
 
-/// RPCs to start/stop gas price estimator and get estimated base and priority fee per gas
-
-const FEE_ESTIMATOR_REFRESH_INTERVAL: u32 = 15; // in sec
 const FEE_ESTIMATOR_NAME: &str = "eth_fee_estimator_loop";
 const MAX_CONCURRENT_STOP_REQUESTS: usize = 10;
+const ETH_PLATFORM_COIN: &str = "ETH";
+const ETH_SUPPORTED_CHAIN_ID: u64 = 1;
 
 pub(crate) type FeeEstimatorStopListener = mpsc::Receiver<String>;
 pub(crate) type FeeEstimatorStopHandle = mpsc::Sender<String>;
@@ -34,15 +35,19 @@ impl Default for FeeEstimatorState {
     fn default() -> Self { Self::Stopped }
 }
 
-// Errors
-
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum FeeEstimatorError {
-    #[display(fmt = "Coin not activated or not a EVM coin")]
-    CoinNotFoundOrSupported,
+    #[display(fmt = "Coin not activated")]
+    CoinNotActivated,
+    #[display(fmt = "Gas estimation not supported for this coin")]
+    CoinNotSupported,
     #[display(fmt = "Coin not connected to fee estimator")]
     CoinNotConnected,
+    #[display(fmt = "Platform coin ETH must be activated")]
+    PlatformCoinNotActivated,
+    #[display(fmt = "Chain id not supported")]
+    ChainNotSupported,
     #[display(fmt = "Fee estimator is already started")]
     AlreadyStarted,
     #[display(fmt = "Transport error: {}", _0)]
@@ -60,8 +65,11 @@ pub enum FeeEstimatorError {
 impl HttpStatusCode for FeeEstimatorError {
     fn status_code(&self) -> StatusCode {
         match self {
-            FeeEstimatorError::CoinNotFoundOrSupported
+            FeeEstimatorError::CoinNotActivated
+            | FeeEstimatorError::CoinNotSupported
             | FeeEstimatorError::CoinNotConnected
+            | FeeEstimatorError::PlatformCoinNotActivated
+            | FeeEstimatorError::ChainNotSupported
             | FeeEstimatorError::AlreadyStarted
             | FeeEstimatorError::AlreadyStopping
             | FeeEstimatorError::NotRunning
@@ -80,12 +88,12 @@ impl From<String> for FeeEstimatorError {
 }
 
 /// Gas fee estimator loop context,
-/// runs the fee per gas estimation loop according to EIP-1559
+/// runs a loop to estimate max fee and max priority fee per gas according to EIP-1559 for the next block
 ///
 /// This FeeEstimatorContext handles rpc requests which start and stop gas fee estimation loop and handles the loop itself.
-/// FeeEstimatorContext maintains a set of eth coins or tokens using the estimator.
-/// The loop estimation starts when any eth coin or token calls the start rpc and stops when the last using coin or token calls the stop rpc.
-/// FeeEstimatorContext keeps the latest estimated gas fees and returns them as response to a requesting rpc
+/// FeeEstimatorContext maintains a list of eth coins or tokens which connected and use the estimator.
+/// The loop estimation starts when first eth coin or token calls the start rpc and stops when the last coin or token, using it, calls the stop rpc.
+/// FeeEstimatorContext keeps the latest estimated gas fees in the context and returns them as rpc response
 pub struct FeeEstimatorContext {
     estimated_fees: AsyncMutex<FeePerGasEstimated>,
     run_state: AsyncMutex<FeeEstimatorState>,
@@ -120,7 +128,7 @@ impl FeeEstimatorContext {
     }
 
     /// Fee estimation update period in secs, basically equals to eth blocktime
-    fn get_refresh_interval() -> f64 { FEE_ESTIMATOR_REFRESH_INTERVAL as f64 }
+    const fn get_refresh_interval() -> f64 { 15.0 }
 
     async fn start_if_not_running(ctx: MmArc, coin: &EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
         let estimator_ctx = Self::from_ctx(ctx.clone())?;
@@ -128,9 +136,15 @@ impl FeeEstimatorContext {
             let mut run_state = estimator_ctx.run_state.lock().await;
             match *run_state {
                 FeeEstimatorState::Stopped => {
+                    let platform_coin = Self::get_eth_platform_coin(&ctx).await?;
                     *run_state = FeeEstimatorState::Starting;
                     drop(run_state);
-                    ctx.spawner().spawn(Self::fee_estimator_loop(ctx.clone(), coin.clone()));
+                    // we use platform coin to access its web3 connection, so it must be available
+                    ctx.spawner()
+                        .spawn(Self::fee_estimator_loop(ctx.clone(), platform_coin));
+                    let mut using_coins = estimator_ctx.using_coins.lock().await;
+                    using_coins.insert(coin.ticker().to_string());
+                    debug!("{FEE_ESTIMATOR_NAME} coin {} connected", coin.ticker());
                     return Ok(());
                 },
                 FeeEstimatorState::Running => {
@@ -238,14 +252,17 @@ impl FeeEstimatorContext {
         }
     }
 
-    /// Gas fee estimator loop
+    /// Loop polling gas fee estimator
+    ///
+    /// This loop periodically calls get_eip1559_gas_price which fetches fee per gas estimations from a gas api provider or calculates them internally
+    /// The retrieved data are stored in the fee estimator context
+    /// To connect to the gas api provider the web3 instances from the platform coin are used so ETH coin must be enabled
+    /// TODO: assumed that once the plaform coin is enabled it is always available and never can be disabled. Should we track it disabled?
     async fn fee_estimator_loop_inner(&self, coin: EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
         let mut run_state = self.run_state.lock().await;
         if let FeeEstimatorState::Starting = *run_state {
             *run_state = FeeEstimatorState::Running;
-            let mut using_coins = self.using_coins.lock().await;
-            using_coins.insert(coin.ticker().to_string());
-            debug!("{FEE_ESTIMATOR_NAME} started and coin {} connected", coin.ticker());
+            debug!("{FEE_ESTIMATOR_NAME} started");
         } else {
             debug!("{FEE_ESTIMATOR_NAME} could not start from this state, probably already running");
             return MmError::err(FeeEstimatorError::InternalError("could not start".to_string()));
@@ -268,7 +285,7 @@ impl FeeEstimatorContext {
                 estimated = Box::pin(estimate_fut) => (estimated, Ok(false)),
                 shutdown_started = Box::pin(stop_fut) => (Ok(FeePerGasEstimated::default()), shutdown_started)
             };
-            // use returned bool (instead of run_state) to check if shutdown started to exit quickly
+            // use returned bool (instead of run_state) to check if shutdown has just started and exit quickly
             if shutdown_started.is_ok() && shutdown_started.unwrap() {
                 break;
             }
@@ -282,7 +299,7 @@ impl FeeEstimatorContext {
 
             let estimated = match estimated_res {
                 Ok(estimated) => estimated,
-                Err(_) => FeePerGasEstimated::default(), // TODO: if fee estimates could not be obtained should we clear values or use previous?
+                Err(_) => FeePerGasEstimated::default(), // TODO: if fee estimates could not be obtained I guess we should set a error?
             };
             let mut estimated_fees = self.estimated_fees.lock().await;
             *estimated_fees = estimated;
@@ -325,15 +342,43 @@ impl FeeEstimatorContext {
         }
         Ok(())
     }
+
+    fn check_if_chain_id_supported(coin: &EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
+        if let Some(chain_id) = coin.chain_id {
+            if chain_id != ETH_SUPPORTED_CHAIN_ID {
+                return MmError::err(FeeEstimatorError::ChainNotSupported);
+            }
+        }
+        Ok(())
+    }
+
+    async fn check_if_coin_supported(ctx: &MmArc, ticker: &str) -> Result<EthCoin, MmError<FeeEstimatorError>> {
+        let coin = match lp_coinfind(ctx, ticker).await {
+            Ok(Some(MmCoinEnum::EthCoin(eth))) => eth,
+            Ok(Some(_)) => return MmError::err(FeeEstimatorError::CoinNotSupported),
+            Ok(None) | Err(_) => return MmError::err(FeeEstimatorError::CoinNotActivated),
+        };
+        Self::check_if_chain_id_supported(&coin)?;
+        Ok(coin)
+    }
+
+    async fn get_eth_platform_coin(ctx: &MmArc) -> Result<EthCoin, MmError<FeeEstimatorError>> {
+        let coin = match lp_coinfind(ctx, ETH_PLATFORM_COIN).await {
+            Ok(Some(MmCoinEnum::EthCoin(eth))) => eth,
+            _ => return MmError::err(FeeEstimatorError::PlatformCoinNotActivated),
+        };
+        Self::check_if_chain_id_supported(&coin)?;
+        Ok(coin)
+    }
 }
 
-// Rpc request/response/result
-
+/// Rpc request to start or stop gas fee estimator
 #[derive(Deserialize)]
 pub struct FeeEstimatorStartStopRequest {
     coin: String,
 }
 
+/// Rpc response to request to start or stop gas fee estimator
 #[derive(Serialize)]
 pub struct FeeEstimatorStartStopResponse {
     result: String,
@@ -341,31 +386,23 @@ pub struct FeeEstimatorStartStopResponse {
 
 impl FeeEstimatorStartStopResponse {
     #[allow(dead_code)]
-    pub fn get_result(&self) -> String { self.result.clone() }
+    pub fn get_result(&self) -> &str { &self.result }
 }
 
 pub type FeeEstimatorStartStopResult = Result<FeeEstimatorStartStopResponse, MmError<FeeEstimatorError>>;
 
+/// Rpc request to get latest estimated fee per gas
 #[derive(Deserialize)]
 pub struct FeeEstimatorRequest {
+    /// coin ticker
     coin: String,
 }
 
 pub type FeeEstimatorResult = Result<FeePerGasEstimated, MmError<FeeEstimatorError>>;
 
 /// Start gas priority fee estimator loop
-///
-/// Param: coin ticker
 pub async fn start_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopRequest) -> FeeEstimatorStartStopResult {
-    let coin = match lp_coinfind(&ctx, &req.coin).await {
-        Ok(Some(coin)) => coin,
-        Ok(None) | Err(_) => return MmError::err(FeeEstimatorError::CoinNotFoundOrSupported),
-    };
-    let coin = match coin {
-        MmCoinEnum::EthCoin(eth) => eth,
-        _ => return MmError::err(FeeEstimatorError::CoinNotFoundOrSupported),
-    };
-
+    let coin = FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
     FeeEstimatorContext::start_if_not_running(ctx, &coin).await?;
     Ok(FeeEstimatorStartStopResponse {
         result: "Success".to_string(),
@@ -373,41 +410,22 @@ pub async fn start_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopReque
 }
 
 /// Stop gas priority fee estimator loop
-///
-/// Param: coin ticker
 pub async fn stop_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopRequest) -> FeeEstimatorStartStopResult {
-    let coin = match lp_coinfind(&ctx, &req.coin).await {
-        Ok(Some(coin)) => coin,
-        Ok(None) | Err(_) => return MmError::err(FeeEstimatorError::CoinNotFoundOrSupported),
-    };
-    let coin = match coin {
-        MmCoinEnum::EthCoin(eth) => eth,
-        _ => return MmError::err(FeeEstimatorError::CoinNotFoundOrSupported),
-    };
-
+    let coin = FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
     FeeEstimatorContext::request_to_stop(ctx, &coin).await?;
     Ok(FeeEstimatorStartStopResponse {
         result: "Success".to_string(),
     })
 }
 
-/// Get latest estimated fee per gas
+/// Get latest estimated fee per gas for a eth coin
 ///
-/// Param: coin ticker
-/// Returns estimated base and priority fees
+/// Estimation loop for this coin must be stated.
+/// Only main chain is supported
+///
+/// Returns latest estimated fee per gas for the next block
 pub async fn get_eth_gas_price_estimated(ctx: MmArc, req: FeeEstimatorRequest) -> FeeEstimatorResult {
-    let coin = match lp_coinfind(&ctx, &req.coin).await {
-        Ok(Some(coin)) => coin,
-        Ok(None) | Err(_) => return MmError::err(FeeEstimatorError::CoinNotFoundOrSupported),
-    };
-
-    // just check this is a eth-like coin.
-    // we will return data if estimator is running, for any eth-like coin
-    let coin = match coin {
-        MmCoinEnum::EthCoin(eth) => eth,
-        _ => return MmError::err(FeeEstimatorError::CoinNotFoundOrSupported),
-    };
-
+    let coin = FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
     let estimated_fees = FeeEstimatorContext::get_estimated_fees(ctx, &coin).await?;
     Ok(estimated_fees)
 }
