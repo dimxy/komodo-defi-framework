@@ -27,10 +27,11 @@ use crate::utxo::utxo_common_tests::TEST_COIN_DECIMALS;
 use crate::utxo::utxo_common_tests::{self, utxo_coin_fields_for_test, utxo_coin_from_fields, TEST_COIN_NAME};
 use crate::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use crate::utxo::utxo_tx_history_v2::{UtxoTxDetailsParams, UtxoTxHistoryOps};
-#[cfg(not(target_arch = "wasm32"))] use crate::WithdrawFee;
 use crate::{BlockHeightAndTime, CoinBalance, ConfirmPaymentInput, DexFee, IguanaPrivKey, PrivKeyBuildPolicy,
             SearchForSwapTxSpendInput, SpendPaymentArgs, StakingInfosDetails, SwapOps, TradePreimageValue,
-            TxFeeDetails, TxMarshalingErr, ValidateFeeArgs, WaitForHTLCTxSpendArgs, INVALID_SENDER_ERR_LOG};
+            TxFeeDetails, TxMarshalingErr, ValidateFeeArgs, INVALID_SENDER_ERR_LOG};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::{WaitForHTLCTxSpendArgs, WithdrawFee};
 use chain::{BlockHeader, BlockHeaderBits, OutPoint};
 use common::executor::Timer;
 use common::{block_on, wait_until_sec, OrdRange, PagingOptionsEnum, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -40,6 +41,7 @@ use db_common::sqlite::rusqlite::Connection;
 use futures::channel::mpsc::channel;
 use futures::future::join_all;
 use futures::TryFutureExt;
+use keys::prefixes::*;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_number::bigdecimal::{BigDecimal, Signed};
 use mm2_test_helpers::electrums::doc_electrums;
@@ -239,7 +241,7 @@ fn test_generate_transaction() {
     }];
 
     let outputs = vec![TransactionOutput {
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(coin.as_ref().derivation_method.unwrap_single_addr().hash()).to_bytes(),
         value: 100000,
     }];
 
@@ -283,13 +285,21 @@ fn test_addresses_from_script() {
     let coin = utxo_coin_for_test(client.into(), None, false);
     // P2PKH
     let script: Script = "76a91405aab5342166f8594baf17a7d9bef5d56744332788ac".into();
-    let expected_addr: Vec<Address> = vec!["R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW".into()];
+    let expected_addr: Vec<Address> = vec![Address::from_legacyaddress(
+        "R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW",
+        &coin.as_ref().conf.address_prefixes,
+    )
+    .unwrap()];
     let actual_addr = coin.addresses_from_script(&script).unwrap();
     assert_eq!(expected_addr, actual_addr);
 
     // P2SH
     let script: Script = "a914e71a6120653ebd526e0f9d7a29cde5969db362d487".into();
-    let expected_addr: Vec<Address> = vec!["bZoEPR7DjTqSDiQTeRFNDJuQPTRY2335LD".into()];
+    let expected_addr: Vec<Address> = vec![Address::from_legacyaddress(
+        "bZoEPR7DjTqSDiQTeRFNDJuQPTRY2335LD",
+        &coin.as_ref().conf.address_prefixes,
+    )
+    .unwrap()];
     let actual_addr = coin.addresses_from_script(&script).unwrap();
     assert_eq!(expected_addr, actual_addr);
 }
@@ -419,7 +429,7 @@ fn test_wait_for_payment_spend_timeout_native() {
     let client = NativeClientImpl::default();
 
     static mut OUTPUT_SPEND_CALLED: bool = false;
-    NativeClient::find_output_spend.mock_safe(|_, _, _, _, _| {
+    NativeClient::find_output_spend.mock_safe(|_, _, _, _, _, _| {
         unsafe { OUTPUT_SPEND_CALLED = true };
         MockResult::Return(Box::new(futures01::future::ok(None)))
     });
@@ -450,7 +460,7 @@ fn test_wait_for_payment_spend_timeout_native() {
 fn test_wait_for_payment_spend_timeout_electrum() {
     static mut OUTPUT_SPEND_CALLED: bool = false;
 
-    ElectrumClient::find_output_spend.mock_safe(|_, _, _, _, _| {
+    ElectrumClient::find_output_spend.mock_safe(|_, _, _, _, _, _| {
         unsafe { OUTPUT_SPEND_CALLED = true };
         MockResult::Return(Box::new(futures01::future::ok(None)))
     });
@@ -960,7 +970,7 @@ fn test_utxo_lock() {
     let coin = utxo_coin_for_test(client.into(), None, false);
     let output = TransactionOutput {
         value: 1000000,
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(coin.as_ref().derivation_method.unwrap_single_addr().hash()).to_bytes(),
     };
     let mut futures = vec![];
     for _ in 0..5 {
@@ -1536,7 +1546,7 @@ fn test_spam_rick() {
 
     let output = TransactionOutput {
         value: 1000000,
-        script_pubkey: Builder::build_p2pkh(&coin.as_ref().derivation_method.unwrap_single_addr().hash).to_bytes(),
+        script_pubkey: Builder::build_p2pkh(coin.as_ref().derivation_method.unwrap_single_addr().hash()).to_bytes(),
     };
     let mut futures = vec![];
     for _ in 0..5 {
@@ -1603,8 +1613,12 @@ fn test_qtum_generate_pod() {
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "tQTUM", &conf, &params, priv_key)).unwrap();
     let expected_res = "20086d757b34c01deacfef97a391f8ed2ca761c72a08d5000adc3d187b1007aca86a03bc5131b1f99b66873a12b51f8603213cdc1aa74c05ca5d48fe164b82152b";
-    let address = Address::from_str("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE").unwrap();
-    let res = coin.generate_pod(address.hash).unwrap();
+    let address = Address::from_legacyaddress(
+        "qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE",
+        &coin.as_ref().conf.address_prefixes,
+    )
+    .unwrap();
+    let res = coin.generate_pod(address.hash().clone()).unwrap();
     assert_eq!(expected_res, res.to_string());
 }
 
@@ -1627,7 +1641,11 @@ fn test_qtum_add_delegation() {
         keypair.private().secret,
     ))
     .unwrap();
-    let address = Address::from_str("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE").unwrap();
+    let address = Address::from_legacyaddress(
+        "qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE",
+        &coin.as_ref().conf.address_prefixes,
+    )
+    .unwrap();
     let request = QtumDelegationRequest {
         address: address.to_string(),
         fee: Some(10),
@@ -1666,7 +1684,11 @@ fn test_qtum_add_delegation_on_already_delegating() {
         keypair.private().secret,
     ))
     .unwrap();
-    let address = Address::from_str("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE").unwrap();
+    let address = Address::from_legacyaddress(
+        "qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE",
+        &coin.as_ref().conf.address_prefixes,
+    )
+    .unwrap();
     let request = QtumDelegationRequest {
         address: address.to_string(),
         fee: Some(10),
@@ -1873,9 +1895,10 @@ fn test_get_mature_unspent_ordered_map_from_cache_impl(
 
     // run test
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Electrum(client), None, false);
-    let (unspents, _) =
-        block_on(coin.get_mature_unspent_ordered_list(&Address::from("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW")))
-            .expect("Expected an empty unspent list");
+    let (unspents, _) = block_on(coin.get_mature_unspent_ordered_list(
+        &Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES).unwrap(),
+    ))
+    .expect("Expected an empty unspent list");
     // unspents should be empty because `is_unspent_mature()` always returns false
     assert!(unsafe { IS_UNSPENT_MATURE_CALLED });
     assert!(unspents.mature.is_empty());
@@ -2014,9 +2037,9 @@ fn test_native_client_unspents_filtered_using_tx_cache_single_tx_in_cache() {
     let client = native_client_for_test();
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
-    let address: Address = "RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN".into();
+    let address: Address = Address::from_legacyaddress("RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN", &KMD_PREFIXES).unwrap();
     block_on(coin.as_ref().recently_spent_outpoints.lock()).for_script_pubkey =
-        Builder::build_p2pkh(&address.hash).to_bytes();
+        Builder::build_p2pkh(address.hash()).to_bytes();
 
     // https://morty.explorer.dexstats.info/tx/31c7aaae89ab1c39febae164a3190a86ed7c6c6f8c9dc98ec28d508b7929d347
     let tx: UtxoTx = "0400008085202f89027f57730fcbbc2c72fb18bcc3766a713044831a117bb1cade3ed88644864f7333020000006a47304402206e3737b2fcf078b61b16fa67340cc3e79c5d5e2dc9ffda09608371552a3887450220460a332aa1b8ad8f2de92d319666f70751078b221199951f80265b4f7cef8543012102d8c948c6af848c588517288168faa397d6ba3ea924596d03d1d84f224b5123c2ffffffff42b916a80430b80a77e114445b08cf120735447a524de10742fac8f6a9d4170f000000006a473044022004aa053edafb9d161ea8146e0c21ed1593aa6b9404dd44294bcdf920a1695fd902202365eac15dbcc5e9f83e2eed56a8f2f0e5aded36206f9c3fabc668fd4665fa2d012102d8c948c6af848c588517288168faa397d6ba3ea924596d03d1d84f224b5123c2ffffffff03547b16000000000017a9143e8ad0e2bf573d32cb0b3d3a304d9ebcd0c2023b870000000000000000166a144e2b3c0323ab3c2dc6f86dc5ec0729f11e42f56103970400000000001976a91450f4f098306f988d8843004689fae28c83ef16e888ac89c5925f000000000000000000000000000000".into();
@@ -2060,8 +2083,8 @@ fn test_native_client_unspents_filtered_using_tx_cache_single_several_chained_tx
     let client = native_client_for_test();
     let coin = utxo_coin_fields_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
-    let address: Address = "RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN".into();
-    block_on(coin.recently_spent_outpoints.lock()).for_script_pubkey = Builder::build_p2pkh(&address.hash).to_bytes();
+    let address: Address = Address::from_legacyaddress("RGfFZaaNV68uVe1uMf6Y37Y8E1i2SyYZBN", &KMD_PREFIXES).unwrap();
+    block_on(coin.recently_spent_outpoints.lock()).for_script_pubkey = Builder::build_p2pkh(address.hash()).to_bytes();
     let coin = utxo_coin_from_fields(coin);
 
     // https://morty.explorer.dexstats.info/tx/31c7aaae89ab1c39febae164a3190a86ed7c6c6f8c9dc98ec28d508b7929d347
@@ -2398,6 +2421,7 @@ fn test_find_output_spend_skips_conflicting_transactions() {
             &tx.outputs[vout].script_pubkey,
             vout,
             BlockHashOrHeight::Height(from_block),
+            TxHashAlgo::DSHA256,
         )
         .wait();
     assert_eq!(actual, Ok(None));
@@ -2880,7 +2904,9 @@ fn test_tx_details_kmd_rewards() {
     ]);
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
-    fields.derivation_method = DerivationMethod::SingleAddress(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
+    fields.derivation_method = DerivationMethod::SingleAddress(
+        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap(),
+    );
     let coin = utxo_coin_from_fields(fields);
 
     let tx_details = get_tx_details_eq_for_both_versions(
@@ -2917,7 +2943,9 @@ fn test_tx_details_kmd_rewards_claimed_by_other() {
     ]);
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
-    fields.derivation_method = DerivationMethod::SingleAddress(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
+    fields.derivation_method = DerivationMethod::SingleAddress(
+        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap(),
+    );
     let coin = utxo_coin_from_fields(fields);
 
     let tx_details = get_tx_details_eq_for_both_versions(&coin, TX_HASH);
@@ -2963,7 +2991,9 @@ fn test_update_kmd_rewards() {
     ]);
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
-    fields.derivation_method = DerivationMethod::SingleAddress(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
+    fields.derivation_method = DerivationMethod::SingleAddress(
+        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap(),
+    );
     let coin = utxo_coin_from_fields(fields);
 
     let mut input_transactions = HistoryUtxoTxMap::default();
@@ -2995,7 +3025,9 @@ fn test_update_kmd_rewards_claimed_not_by_me() {
     ]);
     let mut fields = utxo_coin_fields_for_test(electrum.into(), None, false);
     fields.conf.ticker = "KMD".to_owned();
-    fields.derivation_method = DerivationMethod::SingleAddress(Address::from("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk"));
+    fields.derivation_method = DerivationMethod::SingleAddress(
+        Address::from_legacyaddress("RMGJ9tRST45RnwEKHPGgBLuY3moSYP7Mhk", &KMD_PREFIXES).unwrap(),
+    );
     let coin = utxo_coin_from_fields(fields);
 
     let mut input_transactions = HistoryUtxoTxMap::default();
@@ -3056,14 +3088,16 @@ fn test_withdraw_to_p2pkh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
     // Create a p2pkh address for the test coin
-    let p2pkh_address = Address {
-        prefix: coin.as_ref().conf.pub_addr_prefix,
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
-        t_addr_prefix: coin.as_ref().conf.pub_t_addr_prefix,
-        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Standard,
-    };
+    let p2pkh_address = AddressBuilder::new(
+        UtxoAddressFormat::Standard,
+        coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.bech32_hrp.clone(),
+    )
+    .as_pkh()
+    .build()
+    .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
         amount: 1.into(),
@@ -3078,7 +3112,7 @@ fn test_withdraw_to_p2pkh() {
     let transaction: UtxoTx = deserialize(tx_details.tx_hex.as_slice()).unwrap();
     let output_script: Script = transaction.outputs[0].script_pubkey.clone().into();
 
-    let expected_script = Builder::build_p2pkh(&p2pkh_address.hash);
+    let expected_script = Builder::build_p2pkh(p2pkh_address.hash());
 
     assert_eq!(output_script, expected_script);
 }
@@ -3104,14 +3138,16 @@ fn test_withdraw_to_p2sh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
     // Create a p2sh address for the test coin
-    let p2sh_address = Address {
-        prefix: coin.as_ref().conf.p2sh_addr_prefix,
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
-        t_addr_prefix: coin.as_ref().conf.p2sh_t_addr_prefix,
-        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Standard,
-    };
+    let p2sh_address = AddressBuilder::new(
+        UtxoAddressFormat::Standard,
+        coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.bech32_hrp.clone(),
+    )
+    .as_sh()
+    .build()
+    .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
         amount: 1.into(),
@@ -3126,7 +3162,7 @@ fn test_withdraw_to_p2sh() {
     let transaction: UtxoTx = deserialize(tx_details.tx_hex.as_slice()).unwrap();
     let output_script: Script = transaction.outputs[0].script_pubkey.clone().into();
 
-    let expected_script = Builder::build_p2sh(&p2sh_address.hash);
+    let expected_script = Builder::build_p2sh(p2sh_address.hash());
 
     assert_eq!(output_script, expected_script);
 }
@@ -3152,14 +3188,16 @@ fn test_withdraw_to_p2wpkh() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, true);
 
     // Create a p2wpkh address for the test coin
-    let p2wpkh_address = Address {
-        prefix: coin.as_ref().conf.pub_addr_prefix,
-        hash: coin.as_ref().derivation_method.unwrap_single_addr().hash.clone(),
-        t_addr_prefix: coin.as_ref().conf.pub_t_addr_prefix,
-        checksum_type: coin.as_ref().derivation_method.unwrap_single_addr().checksum_type,
-        hrp: coin.as_ref().conf.bech32_hrp.clone(),
-        addr_format: UtxoAddressFormat::Segwit,
-    };
+    let p2wpkh_address = AddressBuilder::new(
+        UtxoAddressFormat::Segwit,
+        coin.as_ref().derivation_method.unwrap_single_addr().hash().clone(),
+        *coin.as_ref().derivation_method.unwrap_single_addr().checksum_type(),
+        NetworkAddressPrefixes::default(),
+        coin.as_ref().conf.bech32_hrp.clone(),
+    )
+    .as_pkh()
+    .build()
+    .expect("valid address props");
 
     let withdraw_req = WithdrawRequest {
         amount: 1.into(),
@@ -3174,7 +3212,7 @@ fn test_withdraw_to_p2wpkh() {
     let transaction: UtxoTx = deserialize(tx_details.tx_hex.as_slice()).unwrap();
     let output_script: Script = transaction.outputs[0].script_pubkey.clone().into();
 
-    let expected_script = Builder::build_p2witness(&p2wpkh_address.hash);
+    let expected_script = Builder::build_p2wpkh(p2wpkh_address.hash()).expect("valid p2wpkh script");
 
     assert_eq!(output_script, expected_script);
 }
@@ -3205,7 +3243,7 @@ fn test_utxo_standard_with_check_utxo_maturity_true() {
     let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
 
-    let address = Address::from("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW");
+    let address = Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES).unwrap();
     // Don't use `block_on` here because it's used within a mock of [`GetUtxoListOps::get_mature_unspent_ordered_list`].
     coin.get_unspent_ordered_list(&address).compat().wait().unwrap();
     assert!(unsafe { GET_MATURE_UNSPENT_ORDERED_LIST_CALLED });
@@ -3241,7 +3279,7 @@ fn test_utxo_standard_without_check_utxo_maturity() {
     let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, "RICK", &conf, &params, priv_key)).unwrap();
 
-    let address = Address::from("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW");
+    let address = Address::from_legacyaddress("R9o9xTocqr6CeEDGDH6mEYpwLoMz6jNjMW", &KMD_PREFIXES).unwrap();
     // Don't use `block_on` here because it's used within a mock of [`UtxoStandardCoin::get_all_unspent_ordered_list`].
     coin.get_unspent_ordered_list(&address).compat().wait().unwrap();
     assert!(unsafe { GET_ALL_UNSPENT_ORDERED_LIST_CALLED });
@@ -3276,7 +3314,11 @@ fn test_qtum_without_check_utxo_maturity() {
     let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
 
-    let address = Address::from("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE");
+    let address = Address::from_legacyaddress(
+        "qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE",
+        &coin.as_ref().conf.address_prefixes,
+    )
+    .unwrap();
     // Don't use `block_on` here because it's used within a mock of [`QtumCoin::get_mature_unspent_ordered_list`].
     coin.get_unspent_ordered_list(&address).compat().wait().unwrap();
     assert!(unsafe { GET_MATURE_UNSPENT_ORDERED_LIST_CALLED });
@@ -3319,7 +3361,7 @@ fn test_split_qtum() {
     let params = UtxoActivationParams::from_legacy_req(&req).unwrap();
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
     let p2pkh_address = coin.as_ref().derivation_method.unwrap_single_addr();
-    let script: Script = output_script(p2pkh_address, ScriptType::P2PKH);
+    let script: Script = output_script(p2pkh_address).expect("valid previous script must be built");
     let key_pair = coin.as_ref().priv_key_policy.activated_key_or_err().unwrap();
     let (unspents, _) = block_on(coin.get_mature_unspent_ordered_list(p2pkh_address)).expect("Unspent list is empty");
     log!("Mature unspents vec = {:?}", unspents.mature);
@@ -3337,11 +3379,11 @@ fn test_split_qtum() {
     // fee_amount must be higher than the minimum fee
     assert!(data.fee_amount > 400_000);
     log!("Unsigned tx = {:?}", unsigned);
-    let signature_version = match p2pkh_address.addr_format {
+    let signature_version = match p2pkh_address.addr_format() {
         UtxoAddressFormat::Segwit => SignatureVersion::WitnessV0,
         _ => coin.as_ref().conf.signature_version,
     };
-    let prev_script = Builder::build_p2pkh(&p2pkh_address.hash);
+    let prev_script = output_script(p2pkh_address).expect("valid previous script must be built");
     let signed = sign_tx(
         unsigned,
         key_pair,
@@ -3391,7 +3433,11 @@ fn test_qtum_with_check_utxo_maturity_false() {
     let priv_key = Secp256k1Secret::from([1; 32]);
     let coin = block_on(qtum_coin_with_priv_key(&ctx, "QTUM", &conf, &params, priv_key)).unwrap();
 
-    let address = Address::from("qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE");
+    let address = Address::from_legacyaddress(
+        "qcyBHeSct7Wr4mAw18iuQ1zW5mMFYmtmBE",
+        &coin.as_ref().conf.address_prefixes,
+    )
+    .unwrap();
     // Don't use `block_on` here because it's used within a mock of [`QtumCoin::get_all_unspent_ordered_list`].
     coin.get_unspent_ordered_list(&address).compat().wait().unwrap();
     assert!(unsafe { GET_ALL_UNSPENT_ORDERED_LIST_CALLED });
@@ -4150,10 +4196,10 @@ fn test_native_display_balances() {
     let rpc_client = native_client_for_test();
 
     let addresses = vec![
-        "RG278CfeNPFtNztFZQir8cgdWexVhViYVy".into(),
-        "RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN".into(),
-        "RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi".into(),
-        "RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF".into(),
+        Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES).unwrap(),
+        Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES).unwrap(),
     ];
     let actual = rpc_client
         .display_balances(addresses, TEST_COIN_DECIMALS)
@@ -4162,16 +4208,19 @@ fn test_native_display_balances() {
 
     let expected: Vec<(Address, BigDecimal)> = vec![
         (
-            "RG278CfeNPFtNztFZQir8cgdWexVhViYVy".into(),
+            Address::from_legacyaddress("RG278CfeNPFtNztFZQir8cgdWexVhViYVy", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(5.77699).unwrap(),
         ),
-        ("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN".into(), BigDecimal::from(0)),
         (
-            "RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi".into(),
+            Address::from_legacyaddress("RYPz6Lr4muj4gcFzpMdv3ks1NCGn3mkDPN", &KMD_PREFIXES).unwrap(),
+            BigDecimal::from(0),
+        ),
+        (
+            Address::from_legacyaddress("RJeDDtDRtKUoL8BCKdH7TNCHqUKr7kQRsi", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(0.77699).unwrap(),
         ),
         (
-            "RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF".into(),
+            Address::from_legacyaddress("RQHn9VPHBqNjYwyKfJbZCiaxVrWPKGQjeF", &KMD_PREFIXES).unwrap(),
             BigDecimal::try_from(0.99998).unwrap(),
         ),
     ];
@@ -4473,6 +4522,7 @@ fn test_spv_conf_with_verification() {
         .contains("max_stored_block_headers 2000 must be greater than retargeting interval"));
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn rick_blocker_5() -> BlockHeader {
     let header =
         "0400000028a4f1aa8be606c8bf8195b2e95d478a83314ff9ad7b017457d9e58d00d1710bb43f41db65677e3fdb83ddbd8cfb4a7ad2e110f74bc19726dc949576e003a1ecfbc2f4300c01f0b7820d00e3347c8da4ee614674376cbc45359daa54f9b5493e381b405d0f0f0f2001003cfb15008ad9f4fab1ff4076f8919f743193f007c0db28f5106e003b0000fd400500acba878991f600ed8c022758be9ff9752ef175e7530324df4d1b87f5a03ca5c2c3fce10b08743bd5ba03912703b8f305f7dd382487d437d9b1823cdc11a00f59a20b235ef57502a0a7ad6fc7d3d242e8f4477a01fb8834ac4dc6e2e40e4909f9edc0db07c0f98df40e5a61327311b005c98a727694ebaabcb366b92dda4af9e3f6e72c5461dd81d6daccbd1fca8ec17597df7585947b54deb83554859776b5bcefadfa566ff12c04ac624f9416e76beccec35694ae0ed11dc17a911f114225be62cf5b971628f364f57d8348d95fdc415b0d2a7a477ea130d3320108739edf761f85f81efd6c0e4eafa8166b05bd74af7928b0786b63ae499dba38065be13e7541b7f4e26727d0fa6887e265e09709b940ca87295ce5984de7d4058b5d340b162935fa46ee20cac955379e3c8fa1ff92fb354bb2a0fedf697b683a5875f4ed2bcef984d296b0c1e07a52920f1dd5a60140c7c1245a52ed196df3292db8bfff52923b0a8615b6a99a5fcf1e5f461f01a04b1c3bb517fe16553e1f8e8aa20bd3cc2cac6d3242a2ce373737b57cec4637907fd236e0d44d91d59533484ec23634b93645c10a858d83805d731f300aa27a162e172216d7fc21170b4d232767e4c66f9a871224f13480e89c2edb0e6e1ef5cf75d9203839cc0282fd7852319232057f30793bb5552d94ebf3ffcc67b73f44e80c3de79b9d8d7f0175939722054bc2ddfb84288dff8c7554f191d6ee1b65c40b75d4435712d4e88c64d6379ab7e578bcd8117501504faa7a3be3a6a2826fd7a3e5e9efb1d3642937f3a35be5793be8e1d4acf9dd2dcd356d6e4c7d0c8b87587b8ad901b9ce71792ae0bdae27811b52300e6809e4691bfc7f738252e7c197e228cce5fda6130f8f518e5059530b731fe8afbf51308aa8da3bd31b1d1eb22cca1a896aed281397925265cd861a7eadb80124363dec8cb508aea7c277f04b9841888dd932471349e651ce2622a59065932f463ffce6b19a975d6914336ab49394afd17dfb9a448157007ea1437b1483587bc7de0dec5103cafad76704e91e9ea2b0b9a8570b935d5c65478e7195b08161be4625b8d5fd3658e6164cf2d6898ecbf1f14945fdd75bb991a3d9ffac713a3a7a81a31a765b9c37a578976aa15e66c97c957f4651dc5fc492c2111d8724d375a8293a36e0ddcf2a01facf30401d8677611522882e1447e4c8be5fa9ad073fb3fdcc6f673981484089090fe4c05bfaae173503e0f99c7407b297852d216463924d365d26b4cd63401a46bd7ed969ddb235044eb2373645144976c7f713720c0238ade9d3aae1d2b153e82d093232d4b12b2108ec564ae0e855e09252f1434c28d90bb298ab6d1750498bf90d93c8797901911548b81af1ba185be52c0dff9c1b11812941d2d527c95c4382879298f364077710b5efd56d1bf39148aedc4fcd9e8bddb4c36a3f901dc11f9493d1fbdfe80c88fa8866c1465c939c0d71cb57e78822b5fc3023578aa2d6b9cd3ebaa54f22876b935f251183d8a68459cab30cd19bcb4e4c1e1a5a83e4687a4795dc23732e81b9f024f70db96e412831d26e61d4fa292a95648e0b614d9a148cd852df1bf26a34ea971e63f8c634133ab7b13ac8045f6d6e20af2313b38d12cb8cee54a7aba7a7cd7e8b1b5e0b0931d4665a0bb36b63f325161b571fdd4f159f470e443e9b0cfb193bf4eea5fa9715dc6132cb8ed97f7f097837471a5147d14f2066cd3dcd50460d70180a7a24e2b5b9ab20caf952d2ea1b51747afec975f76d0313a98e444f20938bf709530960f9fbf5af9857cbe3410d37f3cba10ff57642861586b7c1b1c57019602f1529df9d6e45ca2f7663519c58915e9e299d5beee73cb4553238566844f571374d3f6a247dd8ecbbc893";
@@ -4480,6 +4530,7 @@ fn rick_blocker_5() -> BlockHeader {
     BlockHeader::try_from_string_with_coin_variant(header.to_string(), "RICK".into()).unwrap()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn test_block_header_utxo_loop_with_reorg() {
     use crate::utxo::utxo_builder::{block_header_utxo_loop, BlockHeaderUtxoLoopExtraArgs};

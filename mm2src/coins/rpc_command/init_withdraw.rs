@@ -7,7 +7,7 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatusAlias, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatusAlias, RpcTaskTypes};
 
 pub type WithdrawAwaitingStatus = HwRpcTaskAwaitingStatus;
 pub type WithdrawUserAction = HwRpcTaskUserAction;
@@ -18,7 +18,7 @@ pub type WithdrawStatusRequest = RpcTaskStatusRequest;
 pub type WithdrawUserActionRequest = HwRpcTaskUserActionRequest;
 pub type WithdrawTaskManager = RpcTaskManager<WithdrawTask>;
 pub type WithdrawTaskManagerShared = RpcTaskManagerShared<WithdrawTask>;
-pub type WithdrawTaskHandle = RpcTaskHandle<WithdrawTask>;
+pub type WithdrawTaskHandleShared = RpcTaskHandleShared<WithdrawTask>;
 pub type WithdrawRpcStatus = RpcTaskStatusAlias<WithdrawTask>;
 pub type WithdrawInitResult<T> = Result<T, MmError<WithdrawError>>;
 
@@ -28,7 +28,7 @@ pub trait CoinWithdrawInit {
     fn init_withdraw(
         ctx: MmArc,
         req: WithdrawRequest,
-        rpc_task_handle: &WithdrawTaskHandle,
+        rpc_task_handle: WithdrawTaskHandleShared,
     ) -> WithdrawInitResult<TransactionDetails>;
 }
 
@@ -101,7 +101,7 @@ pub trait InitWithdrawCoin {
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: WithdrawTaskHandleShared,
     ) -> Result<TransactionDetails, MmError<WithdrawError>>;
 }
 
@@ -126,13 +126,12 @@ impl RpcTask for WithdrawTask {
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}
 
-    async fn run(&mut self, task_handle: &WithdrawTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, task_handle: WithdrawTaskHandleShared) -> Result<Self::Item, MmError<Self::Error>> {
         let ctx = self.ctx.clone();
         let request = self.request.clone();
         match self.coin {
             MmCoinEnum::UtxoCoin(ref standard_utxo) => standard_utxo.init_withdraw(ctx, request, task_handle).await,
             MmCoinEnum::QtumCoin(ref qtum) => qtum.init_withdraw(ctx, request, task_handle).await,
-            #[cfg(not(target_arch = "wasm32"))]
             MmCoinEnum::ZCoin(ref z) => z.init_withdraw(ctx, request, task_handle).await,
             _ => MmError::err(WithdrawError::CoinDoesntSupportInitWithdraw {
                 coin: self.coin.ticker().to_owned(),

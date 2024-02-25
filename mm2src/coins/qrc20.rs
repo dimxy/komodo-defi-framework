@@ -1,4 +1,4 @@
-use crate::coin_errors::{MyAddressError, ValidatePaymentError};
+use crate::coin_errors::{MyAddressError, ValidatePaymentError, ValidatePaymentResult};
 use crate::eth::{self, u256_to_big_decimal, wei_from_big_decimal, TryToAddress};
 use crate::qrc20::rpc_clients::{LogEntry, Qrc20ElectrumOps, Qrc20NativeOps, Qrc20RpcOps, TopicFilter, TxReceipt,
                                 ViewContractCallType};
@@ -44,7 +44,7 @@ use futures::compat::Future01CompatExt;
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
 use keys::bytes::Bytes as ScriptBytes;
-use keys::{Address as UtxoAddress, Address, KeyPair, Public};
+use keys::{Address as UtxoAddress, KeyPair, Public};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::{BigDecimal, MmNumber};
@@ -634,21 +634,21 @@ impl UtxoTxGenerationOps for Qrc20Coin {
 impl GetUtxoListOps for Qrc20Coin {
     async fn get_unspent_ordered_list(
         &self,
-        address: &Address,
+        address: &UtxoAddress,
     ) -> UtxoRpcResult<(Vec<UnspentInfo>, RecentlySpentOutPointsGuard<'_>)> {
         utxo_common::get_unspent_ordered_list(self, address).await
     }
 
     async fn get_all_unspent_ordered_list(
         &self,
-        address: &Address,
+        address: &UtxoAddress,
     ) -> UtxoRpcResult<(Vec<UnspentInfo>, RecentlySpentOutPointsGuard<'_>)> {
         utxo_common::get_all_unspent_ordered_list(self, address).await
     }
 
     async fn get_mature_unspent_ordered_list(
         &self,
-        address: &Address,
+        address: &UtxoAddress,
     ) -> UtxoRpcResult<(MatureUnspentList, RecentlySpentOutPointsGuard<'_>)> {
         utxo_common::get_mature_unspent_ordered_list(self, address).await
     }
@@ -675,8 +675,8 @@ impl UtxoCommonOps for Qrc20Coin {
         utxo_common::checked_address_from_str(self, address)
     }
 
-    fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
-        utxo_common::get_script_for_address(self.as_ref(), address)
+    fn script_for_address(&self, address: &UtxoAddress) -> MmResult<Script, UnsupportedAddr> {
+        utxo_common::output_script_checked(self.as_ref(), address)
     }
 
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
@@ -748,12 +748,11 @@ impl UtxoCommonOps for Qrc20Coin {
         utxo_common::addr_format_for_standard_scripts(self)
     }
 
-    fn address_from_pubkey(&self, pubkey: &Public) -> Address {
+    fn address_from_pubkey(&self, pubkey: &Public) -> UtxoAddress {
         let conf = &self.utxo.conf;
         utxo_common::address_from_pubkey(
             pubkey,
-            conf.pub_addr_prefix,
-            conf.pub_t_addr_prefix,
+            conf.address_prefixes.clone(),
             conf.checksum_type,
             conf.bech32_hrp.clone(),
             self.addr_format().clone(),
@@ -900,64 +899,55 @@ impl SwapOps for Qrc20Coin {
     }
 
     #[inline]
-    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentFut<()> {
-        let payment_tx: UtxoTx = try_f!(deserialize(input.payment_tx.as_slice()));
-        let sender = try_f!(self
+    async fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
+        let payment_tx: UtxoTx = deserialize(input.payment_tx.as_slice())?;
+        let sender = self
             .contract_address_from_raw_pubkey(&input.other_pub)
-            .map_to_mm(ValidatePaymentError::InvalidParameter));
-        let swap_contract_address = try_f!(input
+            .map_to_mm(ValidatePaymentError::InvalidParameter)?;
+        let swap_contract_address = input
             .swap_contract_address
             .try_to_address()
-            .map_to_mm(ValidatePaymentError::InvalidParameter));
+            .map_to_mm(ValidatePaymentError::InvalidParameter)?;
 
-        let time_lock = try_f!(input
+        let time_lock = input
             .time_lock
             .try_into()
-            .map_to_mm(ValidatePaymentError::TimelockOverflow));
-        let selfi = self.clone();
-        let fut = async move {
-            selfi
-                .validate_payment(
-                    payment_tx,
-                    time_lock,
-                    sender,
-                    input.secret_hash,
-                    input.amount,
-                    swap_contract_address,
-                )
-                .await
-        };
-        Box::new(fut.boxed().compat())
+            .map_to_mm(ValidatePaymentError::TimelockOverflow)?;
+        self.validate_payment(
+            payment_tx,
+            time_lock,
+            sender,
+            input.secret_hash,
+            input.amount,
+            swap_contract_address,
+        )
+        .await
     }
 
     #[inline]
-    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentFut<()> {
-        let swap_contract_address = try_f!(input
+    async fn validate_taker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
+        let swap_contract_address = input
             .swap_contract_address
             .try_to_address()
-            .map_to_mm(ValidatePaymentError::InvalidParameter));
-        let payment_tx: UtxoTx = try_f!(deserialize(input.payment_tx.as_slice()));
-        let sender = try_f!(self
+            .map_to_mm(ValidatePaymentError::InvalidParameter)?;
+        let payment_tx: UtxoTx = deserialize(input.payment_tx.as_slice())?;
+        let sender = self
             .contract_address_from_raw_pubkey(&input.other_pub)
-            .map_to_mm(ValidatePaymentError::InvalidParameter));
-        let time_lock = try_f!(input
+            .map_to_mm(ValidatePaymentError::InvalidParameter)?;
+        let time_lock = input
             .time_lock
             .try_into()
-            .map_to_mm(ValidatePaymentError::TimelockOverflow));
-        let selfi = self.clone();
-        let fut = async move {
-            selfi
-                .validate_payment(
-                    payment_tx,
-                    time_lock,
-                    sender,
-                    input.secret_hash,
-                    input.amount,
-                    swap_contract_address,
-                )
-                .await
-        };
-        Box::new(fut.boxed().compat())
+            .map_to_mm(ValidatePaymentError::TimelockOverflow)?;
+
+        self.validate_payment(
+            payment_tx,
+            time_lock,
+            sender,
+            input.secret_hash,
+            input.amount,
+            swap_contract_address,
+        )
+        .await
     }
 
     #[inline]
@@ -1537,12 +1527,10 @@ pub struct Qrc20FeeDetails {
 }
 
 async fn qrc20_withdraw(coin: Qrc20Coin, req: WithdrawRequest) -> WithdrawResult {
-    let to_addr = UtxoAddress::from_str(&req.to)
-        .map_err(|e| e.to_string())
+    let to_addr = UtxoAddress::from_legacyaddress(&req.to, &coin.as_ref().conf.address_prefixes)
         .map_to_mm(WithdrawError::InvalidAddress)?;
     let conf = &coin.utxo.conf;
-    let is_p2pkh = to_addr.prefix == conf.pub_addr_prefix && to_addr.t_addr_prefix == conf.pub_t_addr_prefix;
-    if !is_p2pkh {
+    if !to_addr.is_pubkey_hash() {
         let error = "QRC20 can be sent to P2PKH addresses only".to_owned();
         return MmError::err(WithdrawError::InvalidAddress(error));
     }

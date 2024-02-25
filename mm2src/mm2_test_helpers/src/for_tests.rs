@@ -4,8 +4,8 @@ use crate::electrums::qtum_electrums;
 use crate::structs::*;
 use common::custom_futures::repeatable::{Ready, Retry};
 use common::executor::Timer;
-use common::log::debug;
-use common::{cfg_native, now_float, now_ms, now_sec, repeatable, wait_until_ms, PagingOptionsEnum};
+use common::log::{debug, info};
+use common::{cfg_native, now_float, now_ms, now_sec, repeatable, wait_until_ms, wait_until_sec, PagingOptionsEnum};
 use common::{get_utc_timestamp, log};
 use crypto::{CryptoCtx, StandardHDCoinAddress};
 use gstuff::{try_s, ERR, ERRL};
@@ -205,8 +205,18 @@ pub const ZOMBIE_LIGHTWALLETD_URLS: &[&str] = &[
     "https://piratelightd3.cryptoforge.cc:443",
     "https://piratelightd4.cryptoforge.cc:443",
 ];
+#[cfg(not(target_arch = "wasm32"))]
 pub const PIRATE_ELECTRUMS: &[&str] = &["node1.chainkeeper.pro:10132"];
+#[cfg(target_arch = "wasm32")]
+pub const PIRATE_ELECTRUMS: &[&str] = &[
+    "electrum3.cipig.net:30008",
+    "electrum1.cipig.net:30008",
+    "electrum2.cipig.net:30008",
+];
+#[cfg(not(target_arch = "wasm32"))]
 pub const PIRATE_LIGHTWALLETD_URLS: &[&str] = &["http://node1.chainkeeper.pro:443"];
+#[cfg(target_arch = "wasm32")]
+pub const PIRATE_LIGHTWALLETD_URLS: &[&str] = &["https://pirate.battlefield.earth:8581"];
 pub const DEFAULT_RPC_PASSWORD: &str = "pass";
 pub const QRC20_ELECTRUMS: &[&str] = &[
     "electrum1.cipig.net:10071",
@@ -741,6 +751,24 @@ pub fn tbtc_with_spv_conf() -> Json {
     })
 }
 
+pub fn tbtc_legacy_conf() -> Json {
+    json!({
+        "coin": "tBTC",
+        "asset":"tBTC",
+        "pubtype": 111,
+        "p2shtype": 196,
+        "wiftype": 239,
+        "segwit": false,
+        "bech32_hrp": "tb",
+        "txfee": 0,
+        "estimate_fee_mode": "ECONOMICAL",
+        "required_confirmations": 0,
+        "protocol": {
+            "type": "UTXO"
+        }
+    })
+}
+
 pub fn eth_testnet_conf() -> Json {
     json!({
         "coin": "ETH",
@@ -749,6 +777,38 @@ pub fn eth_testnet_conf() -> Json {
         "derivation_path": "m/44'/60'",
         "protocol": {
             "type": "ETH"
+        }
+    })
+}
+
+/// ETH configuration used for dockerized Geth dev node
+pub fn eth_dev_conf() -> Json {
+    json!({
+        "coin": "ETH",
+        "name": "ethereum",
+        "mm2": 1,
+        "chain_id": 1337,
+        "derivation_path": "m/44'/60'",
+        "protocol": {
+            "type": "ETH"
+        }
+    })
+}
+
+/// ERC20 token configuration used for dockerized Geth dev node
+pub fn erc20_dev_conf(contract_address: &str) -> Json {
+    json!({
+        "coin": "ERC20DEV",
+        "name": "erc20dev",
+        "chain_id": 1337,
+        "mm2": 1,
+        "derivation_path": "m/44'/60'",
+        "protocol": {
+            "type": "ERC20",
+            "protocol_data": {
+                "platform": "ETH",
+                "contract_address": contract_address,
+            }
         }
     })
 }
@@ -924,11 +984,18 @@ pub fn mm_ctx_with_iguana(passphrase: Option<&str>) -> MmArc {
 pub fn mm_ctx_with_custom_db() -> MmArc { MmCtxBuilder::new().with_test_db_namespace().into_mm_arc() }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn mm_ctx_with_custom_db() -> MmArc {
+pub fn mm_ctx_with_custom_db() -> MmArc { mm_ctx_with_custom_db_with_conf(None) }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn mm_ctx_with_custom_db_with_conf(conf: Option<Json>) -> MmArc {
     use db_common::sqlite::rusqlite::Connection;
     use std::sync::Arc;
 
-    let ctx = MmCtxBuilder::new().into_mm_arc();
+    let mut ctx_builder = MmCtxBuilder::new();
+    if let Some(conf) = conf {
+        ctx_builder = ctx_builder.with_conf(conf);
+    }
+    let ctx = ctx_builder.into_mm_arc();
 
     let connection = Connection::open_in_memory().unwrap();
     let _ = ctx.sqlite_connection.pin(Arc::new(Mutex::new(connection)));
@@ -2108,7 +2175,7 @@ pub async fn wait_for_swap_status(mm: &MarketMakerIt, uuid: &str, wait_sec: i64)
             panic!("Timed out waiting for swap {} status", uuid);
         }
 
-        Timer::sleep(0.5).await;
+        Timer::sleep(1.).await;
     }
 }
 
@@ -2384,7 +2451,7 @@ pub async fn best_orders_v2_by_number(
     json::from_str(&request.1).unwrap()
 }
 
-pub async fn init_withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &str) -> Json {
+pub async fn init_withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &str, from: Option<Json>) -> Json {
     let request = mm
         .rpc(&json!({
             "userpass": mm.userpass,
@@ -2394,6 +2461,7 @@ pub async fn init_withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &st
                 "coin": coin,
                 "to": to,
                 "amount": amount,
+                "from": from,
             }
         }))
         .await
@@ -2839,7 +2907,23 @@ pub async fn enable_tendermint_token(mm: &MarketMakerIt, coin: &str) -> Json {
     json::from_str(&request.1).unwrap()
 }
 
-pub async fn init_utxo_electrum(mm: &MarketMakerIt, coin: &str, servers: Vec<Json>) -> Json {
+pub async fn init_utxo_electrum(
+    mm: &MarketMakerIt,
+    coin: &str,
+    servers: Vec<Json>,
+    priv_key_policy: Option<&str>,
+) -> Json {
+    let mut activation_params = json!({
+        "mode": {
+            "rpc": "Electrum",
+            "rpc_data": {
+                "servers": servers
+            }
+        }
+    });
+    if let Some(priv_key_policy) = priv_key_policy {
+        activation_params["priv_key_policy"] = priv_key_policy.into();
+    }
     let request = mm
         .rpc(&json!({
             "userpass": mm.userpass,
@@ -2847,14 +2931,7 @@ pub async fn init_utxo_electrum(mm: &MarketMakerIt, coin: &str, servers: Vec<Jso
             "mmrpc": "2.0",
             "params": {
                 "ticker": coin,
-                "activation_params": {
-                    "mode": {
-                        "rpc": "Electrum",
-                        "rpc_data": {
-                            "servers": servers
-                        }
-                    }
-                },
+                "activation_params": activation_params,
             }
         }))
         .await
@@ -3167,6 +3244,33 @@ pub async fn coins_needed_for_kickstart(mm: &MarketMakerIt) -> Vec<String> {
     result.result
 }
 
+pub async fn enable_z_coin_light(
+    mm: &MarketMakerIt,
+    coin: &str,
+    electrums: &[&str],
+    lightwalletd_urls: &[&str],
+    account: Option<u32>,
+    starting_height: Option<u64>,
+) -> ZCoinActivationResult {
+    let init = init_z_coin_light(mm, coin, electrums, lightwalletd_urls, starting_height, account).await;
+    let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
+    let timeout = wait_until_sec(300);
+
+    loop {
+        if now_sec() > timeout {
+            panic!("{} initialization timed out", coin);
+        }
+        let status = init_z_coin_status(mm, init.result.task_id).await;
+        info!("Status {}", json::to_string(&status).unwrap());
+        let status: RpcV2Response<InitZcoinStatus> = json::from_value(status).unwrap();
+        match status.result {
+            InitZcoinStatus::Ok(result) => break result,
+            InitZcoinStatus::Error(e) => panic!("{} initialization error {:?}", coin, e),
+            _ => Timer::sleep(1.).await,
+        }
+    }
+}
+
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn test_parse_env_file() {
@@ -3193,7 +3297,7 @@ fn test_parse_env_file() {
     );
 }
 
-// test helper to call sign_raw_transaction rpc with utxo coin param
+/// test helper to call sign_raw_transaction rpc with utxo coin param
 pub async fn test_sign_raw_transaction_rpc_helper(
     mm: &MarketMakerIt,
     expected_ret: StatusCode,
@@ -3215,4 +3319,81 @@ pub async fn test_sign_raw_transaction_rpc_helper(
         response.1
     );
     json::from_str(&response.1).expect("response to json conversion must be okay")
+}
+
+/// Helper to call init trezor rpc
+pub async fn init_trezor_rpc(mm: &MarketMakerIt, coin: &str) -> Json {
+    let request = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "task::init_trezor::init",
+            "mmrpc": "2.0",
+            "params": {
+                "ticker": coin,
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::init_trezor::init' failed: {}",
+        request.1
+    );
+    json::from_str(&request.1).unwrap()
+}
+
+/// Helper to call init trezor status
+pub async fn init_trezor_status_rpc(mm: &MarketMakerIt, task_id: u64) -> Json {
+    let request = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "task::init_trezor::status",
+            "mmrpc": "2.0",
+            "params": {
+                "task_id": task_id,
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::init_trezor::status' failed: {}",
+        request.1
+    );
+    json::from_str(&request.1).unwrap()
+}
+
+pub async fn init_trezor_user_action_rpc(mm: &MarketMakerIt, task_id: u64, user_action: Json) -> Json {
+    let request = mm
+        .rpc(&json!({
+            "userpass": mm.userpass,
+            "method": "task::init_trezor::user_action",
+            "mmrpc": "2.0",
+            "params": {
+                "task_id": task_id,
+                "user_action": user_action
+            }
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        request.0,
+        StatusCode::OK,
+        "'task::init_trezor::user_action' failed: {}",
+        request.1
+    );
+    json::from_str(&request.1).unwrap()
+}
+
+pub async fn active_swaps(mm: &MarketMakerIt) -> ActiveSwapsResponse {
+    let request = json!({
+        "userpass": mm.userpass,
+        "method": "active_swaps",
+        "params": []
+    });
+    let response = mm.rpc(&request).await.unwrap();
+    assert_eq!(response.0, StatusCode::OK, "'active_swaps' failed: {}", response.1);
+    json::from_str(&response.1).unwrap()
 }

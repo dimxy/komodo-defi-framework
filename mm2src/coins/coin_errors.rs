@@ -7,6 +7,8 @@ use std::num::TryFromIntError;
 
 /// Helper type used as result for swap payment validation function(s)
 pub type ValidatePaymentFut<T> = Box<dyn Future<Item = T, Error = MmError<ValidatePaymentError>> + Send>;
+/// Helper type used as result for swap payment validation function(s)
+pub type ValidatePaymentResult<T> = Result<T, MmError<ValidatePaymentError>>;
 
 /// Enum covering possible error cases of swap payment validation
 #[derive(Debug, Display)]
@@ -79,6 +81,10 @@ impl From<Web3RpcError> for ValidatePaymentError {
             | Web3RpcError::InvalidGasApiConfig(internal) => ValidatePaymentError::InternalError(internal),
         }
     }
+}
+
+impl From<keys::Error> for ValidatePaymentError {
+    fn from(err: keys::Error) -> Self { Self::InternalError(err.to_string()) }
 }
 
 #[derive(Debug, Display)]

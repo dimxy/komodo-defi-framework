@@ -3,10 +3,10 @@ use common::executor::Timer;
 use common::{block_on, log, now_ms, now_sec, wait_until_ms};
 use mm2_number::BigDecimal;
 use mm2_test_helpers::electrums::doc_electrums;
-use mm2_test_helpers::for_tests::{disable_coin, init_withdraw, pirate_conf, rick_conf, send_raw_transaction,
-                                  withdraw_status, z_coin_tx_history, zombie_conf, MarketMakerIt, Mm2TestConf, ARRR,
-                                  PIRATE_ELECTRUMS, PIRATE_LIGHTWALLETD_URLS, RICK, ZOMBIE_ELECTRUMS,
-                                  ZOMBIE_LIGHTWALLETD_URLS, ZOMBIE_TICKER};
+use mm2_test_helpers::for_tests::{disable_coin, enable_z_coin_light, init_withdraw, pirate_conf, rick_conf,
+                                  send_raw_transaction, withdraw_status, z_coin_tx_history, zombie_conf,
+                                  MarketMakerIt, Mm2TestConf, ARRR, PIRATE_ELECTRUMS, PIRATE_LIGHTWALLETD_URLS, RICK,
+                                  ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS, ZOMBIE_TICKER};
 use mm2_test_helpers::structs::{EnableCoinBalance, InitTaskResult, RpcV2Response, TransactionDetails, WithdrawStatus,
                                 ZcoinHistoryRes};
 use serde_json::{self as json, json, Value as Json};
@@ -26,7 +26,7 @@ const ZOMBIE_TRADE_BOB_SEED: &str = "RICK ZOMBIE BOB";
 const ZOMBIE_TRADE_ALICE_SEED: &str = "RICK ZOMBIE ALICE";
 
 async fn withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &str) -> TransactionDetails {
-    let init = init_withdraw(mm, coin, to, amount).await;
+    let init = init_withdraw(mm, coin, to, amount, None).await;
     let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
     let timeout = wait_until_ms(150000);
 
@@ -109,8 +109,8 @@ fn activate_z_coin_light_with_changing_height() {
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
-        Some(two_days_ago),
         None,
+        Some(two_days_ago),
     ));
 
     let new_first_sync_block = activation_result.first_sync_block;
@@ -143,8 +143,8 @@ fn activate_z_coin_with_hd_account() {
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
-        None,
         Some(hd_account_id),
+        None,
     ));
 
     let actual = match activation_result.wallet_balance {

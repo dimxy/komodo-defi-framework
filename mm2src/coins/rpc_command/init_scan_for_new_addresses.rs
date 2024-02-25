@@ -1,5 +1,6 @@
 use crate::coin_balance::HDAddressBalance;
 use crate::rpc_command::hd_account_balance_rpc_error::HDAccountBalanceRpcError;
+use crate::utxo::utxo_common;
 use crate::{lp_coinfind_or_err, CoinsContext, MmCoinEnum};
 use async_trait::async_trait;
 use common::{SerdeInfallible, SuccessResponse};
@@ -8,13 +9,13 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest};
-use rpc_task::{RpcTask, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
 
 pub type ScanAddressesUserAction = SerdeInfallible;
 pub type ScanAddressesAwaitingStatus = SerdeInfallible;
 pub type ScanAddressesTaskManager = RpcTaskManager<InitScanAddressesTask>;
 pub type ScanAddressesTaskManagerShared = RpcTaskManagerShared<InitScanAddressesTask>;
-pub type ScanAddressesTaskHandle = RpcTaskHandle<InitScanAddressesTask>;
+pub type ScanAddressesTaskHandleShared = RpcTaskHandleShared<InitScanAddressesTask>;
 pub type ScanAddressesRpcTaskStatus = RpcTaskStatus<
     ScanAddressesResponse,
     HDAccountBalanceRpcError,
@@ -78,7 +79,7 @@ impl RpcTask for InitScanAddressesTask {
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}
 
-    async fn run(&mut self, _task_handle: &ScanAddressesTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, _task_handle: ScanAddressesTaskHandleShared) -> Result<Self::Item, MmError<Self::Error>> {
         match self.coin {
             MmCoinEnum::UtxoCoin(ref utxo) => utxo.init_scan_for_new_addresses_rpc(self.req.params.clone()).await,
             MmCoinEnum::QtumCoin(ref qtum) => qtum.init_scan_for_new_addresses_rpc(self.req.params.clone()).await,
@@ -132,10 +133,8 @@ pub mod common_impl {
     use crate::hd_wallet::{HDAccountOps, HDWalletCoinOps, HDWalletOps};
     use crate::utxo::UtxoCommonOps;
     use crate::CoinWithDerivationMethod;
-    use keys::Address;
     use std::collections::HashSet;
     use std::ops::DerefMut;
-    use std::str::FromStr;
 
     pub async fn scan_for_new_addresses_rpc<Coin>(
         coin: &Coin,
@@ -165,7 +164,9 @@ pub mod common_impl {
 
         let addresses: HashSet<_> = new_addresses
             .iter()
-            .map(|address_balance| Address::from_str(&address_balance.address).expect("Valid address"))
+            .map(|address_balance| {
+                utxo_common::address_from_str_unchecked(coin.as_ref(), &address_balance.address).expect("Valid address")
+            })
             .collect();
 
         coin.prepare_addresses_for_balance_stream_if_enabled(addresses.into())

@@ -1,5 +1,5 @@
 use super::*;
-use crate::coin_errors::MyAddressError;
+use crate::coin_errors::{MyAddressError, ValidatePaymentResult};
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxDetailsBuilder,
                               TxHistoryStorage};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
@@ -157,11 +157,7 @@ impl BchCoin {
 
     pub fn slp_address(&self, address: &Address) -> Result<CashAddress, String> {
         let conf = &self.as_ref().conf;
-        address.to_cashaddress(
-            &self.slp_prefix().to_string(),
-            conf.pub_addr_prefix,
-            conf.p2sh_addr_prefix,
-        )
+        address.to_cashaddress(&self.slp_prefix().to_string(), &conf.address_prefixes)
     }
 
     pub fn bchd_urls(&self) -> &[String] { &self.bchd_urls }
@@ -348,11 +344,8 @@ impl BchCoin {
 
     pub fn get_my_slp_address(&self) -> Result<CashAddress, String> {
         let my_address = try_s!(self.as_ref().derivation_method.single_addr_or_err());
-        let slp_address = my_address.to_cashaddress(
-            &self.slp_prefix().to_string(),
-            self.as_ref().conf.pub_addr_prefix,
-            self.as_ref().conf.p2sh_addr_prefix,
-        )?;
+        let slp_address =
+            my_address.to_cashaddress(&self.slp_prefix().to_string(), &self.as_ref().conf.address_prefixes)?;
         Ok(slp_address)
     }
 
@@ -760,7 +753,7 @@ impl UtxoCommonOps for BchCoin {
     }
 
     fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
-        utxo_common::get_script_for_address(self.as_ref(), address)
+        utxo_common::output_script_checked(self.as_ref(), address)
     }
 
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
@@ -833,8 +826,7 @@ impl UtxoCommonOps for BchCoin {
         let addr_format = self.addr_format().clone();
         utxo_common::address_from_pubkey(
             pubkey,
-            conf.pub_addr_prefix,
-            conf.pub_t_addr_prefix,
+            conf.address_prefixes.clone(),
             conf.checksum_type,
             conf.bech32_hrp.clone(),
             addr_format,
@@ -896,13 +888,13 @@ impl SwapOps for BchCoin {
     }
 
     #[inline]
-    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentFut<()> {
-        utxo_common::validate_maker_payment(self, input)
+    async fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
+        utxo_common::validate_maker_payment(self, input).await
     }
 
     #[inline]
-    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentFut<()> {
-        utxo_common::validate_taker_payment(self, input)
+    async fn validate_taker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
+        utxo_common::validate_taker_payment(self, input).await
     }
 
     #[inline]
@@ -1200,7 +1192,7 @@ impl MarketCoinOps for BchCoin {
 
     fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
         utxo_common::wait_for_output_spend(
-            &self.utxo_arc,
+            self.clone(),
             args.tx_bytes,
             utxo_common::DEFAULT_SWAP_VOUT,
             args.from_block,

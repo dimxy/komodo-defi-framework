@@ -33,7 +33,7 @@ pub enum ScriptType {
 #[derive(PartialEq, Debug)]
 pub struct ScriptAddress {
     /// The type of the address.
-    pub kind: keys::Type,
+    pub kind: keys::AddressScriptType,
     /// Public key hash.
     pub hash: AddressHashEnum,
 }
@@ -42,7 +42,7 @@ impl ScriptAddress {
     /// Creates P2PKH-type ScriptAddress
     pub fn new_p2pkh(hash: AddressHashEnum) -> Self {
         ScriptAddress {
-            kind: keys::Type::P2PKH,
+            kind: keys::AddressScriptType::P2PKH,
             hash,
         }
     }
@@ -50,7 +50,7 @@ impl ScriptAddress {
     /// Creates P2SH-type ScriptAddress
     pub fn new_p2sh(hash: AddressHashEnum) -> Self {
         ScriptAddress {
-            kind: keys::Type::P2SH,
+            kind: keys::AddressScriptType::P2SH,
             hash,
         }
     }
@@ -58,7 +58,7 @@ impl ScriptAddress {
     /// Creates P2WPKH-type ScriptAddress
     pub fn new_p2wpkh(hash: AddressHashEnum) -> Self {
         ScriptAddress {
-            kind: keys::Type::P2WPKH,
+            kind: keys::AddressScriptType::P2WPKH,
             hash,
         }
     }
@@ -66,7 +66,7 @@ impl ScriptAddress {
     /// Creates P2WSH-type ScriptAddress
     pub fn new_p2wsh(hash: AddressHashEnum) -> Self {
         ScriptAddress {
-            kind: keys::Type::P2WSH,
+            kind: keys::AddressScriptType::P2WSH,
             hash,
         }
     }
@@ -614,7 +614,7 @@ pub fn is_witness_commitment_script(script: &[u8]) -> bool {
 mod tests {
     use super::{Script, ScriptAddress, ScriptType};
     use crypto::ChecksumType;
-    use keys::{Address, Public};
+    use keys::{prefixes::BTC_PREFIXES, Address, Public};
     use {Builder, Error, Opcode};
 
     /// Maximum number of bytes pushable to the stack
@@ -763,7 +763,7 @@ OP_ADD
         let pubkey_bytes = [0; 33];
         let address = Public::from_slice(&pubkey_bytes).unwrap().address_hash();
         let script = Builder::default()
-            .push_bytes(&pubkey_bytes)
+            .push_data(&pubkey_bytes)
             .push_opcode(Opcode::OP_CHECKSIG)
             .into_script();
         assert_eq!(script.script_type(), ScriptType::PubKey);
@@ -778,7 +778,7 @@ OP_ADD
         let pubkey_bytes = [0; 65];
         let address = Public::from_slice(&pubkey_bytes).unwrap().address_hash();
         let script = Builder::default()
-            .push_bytes(&pubkey_bytes)
+            .push_data(&pubkey_bytes)
             .push_opcode(Opcode::OP_CHECKSIG)
             .into_script();
         assert_eq!(script.script_type(), ScriptType::PubKey);
@@ -790,7 +790,10 @@ OP_ADD
 
     #[test]
     fn test_extract_destinations_pub_key_hash() {
-        let address = Address::from("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S").hash;
+        let address = Address::from_legacyaddress("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S", &BTC_PREFIXES)
+            .unwrap()
+            .hash()
+            .clone();
         let script = Builder::build_p2pkh(&address);
         assert_eq!(script.script_type(), ScriptType::PubKeyHash);
         assert_eq!(
@@ -801,7 +804,10 @@ OP_ADD
 
     #[test]
     fn test_extract_destinations_script_hash() {
-        let address = Address::from("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S").hash;
+        let address = Address::from_legacyaddress("13NMTpfNVVJQTNH4spP4UeqBGqLdqDo27S", &BTC_PREFIXES)
+            .unwrap()
+            .hash()
+            .clone();
         let script = Builder::build_p2sh(&address);
         assert_eq!(script.script_type(), ScriptType::ScriptHash);
         assert_eq!(
@@ -812,37 +818,33 @@ OP_ADD
 
     #[test]
     fn test_extract_destinations_witness_pub_key_hash() {
-        let address = Address::from_segwitaddress(
-            "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
-            ChecksumType::DSHA256,
-            0,
-            0,
-        )
-        .unwrap()
-        .hash;
-        let script = Builder::build_p2witness(&address);
+        let address_hash =
+            Address::from_segwitaddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", ChecksumType::DSHA256)
+                .unwrap()
+                .hash()
+                .clone();
+        let script = Builder::build_p2wpkh(&address_hash).expect("build p2wpkh ok");
         assert_eq!(script.script_type(), ScriptType::WitnessKey);
         assert_eq!(
             script.extract_destinations(),
-            Ok(vec![ScriptAddress::new_p2wpkh(address),])
+            Ok(vec![ScriptAddress::new_p2wpkh(address_hash),])
         );
     }
 
     #[test]
     fn test_extract_destinations_witness_script_hash() {
-        let address = Address::from_segwitaddress(
+        let address_hash = Address::from_segwitaddress(
             "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3",
             ChecksumType::DSHA256,
-            0,
-            0,
         )
         .unwrap()
-        .hash;
-        let script = Builder::build_p2witness(&address);
+        .hash()
+        .clone();
+        let script = Builder::build_p2wsh(&address_hash).expect("build p2wsh ok");
         assert_eq!(script.script_type(), ScriptType::WitnessScript);
         assert_eq!(
             script.extract_destinations(),
-            Ok(vec![ScriptAddress::new_p2wsh(address),])
+            Ok(vec![ScriptAddress::new_p2wsh(address_hash),])
         );
     }
 
@@ -854,8 +856,8 @@ OP_ADD
         let address2 = Public::from_slice(&pubkey2_bytes).unwrap().address_hash();
         let script = Builder::default()
             .push_opcode(Opcode::OP_2)
-            .push_bytes(&pubkey1_bytes)
-            .push_bytes(&pubkey2_bytes)
+            .push_data(&pubkey1_bytes)
+            .push_data(&pubkey2_bytes)
             .push_opcode(Opcode::OP_2)
             .push_opcode(Opcode::OP_CHECKMULTISIG)
             .into_script();
@@ -873,10 +875,10 @@ OP_ADD
     fn test_num_signatures_required() {
         let script = Builder::default()
             .push_opcode(Opcode::OP_3)
-            .push_bytes(&[0; 33])
-            .push_bytes(&[0; 65])
-            .push_bytes(&[0; 65])
-            .push_bytes(&[0; 65])
+            .push_data(&[0; 33])
+            .push_data(&[0; 65])
+            .push_data(&[0; 65])
+            .push_data(&[0; 65])
             .push_opcode(Opcode::OP_4)
             .push_opcode(Opcode::OP_CHECKMULTISIG)
             .into_script();
@@ -885,7 +887,7 @@ OP_ADD
 
         let script = Builder::default()
             .push_opcode(Opcode::OP_HASH160)
-            .push_bytes(&[0; 20])
+            .push_data(&[0; 20])
             .push_opcode(Opcode::OP_EQUAL)
             .into_script();
         assert_eq!(script.script_type(), ScriptType::ScriptHash);
@@ -897,9 +899,9 @@ OP_ADD
         // Builder::default()
         // 	.push_opcode(Opcode::OP_4)
         // 	.push_opcode(Opcode::OP_HASH160)
-        // 	.push_bytes(&[0; 20])
+        // 	.push_data(&[0; 20])
         // 	.push_opcode(Opcode::_F9) // Bad opcode - 0xf9
-        // 	.push_bytes(&[1; 20])
+        // 	.push_data(&[1; 20])
         // 	.push_opcode(Opcode::OP_EQUAL)
         // is the same as following:
         let script: Script =
@@ -933,9 +935,9 @@ OP_ADD
         // Builder::default()
         // 	.push_opcode(Opcode::OP_4)
         // 	.push_opcode(Opcode::OP_HASH160)
-        // 	.push_bytes(&[0; 20])
+        // 	.push_data(&[0; 20])
         // 	.push_opcode(Opcode::_F9) // Bad opcode - 0xf9
-        // 	.push_bytes(&[1; 20])
+        // 	.push_data(&[1; 20])
         // 	.push_opcode(Opcode::OP_EQUAL)
         // is the same as following:
         let script: Script =

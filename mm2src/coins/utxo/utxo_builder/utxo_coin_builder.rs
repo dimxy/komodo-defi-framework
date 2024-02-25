@@ -26,8 +26,8 @@ use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
 use futures::StreamExt;
 use keys::bytes::Bytes;
-pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, KeyPair, Private, Public, Secret,
-               Type as ScriptType};
+pub use keys::{Address, AddressBuilder, AddressFormat as UtxoAddressFormat, AddressHashEnum, AddressScriptType,
+               KeyPair, Private, Public, Secret};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use primitives::hash::H160;
@@ -125,6 +125,10 @@ impl From<AbortedError> for UtxoCoinBuildError {
 
 impl From<PrivKeyPolicyNotAllowed> for UtxoCoinBuildError {
     fn from(e: PrivKeyPolicyNotAllowed) -> Self { UtxoCoinBuildError::PrivKeyPolicyNotAllowed(e) }
+}
+
+impl From<keys::Error> for UtxoCoinBuildError {
+    fn from(e: keys::Error) -> Self { UtxoCoinBuildError::Internal(e.to_string()) }
 }
 
 #[async_trait]
@@ -229,16 +233,18 @@ where
 {
     let key_pair = priv_key_policy.activated_key_or_err()?;
     let addr_format = builder.address_format()?;
-    let my_address = Address {
-        prefix: conf.pub_addr_prefix,
-        t_addr_prefix: conf.pub_t_addr_prefix,
-        hash: AddressHashEnum::AddressHash(key_pair.public().address_hash()),
-        checksum_type: conf.checksum_type,
-        hrp: conf.bech32_hrp.clone(),
+    let my_address = AddressBuilder::new(
         addr_format,
-    };
+        AddressHashEnum::AddressHash(key_pair.public().address_hash()),
+        conf.checksum_type,
+        conf.address_prefixes.clone(),
+        conf.bech32_hrp.clone(),
+    )
+    .as_pkh()
+    .build()
+    .map_to_mm(UtxoCoinBuildError::Internal)?;
 
-    let my_script_pubkey = output_script(&my_address, ScriptType::P2PKH).to_bytes();
+    let my_script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
     let derivation_method = DerivationMethod::SingleAddress(my_address);
 
     let (scripthash_notification_sender, scripthash_notification_handler) =
@@ -764,16 +770,16 @@ pub trait UtxoCoinBuilderCommonOps {
             .ok_or_else(|| format!("avg_blocktime not specified in {} coin config", self.ticker()))
             .map_to_mm(UtxoCoinBuildError::ErrorCalculatingStartingHeight)?;
         let blocks_per_day = DAY_IN_SECONDS / avg_blocktime;
-        let current_time_s = now_sec();
+        let current_time_sec = now_sec();
 
-        if current_time_s < date_s {
+        if current_time_sec < date_s {
             return MmError::err(UtxoCoinBuildError::ErrorCalculatingStartingHeight(format!(
                 "{} sync date must be earlier then current date",
                 self.ticker()
             )));
         };
 
-        let secs_since_date = current_time_s - date_s;
+        let secs_since_date = current_time_sec - date_s;
         let days_since_date = (secs_since_date / DAY_IN_SECONDS) - 1;
         let blocks_to_sync = (days_since_date * blocks_per_day) + blocks_per_day;
 

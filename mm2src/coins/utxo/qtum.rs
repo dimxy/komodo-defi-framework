@@ -2,7 +2,7 @@ use super::utxo_common::utxo_prepare_addresses_for_balance_stream_if_enabled;
 use super::*;
 use crate::coin_balance::{self, EnableCoinBalanceError, EnabledCoinBalanceParams, HDAccountBalance, HDAddressBalance,
                           HDWalletBalance, HDWalletBalanceOps};
-use crate::coin_errors::MyAddressError;
+use crate::coin_errors::{MyAddressError, ValidatePaymentResult};
 use crate::hd_confirm_address::HDConfirmAddress;
 use crate::hd_pubkey::{ExtractExtendedPubkey, HDExtractPubkeyError, HDXPubExtractor};
 use crate::hd_wallet::{AccountUpdatingError, AddressDerivingResult, HDAccountMut, NewAccountCreatingError,
@@ -18,7 +18,7 @@ use crate::rpc_command::init_create_account::{self, CreateAccountRpcError, Creat
                                               InitCreateAccountRpcOps};
 use crate::rpc_command::init_scan_for_new_addresses::{self, InitScanAddressesRpcOps, ScanAddressesParams,
                                                       ScanAddressesResponse};
-use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandle};
+use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandleShared};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
 use crate::utxo::utxo_builder::{MergeUtxoArcOps, UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
@@ -113,26 +113,19 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
 
     /// Try to parse address from either wallet (UTXO) format or contract format.
     fn utxo_address_from_any_format(&self, from: &str) -> Result<Address, String> {
-        let utxo_err = match Address::from_str(from) {
+        let utxo_err = match Address::from_legacyaddress(from, &self.as_ref().conf.address_prefixes) {
             Ok(addr) => {
-                let is_p2pkh = addr.prefix == self.as_ref().conf.pub_addr_prefix
-                    && addr.t_addr_prefix == self.as_ref().conf.pub_t_addr_prefix;
-                if is_p2pkh {
+                if addr.is_pubkey_hash() {
                     return Ok(addr);
                 }
-                "Address has invalid prefixes".to_string()
+                "Address has invalid prefix".to_string()
             },
-            Err(e) => e.to_string(),
+            Err(e) => e,
         };
-        let utxo_segwit_err = match Address::from_segwitaddress(
-            from,
-            self.as_ref().conf.checksum_type,
-            self.as_ref().conf.pub_addr_prefix,
-            self.as_ref().conf.pub_t_addr_prefix,
-        ) {
+        let utxo_segwit_err = match Address::from_segwitaddress(from, self.as_ref().conf.checksum_type) {
             Ok(addr) => {
                 let is_segwit =
-                    addr.hrp.is_some() && addr.hrp == self.as_ref().conf.bech32_hrp && self.as_ref().conf.segwit;
+                    addr.hrp().is_some() && addr.hrp() == &self.as_ref().conf.bech32_hrp && self.as_ref().conf.segwit;
                 if is_segwit {
                     return Ok(addr);
                 }
@@ -154,14 +147,16 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
 
     fn utxo_addr_from_contract_addr(&self, address: H160) -> Address {
         let utxo = self.as_ref();
-        Address {
-            prefix: utxo.conf.pub_addr_prefix,
-            t_addr_prefix: utxo.conf.pub_t_addr_prefix,
-            hash: AddressHashEnum::AddressHash(address.0.into()),
-            checksum_type: utxo.conf.checksum_type,
-            hrp: utxo.conf.bech32_hrp.clone(),
-            addr_format: self.addr_format().clone(),
-        }
+        AddressBuilder::new(
+            self.addr_format().clone(),
+            AddressHashEnum::AddressHash(address.0.into()),
+            utxo.conf.checksum_type,
+            utxo.conf.address_prefixes.clone(),
+            utxo.conf.bech32_hrp.clone(),
+        )
+        .as_pkh()
+        .build()
+        .expect("valid address props")
     }
 
     fn my_addr_as_contract_addr(&self) -> MmResult<H160, Qrc20AddressError> {
@@ -171,22 +166,23 @@ pub trait QtumBasedCoin: UtxoCommonOps + MarketCoinOps {
 
     fn utxo_address_from_contract_addr(&self, address: H160) -> Address {
         let utxo = self.as_ref();
-        Address {
-            prefix: utxo.conf.pub_addr_prefix,
-            t_addr_prefix: utxo.conf.pub_t_addr_prefix,
-            hash: AddressHashEnum::AddressHash(address.0.into()),
-            checksum_type: utxo.conf.checksum_type,
-            hrp: utxo.conf.bech32_hrp.clone(),
-            addr_format: self.addr_format().clone(),
-        }
+        AddressBuilder::new(
+            self.addr_format().clone(),
+            AddressHashEnum::AddressHash(address.0.into()),
+            utxo.conf.checksum_type,
+            utxo.conf.address_prefixes.clone(),
+            utxo.conf.bech32_hrp.clone(),
+        )
+        .as_pkh()
+        .build()
+        .expect("valid address props")
     }
 
     fn contract_address_from_raw_pubkey(&self, pubkey: &[u8]) -> Result<H160, String> {
         let utxo = self.as_ref();
         let qtum_address = try_s!(utxo_common::address_from_raw_pubkey(
             pubkey,
-            utxo.conf.pub_addr_prefix,
-            utxo.conf.pub_t_addr_prefix,
+            utxo.conf.address_prefixes.clone(),
             utxo.conf.checksum_type,
             utxo.conf.bech32_hrp.clone(),
             self.addr_format().clone()
@@ -421,7 +417,7 @@ impl UtxoCommonOps for QtumCoin {
     }
 
     fn script_for_address(&self, address: &Address) -> MmResult<Script, UnsupportedAddr> {
-        utxo_common::get_script_for_address(self.as_ref(), address)
+        utxo_common::output_script_checked(self.as_ref(), address)
     }
 
     async fn get_current_mtp(&self) -> UtxoRpcResult<u32> {
@@ -497,8 +493,7 @@ impl UtxoCommonOps for QtumCoin {
         let conf = &self.utxo_arc.conf;
         utxo_common::address_from_pubkey(
             pubkey,
-            conf.pub_addr_prefix,
-            conf.pub_t_addr_prefix,
+            conf.address_prefixes.clone(),
             conf.checksum_type,
             conf.bech32_hrp.clone(),
             self.addr_format().clone(),
@@ -583,13 +578,13 @@ impl SwapOps for QtumCoin {
     }
 
     #[inline]
-    fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentFut<()> {
-        utxo_common::validate_maker_payment(self, input)
+    async fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
+        utxo_common::validate_maker_payment(self, input).await
     }
 
     #[inline]
-    fn validate_taker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentFut<()> {
-        utxo_common::validate_taker_payment(self, input)
+    async fn validate_taker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
+        utxo_common::validate_taker_payment(self, input).await
     }
 
     #[inline]
@@ -867,7 +862,7 @@ impl MarketCoinOps for QtumCoin {
 
     fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionFut {
         utxo_common::wait_for_output_spend(
-            &self.utxo_arc,
+            self.clone(),
             args.tx_bytes,
             utxo_common::DEFAULT_SWAP_VOUT,
             args.from_block,
@@ -1013,7 +1008,7 @@ impl InitWithdrawCoin for QtumCoin {
         &self,
         ctx: MmArc,
         req: WithdrawRequest,
-        task_handle: &WithdrawTaskHandle,
+        task_handle: WithdrawTaskHandleShared,
     ) -> Result<TransactionDetails, MmError<WithdrawError>> {
         utxo_common::init_withdraw(ctx, self.clone(), req, task_handle).await
     }
@@ -1312,7 +1307,7 @@ impl UtxoTxHistoryOps for QtumCoin {
 pub fn contract_addr_from_str(addr: &str) -> Result<H160, String> { eth::addr_from_str(addr) }
 
 pub fn contract_addr_from_utxo_addr(address: Address) -> MmResult<H160, ScriptHashTypeNotSupported> {
-    match address.hash {
+    match address.hash() {
         AddressHashEnum::AddressHash(h) => Ok(h.take().into()),
         AddressHashEnum::WitnessScriptHash(_) => MmError::err(ScriptHashTypeNotSupported {
             script_hash_type: "Witness".to_owned(),

@@ -61,9 +61,10 @@ use futures::compat::Future01CompatExt;
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use futures01::Future;
 use keys::bytes::Bytes;
+use keys::NetworkAddressPrefixes;
 use keys::Signature;
-pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, KeyPair, Private, Public, Secret,
-               Type as ScriptType};
+pub use keys::{Address, AddressBuilder, AddressFormat as UtxoAddressFormat, AddressHashEnum, AddressPrefix,
+               AddressScriptType, KeyPair, LegacyAddress, Private, Public, Secret};
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::Currency as LightningCurrency;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
@@ -199,6 +200,10 @@ impl From<UtxoRpcError> for BalanceError {
             _ => BalanceError::Transport(e.to_string()),
         }
     }
+}
+
+impl From<keys::Error> for BalanceError {
+    fn from(e: keys::Error) -> Self { BalanceError::Internal(e.to_string()) }
 }
 
 impl From<UtxoRpcError> for WithdrawError {
@@ -504,11 +509,8 @@ pub struct UtxoCoinConf {
     pub ticker: String,
     /// https://en.bitcoin.it/wiki/List_of_address_prefixes
     /// https://github.com/jl777/coins/blob/master/coins
-    pub pub_addr_prefix: u8,
-    pub p2sh_addr_prefix: u8,
     pub wif_prefix: u8,
-    pub pub_t_addr_prefix: u8,
-    pub p2sh_t_addr_prefix: u8,
+    pub address_prefixes: NetworkAddressPrefixes,
     pub sign_message_prefix: Option<String>,
     // https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki#Segwit_address_format
     pub bech32_hrp: Option<String>,
@@ -646,10 +648,16 @@ pub enum UnsupportedAddr {
     HrpError { ticker: String, hrp: String },
     #[display(fmt = "Segwit not activated in the config for {}", _0)]
     SegwitNotActivated(String),
+    #[display(fmt = "Internal error {}", _0)]
+    InternalError(String),
 }
 
 impl From<UnsupportedAddr> for WithdrawError {
     fn from(e: UnsupportedAddr) -> Self { WithdrawError::InvalidAddress(e.to_string()) }
+}
+
+impl From<keys::Error> for UnsupportedAddr {
+    fn from(e: keys::Error) -> Self { UnsupportedAddr::InternalError(e.to_string()) }
 }
 
 #[derive(Debug)]
@@ -879,7 +887,7 @@ impl HDAddressBalanceScanner for UtxoAddressScanner {
         let is_used = match self {
             UtxoAddressScanner::Native { non_empty_addresses } => non_empty_addresses.contains(&address.to_string()),
             UtxoAddressScanner::Electrum(electrum_client) => {
-                let script = output_script(address, ScriptType::P2PKH);
+                let script = output_script(address)?;
                 let script_hash = electrum_script_hash(&script);
 
                 let electrum_history = electrum_client
@@ -1041,6 +1049,8 @@ impl ToBytes for Signature {
 }
 
 impl<T: UtxoCommonOps> CoinAssocTypes for T {
+    type Address = Address;
+    type AddressParseError = MmError<AddrFromStrError>;
     type Pubkey = Public;
     type PubkeyParseError = MmError<keys::Error>;
     type Tx = UtxoTx;
@@ -1050,9 +1060,20 @@ impl<T: UtxoCommonOps> CoinAssocTypes for T {
     type Sig = Signature;
     type SigParseError = MmError<secp256k1::Error>;
 
+    fn my_addr(&self) -> &Self::Address {
+        match &self.as_ref().derivation_method {
+            DerivationMethod::SingleAddress(addr) => addr,
+            unimplemented => unimplemented!("{:?}", unimplemented),
+        }
+    }
+
+    fn parse_address(&self, address: &str) -> Result<Self::Address, Self::AddressParseError> {
+        self.address_from_str(address)
+    }
+
     #[inline]
     fn parse_pubkey(&self, pubkey: &[u8]) -> Result<Self::Pubkey, Self::PubkeyParseError> {
-        Ok(Public::from_slice(pubkey)?)
+        Public::from_slice(pubkey).map_err(MmError::from)
     }
 
     #[inline]
@@ -1263,6 +1284,10 @@ impl From<UtxoRpcError> for GenerateTxError {
 
 impl From<NumConversError> for GenerateTxError {
     fn from(e: NumConversError) -> Self { GenerateTxError::Internal(e.to_string()) }
+}
+
+impl From<keys::Error> for GenerateTxError {
+    fn from(e: keys::Error) -> Self { GenerateTxError::Internal(e.to_string()) }
 }
 
 pub enum RequestTxHistoryResult {
@@ -1881,12 +1906,12 @@ where
         })
         .collect();
 
-    let signature_version = match &my_address.addr_format {
+    let signature_version = match my_address.addr_format() {
         UtxoAddressFormat::Segwit => SignatureVersion::WitnessV0,
         _ => coin.as_ref().conf.signature_version,
     };
 
-    let prev_script = utxo_common::get_script_for_address(coin.as_ref(), my_address)
+    let prev_script = utxo_common::output_script_checked(coin.as_ref(), my_address)
         .map_err(|e| TransactionErr::Plain(ERRL!("{}", e)))?;
     let signed = try_tx_s!(sign_tx(
         unsigned,
@@ -1903,15 +1928,13 @@ where
     Ok(signed)
 }
 
-pub fn output_script(address: &Address, script_type: ScriptType) -> Script {
-    match address.addr_format {
-        UtxoAddressFormat::Segwit => Builder::build_p2witness(&address.hash),
-        _ => match script_type {
-            ScriptType::P2PKH => Builder::build_p2pkh(&address.hash),
-            ScriptType::P2SH => Builder::build_p2sh(&address.hash),
-            ScriptType::P2WPKH => Builder::build_p2witness(&address.hash),
-            ScriptType::P2WSH => Builder::build_p2witness(&address.hash),
-        },
+/// Builds transaction output script for an Address struct
+pub fn output_script(address: &Address) -> Result<Script, keys::Error> {
+    match address.script_type() {
+        AddressScriptType::P2PKH => Ok(Builder::build_p2pkh(address.hash())),
+        AddressScriptType::P2SH => Ok(Builder::build_p2sh(address.hash())),
+        AddressScriptType::P2WPKH => Builder::build_p2wpkh(address.hash()),
+        AddressScriptType::P2WSH => Builder::build_p2wsh(address.hash()),
     }
 }
 
@@ -1941,14 +1964,15 @@ pub fn address_by_conf_and_pubkey_str(
     let pubkey_bytes = try_s!(hex::decode(pubkey));
     let hash = dhash160(&pubkey_bytes);
 
-    let address = Address {
-        prefix: utxo_conf.pub_addr_prefix,
-        t_addr_prefix: utxo_conf.pub_t_addr_prefix,
-        hash: hash.into(),
-        checksum_type: utxo_conf.checksum_type,
-        hrp: utxo_conf.bech32_hrp,
+    let address = AddressBuilder::new(
         addr_format,
-    };
+        hash.into(),
+        utxo_conf.checksum_type,
+        utxo_conf.address_prefixes,
+        utxo_conf.bech32_hrp,
+    )
+    .as_pkh()
+    .build()?;
     address.display_address()
 }
 
@@ -1960,6 +1984,61 @@ fn parse_hex_encoded_u32(hex_encoded: &str) -> Result<u32, MmError<String>> {
         .try_into()
         .map_to_mm(|e: TryFromSliceError| e.to_string())?;
     Ok(u32::from_be_bytes(be_bytes))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod for_tests {
+    use crate::rpc_command::init_withdraw::{init_withdraw, withdraw_status, WithdrawStatusRequest};
+    use crate::{TransactionDetails, WithdrawError, WithdrawFrom, WithdrawRequest};
+    use common::executor::Timer;
+    use common::{now_ms, wait_until_ms};
+    use mm2_core::mm_ctx::MmArc;
+    use mm2_err_handle::prelude::MmResult;
+    use mm2_number::BigDecimal;
+    use rpc_task::RpcTaskStatus;
+    use std::str::FromStr;
+
+    /// Helper to call init_withdraw and wait for completion
+    pub async fn test_withdraw_init_loop(
+        ctx: MmArc,
+        ticker: &str,
+        to: &str,
+        amount: &str,
+        from_derivation_path: &str,
+    ) -> MmResult<TransactionDetails, WithdrawError> {
+        let withdraw_req = WithdrawRequest {
+            amount: BigDecimal::from_str(amount).unwrap(),
+            from: Some(WithdrawFrom::DerivationPath {
+                derivation_path: from_derivation_path.to_owned(),
+            }),
+            to: to.to_owned(),
+            coin: ticker.to_owned(),
+            max: false,
+            fee: None,
+            memo: None,
+        };
+        let init = init_withdraw(ctx.clone(), withdraw_req).await.unwrap();
+        let timeout = wait_until_ms(150000);
+        loop {
+            if now_ms() > timeout {
+                panic!("{} init_withdraw timed out", ticker);
+            }
+            let status = withdraw_status(ctx.clone(), WithdrawStatusRequest {
+                task_id: init.task_id,
+                forget_if_finished: true,
+            })
+            .await;
+            if let Ok(status) = status {
+                match status {
+                    RpcTaskStatus::Ok(tx_details) => break Ok(tx_details),
+                    RpcTaskStatus::Error(e) => break Err(e),
+                    _ => Timer::sleep(1.).await,
+                }
+            } else {
+                panic!("{} could not get withdraw_status", ticker)
+            }
+        }
+    }
 }
 
 #[test]
