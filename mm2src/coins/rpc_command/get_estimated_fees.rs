@@ -73,7 +73,7 @@ impl From<String> for FeeEstimatorError {
 /// The loop estimation starts when first eth coin or token calls the start rpc and stops when the last coin or token, using it, calls the stop rpc.
 /// FeeEstimatorContext keeps the latest estimated gas fees in the context and returns them as rpc response
 pub struct FeeEstimatorContext {
-    estimated_fees: AsyncMutex<FeePerGasEstimated>,
+    estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>,
     abort_handler: AsyncMutex<Option<AbortOnDropHandle>>,
 }
 
@@ -100,7 +100,10 @@ impl FeeEstimatorContext {
         if handler.is_some() {
             return MmError::err(FeeEstimatorError::AlreadyStarted);
         }
-        *handler = Some(spawn_abortable(Self::fee_estimator_loop(ctx, coin.clone())));
+        *handler = Some(spawn_abortable(fee_estimator_loop(
+            estimator_ctx.estimated_fees.clone(),
+            coin.clone(),
+        )));
         Ok(())
     }
 
@@ -112,37 +115,6 @@ impl FeeEstimatorContext {
             .take()
             .map(|_| ())
             .or_mm_err(|| FeeEstimatorError::AlreadyStopping)
-    }
-
-    /// Gas fee estimator loop wrapper
-    async fn fee_estimator_loop(ctx: MmArc, coin: EthCoin) {
-        let estimator_ctx = Self::from_ctx(ctx.clone());
-        if let Ok(estimator_ctx) = estimator_ctx {
-            let _ = estimator_ctx.fee_estimator_loop_inner(coin).await;
-        }
-    }
-
-    /// Loop polling gas fee estimator
-    ///
-    /// This loop periodically calls get_eip1559_gas_price which fetches fee per gas estimations from a gas api provider or calculates them internally
-    /// The retrieved data are stored in the fee estimator context
-    /// To connect to the gas api provider the web3 instances from the platform coin are used so ETH coin must be enabled
-    /// TODO: assumed that once the plaform coin is enabled it is always available and never can be disabled. Should we track it disabled?
-    async fn fee_estimator_loop_inner(&self, coin: EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
-        loop {
-            let started = common::now_float();
-            *self.estimated_fees.lock().await = coin.get_eip1559_gas_price().await.unwrap_or_default();
-
-            let elapsed = common::now_float() - started;
-            debug!(
-                "{FEE_ESTIMATOR_NAME} getting estimated values processed in {} seconds",
-                elapsed
-            );
-
-            let wait_secs = FeeEstimatorContext::get_refresh_interval() - elapsed;
-            let wait_secs = if wait_secs < 0.0 { 0.0 } else { wait_secs };
-            Timer::sleep(wait_secs).await;
-        }
     }
 
     async fn get_estimated_fees(ctx: MmArc) -> Result<FeePerGasEstimated, MmError<FeeEstimatorError>> {
@@ -168,6 +140,29 @@ impl FeeEstimatorContext {
         };
         Self::check_if_chain_id_supported(&coin)?;
         Ok(coin)
+    }
+}
+
+/// Loop polling gas fee estimator
+///
+/// This loop periodically calls get_eip1559_gas_price which fetches fee per gas estimations from a gas api provider or calculates them internally
+/// The retrieved data are stored in the fee estimator context
+/// To connect to the gas api provider the web3 instances from the platform coin are used so ETH coin must be enabled
+/// TODO: assumed that once the plaform coin is enabled it is always available and never can be disabled. Should we track it disabled?
+async fn fee_estimator_loop(estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>, coin: EthCoin) {
+    loop {
+        let started = common::now_float();
+        *estimated_fees.lock().await = coin.get_eip1559_gas_price().await.unwrap_or_default();
+
+        let elapsed = common::now_float() - started;
+        debug!(
+            "{FEE_ESTIMATOR_NAME} getting estimated values processed in {} seconds",
+            elapsed
+        );
+
+        let wait_secs = FeeEstimatorContext::get_refresh_interval() - elapsed;
+        let wait_secs = if wait_secs < 0.0 { 0.0 } else { wait_secs };
+        Timer::sleep(wait_secs).await;
     }
 }
 
