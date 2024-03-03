@@ -100,7 +100,7 @@ pub struct FeeEstimatorContext {
     /// coins that connected to loop and can get fee estimates
     using_coins: AsyncMutex<HashSet<String>>,
     /// receiver of signals to stop estimator (if it is not used)
-    stop_listener: Arc<AsyncMutex<FeeEstimatorStopListener>>,
+    stop_listener: AsyncMutex<FeeEstimatorStopListener>,
     /// sender of signal to stop estimator
     stop_handle: FeeEstimatorStopHandle,
     /// mm2 shutdown listener
@@ -115,7 +115,7 @@ impl FeeEstimatorContext {
             estimated_fees: Default::default(),
             run_state: AsyncMutex::new(FeeEstimatorState::default()),
             using_coins: AsyncMutex::new(HashSet::new()),
-            stop_listener: Arc::new(AsyncMutex::new(rx)),
+            stop_listener: AsyncMutex::new(rx),
             stop_handle: tx,
             shutdown_listener: AsyncMutex::new(Box::pin(shutdown_listener)),
         })
@@ -188,8 +188,8 @@ impl FeeEstimatorContext {
     /// run listen cycle: wait for loop stop or shutdown
     /// returns true if shutdown started to exist quickly
     async fn listen_for_stop(&self) -> Result<bool, MmError<FeeEstimatorError>> {
-        let stop_listener = self.stop_listener.clone();
-        let mut stop_listener = stop_listener.lock().await;
+        //let stop_listener = self.stop_listener.clone();
+        let mut stop_listener = self.stop_listener.lock().await;
         let mut listen_fut = stop_listener.next().fuse();
         let mut shutdown_listener = self.shutdown_listener.lock().await;
         let shutdown_fut = async { shutdown_listener.as_mut().await }.fuse();
