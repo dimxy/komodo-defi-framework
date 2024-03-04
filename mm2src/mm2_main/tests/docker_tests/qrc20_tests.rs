@@ -195,7 +195,7 @@ fn test_taker_spends_maker_payment() {
         wait_for_confirmation_until: 0,
     };
     let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
 
@@ -240,7 +240,7 @@ fn test_taker_spends_maker_payment() {
         .send_taker_spends_maker_payment(taker_spends_payment_args)
         .wait()
         .unwrap();
-    let spend_tx_hash = spend.tx_hash();
+    let spend_tx_hash = spend.tx_hash_as_bytes();
     let spend_tx_hex = spend.tx_hex();
     log!("Taker spends tx: {:?}", spend_tx_hash);
 
@@ -300,7 +300,7 @@ fn test_maker_spends_taker_payment() {
         wait_for_confirmation_until: 0,
     };
     let payment = taker_coin.send_taker_payment(taker_payment_args).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Taker payment: {:?}", payment_tx_hash);
 
@@ -345,7 +345,7 @@ fn test_maker_spends_taker_payment() {
         .send_maker_spends_taker_payment(maker_spends_payment_args)
         .wait()
         .unwrap();
-    let spend_tx_hash = spend.tx_hash();
+    let spend_tx_hash = spend.tx_hash_as_bytes();
     let spend_tx_hex = spend.tx_hex();
     log!("Maker spends tx: {:?}", spend_tx_hash);
 
@@ -394,7 +394,7 @@ fn test_maker_refunds_payment() {
         wait_for_confirmation_until: 0,
     };
     let payment = coin.send_maker_payment(maker_payment).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
 
@@ -425,7 +425,7 @@ fn test_maker_refunds_payment() {
         watcher_reward: false,
     };
     let refund = block_on(coin.send_maker_refunds_payment(maker_refunds_payment_args)).unwrap();
-    let refund_tx_hash = refund.tx_hash();
+    let refund_tx_hash = refund.tx_hash_as_bytes();
     let refund_tx_hex = refund.tx_hex();
     log!("Maker refunds payment: {:?}", refund_tx_hash);
 
@@ -466,7 +466,7 @@ fn test_taker_refunds_payment() {
         wait_for_confirmation_until: 0,
     };
     let payment = coin.send_taker_payment(taker_payment_args).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Taker payment: {:?}", payment_tx_hash);
 
@@ -497,7 +497,7 @@ fn test_taker_refunds_payment() {
         watcher_reward: false,
     };
     let refund = block_on(coin.send_taker_refunds_payment(taker_refunds_payment_args)).unwrap();
-    let refund_tx_hash = refund.tx_hash();
+    let refund_tx_hash = refund.tx_hash_as_bytes();
     let refund_tx_hex = refund.tx_hex();
     log!("Taker refunds payment: {:?}", refund_tx_hash);
 
@@ -535,7 +535,7 @@ fn test_check_if_my_payment_sent() {
         wait_for_confirmation_until: 0,
     };
     let payment = coin.send_maker_payment(maker_payment_args).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
 
@@ -592,7 +592,7 @@ fn test_search_for_swap_tx_spend_taker_spent() {
         wait_for_confirmation_until: 0,
     };
     let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
 
@@ -622,7 +622,7 @@ fn test_search_for_swap_tx_spend_taker_spent() {
         .send_taker_spends_maker_payment(taker_spends_payment_args)
         .wait()
         .unwrap();
-    let spend_tx_hash = spend.tx_hash();
+    let spend_tx_hash = spend.tx_hash_as_bytes();
     let spend_tx_hex = spend.tx_hex();
     log!("Taker spends tx: {:?}", spend_tx_hash);
 
@@ -674,7 +674,7 @@ fn test_search_for_swap_tx_spend_maker_refunded() {
         wait_for_confirmation_until: 0,
     };
     let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
 
@@ -702,7 +702,7 @@ fn test_search_for_swap_tx_spend_maker_refunded() {
         watcher_reward: false,
     };
     let refund = block_on(maker_coin.send_maker_refunds_payment(maker_refunds_payment_args)).unwrap();
-    let refund_tx_hash = refund.tx_hash();
+    let refund_tx_hash = refund.tx_hash_as_bytes();
     let refund_tx_hex = refund.tx_hex();
     log!("Maker refunds tx: {:?}", refund_tx_hash);
 
@@ -754,7 +754,7 @@ fn test_search_for_swap_tx_spend_not_spent() {
         wait_for_confirmation_until: 0,
     };
     let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
 
@@ -811,7 +811,7 @@ fn test_wait_for_tx_spend() {
         wait_for_confirmation_until: 0,
     };
     let payment = maker_coin.send_maker_payment(maker_payment_args).wait().unwrap();
-    let payment_tx_hash = payment.tx_hash();
+    let payment_tx_hash = payment.tx_hash_as_bytes();
     let payment_tx_hex = payment.tx_hex();
     log!("Maker payment: {:?}", payment_tx_hash);
 

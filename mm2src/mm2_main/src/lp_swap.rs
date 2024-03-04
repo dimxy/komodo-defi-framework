@@ -1527,7 +1527,7 @@ pub async fn recover_funds_of_swap(ctx: MmArc, req: Json) -> Result<Response<Vec
         "result": {
             "action": recover_data.action,
             "coin": recover_data.coin,
-            "tx_hash": recover_data.transaction.tx_hash(),
+            "tx_hash": recover_data.transaction.tx_hash_as_bytes(),
             "tx_hex": BytesJson::from(recover_data.transaction.tx_hex()),
         }
     })));

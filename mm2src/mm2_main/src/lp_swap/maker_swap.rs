@@ -745,7 +745,7 @@ impl MakerSwap {
             },
         };
 
-        let hash = taker_fee.tx_hash();
+        let hash = taker_fee.tx_hash_as_bytes();
         info!("Taker fee tx {:02x}", hash);
 
         let taker_amount = MmNumber::from(self.taker_amount.clone());
@@ -871,7 +871,7 @@ impl MakerSwap {
             },
         };
 
-        let tx_hash = transaction.tx_hash();
+        let tx_hash = transaction.tx_hash_as_bytes();
         info!("{}: Maker payment tx {:02x}", MAKER_PAYMENT_SENT_LOG, tx_hash);
 
         let tx_ident = TransactionIdentifier {
@@ -964,7 +964,7 @@ impl MakerSwap {
             },
         };
 
-        let tx_hash = taker_payment.tx_hash();
+        let tx_hash = taker_payment.tx_hash_as_bytes();
         info!("Taker payment tx {:02x}", tx_hash);
         let tx_ident = TransactionIdentifier {
             tx_hex: BytesJson::from(taker_payment.tx_hex()),
@@ -1119,7 +1119,7 @@ impl MakerSwap {
             &self.p2p_privkey,
         );
 
-        let tx_hash = transaction.tx_hash();
+        let tx_hash = transaction.tx_hash_as_bytes();
         info!("Taker payment spend tx {:02x}", tx_hash);
         let tx_ident = TransactionIdentifier {
             tx_hex: BytesJson::from(transaction.tx_hex()),
@@ -1259,7 +1259,7 @@ impl MakerSwap {
             &self.p2p_privkey,
         );
 
-        let tx_hash = transaction.tx_hash();
+        let tx_hash = transaction.tx_hash_as_bytes();
         info!("Maker payment refund tx {:02x}", tx_hash);
         let tx_ident = TransactionIdentifier {
             tx_hex: BytesJson::from(transaction.tx_hex()),
@@ -1400,14 +1400,14 @@ impl MakerSwap {
                     return ERR!(
                         "Taker payment was already spent by {} tx {:02x}",
                         selfi.taker_coin.ticker(),
-                        tx.tx_hash()
+                        tx.tx_hash_as_bytes()
                     )
                 },
                 Ok(Some(FoundSwapTxSpend::Refunded(tx))) => {
                     return ERR!(
                         "Taker payment was already refunded by {} tx {:02x}",
                         selfi.taker_coin.ticker(),
-                        tx.tx_hash()
+                        tx.tx_hash_as_bytes()
                     )
                 },
                 Err(e) => return ERR!("Error {} when trying to find taker payment spend", e),
@@ -1506,7 +1506,7 @@ impl MakerSwap {
             Ok(Some(FoundSwapTxSpend::Refunded(tx))) => ERR!(
                 "Maker payment was already refunded by {} tx {:02x}",
                 self.maker_coin.ticker(),
-                tx.tx_hash()
+                tx.tx_hash_as_bytes()
             ),
             Err(e) => ERR!("Error {} when trying to find maker payment spend", e),
             Ok(None) => {

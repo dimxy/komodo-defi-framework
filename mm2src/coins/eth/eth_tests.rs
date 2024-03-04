@@ -1052,7 +1052,7 @@ fn polygon_check_if_my_payment_sent() {
         .unwrap()
         .unwrap();
     let expected_hash = BytesJson::from("69a20008cea0c15ee483b5bbdff942752634aa072dfd2ff715fe87eec302de11");
-    assert_eq!(expected_hash, my_payment.tx_hash());
+    assert_eq!(expected_hash, my_payment.tx_hash_as_bytes());
 }
 
 #[test]

@@ -220,7 +220,7 @@ impl Transaction for ZTransaction {
         hex
     }
 
-    fn tx_hash(&self) -> BytesJson {
+    fn tx_hash_as_bytes(&self) -> BytesJson {
         let mut bytes = self.txid().0.to_vec();
         bytes.reverse();
         bytes.into()

@@ -152,7 +152,7 @@ pub(crate) struct GetOpenChannelsResult {
 impl Transaction for PaymentHash {
     fn tx_hex(&self) -> Vec<u8> { self.0.to_vec() }
 
-    fn tx_hash(&self) -> BytesJson { self.0.to_vec().into() }
+    fn tx_hash_as_bytes(&self) -> BytesJson { self.0.to_vec().into() }
 }
 
 impl LightningCoin {

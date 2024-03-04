@@ -581,7 +581,7 @@ pub trait Transaction: fmt::Debug + 'static {
     /// Raw transaction bytes of the transaction
     fn tx_hex(&self) -> Vec<u8>;
     /// Serializable representation of tx hash for displaying purpose
-    fn tx_hash(&self) -> BytesJson;
+    fn tx_hash_as_bytes(&self) -> BytesJson;
 }
 
 #[derive(Clone, Debug, PartialEq)]

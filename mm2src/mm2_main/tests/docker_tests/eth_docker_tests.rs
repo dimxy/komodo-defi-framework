@@ -189,7 +189,7 @@ fn send_and_refund_eth_maker_payment() {
         watcher_reward: false,
     };
     let payment_refund = block_on(eth_coin.send_maker_refunds_payment(refund_args)).unwrap();
-    println!("Payment refund tx hash {:02x}", payment_refund.tx_hash());
+    println!("Payment refund tx hash {:02x}", payment_refund.tx_hash_as_bytes());
 
     let confirm_input = ConfirmPaymentInput {
         payment_tx: payment_refund.tx_hex(),
@@ -267,7 +267,7 @@ fn send_and_spend_eth_maker_payment() {
         .send_taker_spends_maker_payment(spend_args)
         .wait()
         .unwrap();
-    println!("Payment spend tx hash {:02x}", payment_spend.tx_hash());
+    println!("Payment spend tx hash {:02x}", payment_spend.tx_hash_as_bytes());
 
     let confirm_input = ConfirmPaymentInput {
         payment_tx: payment_spend.tx_hex(),
@@ -342,7 +342,7 @@ fn send_and_refund_erc20_maker_payment() {
         watcher_reward: false,
     };
     let payment_refund = block_on(erc20_coin.send_maker_refunds_payment(refund_args)).unwrap();
-    println!("Payment refund tx hash {:02x}", payment_refund.tx_hash());
+    println!("Payment refund tx hash {:02x}", payment_refund.tx_hash_as_bytes());
 
     let confirm_input = ConfirmPaymentInput {
         payment_tx: payment_refund.tx_hex(),
@@ -420,7 +420,7 @@ fn send_and_spend_erc20_maker_payment() {
         .send_taker_spends_maker_payment(spend_args)
         .wait()
         .unwrap();
-    println!("Payment spend tx hash {:02x}", payment_spend.tx_hash());
+    println!("Payment spend tx hash {:02x}", payment_spend.tx_hash_as_bytes());
 
     let confirm_input = ConfirmPaymentInput {
         payment_tx: payment_spend.tx_hex(),
