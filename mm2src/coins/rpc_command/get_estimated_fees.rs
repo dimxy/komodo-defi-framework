@@ -20,20 +20,12 @@ pub enum FeeEstimatorError {
     CoinNotActivated,
     #[display(fmt = "Gas estimation not supported for this coin")]
     CoinNotSupported,
-    #[display(fmt = "Coin not connected to fee estimator")]
-    CoinNotConnected,
-    #[display(fmt = "Platform coin ETH must be activated")]
-    PlatformCoinNotActivated,
     #[display(fmt = "Chain id not supported")]
     ChainNotSupported,
     #[display(fmt = "Fee estimator is already started")]
     AlreadyStarted,
     #[display(fmt = "Transport error: {}", _0)]
     Transport(String),
-    #[display(fmt = "Cannot start fee estimator if it's currently stopping")]
-    CannotStartFromStopping,
-    #[display(fmt = "Fee estimator is already stopping")]
-    AlreadyStopping,
     #[display(fmt = "Fee estimator is not running")]
     NotRunning,
     #[display(fmt = "Internal error: {}", _0)]
@@ -45,13 +37,9 @@ impl HttpStatusCode for FeeEstimatorError {
         match self {
             FeeEstimatorError::CoinNotActivated
             | FeeEstimatorError::CoinNotSupported
-            | FeeEstimatorError::CoinNotConnected
-            | FeeEstimatorError::PlatformCoinNotActivated
             | FeeEstimatorError::ChainNotSupported
             | FeeEstimatorError::AlreadyStarted
-            | FeeEstimatorError::AlreadyStopping
-            | FeeEstimatorError::NotRunning
-            | FeeEstimatorError::CannotStartFromStopping => StatusCode::BAD_REQUEST,
+            | FeeEstimatorError::NotRunning => StatusCode::BAD_REQUEST,
             FeeEstimatorError::Transport(_) | FeeEstimatorError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -114,7 +102,7 @@ impl FeeEstimatorContext {
         handle_guard
             .take()
             .map(|_| ())
-            .or_mm_err(|| FeeEstimatorError::AlreadyStopping)
+            .or_mm_err(|| FeeEstimatorError::NotRunning)
     }
 
     async fn get_estimated_fees(ctx: MmArc) -> Result<FeePerGasEstimated, MmError<FeeEstimatorError>> {
