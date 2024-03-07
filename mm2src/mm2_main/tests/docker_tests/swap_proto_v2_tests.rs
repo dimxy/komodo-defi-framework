@@ -463,7 +463,10 @@ fn send_and_spend_taker_payment_standard_dex_fee() {
         &[],
     ))
     .unwrap();
-    println!("Taker payment spend tx hash {:02x}", taker_payment_spend.tx_hash_as_bytes());
+    println!(
+        "Taker payment spend tx hash {:02x}",
+        taker_payment_spend.tx_hash_as_bytes()
+    );
 }
 
 #[test]

@@ -1822,6 +1822,12 @@ pub enum WithdrawFee {
         gas_price: BigDecimal,
         gas: u64,
     },
+    EthGasEip1559 {
+        /// in gwei
+        max_priority_fee_per_gas: BigDecimal,
+        max_fee_per_gas: BigDecimal,
+        gas: u64,
+    },
     Qrc20Gas {
         /// in satoshi
         gas_limit: u64,
@@ -2695,6 +2701,10 @@ pub enum WithdrawError {
     },
     #[display(fmt = "Nft Protocol is not supported yet!")]
     NftProtocolNotSupported,
+    #[display(fmt = "Chain id must be set for typed transaction for coin {}", coin)]
+    NoChainIdSet {
+        coin: String,
+    },
 }
 
 impl HttpStatusCode for WithdrawError {
@@ -2720,7 +2730,8 @@ impl HttpStatusCode for WithdrawError {
             | WithdrawError::ContractTypeDoesntSupportNftWithdrawing(_)
             | WithdrawError::CoinDoesntSupportNftWithdraw { .. }
             | WithdrawError::NotEnoughNftsAmount { .. }
-            | WithdrawError::MyAddressNotNftOwner { .. } => StatusCode::BAD_REQUEST,
+            | WithdrawError::MyAddressNotNftOwner { .. }
+            | WithdrawError::NoChainIdSet { .. } => StatusCode::BAD_REQUEST,
             WithdrawError::HwError(_) => StatusCode::GONE,
             #[cfg(target_arch = "wasm32")]
             WithdrawError::BroadcastExpected(_) => StatusCode::BAD_REQUEST,

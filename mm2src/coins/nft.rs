@@ -16,7 +16,7 @@ use nft_structs::{Chain, ContractType, ConvertChain, Nft, NftFromMoralis, NftLis
                   TransactionNftDetails, UpdateNftReq, WithdrawNftReq};
 
 use crate::eth::{eth_addr_to_hex, get_eth_address, withdraw_erc1155, withdraw_erc721, EthCoin, EthCoinType,
-                 EthTxFeeDetails};
+                 EthTxFeeDetails, LegacyGasPrice, PayForGasOption};
 use crate::nft::nft_errors::{ClearNftDbError, MetaFromUrlError, ProtectFromSpamError, TransferConfirmationsError,
                              UpdateSpamPhishingError};
 use crate::nft::nft_structs::{build_nft_with_empty_meta, BuildNftFields, ClearNftDbReq, NftCommon, NftCtx, NftInfo,
@@ -821,7 +821,12 @@ async fn get_fee_details(eth_coin: &EthCoin, transaction_hash: &str) -> Option<E
         Some(r) => {
             let gas_used = r.gas_used.unwrap_or_default();
             match r.effective_gas_price {
-                Some(gas_price) => EthTxFeeDetails::new(gas_used, gas_price, fee_coin).ok(),
+                Some(gas_price) => EthTxFeeDetails::new(
+                    gas_used,
+                    PayForGasOption::Legacy(LegacyGasPrice { gas_price }),
+                    fee_coin,
+                )
+                .ok(),
                 None => {
                     let web3_tx = eth_coin
                         .web3()
@@ -832,7 +837,12 @@ async fn get_fee_details(eth_coin: &EthCoin, transaction_hash: &str) -> Option<E
                         .await
                         .ok()??;
                     let gas_price = web3_tx.gas_price.unwrap_or_default();
-                    EthTxFeeDetails::new(gas_used, gas_price, fee_coin).ok()
+                    EthTxFeeDetails::new(
+                        gas_used,
+                        PayForGasOption::Legacy(LegacyGasPrice { gas_price }),
+                        fee_coin,
+                    )
+                    .ok()
                 },
             }
         },

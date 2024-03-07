@@ -44,7 +44,8 @@ use derive_more::Display;
 use enum_derives::EnumFromStringify;
 use ethabi::{Contract, Function, Token};
 pub use ethcore_transaction::SignedTransaction as SignedEthTx;
-use ethcore_transaction::{Action, LegacyTransaction, TransactionWrapper as UnSignedEthTx, UnverifiedLegacyTransaction, UnverifiedTransactionWrapper};
+use ethcore_transaction::{Action, LegacyTransaction, TransactionWrapperBuilder as UnSignedEthTxBuilder,
+                          UnverifiedLegacyTransaction, UnverifiedTransactionWrapper};
 use ethereum_types::{Address, H160, H256, U256};
 use ethkey::{public_to_address, KeyPair, Public, Signature};
 use ethkey::{sign, verify_address};
@@ -186,7 +187,22 @@ lazy_static! {
 pub type Web3RpcFut<T> = Box<dyn Future<Item = T, Error = MmError<Web3RpcError>> + Send>;
 pub type Web3RpcResult<T> = Result<T, MmError<Web3RpcError>>;
 type EthPrivKeyPolicy = PrivKeyPolicy<KeyPair>;
-type GasDetails = (U256, U256);
+
+pub(crate) struct LegacyGasPrice {
+    pub gas_price: U256,
+}
+
+pub(crate) struct Eip1559FeePerGas {
+    pub max_priority_fee_per_gas: U256,
+    pub max_fee_per_gas: U256,
+}
+
+pub(crate) enum PayForGasOption {
+    Legacy(LegacyGasPrice),
+    Eip1559(Eip1559FeePerGas),
+}
+
+type GasDetails = (U256, PayForGasOption);
 
 #[derive(Debug, Display)]
 pub enum Web3RpcError {
@@ -655,9 +671,10 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
     };
     let eth_value_dec = u256_to_big_decimal(eth_value, coin.decimals)?;
 
-    let (gas, gas_price) =
-        get_eth_gas_details(&coin, req.fee, eth_value, data.clone().into(), call_addr, req.max).await?;
-    let total_fee = gas * gas_price;
+    let (gas, pay_for_gas_option) =
+        get_eth_gas_details_from_withdraw_fee(&coin, req.fee, eth_value, data.clone().into(), call_addr, req.max)
+            .await?;
+    let total_fee = calc_total_fee(gas, &pay_for_gas_option)?;
     let total_fee_dec = u256_to_big_decimal(total_fee, coin.decimals)?;
 
     if req.max && coin.coin_type == EthCoinType::Eth {
@@ -683,15 +700,24 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
                 .await?
                 .map_to_mm(WithdrawError::Transport)?;
 
-            let tx = UnSignedEthTx::Legacy(LegacyTransaction {
-                nonce,
-                value: eth_value,
-                action: Action::Call(call_addr),
-                data,
-                gas,
-                gas_price,
-            });
-
+            let tx_builder = UnSignedEthTxBuilder::new(nonce, gas, Action::Call(call_addr), eth_value, data);
+            let tx_builder = match pay_for_gas_option {
+                PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => tx_builder.with_gas_price(gas_price),
+                PayForGasOption::Eip1559(Eip1559FeePerGas {
+                    max_priority_fee_per_gas,
+                    max_fee_per_gas,
+                }) => {
+                    let chain_id = coin.chain_id.or_mm_err(|| WithdrawError::NoChainIdSet {
+                        coin: coin.ticker().to_owned(),
+                    })?;
+                    tx_builder
+                        .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
+                        .with_chain_id(chain_id)
+                },
+            };
+            let tx = tx_builder
+                .build()
+                .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
             let signed = tx.sign(key_pair.secret(), coin.chain_id);
             let bytes = rlp::encode(&signed);
 
@@ -713,7 +739,21 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
                 from: coin.my_address,
                 to: Some(to_addr),
                 gas: Some(gas),
-                gas_price: Some(gas_price),
+                gas_price: if let PayForGasOption::Legacy(ref legacy_gas_price) = pay_for_gas_option {
+                    Some(legacy_gas_price.gas_price)
+                } else {
+                    None
+                },
+                max_priority_fee_per_gas: if let PayForGasOption::Eip1559(ref fee_per_gas) = pay_for_gas_option {
+                    Some(fee_per_gas.max_priority_fee_per_gas)
+                } else {
+                    None
+                },
+                max_fee_per_gas: if let PayForGasOption::Eip1559(ref fee_per_gas) = pay_for_gas_option {
+                    Some(fee_per_gas.max_fee_per_gas)
+                } else {
+                    None
+                },
                 value: Some(eth_value),
                 data: Some(data.clone().into()),
                 nonce: None,
@@ -749,7 +789,7 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
     } else {
         0.into()
     };
-    let fee_details = EthTxFeeDetails::new(gas, gas_price, fee_coin)?;
+    let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
     if coin.coin_type == EthCoinType::Eth {
         spent_by_me += &fee_details.total_fee;
     }
@@ -822,7 +862,7 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
         },
         EthCoinType::Nft { .. } => return MmError::err(WithdrawError::NftProtocolNotSupported),
     };
-    let (gas, gas_price) = get_eth_gas_details(
+    let (gas, pay_for_gas_option) = get_eth_gas_details_from_withdraw_fee(
         &eth_coin,
         withdraw_type.fee,
         eth_value,
@@ -840,19 +880,28 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
         .await?
         .map_to_mm(WithdrawError::Transport)?;
 
-    let tx = UnSignedEthTx::Legacy(LegacyTransaction {
-        nonce,
-        value: eth_value,
-        action: Action::Call(call_addr),
-        data,
-        gas,
-        gas_price,
-    });
-
+    let tx_builder = UnSignedEthTxBuilder::new(nonce, gas, Action::Call(call_addr), eth_value, data);
+    let tx_builder = match pay_for_gas_option {
+        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => tx_builder.with_gas_price(gas_price),
+        PayForGasOption::Eip1559(Eip1559FeePerGas {
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+        }) => {
+            let chain_id = eth_coin.chain_id.or_mm_err(|| WithdrawError::NoChainIdSet {
+                coin: eth_coin.ticker().to_owned(),
+            })?;
+            tx_builder
+                .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
+                .with_chain_id(chain_id)
+        },
+    };
+    let tx = tx_builder
+        .build()
+        .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
     let secret = eth_coin.priv_key_policy.activated_key_or_err()?.secret();
     let signed = tx.sign(secret, eth_coin.chain_id);
     let signed_bytes = rlp::encode(&signed);
-    let fee_details = EthTxFeeDetails::new(gas, gas_price, fee_coin)?;
+    let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
 
     Ok(TransactionNftDetails {
         tx_hex: BytesJson::from(signed_bytes.to_vec()),
@@ -910,7 +959,7 @@ pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> Withd
         // TODO: start to use NFT GLOBAL TOKEN for withdraw
         EthCoinType::Nft { .. } => return MmError::err(WithdrawError::NftProtocolNotSupported),
     };
-    let (gas, gas_price) = get_eth_gas_details(
+    let (gas, pay_for_gas_option) = get_eth_gas_details_from_withdraw_fee(
         &eth_coin,
         withdraw_type.fee,
         eth_value,
@@ -928,19 +977,28 @@ pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> Withd
         .await?
         .map_to_mm(WithdrawError::Transport)?;
 
-    let tx = UnSignedEthTx::Legacy(LegacyTransaction {
-        nonce,
-        value: eth_value,
-        action: Action::Call(call_addr),
-        data,
-        gas,
-        gas_price,
-    });
-
+    let tx_builder = UnSignedEthTxBuilder::new(nonce, gas, Action::Call(call_addr), eth_value, data);
+    let tx_builder = match pay_for_gas_option {
+        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => tx_builder.with_gas_price(gas_price),
+        PayForGasOption::Eip1559(Eip1559FeePerGas {
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+        }) => {
+            let chain_id = eth_coin.chain_id.or_mm_err(|| WithdrawError::NoChainIdSet {
+                coin: eth_coin.ticker().to_owned(),
+            })?;
+            tx_builder
+                .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
+                .with_chain_id(chain_id)
+        },
+    };
+    let tx = tx_builder
+        .build()
+        .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
     let secret = eth_coin.priv_key_policy.activated_key_or_err()?.secret();
     let signed = tx.sign(secret, eth_coin.chain_id);
     let signed_bytes = rlp::encode(&signed);
-    let fee_details = EthTxFeeDetails::new(gas, gas_price, fee_coin)?;
+    let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
 
     Ok(TransactionNftDetails {
         tx_hex: BytesJson::from(signed_bytes.to_vec()),
@@ -2369,14 +2427,8 @@ async fn sign_transaction_with_keypair(
     status.status(tags!(), "get_gas_price…");
     let gas_price = try_tx_s!(coin.get_gas_price().compat().await);
 
-    let tx = UnSignedEthTx::Legacy(LegacyTransaction {
-        nonce,
-        gas_price,
-        gas,
-        action,
-        value,
-        data,
-    });
+    let tx_builder = UnSignedEthTxBuilder::new(nonce, gas, action, value, data).with_gas_price(gas_price); // TODO: add support for eip1559 params (f.e.: create a GasParams struct with gas_limit and PayForGasOption members and use it as a param instead of 'gas' param)
+    let tx = tx_builder.build().map_err(|e| TransactionErr::Plain(e.to_string()))?;
 
     Ok((
         tx.sign(key_pair.secret(), coin.chain_id),
@@ -2909,11 +2961,18 @@ impl EthCoin {
                 let fee_details: Option<EthTxFeeDetails> = match receipt {
                     Some(r) => {
                         let gas_used = r.gas_used.unwrap_or_default();
-                        let gas_price = web3_tx.gas_price.unwrap_or_default();
-                        // It's relatively safe to unwrap `EthTxFeeDetails::new` as it may fail
-                        // due to `u256_to_big_decimal` only.
-                        // Also TX history is not used by any GUI and has significant disadvantages.
-                        Some(EthTxFeeDetails::new(gas_used, gas_price, fee_coin).unwrap())
+                        let gas_price = web3_tx.gas_price.unwrap_or_default(); // TODO: create and use EthTxFeeDetails::from(web3_tx)
+                                                                               // It's relatively safe to unwrap `EthTxFeeDetails::new` as it may fail
+                                                                               // due to `u256_to_big_decimal` only.
+                                                                               // Also TX history is not used by any GUI and has significant disadvantages.
+                        Some(
+                            EthTxFeeDetails::new(
+                                gas_used,
+                                PayForGasOption::Legacy(LegacyGasPrice { gas_price }),
+                                fee_coin,
+                            )
+                            .unwrap(),
+                        )
                     },
                     None => None,
                 };
@@ -3293,7 +3352,14 @@ impl EthCoin {
                         // It's relatively safe to unwrap `EthTxFeeDetails::new` as it may fail
                         // due to `u256_to_big_decimal` only.
                         // Also TX history is not used by any GUI and has significant disadvantages.
-                        Some(EthTxFeeDetails::new(gas_used, gas_price, fee_coin).unwrap())
+                        Some(
+                            EthTxFeeDetails::new(
+                                gas_used,
+                                PayForGasOption::Legacy(LegacyGasPrice { gas_price }),
+                                fee_coin,
+                            )
+                            .unwrap(),
+                        )
                     },
                     None => None,
                 };
@@ -5080,22 +5146,44 @@ pub struct EthTxFeeDetails {
     pub gas: u64,
     /// WEI units per 1 gas
     pub gas_price: BigDecimal,
+    pub max_fee_per_gas: Option<BigDecimal>,
+    pub max_priority_fee_per_gas: Option<BigDecimal>,
     pub total_fee: BigDecimal,
 }
 
 impl EthTxFeeDetails {
-    pub(crate) fn new(gas: U256, gas_price: U256, coin: &str) -> NumConversResult<EthTxFeeDetails> {
-        let total_fee = gas * gas_price;
+    pub(crate) fn new(gas: U256, pay_for_gas_option: PayForGasOption, coin: &str) -> NumConversResult<EthTxFeeDetails> {
+        let total_fee = calc_total_fee(gas, &pay_for_gas_option)?;
         // Fees are always paid in ETH, can use 18 decimals by default
         let total_fee = u256_to_big_decimal(total_fee, ETH_DECIMALS)?;
+        let (gas_price, max_fee_per_gas, max_priority_fee_per_gas) = match pay_for_gas_option {
+            PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => (gas_price, None, None),
+            // Using max_fee_per_gas as estimated gas_price value for compatibility in caller not expecting eip1559 fee per gas values.
+            // Normally the caller should pay attention to presence of max_fee_per_gas and max_priority_fee_per_gas in the result:
+            PayForGasOption::Eip1559(Eip1559FeePerGas {
+                max_fee_per_gas,
+                max_priority_fee_per_gas,
+            }) => (max_fee_per_gas, Some(max_fee_per_gas), Some(max_priority_fee_per_gas)),
+        };
         let gas_price = u256_to_big_decimal(gas_price, ETH_DECIMALS)?;
-
+        let max_fee_per_gas = if let Some(max_fee_per_gas) = max_fee_per_gas {
+            Some(u256_to_big_decimal(max_fee_per_gas, ETH_DECIMALS)?)
+        } else {
+            None
+        };
+        let max_priority_fee_per_gas = if let Some(max_priority_fee_per_gas) = max_priority_fee_per_gas {
+            Some(u256_to_big_decimal(max_priority_fee_per_gas, ETH_DECIMALS)?)
+        } else {
+            None
+        };
         let gas_u64 = u64::try_from(gas).map_to_mm(|e| NumConversError::new(e.to_string()))?;
 
         Ok(EthTxFeeDetails {
             coin: coin.to_owned(),
             gas: gas_u64,
             gas_price,
+            max_fee_per_gas,
+            max_priority_fee_per_gas,
             total_fee,
         })
     }
@@ -6073,7 +6161,7 @@ impl From<Web3RpcError> for EthGasDetailsErr {
     }
 }
 
-async fn get_eth_gas_details(
+async fn get_eth_gas_details_from_withdraw_fee(
     eth_coin: &EthCoin,
     fee: Option<WithdrawFee>,
     eth_value: U256,
@@ -6083,8 +6171,23 @@ async fn get_eth_gas_details(
 ) -> MmResult<GasDetails, EthGasDetailsErr> {
     match fee {
         Some(WithdrawFee::EthGas { gas_price, gas }) => {
-            let gas_price = wei_from_big_decimal(&gas_price, 9)?;
-            Ok((gas.into(), gas_price))
+            let gas_price = wei_from_big_decimal(&gas_price, ETH_GWEI_DECIMALS)?;
+            Ok((gas.into(), PayForGasOption::Legacy(LegacyGasPrice { gas_price })))
+        },
+        Some(WithdrawFee::EthGasEip1559 {
+            max_fee_per_gas,
+            max_priority_fee_per_gas,
+            gas,
+        }) => {
+            let max_fee_per_gas = wei_from_big_decimal(&max_fee_per_gas, ETH_GWEI_DECIMALS)?;
+            let max_priority_fee_per_gas = wei_from_big_decimal(&max_priority_fee_per_gas, ETH_GWEI_DECIMALS)?;
+            Ok((
+                gas.into(),
+                PayForGasOption::Eip1559(Eip1559FeePerGas {
+                    max_fee_per_gas,
+                    max_priority_fee_per_gas,
+                }),
+            ))
         },
         Some(fee_policy) => {
             let error = format!("Expected 'EthGas' fee type, found {:?}", fee_policy);
@@ -6112,7 +6215,19 @@ async fn get_eth_gas_details(
             // TODO Note if the wallet's balance is insufficient to withdraw, then `estimate_gas` may fail with the `Exception` error.
             // TODO Ideally we should determine the case when we have the insufficient balance and return `WithdrawError::NotSufficientBalance`.
             let gas_limit = eth_coin.estimate_gas_wrapper(estimate_gas_req).compat().await?;
-            Ok((gas_limit, gas_price))
+            Ok((gas_limit, PayForGasOption::Legacy(LegacyGasPrice { gas_price })))
         },
+    }
+}
+
+/// Calc estimated total gas fee
+fn calc_total_fee(gas: U256, pay_for_gas_option: &PayForGasOption) -> NumConversResult<U256> {
+    match *pay_for_gas_option {
+        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => gas
+            .checked_mul(gas_price)
+            .or_mm_err(|| NumConversError("total fee overflow".into())),
+        PayForGasOption::Eip1559(Eip1559FeePerGas { max_fee_per_gas, .. }) => gas
+            .checked_mul(max_fee_per_gas)
+            .or_mm_err(|| NumConversError("total fee overflow".into())),
     }
 }

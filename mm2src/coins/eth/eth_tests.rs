@@ -478,6 +478,8 @@ fn test_withdraw_impl_manual_fee() {
             gas_price: "0.000000001".parse().unwrap(),
             gas: ETH_GAS,
             total_fee: "0.00015".parse().unwrap(),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
         }
         .into(),
     );
@@ -523,6 +525,8 @@ fn test_withdraw_impl_fee_details() {
             gas_price: "0.000000001".parse().unwrap(),
             gas: ETH_GAS,
             total_fee: "0.00015".parse().unwrap(),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
         }
         .into(),
     );
