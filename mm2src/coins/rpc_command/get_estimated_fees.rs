@@ -206,7 +206,7 @@ pub async fn stop_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopReques
 /// Only main chain is supported
 ///
 /// Returns latest estimated fee per gas for the next block
-pub async fn get_eth_gas_price_estimated(ctx: MmArc, req: FeeEstimatorRequest) -> FeeEstimatorResult {
+pub async fn get_eth_estimated_fee_per_gas(ctx: MmArc, req: FeeEstimatorRequest) -> FeeEstimatorResult {
     FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
     let estimated_fees = FeeEstimatorContext::get_estimated_fees(ctx).await?;
     Ok(estimated_fees)

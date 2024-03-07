@@ -16,7 +16,7 @@ use coins::rpc_command::tendermint::{ibc_chains, ibc_transfer_channels, ibc_with
 use coins::rpc_command::{account_balance::account_balance,
                          get_current_mtp::get_current_mtp_rpc,
                          get_enabled_coins::get_enabled_coins,
-                         get_estimated_fees::{get_eth_gas_price_estimated, start_eth_fee_estimator,
+                         get_estimated_fees::{get_eth_estimated_fee_per_gas, start_eth_fee_estimator,
                                               stop_eth_fee_estimator},
                          get_new_address::{cancel_get_new_address, get_new_address, init_get_new_address,
                                            init_get_new_address_status, init_get_new_address_user_action},
@@ -209,7 +209,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "withdraw_nft" => handle_mmrpc(ctx, request, withdraw_nft).await,
         "start_eth_fee_estimator" => handle_mmrpc(ctx, request, start_eth_fee_estimator).await,
         "stop_eth_fee_estimator" => handle_mmrpc(ctx, request, stop_eth_fee_estimator).await,
-        "get_eth_gas_price_estimated" => handle_mmrpc(ctx, request, get_eth_gas_price_estimated).await,
+        "get_eth_estimated_fee_per_gas" => handle_mmrpc(ctx, request, get_eth_estimated_fee_per_gas).await,
         #[cfg(not(target_arch = "wasm32"))]
         native_only_methods => match native_only_methods {
             #[cfg(all(feature = "enable-solana", not(target_os = "ios"), not(target_os = "android")))]
