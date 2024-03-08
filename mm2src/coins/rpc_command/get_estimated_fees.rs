@@ -1,4 +1,4 @@
-//! RPCs to start/stop gas price estimator and get estimated base and priority fee per gas
+//! RPCs to start/stop gas fee estimator and get estimated base and priority fee per gas
 
 use crate::eth::{EthCoin, FeePerGasEstimated};
 use crate::AsyncMutex;
@@ -11,7 +11,8 @@ use mm2_err_handle::prelude::*;
 use std::sync::Arc;
 
 const FEE_ESTIMATOR_NAME: &str = "eth_fee_estimator_loop";
-const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is suppported. To support other chains add a FeeEstimatorContext for each chain
+const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is suppported (Blocknative gas platform currently supports Ethereum and Polygon/Matic mainnets.)
+                                       // To support fee estimations for other chains add a FeeEstimatorContext for a new chain
 
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -133,7 +134,7 @@ impl FeeEstimatorContext {
 
 /// Loop polling gas fee estimator
 ///
-/// This loop periodically calls get_eip1559_gas_price which fetches fee per gas estimations from a gas api provider or calculates them internally
+/// This loop periodically calls get_eip1559_gas_fee which fetches fee per gas estimations from a gas api provider or calculates them internally
 /// The retrieved data are stored in the fee estimator context
 /// To connect to the chain and gas api provider the web3 instances are used from an EthCoin coin passed in the start rpc param,
 /// so this coin must be enabled first.
@@ -143,7 +144,7 @@ impl FeeEstimatorContext {
 async fn fee_estimator_loop(estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>, coin: EthCoin) {
     loop {
         let started = common::now_float();
-        *estimated_fees.lock().await = coin.get_eip1559_gas_price().await.unwrap_or_default();
+        *estimated_fees.lock().await = coin.get_eip1559_gas_fee().await.unwrap_or_default();
 
         let elapsed = common::now_float() - started;
         debug!(

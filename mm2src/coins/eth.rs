@@ -4752,8 +4752,8 @@ impl EthCoin {
         Box::new(fut.boxed().compat())
     }
 
-    /// Get base gas fee and suggest priority tip fees for the next block (see EIP1559)
-    pub async fn get_eip1559_gas_price(&self) -> Result<FeePerGasEstimated, MmError<Web3RpcError>> {
+    /// Get gas base fee and suggest priority tip fees for the next block (see EIP-1559)
+    pub async fn get_eip1559_gas_fee(&self) -> Result<FeePerGasEstimated, MmError<Web3RpcError>> {
         let coin = self.clone();
         let fee_history_namespace: EthFeeHistoryNamespace<_> = coin.web3.api();
         let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(fee_history_namespace);
