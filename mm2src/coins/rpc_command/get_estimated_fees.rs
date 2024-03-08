@@ -10,7 +10,7 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use std::sync::Arc;
 
-const FEE_ESTIMATOR_NAME: &str = "eth_fee_estimator_loop";
+const FEE_ESTIMATOR_NAME: &str = "eth_gas_fee_estimator_loop";
 const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is suppported (Blocknative gas platform currently supports Ethereum and Polygon/Matic mainnets.)
                                        // To support fee estimations for other chains add a FeeEstimatorContext for a new chain
 
@@ -19,15 +19,15 @@ const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is suppported (Blockn
 pub enum FeeEstimatorError {
     #[display(fmt = "Coin not activated")]
     CoinNotActivated,
-    #[display(fmt = "Gas estimation not supported for this coin")]
+    #[display(fmt = "Gas fee estimation not supported for this coin")]
     CoinNotSupported,
     #[display(fmt = "Chain id not supported")]
     ChainNotSupported,
-    #[display(fmt = "Fee estimator is already started")]
+    #[display(fmt = "Gas fee estimator is already started")]
     AlreadyStarted,
     #[display(fmt = "Transport error: {}", _0)]
     Transport(String),
-    #[display(fmt = "Fee estimator is not running")]
+    #[display(fmt = "Gas fee estimator is not running")]
     NotRunning,
     #[display(fmt = "Internal error: {}", _0)]
     InternalError(String),
