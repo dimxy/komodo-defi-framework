@@ -11,7 +11,7 @@ use mm2_err_handle::prelude::*;
 use std::sync::Arc;
 
 const FEE_ESTIMATOR_NAME: &str = "eth_fee_estimator_loop";
-const ETH_SUPPORTED_CHAIN_ID: u64 = 1;
+const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is suppported. To support other chains add a FeeEstimatorContext for each chain
 
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -135,8 +135,11 @@ impl FeeEstimatorContext {
 ///
 /// This loop periodically calls get_eip1559_gas_price which fetches fee per gas estimations from a gas api provider or calculates them internally
 /// The retrieved data are stored in the fee estimator context
-/// To connect to the gas api provider the web3 instances from the platform coin are used so ETH coin must be enabled
-/// TODO: assumed that once the plaform coin is enabled it is always available and never can be disabled. Should we track it disabled?
+/// To connect to the chain and gas api provider the web3 instances are used from an EthCoin coin passed in the start rpc param,
+/// so this coin must be enabled first.
+/// Once the loop started any other EthCoin in mainnet may request fee estimations.
+/// It is up to GUI to start and stop the loop when it needs it (considering that the data in context may be used
+/// for any coin with Eth or Erc20 type from the mainnet).
 async fn fee_estimator_loop(estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>, coin: EthCoin) {
     loop {
         let started = common::now_float();
