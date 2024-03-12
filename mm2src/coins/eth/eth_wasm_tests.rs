@@ -40,6 +40,7 @@ async fn test_send() {
         web3_instances: AsyncMutex::new(vec![Web3Instance { web3, is_parity: false }]),
         decimals: 18,
         history_sync_state: Mutex::new(HistorySyncState::NotStarted),
+        swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
         ctx: ctx.weak(),
         required_confirmations: 1.into(),
         chain_id: None,

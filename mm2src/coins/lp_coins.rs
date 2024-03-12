@@ -2225,6 +2225,26 @@ pub enum TradePreimageValue {
     UpperBound(BigDecimal),
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SwapTxFeePolicy {
+    Unsupported,
+    Internal,
+    Low,
+    Medium,
+    High,
+}
+
+impl Default for SwapTxFeePolicy {
+    fn default() -> Self { SwapTxFeePolicy::Unsupported }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetSwapTxFeePolicyReq {
+    coin: String,
+    #[serde(default)]
+    swap_tx_fee_policy: SwapTxFeePolicy,
+}
+
 #[derive(Debug, Display, PartialEq)]
 pub enum TradePreimageError {
     #[display(
@@ -3081,6 +3101,12 @@ pub trait MmCoin:
 
     /// For Handling the removal/deactivation of token on platform coin deactivation.
     fn on_token_deactivated(&self, ticker: &str);
+
+    /// Return swap transaction fee policy
+    fn swap_transaction_fee_policy(&self) -> SwapTxFeePolicy;
+
+    /// set swap transaction fee policy
+    fn set_swap_transaction_fee_policy(&self, swap_txfee_policy: SwapTxFeePolicy);
 }
 
 /// The coin futures spawner. It's used to spawn futures that can be aborted immediately or after a timeout
@@ -4903,6 +4929,23 @@ fn coins_conf_check(ctx: &MmArc, coins_en: &Json, ticker: &str, req: Option<&Jso
         );
     }
     Ok(())
+}
+
+pub async fn set_swap_transaction_fee_policy(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
+    let req: SetSwapTxFeePolicyReq = try_s!(json::from_value(req));
+    let coin = match lp_coinfind(&ctx, &req.coin).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return ERR!("No such coin {}", req.coin),
+        Err(err) => return ERR!("!lp_coinfind ({}): {}", req.coin, err),
+    };
+    coin.set_swap_transaction_fee_policy(req.swap_tx_fee_policy);
+    let res = try_s!(json::to_vec(&json!({
+        "result": {
+            "coin": req.coin,
+            "swap_tx_fee_policy": coin.swap_transaction_fee_policy(),
+        }
+    })));
+    Ok(try_s!(Response::builder().body(res)))
 }
 
 #[cfg(test)]

@@ -16,8 +16,8 @@ use crate::mm2::lp_swap::{active_swaps_rpc, all_swaps_uuids_by_filter, ban_pubke
                           recover_funds_of_swap, stats_swap_status, unban_pubkeys_rpc};
 use crate::mm2::rpc::rate_limiter::{process_rate_limit, RateLimitContext};
 use coins::{convert_address, convert_utxo_address, get_enabled_coins, get_trade_fee, kmd_rewards_info, my_tx_history,
-            send_raw_transaction, set_required_confirmations, set_requires_notarization, show_priv_key,
-            validate_address};
+            send_raw_transaction, set_required_confirmations, set_requires_notarization,
+            set_swap_transaction_fee_policy, show_priv_key, validate_address};
 
 /// Result of `fn dispatcher`.
 pub enum DispatcherRes {
@@ -107,6 +107,7 @@ pub fn dispatcher(req: Json, ctx: MmArc) -> DispatcherRes {
         "set_requires_notarization" => hyres(set_requires_notarization(ctx, req)),
         "setprice" => hyres(set_price(ctx, req)),
         "stats_swap_status" => hyres(stats_swap_status(ctx, req)),
+        "set_swap_transaction_fee_policy" => hyres(set_swap_transaction_fee_policy(ctx, req)),
         "stop" => hyres(stop(ctx)),
         "trade_preimage" => hyres(into_legacy::trade_preimage(ctx, req)),
         "unban_pubkeys" => hyres(unban_pubkeys_rpc(ctx, req)),
