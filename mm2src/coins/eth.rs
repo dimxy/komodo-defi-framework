@@ -188,15 +188,18 @@ pub type Web3RpcFut<T> = Box<dyn Future<Item = T, Error = MmError<Web3RpcError>>
 pub type Web3RpcResult<T> = Result<T, MmError<Web3RpcError>>;
 type EthPrivKeyPolicy = PrivKeyPolicy<KeyPair>;
 
+#[derive(Clone)]
 pub(crate) struct LegacyGasPrice {
     pub gas_price: U256,
 }
 
+#[derive(Clone)]
 pub(crate) struct Eip1559FeePerGas {
     pub max_priority_fee_per_gas: U256,
     pub max_fee_per_gas: U256,
 }
 
+#[derive(Clone)]
 pub(crate) enum PayForGasOption {
     Legacy(LegacyGasPrice),
     Eip1559(Eip1559FeePerGas),
@@ -702,20 +705,7 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
                 .map_to_mm(WithdrawError::Transport)?;
 
             let tx_builder = UnSignedEthTxBuilder::new(nonce, gas, Action::Call(call_addr), eth_value, data);
-            let tx_builder = match pay_for_gas_option {
-                PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => tx_builder.with_gas_price(gas_price),
-                PayForGasOption::Eip1559(Eip1559FeePerGas {
-                    max_priority_fee_per_gas,
-                    max_fee_per_gas,
-                }) => {
-                    let chain_id = coin.chain_id.or_mm_err(|| WithdrawError::NoChainIdSet {
-                        coin: coin.ticker().to_owned(),
-                    })?;
-                    tx_builder
-                        .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
-                        .with_chain_id(chain_id)
-                },
-            };
+            let tx_builder = tx_builder_with_pay_for_gas_option(&coin, tx_builder, pay_for_gas_option.clone())?;
             let tx = tx_builder
                 .build()
                 .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
@@ -882,20 +872,7 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
         .map_to_mm(WithdrawError::Transport)?;
 
     let tx_builder = UnSignedEthTxBuilder::new(nonce, gas, Action::Call(call_addr), eth_value, data);
-    let tx_builder = match pay_for_gas_option {
-        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => tx_builder.with_gas_price(gas_price),
-        PayForGasOption::Eip1559(Eip1559FeePerGas {
-            max_priority_fee_per_gas,
-            max_fee_per_gas,
-        }) => {
-            let chain_id = eth_coin.chain_id.or_mm_err(|| WithdrawError::NoChainIdSet {
-                coin: eth_coin.ticker().to_owned(),
-            })?;
-            tx_builder
-                .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
-                .with_chain_id(chain_id)
-        },
-    };
+    let tx_builder = tx_builder_with_pay_for_gas_option(&eth_coin, tx_builder, pay_for_gas_option.clone())?;
     let tx = tx_builder
         .build()
         .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
@@ -979,20 +956,7 @@ pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> Withd
         .map_to_mm(WithdrawError::Transport)?;
 
     let tx_builder = UnSignedEthTxBuilder::new(nonce, gas, Action::Call(call_addr), eth_value, data);
-    let tx_builder = match pay_for_gas_option {
-        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => tx_builder.with_gas_price(gas_price),
-        PayForGasOption::Eip1559(Eip1559FeePerGas {
-            max_priority_fee_per_gas,
-            max_fee_per_gas,
-        }) => {
-            let chain_id = eth_coin.chain_id.or_mm_err(|| WithdrawError::NoChainIdSet {
-                coin: eth_coin.ticker().to_owned(),
-            })?;
-            tx_builder
-                .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
-                .with_chain_id(chain_id)
-        },
-    };
+    let tx_builder = tx_builder_with_pay_for_gas_option(&eth_coin, tx_builder, pay_for_gas_option.clone())?;
     let tx = tx_builder
         .build()
         .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
@@ -6228,7 +6192,7 @@ async fn get_eth_gas_details_from_withdraw_fee(
     }
 }
 
-/// Calc estimated total gas fee
+/// Calc estimated total gas fee or price
 fn calc_total_fee(gas: U256, pay_for_gas_option: &PayForGasOption) -> NumConversResult<U256> {
     match *pay_for_gas_option {
         PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => gas
@@ -6238,4 +6202,27 @@ fn calc_total_fee(gas: U256, pay_for_gas_option: &PayForGasOption) -> NumConvers
             .checked_mul(max_fee_per_gas)
             .or_mm_err(|| NumConversError("total fee overflow".into())),
     }
+}
+
+#[allow(clippy::result_large_err)]
+fn tx_builder_with_pay_for_gas_option(
+    eth_coin: &EthCoin,
+    tx_builder: UnSignedEthTxBuilder,
+    pay_for_gas_option: PayForGasOption,
+) -> MmResult<UnSignedEthTxBuilder, WithdrawError> {
+    let tx_builder = match pay_for_gas_option {
+        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => tx_builder.with_gas_price(gas_price),
+        PayForGasOption::Eip1559(Eip1559FeePerGas {
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+        }) => {
+            let chain_id = eth_coin.chain_id.or_mm_err(|| WithdrawError::NoChainIdSet {
+                coin: eth_coin.ticker().to_owned(),
+            })?;
+            tx_builder
+                .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
+                .with_chain_id(chain_id)
+        },
+    };
+    Ok(tx_builder)
 }
