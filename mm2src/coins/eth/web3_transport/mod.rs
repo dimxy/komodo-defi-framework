@@ -131,7 +131,7 @@ pub struct FeeHistoryResult {
     #[serde(rename = "gasUsedRatio")]
     pub gas_used_ratio: Vec<f64>,
     #[serde(rename = "reward")]
-    pub priority_rewards: Vec<Vec<U256>>,
+    pub priority_rewards: Option<Vec<Vec<U256>>>,
 }
 
 /// Generates a signed message and inserts it into the request payload.

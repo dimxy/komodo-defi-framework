@@ -18,6 +18,8 @@ const GAS_PRICE_APPROXIMATION_ON_START_SWAP: u64 = 51_500_000_000;
 const GAS_PRICE_APPROXIMATION_ON_ORDER_ISSUE: u64 = 52_500_000_000;
 // `GAS_PRICE` increased by 7%
 const GAS_PRICE_APPROXIMATION_ON_TRADE_PREIMAGE: u64 = 53_500_000_000;
+// old way to add some extra gas to the returned value from gas station (non-existent now), still used in tests
+const GAS_PRICE_PERCENT: u64 = 10;
 
 const TAKER_PAYMENT_SPEND_SEARCH_INTERVAL: f64 = 1.;
 
@@ -451,39 +453,6 @@ fn test_wait_for_payment_spend_timeout() {
         })
         .wait()
         .is_err());
-}
-
-#[test]
-fn test_gas_station() {
-    make_gas_station_request.mock_safe(|_| {
-        let data = GasStationData {
-            average: 500.into(),
-            fast: 1000.into(),
-        };
-        MockResult::Return(Box::pin(async move { Ok(data) }))
-    });
-    let res_eth = GasStationData::get_gas_price(
-        "https://ethgasstation.info/api/ethgasAPI.json",
-        8,
-        GasStationPricePolicy::MeanAverageFast,
-    )
-    .wait()
-    .unwrap();
-    let one_gwei = U256::from(10u64.pow(9));
-
-    let expected_eth_wei = U256::from(75) * one_gwei;
-    assert_eq!(expected_eth_wei, res_eth);
-
-    let res_polygon = GasStationData::get_gas_price(
-        "https://gasstation-mainnet.matic.network/",
-        9,
-        GasStationPricePolicy::Average,
-    )
-    .wait()
-    .unwrap();
-
-    let expected_eth_polygon = U256::from(500) * one_gwei;
-    assert_eq!(expected_eth_polygon, res_polygon);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1330,4 +1299,15 @@ fn test_eth_validate_valid_and_invalid_pubkey() {
     // Test expected to fail at this point as we're using a valid pubkey to validate against an invalid pubkeys
     assert!(coin.validate_other_pubkey(&[1u8; 20]).is_err());
     assert!(coin.validate_other_pubkey(&[1u8; 8]).is_err());
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn test_fee_history() {
+    use mm2_test_helpers::for_tests::ETH_DEV_NODES;
+
+    let (_ctx, coin) = eth_coin_for_test(EthCoinType::Eth, ETH_DEV_NODES, None);
+    // check fee history without percentiles decoded okay
+    let res = block_on(coin.eth_fee_history(U256::from(1u64), BlockNumber::Latest, &[]));
+    assert!(res.is_ok());
 }

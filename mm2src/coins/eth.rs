@@ -51,12 +51,12 @@ use ethkey::{sign, verify_address};
 use futures::compat::Future01CompatExt;
 use futures::future::{join, join_all, select_ok, try_join_all, Either, FutureExt, TryFutureExt};
 use futures01::Future;
-use http::{StatusCode, Uri};
+use http::Uri;
 use instant::Instant;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
 use mm2_event_stream::behaviour::{EventBehaviour, EventInitStatus};
-use mm2_net::transport::{slurp_url, GuiAuthValidation, GuiAuthValidationGenerator, SlurpError};
+use mm2_net::transport::{GuiAuthValidation, GuiAuthValidationGenerator, SlurpError};
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, MmNumber};
 use mm2_rpc::data::legacy::GasStationPricePolicy;
@@ -150,7 +150,6 @@ pub enum PaymentState {
 }
 // Ethgasstation API returns response in 10^8 wei units. So 10 from their API mean 1 gwei
 const ETH_GAS_STATION_DECIMALS: u8 = 8;
-const GAS_PRICE_PERCENT: u64 = 10;
 /// It can change 12.5% max each block according to https://www.blocknative.com/blog/eip-1559-fees
 const BASE_BLOCK_FEE_DIFF_PCT: u64 = 13;
 const DEFAULT_LOGS_BLOCK_RANGE: u64 = 1000;
@@ -189,7 +188,6 @@ lazy_static! {
 
 pub type Web3RpcFut<T> = Box<dyn Future<Item = T, Error = MmError<Web3RpcError>> + Send>;
 pub type Web3RpcResult<T> = Result<T, MmError<Web3RpcError>>;
-pub type GasStationResult = Result<GasStationData, MmError<GasStationReqErr>>;
 type EthPrivKeyPolicy = PrivKeyPolicy<KeyPair>;
 type GasDetails = (U256, U256);
 
@@ -506,20 +504,6 @@ pub enum EthAddressFormat {
     /// https://eips.ethereum.org/EIPS/eip-55
     #[serde(rename = "mixedcase")]
     MixedCase,
-}
-
-#[cfg_attr(test, mockable)]
-async fn make_gas_station_request(url: &str) -> GasStationResult {
-    let resp = slurp_url(url).await?;
-    if resp.0 != StatusCode::OK {
-        let error = format!("Gas price request failed with status code {}", resp.0);
-        return MmError::err(GasStationReqErr::Transport {
-            uri: url.to_owned(),
-            error,
-        });
-    }
-    let result: GasStationData = json::from_slice(&resp.2)?;
-    Ok(result)
 }
 
 impl EthCoinImpl {
@@ -4853,45 +4837,33 @@ impl EthCoin {
     pub fn get_gas_price(&self) -> Web3RpcFut<U256> {
         let coin = self.clone();
         let fut = async move {
-            // TODO refactor to error_log_passthrough once simple maker bot is merged
-            let gas_station_price = match &coin.gas_station_url {
-                Some(url) => {
-                    match GasStationData::get_gas_price(url, coin.gas_station_decimals, coin.gas_station_policy.clone())
-                        .compat()
-                        .await
-                    {
-                        Ok(from_station) => Some(increase_by_percent_one_gwei(from_station, GAS_PRICE_PERCENT)),
-                        Err(e) => {
-                            error!("Error {} on request to gas station url {}", e, url);
-                            None
-                        },
-                    }
-                },
-                None => None,
-            };
+            let eth_gas_price_fut = async {
+                    match coin.gas_price().await {
+                    Ok(eth_gas) => Some(eth_gas),
+                    Err(e) => {
+                        error!("Error {} on eth_gasPrice request", e);
+                        None
+                    },
+                }
+            }.boxed();
 
-            let eth_gas_price = match coin.gas_price().await {
-                Ok(eth_gas) => Some(eth_gas),
-                Err(e) => {
-                    error!("Error {} on eth_gasPrice request", e);
-                    None
-                },
-            };
+            let eth_fee_history_price_fut = async { 
+                match coin.eth_fee_history(U256::from(1u64), BlockNumber::Latest, &[]).await {
+                    Ok(res) => res
+                        .base_fee_per_gas
+                        .first()
+                        .map(|val| increase_by_percent_one_gwei(*val, BASE_BLOCK_FEE_DIFF_PCT)),
+                    Err(e) => {
+                        debug!("Error {} on eth_feeHistory request", e);
+                        None
+                    },
+                }
+            }.boxed();
 
-            let eth_fee_history_price = match coin.eth_fee_history(U256::from(1u64), BlockNumber::Latest, &[]).await {
-                Ok(res) => res
-                    .base_fee_per_gas
-                    .first()
-                    .map(|val| increase_by_percent_one_gwei(*val, BASE_BLOCK_FEE_DIFF_PCT)),
-                Err(e) => {
-                    debug!("Error {} on eth_feeHistory request", e);
-                    None
-                },
-            };
-
+            let (eth_gas_price, eth_fee_history_price) = join(eth_gas_price_fut, eth_fee_history_price_fut).await;
             // on editions < 2021 the compiler will resolve array.into_iter() as (&array).into_iter()
             // https://doc.rust-lang.org/edition-guide/rust-2021/IntoIterator-for-arrays.html#details
-            IntoIterator::into_iter([gas_station_price, eth_gas_price, eth_fee_history_price])
+            IntoIterator::into_iter([eth_gas_price, eth_fee_history_price])
                 .flatten()
                 .max()
                 .or_mm_err(|| Web3RpcError::Internal("All requests failed".into()))
@@ -5710,35 +5682,6 @@ fn signed_tx_from_web3_tx(transaction: Web3Transaction) -> Result<SignedEthTx, S
     };
 
     Ok(try_s!(SignedEthTx::new(unverified)))
-}
-
-#[derive(Deserialize, Debug, Serialize)]
-pub struct GasStationData {
-    // matic gas station average fees is named standard, using alias to support both format.
-    #[serde(alias = "average", alias = "standard")]
-    average: MmNumber,
-    fast: MmNumber,
-}
-
-impl GasStationData {
-    fn average_gwei(&self, decimals: u8, gas_price_policy: GasStationPricePolicy) -> NumConversResult<U256> {
-        let gas_price = match gas_price_policy {
-            GasStationPricePolicy::MeanAverageFast => ((&self.average + &self.fast) / MmNumber::from(2)).into(),
-            GasStationPricePolicy::Average => self.average.to_decimal(),
-        };
-        wei_from_big_decimal(&gas_price, decimals)
-    }
-
-    fn get_gas_price(uri: &str, decimals: u8, gas_price_policy: GasStationPricePolicy) -> Web3RpcFut<U256> {
-        let uri = uri.to_owned();
-        let fut = async move {
-            make_gas_station_request(&uri)
-                .await?
-                .average_gwei(decimals, gas_price_policy)
-                .mm_err(|e| Web3RpcError::Internal(e.0))
-        };
-        Box::new(fut.boxed().compat())
-    }
 }
 
 async fn get_token_decimals(web3: &Web3<Web3Transport>, token_addr: Address) -> Result<u8, String> {
