@@ -4838,16 +4838,17 @@ impl EthCoin {
         let coin = self.clone();
         let fut = async move {
             let eth_gas_price_fut = async {
-                    match coin.gas_price().await {
+                match coin.gas_price().await {
                     Ok(eth_gas) => Some(eth_gas),
                     Err(e) => {
                         error!("Error {} on eth_gasPrice request", e);
                         None
                     },
                 }
-            }.boxed();
+            }
+            .boxed();
 
-            let eth_fee_history_price_fut = async { 
+            let eth_fee_history_price_fut = async {
                 match coin.eth_fee_history(U256::from(1u64), BlockNumber::Latest, &[]).await {
                     Ok(res) => res
                         .base_fee_per_gas
@@ -4858,7 +4859,8 @@ impl EthCoin {
                         None
                     },
                 }
-            }.boxed();
+            }
+            .boxed();
 
             let (eth_gas_price, eth_fee_history_price) = join(eth_gas_price_fut, eth_fee_history_price_fut).await;
             // on editions < 2021 the compiler will resolve array.into_iter() as (&array).into_iter()
@@ -4874,32 +4876,32 @@ impl EthCoin {
     /// Get gas base fee and suggest priority tip fees for the next block (see EIP-1559)
     pub async fn get_eip1559_gas_fee(&self) -> Result<FeePerGasEstimated, MmError<Web3RpcError>> {
         let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(self);
-        let ctx = MmArc::from_weak(&self.ctx)
-            .ok_or("!ctx")
-            .map_to_mm(|err| Web3RpcError::Internal(err.to_string()))?;
+        let ctx =
+            MmArc::from_weak(&self.ctx).ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
         let gas_api_conf = ctx.conf["gas_api"].clone();
-        if !gas_api_conf.is_null() {
-            let gas_api_conf: GasApiConfig =
-                json::from_value(gas_api_conf).map_to_mm(|e| Web3RpcError::InvalidGasApiConfig(e.to_string()))?;
-            let provider_estimator_fut = match gas_api_conf.provider {
-                GasApiProvider::Infura => InfuraGasApiCaller::fetch_infura_fee_estimation(&gas_api_conf.url).boxed(),
-                GasApiProvider::Blocknative => {
-                    BlocknativeGasApiCaller::fetch_blocknative_fee_estimation(&gas_api_conf.url).boxed()
-                },
-            };
-
-            let (res_history, res_provider) = join(history_estimator_fut, provider_estimator_fut).await;
-            match (res_history, res_provider) {
-                (Ok(ref history_est), Err(_)) => Ok(history_est.clone()),
-                (_, Ok(ref provider_est)) => Ok(provider_est.clone()),
-                (_, _) => MmError::err(Web3RpcError::Internal("All gas api requests failed".into())), // TODO: send errors
-            }
-        } else {
-            // use only internal fee per gas estimator
-            history_estimator_fut
+        if gas_api_conf.is_null() {
+            return history_estimator_fut
                 .await
-                .mm_err(|e| Web3RpcError::Internal(e.to_string()))
+                .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
         }
+        let gas_api_conf: GasApiConfig = json::from_value(gas_api_conf)
+            .map_err(|e| MmError::new(Web3RpcError::InvalidGasApiConfig(e.to_string())))?;
+        let provider_estimator_fut = match gas_api_conf.provider {
+            GasApiProvider::Infura => InfuraGasApiCaller::fetch_infura_fee_estimation(&gas_api_conf.url).boxed(),
+            GasApiProvider::Blocknative => {
+                BlocknativeGasApiCaller::fetch_blocknative_fee_estimation(&gas_api_conf.url).boxed()
+            },
+        };
+        provider_estimator_fut
+            .or_else(|provider_estimator_err| {
+                history_estimator_fut.map_err(move |history_estimator_err| {
+                    MmError::new(Web3RpcError::Internal(format!(
+                        "All gas api requests failed, provider estimator error: {}, history estimator error: {}",
+                        provider_estimator_err, history_estimator_err
+                    )))
+                })
+            })
+            .await
     }
 
     /// Checks every second till at least one ETH node recognizes that nonce is increased.

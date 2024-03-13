@@ -1,8 +1,8 @@
 //! Provides estimations of base and priority fee per gas or fetch estimations from a gas api provider
 
-use crate::EthCoin;
 use super::web3_transport::FeeHistoryResult;
 use super::{u256_to_big_decimal, Web3RpcError, Web3RpcResult, ETH_GWEI_DECIMALS};
+use crate::EthCoin;
 use ethereum_types::U256;
 use mm2_err_handle::mm_error::MmError;
 use mm2_err_handle::or_mm_error::OrMmError;
@@ -223,9 +223,7 @@ impl FeePerGasSimpleEstimator {
     }
 
     /// Estimate simplified gas priority fees based on fee history
-    pub async fn estimate_fee_by_history(
-        coin: &EthCoin,
-    ) -> Web3RpcResult<FeePerGasEstimated> {
+    pub async fn estimate_fee_by_history(coin: &EthCoin) -> Web3RpcResult<FeePerGasEstimated> {
         let res = coin
             .eth_fee_history(
                 U256::from(Self::history_depth()),
@@ -247,7 +245,8 @@ impl FeePerGasSimpleEstimator {
     ) -> Web3RpcResult<FeePerGasLevel> {
         let level_i = level as usize;
         let mut level_rewards = fee_history
-            .priority_rewards.as_ref()
+            .priority_rewards
+            .as_ref()
             .or_mm_err(|| Web3RpcError::Internal("expected reward in eth_feeHistory".into()))?
             .iter()
             .map(|rewards| {
