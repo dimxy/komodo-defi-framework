@@ -56,10 +56,9 @@ use instant::Instant;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
 use mm2_event_stream::behaviour::{EventBehaviour, EventInitStatus};
-use mm2_net::transport::{GuiAuthValidation, GuiAuthValidationGenerator, SlurpError};
+use mm2_net::transport::{GuiAuthValidation, GuiAuthValidationGenerator};
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, MmNumber};
-use mm2_rpc::data::legacy::GasStationPricePolicy;
 #[cfg(test)] use mocktopus::macros::*;
 use rand::seq::SliceRandom;
 use rpc::v1::types::Bytes as BytesJson;
@@ -148,8 +147,6 @@ pub enum PaymentState {
     Spent,
     Refunded,
 }
-// Ethgasstation API returns response in 10^8 wei units. So 10 from their API mean 1 gwei
-const ETH_GAS_STATION_DECIMALS: u8 = 8;
 /// It can change 12.5% max each block according to https://www.blocknative.com/blog/eip-1559-fees
 const BASE_BLOCK_FEE_DIFF_PCT: u64 = 13;
 const DEFAULT_LOGS_BLOCK_RANGE: u64 = 1000;
@@ -192,35 +189,6 @@ type EthPrivKeyPolicy = PrivKeyPolicy<KeyPair>;
 type GasDetails = (U256, U256);
 
 #[derive(Debug, Display)]
-pub enum GasStationReqErr {
-    #[display(fmt = "Transport '{}' error: {}", uri, error)]
-    Transport {
-        uri: String,
-        error: String,
-    },
-    #[display(fmt = "Invalid response: {}", _0)]
-    InvalidResponse(String),
-    Internal(String),
-}
-
-impl From<serde_json::Error> for GasStationReqErr {
-    fn from(e: serde_json::Error) -> Self { GasStationReqErr::InvalidResponse(e.to_string()) }
-}
-
-impl From<SlurpError> for GasStationReqErr {
-    fn from(e: SlurpError) -> Self {
-        let error = e.to_string();
-        match e {
-            SlurpError::ErrorDeserializing { .. } => GasStationReqErr::InvalidResponse(error),
-            SlurpError::Transport { uri, .. } | SlurpError::Timeout { uri, .. } => {
-                GasStationReqErr::Transport { uri, error }
-            },
-            SlurpError::Internal(_) | SlurpError::InvalidRequest(_) => GasStationReqErr::Internal(error),
-        }
-    }
-}
-
-#[derive(Debug, Display)]
 pub enum Web3RpcError {
     #[display(fmt = "Transport: {}", _0)]
     Transport(String),
@@ -234,16 +202,6 @@ pub enum Web3RpcError {
     InvalidGasApiConfig(String),
     #[display(fmt = "Nft Protocol is not supported yet!")]
     NftProtocolNotSupported,
-}
-
-impl From<GasStationReqErr> for Web3RpcError {
-    fn from(err: GasStationReqErr) -> Self {
-        match err {
-            GasStationReqErr::Transport { .. } => Web3RpcError::Transport(err.to_string()),
-            GasStationReqErr::InvalidResponse(err) => Web3RpcError::InvalidResponse(err),
-            GasStationReqErr::Internal(err) => Web3RpcError::Internal(err),
-        }
-    }
 }
 
 impl From<serde_json::Error> for Web3RpcError {
@@ -460,9 +418,6 @@ pub struct EthCoinImpl {
     contract_supports_watchers: bool,
     web3_instances: AsyncMutex<Vec<Web3Instance>>,
     decimals: u8,
-    gas_station_url: Option<String>,
-    gas_station_decimals: u8,
-    gas_station_policy: GasStationPricePolicy,
     history_sync_state: Mutex<HistorySyncState>,
     required_confirmations: AtomicU64,
     /// Coin needs access to the context in order to reuse the logging and shutdown facilities.
@@ -5907,10 +5862,6 @@ pub async fn eth_coin_from_conf_and_request(
         HistorySyncState::NotEnabled
     };
 
-    let gas_station_decimals: Option<u8> = try_s!(json::from_value(req["gas_station_decimals"].clone()));
-    let gas_station_policy: GasStationPricePolicy =
-        json::from_value(req["gas_station_policy"].clone()).unwrap_or_default();
-
     let key_lock = match &coin_type {
         EthCoinType::Eth => String::from(ticker),
         EthCoinType::Erc20 { ref platform, .. } => String::from(platform),
@@ -5936,9 +5887,6 @@ pub async fn eth_coin_from_conf_and_request(
         contract_supports_watchers,
         decimals,
         ticker: ticker.into(),
-        gas_station_url: try_s!(json::from_value(req["gas_station_url"].clone())),
-        gas_station_decimals: gas_station_decimals.unwrap_or(ETH_GAS_STATION_DECIMALS),
-        gas_station_policy,
         web3_instances: AsyncMutex::new(web3_instances),
         history_sync_state: Mutex::new(initial_history_state),
         ctx: ctx.weak(),
