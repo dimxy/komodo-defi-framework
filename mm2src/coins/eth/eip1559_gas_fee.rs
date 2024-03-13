@@ -1,13 +1,14 @@
 //! Provides estimations of base and priority fee per gas or fetch estimations from a gas api provider
 
-use super::web3_transport::{EthFeeHistoryNamespace, FeeHistoryResult};
+use crate::EthCoin;
+use super::web3_transport::FeeHistoryResult;
 use super::{u256_to_big_decimal, Web3RpcError, Web3RpcResult, ETH_GWEI_DECIMALS};
 use ethereum_types::U256;
 use mm2_err_handle::mm_error::MmError;
 use mm2_number::BigDecimal;
 use num_traits::FromPrimitive;
 use url::Url;
-use web3::{types::BlockNumber, Transport};
+use web3::types::BlockNumber;
 
 pub(crate) use gas_api::BlocknativeGasApiCaller;
 #[allow(unused_imports)]
@@ -221,10 +222,10 @@ impl FeePerGasSimpleEstimator {
     }
 
     /// Estimate simplified gas priority fees based on fee history
-    pub async fn estimate_fee_by_history<T: Transport>(
-        fee_history_namespace: EthFeeHistoryNamespace<T>,
+    pub async fn estimate_fee_by_history(
+        coin: &EthCoin,
     ) -> Web3RpcResult<FeePerGasEstimated> {
-        let res = fee_history_namespace
+        let res = coin
             .eth_fee_history(
                 U256::from(Self::history_depth()),
                 BlockNumber::Latest,
