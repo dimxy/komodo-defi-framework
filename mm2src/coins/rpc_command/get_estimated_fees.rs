@@ -1,5 +1,7 @@
 //! RPCs to start/stop gas fee estimator and get estimated base and priority fee per gas
 
+use std::sync::Arc;
+use futures::compat::Future01CompatExt;
 use crate::eth::{EthCoin, FeePerGasEstimated};
 use crate::AsyncMutex;
 use crate::{from_ctx, lp_coinfind, MmCoinEnum, NumConversError};
@@ -8,7 +10,6 @@ use common::log::debug;
 use common::{HttpStatusCode, StatusCode};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use std::sync::Arc;
 
 const FEE_ESTIMATOR_NAME: &str = "eth_gas_fee_estimator_loop";
 const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is suppported (Blocknative gas platform currently supports Ethereum and Polygon/Matic mainnets.)
@@ -144,7 +145,7 @@ impl FeeEstimatorContext {
 async fn fee_estimator_loop(estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>, coin: EthCoin) {
     loop {
         let started = common::now_float();
-        *estimated_fees.lock().await = coin.get_eip1559_gas_fee().await.unwrap_or_default();
+        *estimated_fees.lock().await = coin.get_eip1559_gas_fee().compat().await.unwrap_or_default();
 
         let elapsed = common::now_float() - started;
         debug!(

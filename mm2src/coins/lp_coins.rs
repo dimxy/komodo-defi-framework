@@ -1810,6 +1810,15 @@ pub trait MarketCoinOps {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type")]
+pub enum EthGasLimitOption {
+    /// Use this value as gas limit
+    Set(u64),
+    /// Make MM2 calculate gas limit 
+    Calc,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(tag = "type")]
 pub enum WithdrawFee {
     UtxoFixed {
         amount: BigDecimal,
@@ -1826,7 +1835,7 @@ pub enum WithdrawFee {
         /// in gwei
         max_priority_fee_per_gas: BigDecimal,
         max_fee_per_gas: BigDecimal,
-        gas: u64,
+        gas_option: EthGasLimitOption,
     },
     Qrc20Gas {
         /// in satoshi
