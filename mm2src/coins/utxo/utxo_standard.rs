@@ -1002,7 +1002,7 @@ impl MmCoin for UtxoStandardCoin {
 
     fn on_token_deactivated(&self, _ticker: &str) {}
 
-    fn swap_transaction_fee_policy(&self) -> SwapTxFeePolicy { SwapTxFeePolicy::Unsupported }
+    fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy { SwapTxFeePolicy::Unsupported }
 
     fn set_swap_transaction_fee_policy(&self, _swap_txfee_policy: SwapTxFeePolicy) {}
 }

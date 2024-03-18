@@ -1813,7 +1813,7 @@ pub trait MarketCoinOps {
 pub enum EthGasLimitOption {
     /// Use this value as gas limit
     Set(u64),
-    /// Make MM2 calculate gas limit 
+    /// Make MM2 calculate gas limit
     Calc,
 }
 
@@ -2248,11 +2248,36 @@ impl Default for SwapTxFeePolicy {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SetSwapTxFeePolicyReq {
+pub struct SwapTxFeePolicyRequest {
     coin: String,
     #[serde(default)]
     swap_tx_fee_policy: SwapTxFeePolicy,
 }
+
+#[derive(Debug, Display, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
+pub enum SwapTxFeePolicyError {
+    #[display(fmt = "No such coin {}", coin)]
+    NoSuchCoin { coin: String },
+}
+
+impl From<CoinFindError> for SwapTxFeePolicyError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => SwapTxFeePolicyError::NoSuchCoin { coin },
+        }
+    }
+}
+
+impl HttpStatusCode for SwapTxFeePolicyError {
+    fn status_code(&self) -> StatusCode {
+        match self {
+            SwapTxFeePolicyError::NoSuchCoin { .. } => StatusCode::BAD_REQUEST,
+        }
+    }
+}
+
+pub type SwapTxFeePolicyResult = Result<SwapTxFeePolicy, MmError<SwapTxFeePolicyError>>;
 
 #[derive(Debug, Display, PartialEq)]
 pub enum TradePreimageError {
@@ -3112,7 +3137,7 @@ pub trait MmCoin:
     fn on_token_deactivated(&self, ticker: &str);
 
     /// Return swap transaction fee policy
-    fn swap_transaction_fee_policy(&self) -> SwapTxFeePolicy;
+    fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy;
 
     /// set swap transaction fee policy
     fn set_swap_transaction_fee_policy(&self, swap_txfee_policy: SwapTxFeePolicy);
@@ -4940,21 +4965,17 @@ fn coins_conf_check(ctx: &MmArc, coins_en: &Json, ticker: &str, req: Option<&Jso
     Ok(())
 }
 
-pub async fn set_swap_transaction_fee_policy(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
-    let req: SetSwapTxFeePolicyReq = try_s!(json::from_value(req));
-    let coin = match lp_coinfind(&ctx, &req.coin).await {
-        Ok(Some(t)) => t,
-        Ok(None) => return ERR!("No such coin {}", req.coin),
-        Err(err) => return ERR!("!lp_coinfind ({}): {}", req.coin, err),
-    };
+/// Get eip 1559 transaction fee per gas policy (low, medium, high) set for the coin
+pub async fn get_swap_transaction_fee_policy(ctx: MmArc, req: SwapTxFeePolicyRequest) -> SwapTxFeePolicyResult {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+    Ok(coin.get_swap_transaction_fee_policy())
+}
+
+/// Set eip 1559 transaction fee per gas policy (low, medium, high)
+pub async fn set_swap_transaction_fee_policy(ctx: MmArc, req: SwapTxFeePolicyRequest) -> SwapTxFeePolicyResult {
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     coin.set_swap_transaction_fee_policy(req.swap_tx_fee_policy);
-    let res = try_s!(json::to_vec(&json!({
-        "result": {
-            "coin": req.coin,
-            "swap_tx_fee_policy": coin.swap_transaction_fee_policy(),
-        }
-    })));
-    Ok(try_s!(Response::builder().body(res)))
+    Ok(coin.get_swap_transaction_fee_policy())
 }
 
 #[cfg(test)]
