@@ -1,15 +1,15 @@
 //! RPCs to start/stop gas fee estimator and get estimated base and priority fee per gas
 
-use std::sync::Arc;
-use futures::compat::Future01CompatExt;
 use crate::eth::{EthCoin, FeePerGasEstimated};
-use crate::AsyncMutex;
-use crate::{from_ctx, lp_coinfind, MmCoinEnum, NumConversError};
+use crate::{from_ctx, NumConversError};
+use crate::{lp_coinfind_or_err, AsyncMutex, CoinFindError, MmCoinEnum};
 use common::executor::{spawn_abortable, AbortOnDropHandle, Timer};
 use common::log::debug;
 use common::{HttpStatusCode, StatusCode};
+use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use std::sync::Arc;
 
 const FEE_ESTIMATOR_NAME: &str = "eth_gas_fee_estimator_loop";
 const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is suppported (Blocknative gas platform currently supports Ethereum and Polygon/Matic mainnets.)
@@ -18,8 +18,8 @@ const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is suppported (Blockn
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum FeeEstimatorError {
-    #[display(fmt = "Coin not activated")]
-    CoinNotActivated,
+    #[display(fmt = "No such coin {}", coin)]
+    NoSuchCoin { coin: String },
     #[display(fmt = "Gas fee estimation not supported for this coin")]
     CoinNotSupported,
     #[display(fmt = "Chain id not supported")]
@@ -37,7 +37,7 @@ pub enum FeeEstimatorError {
 impl HttpStatusCode for FeeEstimatorError {
     fn status_code(&self) -> StatusCode {
         match self {
-            FeeEstimatorError::CoinNotActivated
+            FeeEstimatorError::NoSuchCoin { .. }
             | FeeEstimatorError::CoinNotSupported
             | FeeEstimatorError::ChainNotSupported
             | FeeEstimatorError::AlreadyStarted
@@ -53,6 +53,14 @@ impl From<NumConversError> for FeeEstimatorError {
 
 impl From<String> for FeeEstimatorError {
     fn from(e: String) -> Self { FeeEstimatorError::InternalError(e) }
+}
+
+impl From<CoinFindError> for FeeEstimatorError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => FeeEstimatorError::NoSuchCoin { coin },
+        }
+    }
 }
 
 /// Gas fee estimator loop context,
@@ -123,13 +131,13 @@ impl FeeEstimatorContext {
     }
 
     async fn check_if_coin_supported(ctx: &MmArc, ticker: &str) -> Result<EthCoin, MmError<FeeEstimatorError>> {
-        let coin = match lp_coinfind(ctx, ticker).await {
-            Ok(Some(MmCoinEnum::EthCoin(eth))) => eth,
-            Ok(Some(_)) => return MmError::err(FeeEstimatorError::CoinNotSupported),
-            Ok(None) | Err(_) => return MmError::err(FeeEstimatorError::CoinNotActivated),
+        let eth_coin = match lp_coinfind_or_err(ctx, ticker).await? {
+            MmCoinEnum::EthCoin(eth) => eth,
+            _ => return MmError::err(FeeEstimatorError::CoinNotSupported),
         };
-        Self::check_if_chain_id_supported(&coin)?;
-        Ok(coin)
+
+        Self::check_if_chain_id_supported(&eth_coin)?;
+        Ok(eth_coin)
     }
 }
 
