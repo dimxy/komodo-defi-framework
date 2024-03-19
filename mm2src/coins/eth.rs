@@ -4955,9 +4955,7 @@ impl EthCoin {
                             })),
                         }
                     })();
-                    pay_result.mm_err(|e| {
-                        Web3RpcError::Internal(format!("gas api result conversion error: {}", e))
-                    })
+                    pay_result.mm_err(|e| Web3RpcError::Internal(format!("gas api result conversion error: {}", e)))
                 },
                 SwapTxFeePolicy::Unsupported => {
                     Err(MmError::new(Web3RpcError::Internal("swap fee policy not set".into())))
