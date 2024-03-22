@@ -172,7 +172,18 @@ const GAS_PRICE_APPROXIMATION_PERCENT_ON_ORDER_ISSUE: u64 = 5;
 /// - it may increase by 3% during the swap.
 const GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE: u64 = 7;
 
-const ETH_GAS: u64 = 150_000;
+/// Heuristic gas limits for swap operations (including extra margin value for possible changes in opcodes gas) 
+mod swap_gas {
+    pub(crate) const ETH_PAYMENT: u64 = 65_000; // real values are approx 48,6K by etherscan
+    pub(crate) const ERC20_PAYMENT: u64 = 120_000; // real values 98,9K
+    pub(crate) const ETH_RECEIVER_SPEND: u64 = 65_000;  // real values 40,7K
+    pub(crate) const ERC20_RECEIVER_SPEND: u64 = 120_000; // real values 72,8K
+    pub(crate) const ETH_SENDER_REFUND: u64 = 100_000;
+    pub(crate) const ERC20_SENDER_REFUND: u64 = 150_000;
+}
+
+/// trade tx gas limit max for all operations
+const ETH_MAX_TRADE_GAS: u64 = 150_000;
 
 /// Lifetime of generated signed message for gui-auth requests
 const GUI_AUTH_SIGNED_MESSAGE_LIFETIME_SEC: i64 = 90;
@@ -3468,7 +3479,7 @@ impl EthCoin {
         let trade_amount = try_tx_fus!(wei_from_big_decimal(&args.amount, self.decimals));
 
         let time_lock = U256::from(args.time_lock);
-        let gas = U256::from(ETH_GAS);
+        
 
         let secret_hash = if args.secret_hash.len() == 32 {
             ripemd160(args.secret_hash).to_vec()
@@ -3506,7 +3517,7 @@ impl EthCoin {
                         Token::Uint(time_lock),
                     ])),
                 };
-
+                let gas = U256::from(swap_gas::ETH_PAYMENT);
                 self.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, gas)
             },
             EthCoinType::Erc20 {
@@ -3577,6 +3588,7 @@ impl EthCoin {
                 };
 
                 let wait_for_required_allowance_until = args.wait_for_confirmation_until;
+                let gas = U256::from(swap_gas::ERC20_PAYMENT);
 
                 let arc = self.clone();
                 Box::new(allowance_fut.and_then(move |allowed| -> EthTxFut {
@@ -3686,7 +3698,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(ETH_GAS),
+                                U256::from(swap_gas::ERC20_SENDER_REFUND),
                             )
                         }),
                 )
@@ -3734,7 +3746,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(ETH_GAS),
+                                U256::from(swap_gas::ETH_RECEIVER_SPEND),
                             )
                         }),
                 )
@@ -3808,7 +3820,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(ETH_GAS),
+                                U256::from(swap_gas::ERC20_RECEIVER_SPEND),
                             )
                         }),
                 )
@@ -3859,7 +3871,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(ETH_GAS),
+                                U256::from(swap_gas::ETH_SENDER_REFUND),
                             )
                         }),
                 )
@@ -3929,7 +3941,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(ETH_GAS),
+                                U256::from(swap_gas::ERC20_SENDER_REFUND),
                             )
                         }),
                 )
@@ -3981,7 +3993,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(ETH_GAS),
+                                U256::from(swap_gas::ETH_RECEIVER_SPEND),
                             )
                         }),
                 )
@@ -4052,7 +4064,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(ETH_GAS),
+                                U256::from(swap_gas::ERC20_RECEIVER_SPEND),
                             )
                         }),
                 )
@@ -4104,7 +4116,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(ETH_GAS),
+                                U256::from(swap_gas::ETH_SENDER_REFUND),
                             )
                         }),
                 )
@@ -5388,13 +5400,14 @@ impl MmCoin for EthCoin {
         let fut = async move {
             let pay_for_gas_option = coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy()).compat().await?;
             let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
-            let total_fee = calc_total_fee(U256::from(ETH_GAS), &pay_for_gas_option)?;
-            let amount = u256_to_big_decimal(total_fee, ETH_DECIMALS)?;
-            let fee_coin = match &coin.coin_type {
-                EthCoinType::Eth => &coin.ticker,
-                EthCoinType::Erc20 { platform, .. } => platform,
+            let (fee_coin, total_fee) = match &coin.coin_type {
+                EthCoinType::Eth => 
+                    (&coin.ticker, calc_total_fee(U256::from(swap_gas::ETH_RECEIVER_SPEND), &pay_for_gas_option)?),
+                EthCoinType::Erc20 { platform, .. } =>
+                    (platform, calc_total_fee(U256::from(swap_gas::ERC20_RECEIVER_SPEND), &pay_for_gas_option)?),
                 EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
             };
+            let amount = u256_to_big_decimal(total_fee, ETH_DECIMALS)?;
             Ok(TradeFee {
                 coin: fee_coin.into(),
                 amount: amount.into(),
