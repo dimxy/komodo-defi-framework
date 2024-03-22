@@ -4894,34 +4894,38 @@ impl EthCoin {
     }
 
     /// Get gas base fee and suggest priority tip fees for the next block (see EIP-1559)
-    pub async fn get_eip1559_gas_fee(&self) -> Result<FeePerGasEstimated, MmError<Web3RpcError>> {
-        let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(self);
-        let ctx =
-            MmArc::from_weak(&self.ctx).ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
-        let gas_api_conf = ctx.conf["gas_api"].clone();
-        if gas_api_conf.is_null() {
-            return history_estimator_fut
-                .await
-                .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
-        }
-        let gas_api_conf: GasApiConfig = json::from_value(gas_api_conf)
-            .map_err(|e| MmError::new(Web3RpcError::InvalidGasApiConfig(e.to_string())))?;
-        let provider_estimator_fut = match gas_api_conf.provider {
-            GasApiProvider::Infura => InfuraGasApiCaller::fetch_infura_fee_estimation(&gas_api_conf.url).boxed(),
-            GasApiProvider::Blocknative => {
-                BlocknativeGasApiCaller::fetch_blocknative_fee_estimation(&gas_api_conf.url).boxed()
-            },
-        };
-        provider_estimator_fut
-            .or_else(|provider_estimator_err| {
-                history_estimator_fut.map_err(move |history_estimator_err| {
-                    MmError::new(Web3RpcError::Internal(format!(
-                        "All gas api requests failed, provider estimator error: {}, history estimator error: {}",
-                        provider_estimator_err, history_estimator_err
-                    )))
+    pub fn get_eip1559_gas_fee(&self) -> Web3RpcFut<FeePerGasEstimated> {
+        let coin = self.clone();
+        let fut = async move {
+            let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(&coin);
+            let ctx =
+                MmArc::from_weak(&coin.ctx).ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
+            let gas_api_conf = ctx.conf["gas_api"].clone();
+            if gas_api_conf.is_null() {
+                return history_estimator_fut
+                    .await
+                    .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
+            }
+            let gas_api_conf: GasApiConfig = json::from_value(gas_api_conf)
+                .map_err(|e| MmError::new(Web3RpcError::InvalidGasApiConfig(e.to_string())))?;
+            let provider_estimator_fut = match gas_api_conf.provider {
+                GasApiProvider::Infura => InfuraGasApiCaller::fetch_infura_fee_estimation(&gas_api_conf.url).boxed(),
+                GasApiProvider::Blocknative => {
+                    BlocknativeGasApiCaller::fetch_blocknative_fee_estimation(&gas_api_conf.url).boxed()
+                },
+            };
+            provider_estimator_fut
+                .or_else(|provider_estimator_err| {
+                    history_estimator_fut.map_err(move |history_estimator_err| {
+                        MmError::new(Web3RpcError::Internal(format!(
+                            "All gas api requests failed, provider estimator error: {}, history estimator error: {}",
+                            provider_estimator_err, history_estimator_err
+                        )))
+                    })
                 })
-            })
-            .await
+                .await
+        };
+        Box::new(fut.boxed().compat())
     }
 
     fn get_swap_pay_for_gas_option(&self, swap_fee_policy: SwapTxFeePolicy) -> Web3RpcFut<PayForGasOption> {
