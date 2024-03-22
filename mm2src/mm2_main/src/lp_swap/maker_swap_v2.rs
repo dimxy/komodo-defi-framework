@@ -812,7 +812,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
         let stage = FeeApproxStage::StartSwap;
         let maker_payment_trade_fee = match state_machine
             .maker_coin
-            .get_sender_trade_fee(preimage_value, stage)
+            .get_sender_trade_fee(preimage_value, stage, false)
             .await
         {
             Ok(fee) => fee,

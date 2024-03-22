@@ -838,6 +838,7 @@ fn test_sender_trade_preimage_with_allowance() {
     let actual = block_on(coin.get_sender_trade_fee(
         TradePreimageValue::Exact(BigDecimal::try_from(2.5).unwrap()),
         FeeApproxStage::WithoutApprox,
+        true,
     ))
     .expect("!get_sender_trade_fee");
     // the expected fee should not include any `approve` contract call
@@ -851,6 +852,7 @@ fn test_sender_trade_preimage_with_allowance() {
     let actual = block_on(coin.get_sender_trade_fee(
         TradePreimageValue::Exact(BigDecimal::try_from(3.5).unwrap()),
         FeeApproxStage::WithoutApprox,
+        true,
     ))
     .expect("!get_sender_trade_fee");
     // two `approve` contract calls should be included into the expected trade fee
@@ -906,7 +908,7 @@ fn test_get_sender_trade_fee_preimage_for_correct_ticker() {
     ))
     .unwrap();
 
-    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(0.into()), FeeApproxStage::OrderIssue))
+    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(0.into()), FeeApproxStage::OrderIssue, true))
         .err()
         .unwrap()
         .into_inner();

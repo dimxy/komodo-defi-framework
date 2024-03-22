@@ -1367,6 +1367,7 @@ impl MmCoin for Qrc20Coin {
         &self,
         value: TradePreimageValue,
         stage: FeeApproxStage,
+        include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         let decimals = self.utxo.decimals;
         // pass the dummy params
@@ -1398,14 +1399,18 @@ impl MmCoin for Qrc20Coin {
                 .await?
         };
 
-        let sender_refund_fee = {
-            let sender_refund_output =
-                self.sender_refund_output(&self.swap_contract_address, swap_id, value, secret_hash, receiver_addr)?;
-            self.preimage_trade_fee_required_to_send_outputs(vec![sender_refund_output], &stage)
-                .await?
+        let total_fee = if include_refund_fee {
+            let sender_refund_fee = {
+                let sender_refund_output =
+                    self.sender_refund_output(&self.swap_contract_address, swap_id, value, secret_hash, receiver_addr)?;
+                self.preimage_trade_fee_required_to_send_outputs(vec![sender_refund_output], &stage)
+                    .await?
+            };
+            erc20_payment_fee + sender_refund_fee
+        } else {
+            erc20_payment_fee
         };
 
-        let total_fee = erc20_payment_fee + sender_refund_fee;
         Ok(TradeFee {
             coin: self.platform.clone(),
             amount: total_fee.into(),

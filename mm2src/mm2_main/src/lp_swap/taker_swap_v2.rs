@@ -929,7 +929,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
 
         let taker_payment_fee = match state_machine
             .taker_coin
-            .get_sender_trade_fee(preimage_value, stage)
+            .get_sender_trade_fee(preimage_value, stage, false)
             .await
         {
             Ok(fee) => fee,
