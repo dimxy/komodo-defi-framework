@@ -214,8 +214,8 @@ impl FeePerGasSimpleEstimator {
     pub fn history_percentiles() -> &'static [f64] { &Self::HISTORY_PERCENTILES }
 
     /// percentile for vector
-    fn percentile_of(v: &Vec<U256>, percent: f64) -> U256 {
-        let mut v_mut = v.clone();
+    fn percentile_of(v: &[U256], percent: f64) -> U256 {
+        let mut v_mut = v.to_owned();
         v_mut.sort();
 
         // validate bounds:
@@ -242,9 +242,7 @@ impl FeePerGasSimpleEstimator {
         }
     }
 
-    fn predict_base_fee(base_fees: &Vec<U256>) -> U256 {
-        Self::percentile_of(base_fees, Self::BASE_FEE_PERCENTILE)
-    }
+    fn predict_base_fee(base_fees: &[U256]) -> U256 { Self::percentile_of(base_fees, Self::BASE_FEE_PERCENTILE) }
 
     fn priority_fee_for_level(
         level: PriorityLevelId,
@@ -252,7 +250,7 @@ impl FeePerGasSimpleEstimator {
         fee_history: &FeeHistoryResult,
     ) -> Web3RpcResult<FeePerGasLevel> {
         let level_i = level as usize;
-        let mut level_rewards = fee_history
+        let level_rewards = fee_history
             .priority_rewards
             .as_ref()
             .or_mm_err(|| Web3RpcError::Internal("expected reward in eth_feeHistory".into()))?
@@ -266,7 +264,7 @@ impl FeePerGasSimpleEstimator {
             })
             .collect::<Vec<_>>();
 
-        let max_priority_fee_per_gas = Self::percentile_of(&mut level_rewards, Self::PRIORITY_FEE_PERCENTILES[level_i]);
+        let max_priority_fee_per_gas = Self::percentile_of(&level_rewards, Self::PRIORITY_FEE_PERCENTILES[level_i]);
         let max_priority_fee_per_gas =
             u256_to_big_decimal(max_priority_fee_per_gas, ETH_GWEI_DECIMALS).unwrap_or_else(|_| BigDecimal::from(0));
         let max_fee_per_gas = base_fee
@@ -283,14 +281,20 @@ impl FeePerGasSimpleEstimator {
 
     /// estimate priority fees by fee history
     fn calculate_with_history(fee_history: &FeeHistoryResult) -> Web3RpcResult<FeePerGasEstimated> {
-        let latest_base_fee = fee_history.base_fee_per_gas.first().cloned().unwrap_or_else(|| U256::from(0));
-        let latest_base_fee = u256_to_big_decimal(latest_base_fee, ETH_GWEI_DECIMALS).unwrap_or_else(|_| BigDecimal::from(0));
+        let latest_base_fee = fee_history
+            .base_fee_per_gas
+            .first()
+            .cloned()
+            .unwrap_or_else(|| U256::from(0));
+        let latest_base_fee =
+            u256_to_big_decimal(latest_base_fee, ETH_GWEI_DECIMALS).unwrap_or_else(|_| BigDecimal::from(0));
         let predicted_base_fee = Self::predict_base_fee(&fee_history.base_fee_per_gas);
         Ok(FeePerGasEstimated {
-            base_fee: u256_to_big_decimal(predicted_base_fee, ETH_GWEI_DECIMALS).unwrap_or_else(|_| BigDecimal::from(0)),
+            base_fee: u256_to_big_decimal(predicted_base_fee, ETH_GWEI_DECIMALS)
+                .unwrap_or_else(|_| BigDecimal::from(0)),
             low: Self::priority_fee_for_level(PriorityLevelId::Low, latest_base_fee.clone(), fee_history)?,
             medium: Self::priority_fee_for_level(PriorityLevelId::Medium, latest_base_fee.clone(), fee_history)?,
-            high: Self::priority_fee_for_level(PriorityLevelId::High, latest_base_fee.clone(), fee_history)?,
+            high: Self::priority_fee_for_level(PriorityLevelId::High, latest_base_fee, fee_history)?,
             source: EstimationSource::Simple,
             units: EstimationUnits::Gwei,
             base_fee_trend: String::default(),

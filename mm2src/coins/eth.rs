@@ -172,11 +172,11 @@ const GAS_PRICE_APPROXIMATION_PERCENT_ON_ORDER_ISSUE: u64 = 5;
 /// - it may increase by 3% during the swap.
 const GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE: u64 = 7;
 
-/// Heuristic gas limits for swap operations (including extra margin value for possible changes in opcodes gas) 
+/// Heuristic gas limits for swap operations (including extra margin value for possible changes in opcodes gas)
 mod swap_gas {
     pub(crate) const ETH_PAYMENT: u64 = 65_000; // real values are approx 48,6K by etherscan
     pub(crate) const ERC20_PAYMENT: u64 = 120_000; // real values 98,9K
-    pub(crate) const ETH_RECEIVER_SPEND: u64 = 65_000;  // real values 40,7K
+    pub(crate) const ETH_RECEIVER_SPEND: u64 = 65_000; // real values 40,7K
     pub(crate) const ERC20_RECEIVER_SPEND: u64 = 120_000; // real values 72,8K
     pub(crate) const ETH_SENDER_REFUND: u64 = 100_000;
     pub(crate) const ERC20_SENDER_REFUND: u64 = 150_000;
@@ -2401,7 +2401,11 @@ async fn sign_transaction_with_keypair(
     let (nonce, web3_instances_with_latest_nonce) =
         try_tx_s!(coin.clone().get_addr_nonce(coin.my_address).compat().await);
     status.status(tags!(), "get_gas_price…");
-    let pay_for_gas_option = try_tx_s!(coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy()).compat().await);
+    let pay_for_gas_option = try_tx_s!(
+        coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
+            .compat()
+            .await
+    );
     let tx_builder = UnSignedEthTxBuilder::new(nonce, gas, action, value, data);
     let tx_builder = tx_builder_with_pay_for_gas_option(coin, tx_builder, &pay_for_gas_option)
         .map_err(|e| TransactionErr::Plain(e.get_inner().to_string()))?;
@@ -2457,7 +2461,11 @@ async fn sign_and_send_transaction_with_metamask(
         Action::Call(to) => Some(to),
     };
 
-    let pay_for_gas_option = try_tx_s!(coin.get_swap_pay_for_gas_option(self.get_swap_transaction_fee_policy()).compat().await);
+    let pay_for_gas_option = try_tx_s!(
+        coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
+            .compat()
+            .await
+    );
 
     let tx_to_send = TransactionRequest {
         from: coin.my_address,
@@ -3479,7 +3487,6 @@ impl EthCoin {
         let trade_amount = try_tx_fus!(wei_from_big_decimal(&args.amount, self.decimals));
 
         let time_lock = U256::from(args.time_lock);
-        
 
         let secret_hash = if args.secret_hash.len() == 32 {
             ripemd160(args.secret_hash).to_vec()
@@ -4265,21 +4272,24 @@ impl EthCoin {
     fn estimate_gas_for_contract_call(&self, contract_addr: Address, call_data: Bytes) -> Web3RpcFut<U256> {
         let coin = self.clone();
         let fee_policy_for_estimate = get_swap_fee_policy_for_estimate(self.get_swap_transaction_fee_policy());
-        Box::new(coin.get_swap_pay_for_gas_option(fee_policy_for_estimate).and_then(move |pay_for_gas_option| {
-            let eth_value = U256::zero();
-            let estimate_gas_req = CallRequest {
-                value: Some(eth_value),
-                data: Some(call_data),
-                from: Some(coin.my_address),
-                to: Some(contract_addr),
-                ..CallRequest::default()
-            };
-            // gas price must be supplied because some smart contracts base their
-            // logic on gas price, e.g. TUSD: https://github.com/KomodoPlatform/atomicDEX-API/issues/643
-            let estimate_gas_req = call_request_with_pay_for_gas_option(estimate_gas_req, pay_for_gas_option);
-            coin.estimate_gas_wrapper(estimate_gas_req)
-                .map_to_mm_fut(Web3RpcError::from)
-        }))
+        Box::new(
+            coin.get_swap_pay_for_gas_option(fee_policy_for_estimate)
+                .and_then(move |pay_for_gas_option| {
+                    let eth_value = U256::zero();
+                    let estimate_gas_req = CallRequest {
+                        value: Some(eth_value),
+                        data: Some(call_data),
+                        from: Some(coin.my_address),
+                        to: Some(contract_addr),
+                        ..CallRequest::default()
+                    };
+                    // gas price must be supplied because some smart contracts base their
+                    // logic on gas price, e.g. TUSD: https://github.com/KomodoPlatform/atomicDEX-API/issues/643
+                    let estimate_gas_req = call_request_with_pay_for_gas_option(estimate_gas_req, pay_for_gas_option);
+                    coin.estimate_gas_wrapper(estimate_gas_req)
+                        .map_to_mm_fut(Web3RpcError::from)
+                }),
+        )
     }
 
     fn eth_balance(&self) -> BalanceFut<U256> {
@@ -4839,12 +4849,16 @@ impl EthCoin {
     }
 
     pub async fn get_watcher_reward_amount(&self, wait_until: u64) -> Result<BigDecimal, MmError<WatcherRewardError>> {
-        let pay_for_gas_option =
-            repeatable!(async { self.get_swap_pay_for_gas_option(self.get_swap_transaction_fee_policy()).compat().await.retry_on_err() })
-                .until_s(wait_until)
-                .repeat_every_secs(10.)
+        let pay_for_gas_option = repeatable!(async {
+            self.get_swap_pay_for_gas_option(self.get_swap_transaction_fee_policy())
+                .compat()
                 .await
-                .map_err(|_| WatcherRewardError::RPCError("Error getting the gas price".to_string()))?;
+                .retry_on_err()
+        })
+        .until_s(wait_until)
+        .repeat_every_secs(10.)
+        .await
+        .map_err(|_| WatcherRewardError::RPCError("Error getting the gas price".to_string()))?;
 
         let gas_cost_wei = calc_total_fee(U256::from(REWARD_GAS_AMOUNT), &pay_for_gas_option)
             .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
@@ -4898,8 +4912,8 @@ impl EthCoin {
         let coin = self.clone();
         let fut = async move {
             let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(&coin);
-            let ctx =
-                MmArc::from_weak(&coin.ctx).ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
+            let ctx = MmArc::from_weak(&coin.ctx)
+                .ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
             let gas_api_conf = ctx.conf["gas_api"].clone();
             if gas_api_conf.is_null() {
                 return history_estimator_fut
@@ -5329,7 +5343,8 @@ impl MmCoin for EthCoin {
             self.get_swap_pay_for_gas_option(self.get_swap_transaction_fee_policy())
                 .map_err(|e| e.to_string())
                 .and_then(move |pay_for_gas_option| {
-                    let fee = calc_total_fee(U256::from(ETH_MAX_TRADE_GAS), &pay_for_gas_option).map_err(|e| e.to_string())?;
+                    let fee = calc_total_fee(U256::from(ETH_MAX_TRADE_GAS), &pay_for_gas_option)
+                        .map_err(|e| e.to_string())?;
                     let fee_coin = match &coin.coin_type {
                         EthCoinType::Eth => &coin.ticker,
                         EthCoinType::Erc20 { platform, .. } => platform,
@@ -5350,7 +5365,10 @@ impl MmCoin for EthCoin {
         stage: FeeApproxStage,
         include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
-        let pay_for_gas_option = self.get_swap_pay_for_gas_option(self.get_swap_transaction_fee_policy()).compat().await?;
+        let pay_for_gas_option = self
+            .get_swap_pay_for_gas_option(self.get_swap_transaction_fee_policy())
+            .compat()
+            .await?;
         let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
         let mut gas_limit = match self.coin_type {
             EthCoinType::Eth => {
@@ -5412,13 +5430,20 @@ impl MmCoin for EthCoin {
     fn get_receiver_trade_fee(&self, stage: FeeApproxStage) -> TradePreimageFut<TradeFee> {
         let coin = self.clone();
         let fut = async move {
-            let pay_for_gas_option = coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy()).compat().await?;
+            let pay_for_gas_option = coin
+                .get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
+                .compat()
+                .await?;
             let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
             let (fee_coin, total_fee) = match &coin.coin_type {
-                EthCoinType::Eth => 
-                    (&coin.ticker, calc_total_fee(U256::from(swap_gas::ETH_RECEIVER_SPEND), &pay_for_gas_option)?),
-                EthCoinType::Erc20 { platform, .. } =>
-                    (platform, calc_total_fee(U256::from(swap_gas::ERC20_RECEIVER_SPEND), &pay_for_gas_option)?),
+                EthCoinType::Eth => (
+                    &coin.ticker,
+                    calc_total_fee(U256::from(swap_gas::ETH_RECEIVER_SPEND), &pay_for_gas_option)?,
+                ),
+                EthCoinType::Erc20 { platform, .. } => (
+                    platform,
+                    calc_total_fee(U256::from(swap_gas::ERC20_RECEIVER_SPEND), &pay_for_gas_option)?,
+                ),
                 EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
             };
             let amount = u256_to_big_decimal(total_fee, ETH_DECIMALS)?;
@@ -5452,7 +5477,10 @@ impl MmCoin for EthCoin {
         };
 
         let fee_policy_for_estimate = get_swap_fee_policy_for_estimate(self.get_swap_transaction_fee_policy());
-        let pay_for_gas_option = self.get_swap_pay_for_gas_option(fee_policy_for_estimate).compat().await?;
+        let pay_for_gas_option = self
+            .get_swap_pay_for_gas_option(fee_policy_for_estimate)
+            .compat()
+            .await?;
         let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
         let estimate_gas_req = CallRequest {
             value: Some(eth_value),
@@ -6371,7 +6399,7 @@ fn tx_builder_with_pay_for_gas_option(
 }
 
 /// convert fee policy for gas estimate requests
-fn get_swap_fee_policy_for_estimate(swap_fee_policy :SwapTxFeePolicy) -> SwapTxFeePolicy {
+fn get_swap_fee_policy_for_estimate(swap_fee_policy: SwapTxFeePolicy) -> SwapTxFeePolicy {
     match swap_fee_policy {
         SwapTxFeePolicy::Internal => SwapTxFeePolicy::Internal,
         // always use 'high' for estimate to avoid max_fee_per_gas less than base_fee errors:

@@ -798,7 +798,7 @@ fn test_sender_trade_preimage_zero_allowance() {
     let sender_refund_fee = big_decimal_from_sat(CONTRACT_CALL_GAS_FEE + EXPECTED_TX_FEE, coin.utxo.decimals);
 
     let actual =
-        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(1.into()), FeeApproxStage::WithoutApprox))
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(1.into()), FeeApproxStage::WithoutApprox, true))
             .expect("!get_sender_trade_fee");
     // one `approve` contract call should be included into the expected trade fee
     let expected = TradeFee {
@@ -908,10 +908,11 @@ fn test_get_sender_trade_fee_preimage_for_correct_ticker() {
     ))
     .unwrap();
 
-    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(0.into()), FeeApproxStage::OrderIssue, true))
-        .err()
-        .unwrap()
-        .into_inner();
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(0.into()), FeeApproxStage::OrderIssue, true))
+            .err()
+            .unwrap()
+            .into_inner();
     // expecting TradePreimageError::NotSufficientBalance
     let expected = TradePreimageError::NotSufficientBalance {
         coin: "tQTUM".to_string(),

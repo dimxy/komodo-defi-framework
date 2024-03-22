@@ -467,7 +467,7 @@ fn test_withdraw_impl_manual_fee() {
         coin: "ETH".to_string(),
         max: false,
         fee: Some(WithdrawFee::EthGas {
-            gas: ETH_GAS,
+            gas: ETH_MAX_TRADE_GAS,
             gas_price: 1.into(),
         }),
         memo: None,
@@ -479,7 +479,7 @@ fn test_withdraw_impl_manual_fee() {
         EthTxFeeDetails {
             coin: "ETH".into(),
             gas_price: "0.000000001".parse().unwrap(),
-            gas: ETH_GAS,
+            gas: ETH_MAX_TRADE_GAS,
             total_fee: "0.00015".parse().unwrap(),
             max_fee_per_gas: None,
             max_priority_fee_per_gas: None,
@@ -514,7 +514,7 @@ fn test_withdraw_impl_fee_details() {
         coin: "JST".to_string(),
         max: false,
         fee: Some(WithdrawFee::EthGas {
-            gas: ETH_GAS,
+            gas: ETH_MAX_TRADE_GAS,
             gas_price: 1.into(),
         }),
         memo: None,
@@ -526,7 +526,7 @@ fn test_withdraw_impl_fee_details() {
         EthTxFeeDetails {
             coin: "ETH".into(),
             gas_price: "0.000000001".parse().unwrap(),
-            gas: ETH_GAS,
+            gas: ETH_MAX_TRADE_GAS,
             total_fee: "0.00015".parse().unwrap(),
             max_fee_per_gas: None,
             max_priority_fee_per_gas: None,
@@ -589,7 +589,7 @@ fn test_add_ten_pct_one_gwei() {
 fn get_sender_trade_preimage() {
     /// Trade fee for the ETH coin is `2 * 150_000 * gas_price` always.
     fn expected_fee(gas_price: u64) -> TradeFee {
-        let amount = u256_to_big_decimal((2 * ETH_GAS * gas_price).into(), 18).expect("!u256_to_big_decimal");
+        let amount = u256_to_big_decimal((2 * ETH_MAX_TRADE_GAS * gas_price).into(), 18).expect("!u256_to_big_decimal");
         TradeFee {
             coin: "ETH".to_owned(),
             amount: amount.into(),
@@ -611,8 +611,9 @@ fn get_sender_trade_preimage() {
     assert_eq!(actual, expected);
 
     let value = u256_to_big_decimal(100.into(), 18).expect("!u256_to_big_decimal");
-    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::OrderIssue, true))
-        .expect("!get_sender_trade_fee");
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::OrderIssue, true))
+            .expect("!get_sender_trade_fee");
     let expected = expected_fee(GAS_PRICE_APPROXIMATION_ON_ORDER_ISSUE);
     assert_eq!(actual, expected);
 
@@ -623,8 +624,9 @@ fn get_sender_trade_preimage() {
     assert_eq!(actual, expected);
 
     let value = u256_to_big_decimal(10000000000u64.into(), 18).expect("!u256_to_big_decimal");
-    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::TradePreimage, true))
-        .expect("!get_sender_trade_fee");
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::TradePreimage, true))
+            .expect("!get_sender_trade_fee");
     let expected = expected_fee(GAS_PRICE_APPROXIMATION_ON_TRADE_PREIMAGE);
     assert_eq!(actual, expected);
 }
@@ -665,9 +667,12 @@ fn get_erc20_sender_trade_preimage() {
     // value is allowed
     unsafe { ALLOWANCE = 1000 };
     let value = u256_to_big_decimal(1000.into(), 18).expect("u256_to_big_decimal");
-    let actual =
-        block_on(coin.get_sender_trade_fee(TradePreimageValue::UpperBound(value), FeeApproxStage::WithoutApprox))
-            .expect("!get_sender_trade_fee");
+    let actual = block_on(coin.get_sender_trade_fee(
+        TradePreimageValue::UpperBound(value),
+        FeeApproxStage::WithoutApprox,
+        true,
+    ))
+    .expect("!get_sender_trade_fee");
     log!("{:?}", actual.amount.to_decimal());
     unsafe { assert!(!ESTIMATE_GAS_CALLED) }
     assert_eq!(actual, expected_trade_fee(300_000, GAS_PRICE));
@@ -675,8 +680,9 @@ fn get_erc20_sender_trade_preimage() {
     // value is greater than allowance
     unsafe { ALLOWANCE = 999 };
     let value = u256_to_big_decimal(1000.into(), 18).expect("u256_to_big_decimal");
-    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::UpperBound(value), FeeApproxStage::StartSwap, true))
-        .expect("!get_sender_trade_fee");
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::UpperBound(value), FeeApproxStage::StartSwap, true))
+            .expect("!get_sender_trade_fee");
     unsafe {
         assert!(ESTIMATE_GAS_CALLED);
         ESTIMATE_GAS_CALLED = false;
@@ -689,8 +695,9 @@ fn get_erc20_sender_trade_preimage() {
     // value is allowed
     unsafe { ALLOWANCE = 1000 };
     let value = u256_to_big_decimal(999.into(), 18).expect("u256_to_big_decimal");
-    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::OrderIssue, true))
-        .expect("!get_sender_trade_fee");
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::OrderIssue, true))
+            .expect("!get_sender_trade_fee");
     unsafe { assert!(!ESTIMATE_GAS_CALLED) }
     assert_eq!(
         actual,
@@ -700,8 +707,9 @@ fn get_erc20_sender_trade_preimage() {
     // value is greater than allowance
     unsafe { ALLOWANCE = 1000 };
     let value = u256_to_big_decimal(1500.into(), 18).expect("u256_to_big_decimal");
-    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::TradePreimage, true))
-        .expect("!get_sender_trade_fee");
+    let actual =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::TradePreimage, true))
+            .expect("!get_sender_trade_fee");
     unsafe {
         assert!(ESTIMATE_GAS_CALLED);
         ESTIMATE_GAS_CALLED = false;
@@ -717,7 +725,7 @@ fn get_receiver_trade_preimage() {
     EthCoin::get_gas_price.mock_safe(|_| MockResult::Return(Box::new(futures01::future::ok(GAS_PRICE.into()))));
 
     let (_ctx, coin) = eth_coin_for_test(EthCoinType::Eth, &["http://dummy.dummy"], None);
-    let amount = u256_to_big_decimal((ETH_GAS * GAS_PRICE).into(), 18).expect("!u256_to_big_decimal");
+    let amount = u256_to_big_decimal((ETH_MAX_TRADE_GAS * GAS_PRICE).into(), 18).expect("!u256_to_big_decimal");
     let expected_fee = TradeFee {
         coin: "ETH".to_owned(),
         amount: amount.into(),
