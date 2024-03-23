@@ -5370,17 +5370,17 @@ impl MmCoin for EthCoin {
             .compat()
             .await?;
         let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
-        let mut gas_limit = match self.coin_type {
+        let gas_limit = match self.coin_type {
             EthCoinType::Eth => {
                 // this gas_limit includes gas for `ethPayment` and optionally `senderRefund` contract calls
                 if include_refund_fee {
-                    U256::from(swap_gas::ETH_PAYMENT)
-                } else {
                     U256::from(swap_gas::ETH_PAYMENT) + U256::from(swap_gas::ETH_SENDER_REFUND)
+                } else {
+                    U256::from(swap_gas::ETH_PAYMENT)
                 }
             },
             EthCoinType::Erc20 { token_addr, .. } => {
-                let gas = U256::from(swap_gas::ERC20_PAYMENT);
+                let mut gas = U256::from(swap_gas::ERC20_PAYMENT);
                 let value = match value {
                     TradePreimageValue::Exact(value) | TradePreimageValue::UpperBound(value) => {
                         wei_from_big_decimal(&value, self.decimals)?
@@ -5400,18 +5400,15 @@ impl MmCoin for EthCoin {
                         .await?;
 
                     // this gas_limit includes gas for `approve`, `erc20Payment` contract calls
-                    gas + approve_gas_limit
-                } else {
-                    // this gas_limit includes gas for `erc20Payment` contract calls
-                    gas
+                    gas += approve_gas_limit;
                 }
+                if include_refund_fee {
+                    gas += U256::from(swap_gas::ERC20_SENDER_REFUND); // add 'senderRefund' gas if requested
+                }
+                gas
             },
             EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
         };
-
-        if include_refund_fee {
-            gas_limit += U256::from(swap_gas::ERC20_SENDER_REFUND); // add 'senderRefund' gas if requested
-        }
 
         let total_fee = calc_total_fee(gas_limit, &pay_for_gas_option)?;
         let amount = u256_to_big_decimal(total_fee, ETH_DECIMALS)?;

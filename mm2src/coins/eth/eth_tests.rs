@@ -588,8 +588,8 @@ fn test_add_ten_pct_one_gwei() {
 #[test]
 fn get_sender_trade_preimage() {
     /// Trade fee for the ETH coin is `2 * 150_000 * gas_price` always.
-    fn expected_fee(gas_price: u64) -> TradeFee {
-        let amount = u256_to_big_decimal((2 * ETH_MAX_TRADE_GAS * gas_price).into(), 18).expect("!u256_to_big_decimal");
+    fn expected_fee(gas_price: u64, gas_limit: u64) -> TradeFee {
+        let amount = u256_to_big_decimal((gas_limit * gas_price).into(), 18).expect("!u256_to_big_decimal");
         TradeFee {
             coin: "ETH".to_owned(),
             amount: amount.into(),
@@ -607,27 +607,36 @@ fn get_sender_trade_preimage() {
         true,
     ))
     .expect("!get_sender_trade_fee");
-    let expected = expected_fee(GAS_PRICE);
+    let expected = expected_fee(GAS_PRICE, swap_gas::ETH_PAYMENT + swap_gas::ETH_SENDER_REFUND);
     assert_eq!(actual, expected);
 
     let value = u256_to_big_decimal(100.into(), 18).expect("!u256_to_big_decimal");
     let actual =
         block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::OrderIssue, true))
             .expect("!get_sender_trade_fee");
-    let expected = expected_fee(GAS_PRICE_APPROXIMATION_ON_ORDER_ISSUE);
+    let expected = expected_fee(
+        GAS_PRICE_APPROXIMATION_ON_ORDER_ISSUE,
+        swap_gas::ETH_PAYMENT + swap_gas::ETH_SENDER_REFUND,
+    );
     assert_eq!(actual, expected);
 
     let value = u256_to_big_decimal(1.into(), 18).expect("!u256_to_big_decimal");
     let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::StartSwap, true))
         .expect("!get_sender_trade_fee");
-    let expected = expected_fee(GAS_PRICE_APPROXIMATION_ON_START_SWAP);
+    let expected = expected_fee(
+        GAS_PRICE_APPROXIMATION_ON_START_SWAP,
+        swap_gas::ETH_PAYMENT + swap_gas::ETH_SENDER_REFUND,
+    );
     assert_eq!(actual, expected);
 
     let value = u256_to_big_decimal(10000000000u64.into(), 18).expect("!u256_to_big_decimal");
     let actual =
         block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::TradePreimage, true))
             .expect("!get_sender_trade_fee");
-    let expected = expected_fee(GAS_PRICE_APPROXIMATION_ON_TRADE_PREIMAGE);
+    let expected = expected_fee(
+        GAS_PRICE_APPROXIMATION_ON_TRADE_PREIMAGE,
+        swap_gas::ETH_PAYMENT + swap_gas::ETH_SENDER_REFUND,
+    );
     assert_eq!(actual, expected);
 }
 
@@ -675,7 +684,10 @@ fn get_erc20_sender_trade_preimage() {
     .expect("!get_sender_trade_fee");
     log!("{:?}", actual.amount.to_decimal());
     unsafe { assert!(!ESTIMATE_GAS_CALLED) }
-    assert_eq!(actual, expected_trade_fee(300_000, GAS_PRICE));
+    assert_eq!(
+        actual,
+        expected_trade_fee(swap_gas::ERC20_PAYMENT + swap_gas::ERC20_SENDER_REFUND, GAS_PRICE)
+    );
 
     // value is greater than allowance
     unsafe { ALLOWANCE = 999 };
@@ -689,7 +701,10 @@ fn get_erc20_sender_trade_preimage() {
     }
     assert_eq!(
         actual,
-        expected_trade_fee(360_000, GAS_PRICE_APPROXIMATION_ON_START_SWAP)
+        expected_trade_fee(
+            swap_gas::ERC20_PAYMENT + swap_gas::ERC20_SENDER_REFUND + APPROVE_GAS_LIMIT,
+            GAS_PRICE_APPROXIMATION_ON_START_SWAP
+        )
     );
 
     // value is allowed
@@ -701,7 +716,10 @@ fn get_erc20_sender_trade_preimage() {
     unsafe { assert!(!ESTIMATE_GAS_CALLED) }
     assert_eq!(
         actual,
-        expected_trade_fee(300_000, GAS_PRICE_APPROXIMATION_ON_ORDER_ISSUE)
+        expected_trade_fee(
+            swap_gas::ERC20_PAYMENT + swap_gas::ERC20_SENDER_REFUND,
+            GAS_PRICE_APPROXIMATION_ON_ORDER_ISSUE
+        )
     );
 
     // value is greater than allowance
@@ -716,7 +734,10 @@ fn get_erc20_sender_trade_preimage() {
     }
     assert_eq!(
         actual,
-        expected_trade_fee(360_000, GAS_PRICE_APPROXIMATION_ON_TRADE_PREIMAGE)
+        expected_trade_fee(
+            swap_gas::ERC20_PAYMENT + swap_gas::ERC20_SENDER_REFUND + APPROVE_GAS_LIMIT,
+            GAS_PRICE_APPROXIMATION_ON_TRADE_PREIMAGE
+        )
     );
 }
 
@@ -725,7 +746,8 @@ fn get_receiver_trade_preimage() {
     EthCoin::get_gas_price.mock_safe(|_| MockResult::Return(Box::new(futures01::future::ok(GAS_PRICE.into()))));
 
     let (_ctx, coin) = eth_coin_for_test(EthCoinType::Eth, &["http://dummy.dummy"], None);
-    let amount = u256_to_big_decimal((ETH_MAX_TRADE_GAS * GAS_PRICE).into(), 18).expect("!u256_to_big_decimal");
+    let amount =
+        u256_to_big_decimal((swap_gas::ETH_RECEIVER_SPEND * GAS_PRICE).into(), 18).expect("!u256_to_big_decimal");
     let expected_fee = TradeFee {
         coin: "ETH".to_owned(),
         amount: amount.into(),
