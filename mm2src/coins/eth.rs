@@ -3705,7 +3705,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(swap_gas::ERC20_SENDER_REFUND),
+                                U256::from(swap_gas::ETH_RECEIVER_SPEND),
                             )
                         }),
                 )
@@ -3753,7 +3753,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(swap_gas::ETH_RECEIVER_SPEND),
+                                U256::from(swap_gas::ERC20_RECEIVER_SPEND),
                             )
                         }),
                 )
@@ -3827,7 +3827,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(swap_gas::ERC20_RECEIVER_SPEND),
+                                U256::from(swap_gas::ETH_SENDER_REFUND),
                             )
                         }),
                 )
@@ -3878,7 +3878,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(swap_gas::ETH_SENDER_REFUND),
+                                U256::from(swap_gas::ERC20_SENDER_REFUND),
                             )
                         }),
                 )
@@ -3948,7 +3948,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(swap_gas::ERC20_SENDER_REFUND),
+                                U256::from(swap_gas::ETH_RECEIVER_SPEND),
                             )
                         }),
                 )
@@ -4000,7 +4000,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(swap_gas::ETH_RECEIVER_SPEND),
+                                U256::from(swap_gas::ERC20_RECEIVER_SPEND),
                             )
                         }),
                 )
@@ -4071,7 +4071,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(swap_gas::ERC20_RECEIVER_SPEND),
+                                U256::from(swap_gas::ETH_SENDER_REFUND),
                             )
                         }),
                 )
@@ -4123,7 +4123,7 @@ impl EthCoin {
                                 0.into(),
                                 Action::Call(swap_contract_address),
                                 data,
-                                U256::from(swap_gas::ETH_SENDER_REFUND),
+                                U256::from(swap_gas::ERC20_SENDER_REFUND),
                             )
                         }),
                 )
