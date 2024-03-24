@@ -3,8 +3,9 @@ use crate::docker_tests::docker_tests_common::{random_secp256k1_secret, GETH_ACC
                                                GETH_WEB3, MM_CTX};
 use bitcrypto::dhash160;
 use coins::eth::{checksum_address, eth_coin_from_conf_and_request, EthCoin, ERC20_ABI};
-use coins::{CoinProtocol, ConfirmPaymentInput, FoundSwapTxSpend, MarketCoinOps, PrivKeyBuildPolicy, RefundPaymentArgs,
-            SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash};
+use coins::{CoinProtocol, ConfirmPaymentInput, FoundSwapTxSpend, MarketCoinOps, MmCoin, PrivKeyBuildPolicy,
+            RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxFeePolicy,
+            SwapTxTypeWithSecretHash};
 use common::{block_on, now_sec};
 use ethereum_types::U256;
 use futures01::Future;
@@ -223,6 +224,9 @@ fn send_and_spend_eth_maker_payment() {
     let maker_eth_coin = eth_coin_with_random_privkey(swap_contract());
     let taker_eth_coin = eth_coin_with_random_privkey(swap_contract());
 
+    maker_eth_coin.set_swap_transaction_fee_policy(SwapTxFeePolicy::Medium);
+    taker_eth_coin.set_swap_transaction_fee_policy(SwapTxFeePolicy::Medium);
+
     let time_lock = now_sec() + 1000;
     let maker_pubkey = maker_eth_coin.derive_htlc_pubkey(&[]);
     let taker_pubkey = taker_eth_coin.derive_htlc_pubkey(&[]);
@@ -299,6 +303,7 @@ fn send_and_spend_eth_maker_payment() {
 #[test]
 fn send_and_refund_erc20_maker_payment() {
     let erc20_coin = erc20_coin_with_random_privkey(swap_contract());
+    erc20_coin.set_swap_transaction_fee_policy(SwapTxFeePolicy::Medium);
 
     let time_lock = now_sec() - 100;
     let other_pubkey = &[
