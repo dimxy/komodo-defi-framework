@@ -503,7 +503,7 @@ macro_rules! tx_type_from_pay_for_gas_option {
         } else {
             TxType::Legacy
         }
-    }
+    };
 }
 
 impl EthCoinImpl {
