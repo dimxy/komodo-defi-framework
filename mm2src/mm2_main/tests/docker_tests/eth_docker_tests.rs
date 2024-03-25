@@ -226,9 +226,7 @@ fn send_and_refund_eth_maker_payment_internal_gas_policy() {
 }
 
 #[test]
-fn send_and_refund_eth_maker_payment_priority_fee() {
-    send_and_refund_eth_maker_payment_impl(SwapTxFeePolicy::Medium);
-}
+fn send_and_refund_eth_maker_payment_priority_fee() { send_and_refund_eth_maker_payment_impl(SwapTxFeePolicy::Medium); }
 
 fn send_and_spend_eth_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
     let maker_eth_coin = eth_coin_with_random_privkey(swap_contract());
@@ -316,9 +314,7 @@ fn send_and_spend_eth_maker_payment_internal_gas_policy() {
 }
 
 #[test]
-fn send_and_spend_eth_maker_payment_priority_fee() {
-    send_and_spend_eth_maker_payment_impl(SwapTxFeePolicy::Medium);
-}
+fn send_and_spend_eth_maker_payment_priority_fee() { send_and_spend_eth_maker_payment_impl(SwapTxFeePolicy::Medium); }
 
 fn send_and_refund_erc20_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
     let erc20_coin = erc20_coin_with_random_privkey(swap_contract());
