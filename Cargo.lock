@@ -2174,7 +2174,7 @@ dependencies = [
 [[package]]
 name = "ethcore-transaction"
 version = "0.1.0"
-source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#78000fabd9a03e3087667053692a340439dde2d6"
+source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#b6064ceec79ebf0ff896889196e2991efee2d58d"
 dependencies = [
  "ethereum-types",
  "ethkey",
@@ -2201,7 +2201,7 @@ dependencies = [
 [[package]]
 name = "ethkey"
 version = "0.3.0"
-source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#78000fabd9a03e3087667053692a340439dde2d6"
+source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#b6064ceec79ebf0ff896889196e2991efee2d58d"
 dependencies = [
  "byteorder",
  "edit-distance",
@@ -4109,7 +4109,7 @@ checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 [[package]]
 name = "mem"
 version = "0.1.0"
-source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#78000fabd9a03e3087667053692a340439dde2d6"
+source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#b6064ceec79ebf0ff896889196e2991efee2d58d"
 
 [[package]]
 name = "memchr"
@@ -8647,7 +8647,7 @@ dependencies = [
 [[package]]
 name = "unexpected"
 version = "0.1.0"
-source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#78000fabd9a03e3087667053692a340439dde2d6"
+source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#b6064ceec79ebf0ff896889196e2991efee2d58d"
 
 [[package]]
 name = "unicode-bidi"

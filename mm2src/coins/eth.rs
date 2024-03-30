@@ -43,6 +43,7 @@ use crypto::{CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy, Stand
 use derive_more::Display;
 use enum_derives::EnumFromStringify;
 use ethabi::{Contract, Function, Token};
+use ethcore_transaction::tx_builders::TxBuilderError;
 pub use ethcore_transaction::SignedTransaction as SignedEthTx;
 use ethcore_transaction::{Action, Eip1559Transaction, Eip2930Transaction, LegacyTransaction,
                           TransactionWrapperBuilder as UnSignedEthTxBuilder, TxType, UnverifiedEip1559Transaction,
@@ -314,6 +315,10 @@ impl From<Web3RpcError> for WithdrawError {
     }
 }
 
+impl From<ethcore_transaction::Error> for WithdrawError {
+    fn from(e: ethcore_transaction::Error) -> Self { WithdrawError::SigningError(e.to_string()) }
+}
+
 impl From<web3::Error> for TradePreimageError {
     fn from(e: web3::Error) -> Self { TradePreimageError::Transport(e.to_string()) }
 }
@@ -362,6 +367,14 @@ impl From<Web3RpcError> for BalanceError {
             },
         }
     }
+}
+
+impl From<TxBuilderError> for TransactionErr {
+    fn from(e: TxBuilderError) -> Self { TransactionErr::Plain(e.to_string()) }
+}
+
+impl From<ethcore_transaction::Error> for TransactionErr {
+    fn from(e: ethcore_transaction::Error) -> Self { TransactionErr::Plain(e.to_string()) }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -735,7 +748,7 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
             let tx = tx_builder
                 .build()
                 .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
-            let signed = tx.sign(key_pair.secret(), coin.chain_id);
+            let signed = tx.sign(key_pair.secret(), coin.chain_id)?;
             let bytes = rlp::encode(&signed);
 
             (signed.tx_hash(), BytesJson::from(bytes.to_vec()))
@@ -904,7 +917,7 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
         .build()
         .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
     let secret = eth_coin.priv_key_policy.activated_key_or_err()?.secret();
-    let signed = tx.sign(secret, eth_coin.chain_id);
+    let signed = tx.sign(secret, eth_coin.chain_id)?;
     let signed_bytes = rlp::encode(&signed);
     let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
 
@@ -989,7 +1002,7 @@ pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> Withd
         .build()
         .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
     let secret = eth_coin.priv_key_policy.activated_key_or_err()?.secret();
-    let signed = tx.sign(secret, eth_coin.chain_id);
+    let signed = tx.sign(secret, eth_coin.chain_id)?;
     let signed_bytes = rlp::encode(&signed);
     let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
 
@@ -2428,10 +2441,10 @@ async fn sign_transaction_with_keypair(
     let tx_builder = UnSignedEthTxBuilder::new(tx_type, nonce, gas, action, value, data);
     let tx_builder = tx_builder_with_pay_for_gas_option(coin, tx_builder, &pay_for_gas_option)
         .map_err(|e| TransactionErr::Plain(e.get_inner().to_string()))?;
-    let tx = tx_builder.build().map_err(|e| TransactionErr::Plain(e.to_string()))?;
+    let tx = tx_builder.build()?;
 
     Ok((
-        tx.sign(key_pair.secret(), coin.chain_id),
+        tx.sign(key_pair.secret(), coin.chain_id)?,
         web3_instances_with_latest_nonce,
     ))
 }
@@ -5843,39 +5856,9 @@ fn signed_tx_from_web3_tx(transaction: Web3Transaction) -> Result<SignedEthTx, S
         .as_u64();
 
     let unverified = if transaction.transaction_type.is_none() || transaction.transaction_type.unwrap() == type_0 {
-        UnverifiedTransactionWrapper::Legacy(UnverifiedLegacyTransaction {
-            r,
-            s,
-            network_v: v,
-            hash: transaction.hash,
-            unsigned: LegacyTransaction {
-                data: transaction.input.0,
-                gas_price: transaction
-                    .gas_price
-                    .ok_or_else(|| ERRL!("'Transaction::gas_price' is not set"))?,
-                gas: transaction.gas,
-                value: transaction.value,
-                nonce: transaction.nonce,
-                action: match transaction.to {
-                    Some(addr) => Action::Call(addr),
-                    None => Action::Create,
-                },
-            },
-        })
-    } else {
-        let chain_id_s = transaction
-            .chain_id
-            .ok_or_else(|| ERRL!("'Transaction::chain_id' is not set"))?
-            .to_string();
-        let chain_id = chain_id_s.parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
-        if transaction.transaction_type.unwrap() == type_1 {
-            UnverifiedTransactionWrapper::Eip2930(UnverifiedEip2930Transaction {
-                r,
-                s,
-                v,
-                hash: transaction.hash,
-                unsigned: Eip2930Transaction {
-                    chain_id,
+        UnverifiedTransactionWrapper::Legacy(
+            UnverifiedLegacyTransaction::new_with_network_v(
+                LegacyTransaction {
                     data: transaction.input.0,
                     gas_price: transaction
                         .gas_price
@@ -5887,34 +5870,73 @@ fn signed_tx_from_web3_tx(transaction: Web3Transaction) -> Result<SignedEthTx, S
                         Some(addr) => Action::Call(addr),
                         None => Action::Create,
                     },
-                    access_list: map_access_list(&transaction.access_list),
                 },
-            })
-        } else if transaction.transaction_type.unwrap() == type_2 {
-            UnverifiedTransactionWrapper::Eip1559(UnverifiedEip1559Transaction {
                 r,
                 s,
                 v,
-                hash: transaction.hash,
-                unsigned: Eip1559Transaction {
-                    chain_id,
-                    data: transaction.input.0,
-                    max_priority_fee_per_gas: transaction
-                        .max_priority_fee_per_gas
-                        .ok_or_else(|| ERRL!("'Transaction::max_priority_fee_per_gas' is not set"))?,
-                    max_fee_per_gas: transaction
-                        .max_fee_per_gas
-                        .ok_or_else(|| ERRL!("'Transaction::max_fee_per_gas' is not set"))?,
-                    gas: transaction.gas,
-                    value: transaction.value,
-                    nonce: transaction.nonce,
-                    action: match transaction.to {
-                        Some(addr) => Action::Call(addr),
-                        None => Action::Create,
+                transaction.hash,
+            )
+            .map_err(|err| ERRL!("'Transaction::new' error {}", err.to_string()))?,
+        )
+    } else {
+        let chain_id_s = transaction
+            .chain_id
+            .ok_or_else(|| ERRL!("'Transaction::chain_id' is not set"))?
+            .to_string();
+        let chain_id = chain_id_s.parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+        if transaction.transaction_type.unwrap() == type_1 {
+            UnverifiedTransactionWrapper::Eip2930(
+                UnverifiedEip2930Transaction::new(
+                    Eip2930Transaction {
+                        chain_id,
+                        data: transaction.input.0,
+                        gas_price: transaction
+                            .gas_price
+                            .ok_or_else(|| ERRL!("'Transaction::gas_price' is not set"))?,
+                        gas: transaction.gas,
+                        value: transaction.value,
+                        nonce: transaction.nonce,
+                        action: match transaction.to {
+                            Some(addr) => Action::Call(addr),
+                            None => Action::Create,
+                        },
+                        access_list: map_access_list(&transaction.access_list),
                     },
-                    access_list: map_access_list(&transaction.access_list),
-                },
-            })
+                    r,
+                    s,
+                    v,
+                    transaction.hash,
+                )
+                .map_err(|err| ERRL!("'Transaction::new' error {}", err.to_string()))?,
+            )
+        } else if transaction.transaction_type.unwrap() == type_2 {
+            UnverifiedTransactionWrapper::Eip1559(
+                UnverifiedEip1559Transaction::new(
+                    Eip1559Transaction {
+                        chain_id,
+                        data: transaction.input.0,
+                        max_priority_fee_per_gas: transaction
+                            .max_priority_fee_per_gas
+                            .ok_or_else(|| ERRL!("'Transaction::max_priority_fee_per_gas' is not set"))?,
+                        max_fee_per_gas: transaction
+                            .max_fee_per_gas
+                            .ok_or_else(|| ERRL!("'Transaction::max_fee_per_gas' is not set"))?,
+                        gas: transaction.gas,
+                        value: transaction.value,
+                        nonce: transaction.nonce,
+                        action: match transaction.to {
+                            Some(addr) => Action::Call(addr),
+                            None => Action::Create,
+                        },
+                        access_list: map_access_list(&transaction.access_list),
+                    },
+                    r,
+                    s,
+                    v,
+                    transaction.hash,
+                )
+                .map_err(|err| ERRL!("'Transaction::new' error {}", err.to_string()))?,
+            )
         } else {
             return Err(ERRL!("'Transaction::transaction_type' unsupported"));
         }

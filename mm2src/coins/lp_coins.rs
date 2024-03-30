@@ -2759,6 +2759,8 @@ pub enum WithdrawError {
     NoChainIdSet {
         coin: String,
     },
+    #[display(fmt = "Signing error {}", _0)]
+    SigningError(String),
 }
 
 impl HttpStatusCode for WithdrawError {
@@ -2785,7 +2787,8 @@ impl HttpStatusCode for WithdrawError {
             | WithdrawError::CoinDoesntSupportNftWithdraw { .. }
             | WithdrawError::NotEnoughNftsAmount { .. }
             | WithdrawError::MyAddressNotNftOwner { .. }
-            | WithdrawError::NoChainIdSet { .. } => StatusCode::BAD_REQUEST,
+            | WithdrawError::NoChainIdSet { .. }
+            | WithdrawError::SigningError(_) => StatusCode::BAD_REQUEST,
             WithdrawError::HwError(_) => StatusCode::GONE,
             #[cfg(target_arch = "wasm32")]
             WithdrawError::BroadcastExpected(_) => StatusCode::BAD_REQUEST,
