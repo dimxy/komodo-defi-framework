@@ -765,25 +765,31 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
                 return MmError::err(WithdrawError::BroadcastExpected(error));
             }
 
+            let gas_price = if let PayForGasOption::Legacy(ref legacy_gas_price) = pay_for_gas_option {
+                Some(legacy_gas_price.gas_price)
+            } else {
+                None
+            };
+
+            let max_priority_fee_per_gas = if let PayForGasOption::Eip1559(ref fee_per_gas) = pay_for_gas_option {
+                Some(fee_per_gas.max_priority_fee_per_gas)
+            } else {
+                None
+            };
+
+            let max_fee_per_gas = if let PayForGasOption::Eip1559(ref fee_per_gas) = pay_for_gas_option {
+                Some(fee_per_gas.max_fee_per_gas)
+            } else {
+                None
+            };
+
             let tx_to_send = TransactionRequest {
                 from: coin.my_address,
                 to: Some(to_addr),
                 gas: Some(gas),
-                gas_price: if let PayForGasOption::Legacy(ref legacy_gas_price) = pay_for_gas_option {
-                    Some(legacy_gas_price.gas_price)
-                } else {
-                    None
-                },
-                max_priority_fee_per_gas: if let PayForGasOption::Eip1559(ref fee_per_gas) = pay_for_gas_option {
-                    Some(fee_per_gas.max_priority_fee_per_gas)
-                } else {
-                    None
-                },
-                max_fee_per_gas: if let PayForGasOption::Eip1559(ref fee_per_gas) = pay_for_gas_option {
-                    Some(fee_per_gas.max_fee_per_gas)
-                } else {
-                    None
-                },
+                gas_price,
+                max_priority_fee_per_gas,
+                max_fee_per_gas,
                 value: Some(eth_value),
                 data: Some(data.clone().into()),
                 nonce: None,
@@ -2499,30 +2505,36 @@ async fn sign_and_send_transaction_with_metamask(
             .await
     );
 
+    let gas_price = if let PayForGasOption::Legacy(LegacyGasPrice { gas_price }) = pay_for_gas_option {
+        Some(gas_price)
+    } else {
+        None
+    };
+
+    let max_priority_fee_per_gas = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
+        max_priority_fee_per_gas,
+        ..
+    }) = pay_for_gas_option
+    {
+        Some(max_priority_fee_per_gas)
+    } else {
+        None
+    };
+
+    let max_fee_per_gas = if let PayForGasOption::Eip1559(Eip1559FeePerGas { max_fee_per_gas, .. }) = pay_for_gas_option
+    {
+        Some(max_fee_per_gas)
+    } else {
+        None
+    };
+
     let tx_to_send = TransactionRequest {
         from: coin.my_address,
         to,
         gas: Some(gas),
-        gas_price: if let PayForGasOption::Legacy(LegacyGasPrice { gas_price }) = pay_for_gas_option {
-            Some(gas_price)
-        } else {
-            None
-        },
-        max_priority_fee_per_gas: if let PayForGasOption::Eip1559(Eip1559FeePerGas {
-            max_priority_fee_per_gas,
-            ..
-        }) = pay_for_gas_option
-        {
-            Some(max_priority_fee_per_gas)
-        } else {
-            None
-        },
-        max_fee_per_gas: if let PayForGasOption::Eip1559(Eip1559FeePerGas { max_fee_per_gas, .. }) = pay_for_gas_option
-        {
-            Some(max_fee_per_gas)
-        } else {
-            None
-        },
+        gas_price,
+        max_priority_fee_per_gas,
+        max_fee_per_gas,
         value: Some(value),
         data: Some(data.clone().into()),
         nonce: None,
@@ -6438,6 +6450,30 @@ async fn get_eth_gas_details_from_withdraw_fee(
     } else {
         eth_value
     };
+
+    let gas_price = if let PayForGasOption::Legacy(LegacyGasPrice { gas_price }) = pay_for_gas_option {
+        Some(gas_price)
+    } else {
+        None
+    };
+
+    let max_priority_fee_per_gas = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
+        max_priority_fee_per_gas,
+        ..
+    }) = pay_for_gas_option
+    {
+        Some(max_priority_fee_per_gas)
+    } else {
+        None
+    };
+
+    let max_fee_per_gas = if let PayForGasOption::Eip1559(Eip1559FeePerGas { max_fee_per_gas, .. }) = pay_for_gas_option
+    {
+        Some(max_fee_per_gas)
+    } else {
+        None
+    };
+
     let estimate_gas_req = CallRequest {
         value: Some(eth_value_for_estimate),
         data: Some(data),
@@ -6446,26 +6482,9 @@ async fn get_eth_gas_details_from_withdraw_fee(
         gas: None,
         // gas price must be supplied because some smart contracts base their
         // logic on gas price, e.g. TUSD: https://github.com/KomodoPlatform/atomicDEX-API/issues/643
-        gas_price: if let PayForGasOption::Legacy(LegacyGasPrice { gas_price }) = pay_for_gas_option {
-            Some(gas_price)
-        } else {
-            None
-        },
-        max_priority_fee_per_gas: if let PayForGasOption::Eip1559(Eip1559FeePerGas {
-            max_priority_fee_per_gas,
-            ..
-        }) = pay_for_gas_option
-        {
-            Some(max_priority_fee_per_gas)
-        } else {
-            None
-        },
-        max_fee_per_gas: if let PayForGasOption::Eip1559(Eip1559FeePerGas { max_fee_per_gas, .. }) = pay_for_gas_option
-        {
-            Some(max_fee_per_gas)
-        } else {
-            None
-        },
+        gas_price,
+        max_priority_fee_per_gas,
+        max_fee_per_gas,
         ..CallRequest::default()
     };
     // TODO Note if the wallet's balance is insufficient to withdraw, then `estimate_gas` may fail with the `Exception` error.
