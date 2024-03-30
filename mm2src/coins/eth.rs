@@ -3009,10 +3009,10 @@ impl EthCoin {
                 let fee_details: Option<EthTxFeeDetails> = match receipt {
                     Some(r) => {
                         let gas_used = r.gas_used.unwrap_or_default();
-                        let gas_price = web3_tx.gas_price.unwrap_or_default(); // TODO: create and use EthTxFeeDetails::from(web3_tx)
-                                                                               // It's relatively safe to unwrap `EthTxFeeDetails::new` as it may fail
-                                                                               // due to `u256_to_big_decimal` only.
-                                                                               // Also TX history is not used by any GUI and has significant disadvantages.
+                        let gas_price = web3_tx.gas_price.unwrap_or_default();
+                        // TODO: create and use EthTxFeeDetails::from(web3_tx)
+                        // It's relatively safe to unwrap `EthTxFeeDetails::new` as it may fail due to `u256_to_big_decimal` only.
+                        // Also TX history is not used by any GUI and has significant disadvantages.
                         Some(
                             EthTxFeeDetails::new(
                                 gas_used,
