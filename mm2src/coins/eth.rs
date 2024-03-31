@@ -771,16 +771,14 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
                 None
             };
 
-            let max_priority_fee_per_gas = if let PayForGasOption::Eip1559(ref fee_per_gas) = pay_for_gas_option {
-                Some(fee_per_gas.max_priority_fee_per_gas)
+            let (max_priority_fee_per_gas, max_fee_per_gas) = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
+                max_priority_fee_per_gas,
+                max_fee_per_gas,
+            }) = pay_for_gas_option
+            {
+                (Some(max_priority_fee_per_gas), Some(max_fee_per_gas))
             } else {
-                None
-            };
-
-            let max_fee_per_gas = if let PayForGasOption::Eip1559(ref fee_per_gas) = pay_for_gas_option {
-                Some(fee_per_gas.max_fee_per_gas)
-            } else {
-                None
+                (None, None)
             };
 
             let tx_to_send = TransactionRequest {
@@ -2511,21 +2509,14 @@ async fn sign_and_send_transaction_with_metamask(
         None
     };
 
-    let max_priority_fee_per_gas = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
+    let (max_priority_fee_per_gas, max_fee_per_gas) = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
         max_priority_fee_per_gas,
-        ..
+        max_fee_per_gas,
     }) = pay_for_gas_option
     {
-        Some(max_priority_fee_per_gas)
+        (Some(max_priority_fee_per_gas), Some(max_fee_per_gas))
     } else {
-        None
-    };
-
-    let max_fee_per_gas = if let PayForGasOption::Eip1559(Eip1559FeePerGas { max_fee_per_gas, .. }) = pay_for_gas_option
-    {
-        Some(max_fee_per_gas)
-    } else {
-        None
+        (None, None)
     };
 
     let tx_to_send = TransactionRequest {
@@ -5281,15 +5272,17 @@ impl EthTxFeeDetails {
             }) => (max_fee_per_gas, Some(max_fee_per_gas), Some(max_priority_fee_per_gas)),
         };
         let gas_price = u256_to_big_decimal(gas_price, ETH_DECIMALS)?;
-        let max_fee_per_gas = if let Some(max_fee_per_gas) = max_fee_per_gas {
-            Some(u256_to_big_decimal(max_fee_per_gas, ETH_DECIMALS)?)
+        let (max_fee_per_gas, max_priority_fee_per_gas) = if let (
+            Some(max_fee_per_gas),
+            Some(max_priority_fee_per_gas),
+        ) = (max_fee_per_gas, max_priority_fee_per_gas)
+        {
+            (
+                Some(u256_to_big_decimal(max_fee_per_gas, ETH_DECIMALS)?),
+                Some(u256_to_big_decimal(max_priority_fee_per_gas, ETH_DECIMALS)?),
+            )
         } else {
-            None
-        };
-        let max_priority_fee_per_gas = if let Some(max_priority_fee_per_gas) = max_priority_fee_per_gas {
-            Some(u256_to_big_decimal(max_priority_fee_per_gas, ETH_DECIMALS)?)
-        } else {
-            None
+            (None, None)
         };
         let gas_u64 = u64::try_from(gas).map_to_mm(|e| NumConversError::new(e.to_string()))?;
 
@@ -6457,21 +6450,14 @@ async fn get_eth_gas_details_from_withdraw_fee(
         None
     };
 
-    let max_priority_fee_per_gas = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
+    let (max_priority_fee_per_gas, max_fee_per_gas) = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
         max_priority_fee_per_gas,
-        ..
+        max_fee_per_gas,
     }) = pay_for_gas_option
     {
-        Some(max_priority_fee_per_gas)
+        (Some(max_priority_fee_per_gas), Some(max_fee_per_gas))
     } else {
-        None
-    };
-
-    let max_fee_per_gas = if let PayForGasOption::Eip1559(Eip1559FeePerGas { max_fee_per_gas, .. }) = pay_for_gas_option
-    {
-        Some(max_fee_per_gas)
-    } else {
-        None
+        (None, None)
     };
 
     let estimate_gas_req = CallRequest {
