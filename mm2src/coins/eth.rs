@@ -5875,35 +5875,39 @@ fn signed_tx_from_web3_tx(transaction: Web3Transaction) -> Result<SignedEthTx, S
         transaction.value,
         transaction.input.0,
     );
-    let tx_builder = if tx_type == TxType::Legacy {
-        let gas_price = transaction
-            .gas_price
-            .ok_or_else(|| ERRL!("'Transaction::gas_price' is not set"))?;
-
-        tx_builder.with_gas_price(gas_price)
-    } else {
-        let chain_id_s = transaction
-            .chain_id
-            .ok_or_else(|| ERRL!("'Transaction::chain_id' is not set"))?
-            .to_string();
-        let chain_id = chain_id_s.parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
-        let tx_builder = if tx_type == TxType::Type1 {
+    let tx_builder = match tx_type {
+        TxType::Legacy => {
             let gas_price = transaction
                 .gas_price
                 .ok_or_else(|| ERRL!("'Transaction::gas_price' is not set"))?;
+
             tx_builder.with_gas_price(gas_price)
-        } else {
-            let max_fee_per_gas = transaction
-                .max_fee_per_gas
-                .ok_or_else(|| ERRL!("'Transaction::max_fee_per_gas' is not set"))?;
-            let max_priority_fee_per_gas = transaction
-                .max_priority_fee_per_gas
-                .ok_or_else(|| ERRL!("'Transaction::max_priority_fee_per_gas' is not set"))?;
-            tx_builder.with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
-        };
-        tx_builder
-            .with_chain_id(chain_id)
-            .with_access_list(map_access_list(&transaction.access_list))
+        },
+        TxType::Type1 | TxType::Type2 => {
+            let chain_id_s = transaction
+                .chain_id
+                .ok_or_else(|| ERRL!("'Transaction::chain_id' is not set"))?
+                .to_string();
+            let chain_id = chain_id_s.parse().map_err(|e: std::num::ParseIntError| e.to_string())?;
+            let tx_builder = if tx_type == TxType::Type1 {
+                let gas_price = transaction
+                    .gas_price
+                    .ok_or_else(|| ERRL!("'Transaction::gas_price' is not set"))?;
+                tx_builder.with_gas_price(gas_price)
+            } else {
+                let max_fee_per_gas = transaction
+                    .max_fee_per_gas
+                    .ok_or_else(|| ERRL!("'Transaction::max_fee_per_gas' is not set"))?;
+                let max_priority_fee_per_gas = transaction
+                    .max_priority_fee_per_gas
+                    .ok_or_else(|| ERRL!("'Transaction::max_priority_fee_per_gas' is not set"))?;
+                tx_builder.with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
+            };
+            tx_builder
+                .with_chain_id(chain_id)
+                .with_access_list(map_access_list(&transaction.access_list))
+        },
+        TxType::Invalid => return Err(ERRL!("Internal error: 'tx_type' invalid")),
     };
     let unsigned = tx_builder.build().map_err(|err| err.to_string())?;
 
