@@ -203,19 +203,38 @@ type EthPrivKeyPolicy = PrivKeyPolicy<KeyPair>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct LegacyGasPrice {
-    pub gas_price: U256,
+    pub(crate) gas_price: U256,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct Eip1559FeePerGas {
-    pub max_priority_fee_per_gas: U256,
-    pub max_fee_per_gas: U256,
+    pub(crate) max_fee_per_gas: U256,
+    pub(crate) max_priority_fee_per_gas: U256,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) enum PayForGasOption {
     Legacy(LegacyGasPrice),
     Eip1559(Eip1559FeePerGas),
+}
+
+impl PayForGasOption {
+    fn get_gas_price(&self) -> Option<U256> {
+        match self {
+            PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => Some(*gas_price),
+            PayForGasOption::Eip1559(..) => None,
+        }
+    }
+
+    fn get_fee_per_gas(&self) -> (Option<U256>, Option<U256>) {
+        match self {
+            PayForGasOption::Eip1559(Eip1559FeePerGas {
+                max_fee_per_gas,
+                max_priority_fee_per_gas,
+            }) => (Some(*max_fee_per_gas), Some(*max_priority_fee_per_gas)),
+            PayForGasOption::Legacy(..) => (None, None),
+        }
+    }
 }
 
 type GasDetails = (U256, PayForGasOption);
@@ -765,29 +784,15 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
                 return MmError::err(WithdrawError::BroadcastExpected(error));
             }
 
-            let gas_price = if let PayForGasOption::Legacy(ref legacy_gas_price) = pay_for_gas_option {
-                Some(legacy_gas_price.gas_price)
-            } else {
-                None
-            };
-
-            let (max_priority_fee_per_gas, max_fee_per_gas) = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
-                max_priority_fee_per_gas,
-                max_fee_per_gas,
-            }) = pay_for_gas_option
-            {
-                (Some(max_priority_fee_per_gas), Some(max_fee_per_gas))
-            } else {
-                (None, None)
-            };
-
+            let gas_price = pay_for_gas_option.get_gas_price();
+            let (max_fee_per_gas, max_priority_fee_per_gas) = pay_for_gas_option.get_fee_per_gas();
             let tx_to_send = TransactionRequest {
                 from: coin.my_address,
                 to: Some(to_addr),
                 gas: Some(gas),
                 gas_price,
-                max_priority_fee_per_gas,
                 max_fee_per_gas,
+                max_priority_fee_per_gas,
                 value: Some(eth_value),
                 data: Some(data.clone().into()),
                 nonce: None,
@@ -2503,29 +2508,15 @@ async fn sign_and_send_transaction_with_metamask(
             .await
     );
 
-    let gas_price = if let PayForGasOption::Legacy(LegacyGasPrice { gas_price }) = pay_for_gas_option {
-        Some(gas_price)
-    } else {
-        None
-    };
-
-    let (max_priority_fee_per_gas, max_fee_per_gas) = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
-        max_priority_fee_per_gas,
-        max_fee_per_gas,
-    }) = pay_for_gas_option
-    {
-        (Some(max_priority_fee_per_gas), Some(max_fee_per_gas))
-    } else {
-        (None, None)
-    };
-
+    let gas_price = pay_for_gas_option.get_gas_price();
+    let (max_fee_per_gas, max_priority_fee_per_gas) = pay_for_gas_option.get_fee_per_gas();
     let tx_to_send = TransactionRequest {
         from: coin.my_address,
         to,
         gas: Some(gas),
         gas_price,
-        max_priority_fee_per_gas,
         max_fee_per_gas,
+        max_priority_fee_per_gas,
         value: Some(value),
         data: Some(data.clone().into()),
         nonce: None,
@@ -4990,32 +4981,32 @@ impl EthCoin {
                     let pay_result = (|| -> MmResult<PayForGasOption, NumConversError> {
                         match swap_fee_policy {
                             SwapTxFeePolicy::Low => Ok(PayForGasOption::Eip1559(Eip1559FeePerGas {
-                                max_priority_fee_per_gas: wei_from_big_decimal(
-                                    &fee_per_gas.low.max_priority_fee_per_gas,
-                                    ETH_GWEI_DECIMALS,
-                                )?,
                                 max_fee_per_gas: wei_from_big_decimal(
                                     &fee_per_gas.low.max_fee_per_gas,
                                     ETH_GWEI_DECIMALS,
                                 )?,
-                            })),
-                            SwapTxFeePolicy::Medium => Ok(PayForGasOption::Eip1559(Eip1559FeePerGas {
                                 max_priority_fee_per_gas: wei_from_big_decimal(
-                                    &fee_per_gas.medium.max_priority_fee_per_gas,
+                                    &fee_per_gas.low.max_priority_fee_per_gas,
                                     ETH_GWEI_DECIMALS,
                                 )?,
+                            })),
+                            SwapTxFeePolicy::Medium => Ok(PayForGasOption::Eip1559(Eip1559FeePerGas {
                                 max_fee_per_gas: wei_from_big_decimal(
                                     &fee_per_gas.medium.max_fee_per_gas,
                                     ETH_GWEI_DECIMALS,
                                 )?,
-                            })),
-                            _ => Ok(PayForGasOption::Eip1559(Eip1559FeePerGas {
                                 max_priority_fee_per_gas: wei_from_big_decimal(
-                                    &fee_per_gas.high.max_priority_fee_per_gas,
+                                    &fee_per_gas.medium.max_priority_fee_per_gas,
                                     ETH_GWEI_DECIMALS,
                                 )?,
+                            })),
+                            _ => Ok(PayForGasOption::Eip1559(Eip1559FeePerGas {
                                 max_fee_per_gas: wei_from_big_decimal(
                                     &fee_per_gas.high.max_fee_per_gas,
+                                    ETH_GWEI_DECIMALS,
+                                )?,
+                                max_priority_fee_per_gas: wei_from_big_decimal(
+                                    &fee_per_gas.high.max_priority_fee_per_gas,
                                     ETH_GWEI_DECIMALS,
                                 )?,
                             })),
@@ -5272,17 +5263,12 @@ impl EthTxFeeDetails {
             }) => (max_fee_per_gas, Some(max_fee_per_gas), Some(max_priority_fee_per_gas)),
         };
         let gas_price = u256_to_big_decimal(gas_price, ETH_DECIMALS)?;
-        let (max_fee_per_gas, max_priority_fee_per_gas) = if let (
-            Some(max_fee_per_gas),
-            Some(max_priority_fee_per_gas),
-        ) = (max_fee_per_gas, max_priority_fee_per_gas)
-        {
-            (
+        let (max_fee_per_gas, max_priority_fee_per_gas) = match (max_fee_per_gas, max_priority_fee_per_gas) {
+            (Some(max_fee_per_gas), Some(max_priority_fee_per_gas)) => (
                 Some(u256_to_big_decimal(max_fee_per_gas, ETH_DECIMALS)?),
                 Some(u256_to_big_decimal(max_priority_fee_per_gas, ETH_DECIMALS)?),
-            )
-        } else {
-            (None, None)
+            ),
+            (_, _) => (None, None),
         };
         let gas_u64 = u64::try_from(gas).map_to_mm(|e| NumConversError::new(e.to_string()))?;
 
@@ -6431,22 +6417,8 @@ async fn get_eth_gas_details_from_withdraw_fee(
         eth_value
     };
 
-    let gas_price = if let PayForGasOption::Legacy(LegacyGasPrice { gas_price }) = pay_for_gas_option {
-        Some(gas_price)
-    } else {
-        None
-    };
-
-    let (max_priority_fee_per_gas, max_fee_per_gas) = if let PayForGasOption::Eip1559(Eip1559FeePerGas {
-        max_priority_fee_per_gas,
-        max_fee_per_gas,
-    }) = pay_for_gas_option
-    {
-        (Some(max_priority_fee_per_gas), Some(max_fee_per_gas))
-    } else {
-        (None, None)
-    };
-
+    let gas_price = pay_for_gas_option.get_gas_price();
+    let (max_fee_per_gas, max_priority_fee_per_gas) = pay_for_gas_option.get_fee_per_gas();
     let estimate_gas_req = CallRequest {
         value: Some(eth_value_for_estimate),
         data: Some(data),
@@ -6515,17 +6487,17 @@ fn call_request_with_pay_for_gas_option(call_request: CallRequest, pay_for_gas_o
     match pay_for_gas_option {
         PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => CallRequest {
             gas_price: Some(gas_price),
-            max_priority_fee_per_gas: None,
             max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
             ..call_request
         },
         PayForGasOption::Eip1559(Eip1559FeePerGas {
-            max_priority_fee_per_gas,
             max_fee_per_gas,
+            max_priority_fee_per_gas,
         }) => CallRequest {
             gas_price: None,
-            max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
             max_fee_per_gas: Some(max_fee_per_gas),
+            max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
             ..call_request
         },
     }
