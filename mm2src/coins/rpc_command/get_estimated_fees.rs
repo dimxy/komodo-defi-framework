@@ -65,6 +65,9 @@ impl From<CoinFindError> for FeeEstimatorError {
 }
 
 impl FeeEstimatorContext {
+    /// Creates gas fee estimator context if supported for this coin and chain id. Otherwise returns None.
+    /// When gas fee estimator rpc is called and no fee estimator was created
+    /// it is assumed it is not supported for the coin or chain or coin config is inappropriate
     pub(crate) async fn new(ctx: &MmArc, conf: &Json, coin_type: &EthCoinType) -> Option<Arc<AsyncMutex<Self>>> {
         let chain_id = conf["chain_id"].as_u64()?;
         if chain_id != ETH_SUPPORTED_CHAIN_ID {
