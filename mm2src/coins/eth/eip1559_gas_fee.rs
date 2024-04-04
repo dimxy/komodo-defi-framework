@@ -281,6 +281,9 @@ impl FeePerGasSimpleEstimator {
 
     /// estimate priority fees by fee history
     fn calculate_with_history(fee_history: &FeeHistoryResult) -> Web3RpcResult<FeePerGasEstimated> {
+        // For estimation of max fee and max priority fee we use latest block base_fee but adjusted.
+        // Apparently for this simple fee estimator for assured high priority we should assume
+        // that the real base_fee may go up by 1,25 (i.e. if the block is full). This is covered by high priority ADJUST_MAX_FEE multiplier
         let latest_base_fee = fee_history
             .base_fee_per_gas
             .first()
@@ -288,6 +291,9 @@ impl FeePerGasSimpleEstimator {
             .unwrap_or_else(|| U256::from(0));
         let latest_base_fee =
             u256_to_big_decimal(latest_base_fee, ETH_GWEI_DECIMALS).unwrap_or_else(|_| BigDecimal::from(0));
+
+        // The predicted base fee is not used for calculating eip1559 values here and is provided for other purposes
+        // (f.e if the caller would like to do own estimates of max fee and max priority fee)
         let predicted_base_fee = Self::predict_base_fee(&fee_history.base_fee_per_gas);
         Ok(FeePerGasEstimated {
             base_fee: u256_to_big_decimal(predicted_base_fee, ETH_GWEI_DECIMALS)
