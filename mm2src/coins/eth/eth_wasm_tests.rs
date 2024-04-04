@@ -48,6 +48,7 @@ async fn test_send() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx: None,
         abortable_system: AbortableQueue::default(),
     }));
     let maker_payment_args = SendPaymentArgs {

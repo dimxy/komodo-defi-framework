@@ -40,6 +40,7 @@ impl From<EthTokenActivationError> for EnableTokenError {
             | EthTokenActivationError::Transport(e)
             | EthTokenActivationError::ClientConnectionFailed(e) => EnableTokenError::Transport(e),
             EthTokenActivationError::InvalidPayload(e) => EnableTokenError::InvalidPayload(e),
+            EthTokenActivationError::FeeEstimatorFailed(e) => EnableTokenError::Internal(e),
         }
     }
 }

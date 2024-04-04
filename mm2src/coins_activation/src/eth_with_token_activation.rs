@@ -59,6 +59,7 @@ impl From<EthActivationV2Error> for EnablePlatformCoinWithTokensError {
             },
             EthActivationV2Error::InternalError(e) => EnablePlatformCoinWithTokensError::Internal(e),
             EthActivationV2Error::Transport(e) => EnablePlatformCoinWithTokensError::Transport(e),
+            EthActivationV2Error::FeeEstimatorFailed(e) => EnablePlatformCoinWithTokensError::Internal(e),
         }
     }
 }
@@ -88,6 +89,7 @@ impl From<EthTokenActivationError> for InitTokensAsMmCoinsError {
             },
             EthTokenActivationError::InvalidPayload(e) => InitTokensAsMmCoinsError::InvalidPayload(e),
             EthTokenActivationError::Transport(e) => InitTokensAsMmCoinsError::Transport(e),
+            EthTokenActivationError::FeeEstimatorFailed(e) => InitTokensAsMmCoinsError::Internal(e),
         }
     }
 }

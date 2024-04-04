@@ -1,14 +1,14 @@
 //! RPCs to start/stop gas fee estimator and get estimated base and priority fee per gas
 
-use crate::eth::{EthCoin, FeePerGasEstimated};
-use crate::{from_ctx, NumConversError};
-use crate::{lp_coinfind_or_err, AsyncMutex, CoinFindError, MmCoinEnum};
-use common::executor::{spawn_abortable, AbortOnDropHandle, Timer};
+use crate::eth::{EthCoin, EthCoinType, FeeEstimatorContext, FeePerGasEstimated};
+use crate::{lp_coinfind_or_err, AsyncMutex, CoinFindError, MmCoinEnum, NumConversError};
+use common::executor::{spawn_abortable, Timer};
 use common::log::debug;
 use common::{HttpStatusCode, StatusCode};
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use serde_json::Value as Json;
 use std::sync::Arc;
 
 const FEE_ESTIMATOR_NAME: &str = "eth_gas_fee_estimator_loop";
@@ -26,8 +26,12 @@ pub enum FeeEstimatorError {
     NoSuchCoin { coin: String },
     #[display(fmt = "Gas fee estimation not supported for this coin")]
     CoinNotSupported,
+    #[display(fmt = "Gas fee estimation needs platform coin")]
+    PlatformCoinNotFound,
     #[display(fmt = "Chain id not supported")]
     ChainNotSupported,
+    #[display(fmt = "Chain id must be set")]
+    ChainNeeded,
     #[display(fmt = "Gas fee estimator is already started")]
     AlreadyStarted,
     #[display(fmt = "Transport error: {}", _0)]
@@ -44,6 +48,8 @@ impl HttpStatusCode for FeeEstimatorError {
             FeeEstimatorError::NoSuchCoin { .. }
             | FeeEstimatorError::CoinNotSupported
             | FeeEstimatorError::ChainNotSupported
+            | FeeEstimatorError::ChainNeeded
+            | FeeEstimatorError::PlatformCoinNotFound
             | FeeEstimatorError::AlreadyStarted
             | FeeEstimatorError::NotRunning => StatusCode::BAD_REQUEST,
             FeeEstimatorError::Transport(_) | FeeEstimatorError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -67,50 +73,62 @@ impl From<CoinFindError> for FeeEstimatorError {
     }
 }
 
-/// Gas fee estimator loop context,
-/// runs a loop to estimate max fee and max priority fee per gas according to EIP-1559 for the next block
-///
-/// This FeeEstimatorContext handles rpc requests which start and stop gas fee estimation loop and handles the loop itself.
-/// FeeEstimatorContext maintains a list of eth coins or tokens which connected and use the estimator.
-/// The loop estimation starts when first eth coin or token calls the start rpc and stops when the last coin or token, using it, calls the stop rpc.
-/// FeeEstimatorContext keeps the latest estimated gas fees in the context and returns them as rpc response
-pub struct FeeEstimatorContext {
-    estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>,
-    abort_handler: AsyncMutex<Option<AbortOnDropHandle>>,
-}
-
 impl FeeEstimatorContext {
-    fn new() -> Result<Self, String> {
-        Ok(Self {
-            estimated_fees: Default::default(),
-            abort_handler: AsyncMutex::new(None),
-        })
-    }
-
-    fn from_ctx(ctx: MmArc) -> Result<Arc<FeeEstimatorContext>, String> {
-        Ok(try_s!(from_ctx(&ctx.fee_estimator_ctx, move || {
-            FeeEstimatorContext::new()
-        })))
+    pub(crate) async fn new(
+        ctx: &MmArc,
+        conf: &Json,
+        coin_type: &EthCoinType,
+    ) -> Result<Option<Arc<AsyncMutex<Self>>>, MmError<FeeEstimatorError>> {
+        let chain_id = conf["chain_id"]
+            .as_u64()
+            .ok_or_else(|| MmError::new(FeeEstimatorError::ChainNeeded))?;
+        if chain_id != ETH_SUPPORTED_CHAIN_ID {
+            return Err(MmError::new(FeeEstimatorError::ChainNotSupported));
+        };
+        match coin_type {
+            EthCoinType::Eth => Ok(Some(Arc::new(AsyncMutex::new(Self {
+                estimated_fees: Default::default(),
+                abort_handler: AsyncMutex::new(None),
+            })))),
+            EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform, .. } => {
+                let platform_coin = lp_coinfind_or_err(ctx, platform)
+                    .await
+                    .mm_err(|_| FeeEstimatorError::PlatformCoinNotFound)?;
+                match platform_coin {
+                    MmCoinEnum::EthCoin(eth_coin) => Ok(eth_coin.platform_fee_estimator_ctx.as_ref().cloned()),
+                    _ => Err(MmError::new(FeeEstimatorError::InternalError(
+                        "invalid platform coin".to_string(),
+                    ))),
+                }
+            },
+        }
     }
 
     /// Fee estimation update period in secs, basically equals to eth blocktime
     const fn get_refresh_interval() -> f64 { 15.0 }
 
-    async fn start_if_not_running(ctx: MmArc, coin: &EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
-        let estimator_ctx = Self::from_ctx(ctx.clone())?;
+    fn get_estimator_ctx(coin: &EthCoin) -> Result<Arc<AsyncMutex<FeeEstimatorContext>>, MmError<FeeEstimatorError>> {
+        Ok(coin
+            .platform_fee_estimator_ctx
+            .as_ref()
+            .ok_or_else(|| MmError::new(FeeEstimatorError::CoinNotSupported))?
+            .clone())
+    }
+
+    async fn start_if_not_running(coin: &EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
+        let estimator_ctx = Self::get_estimator_ctx(coin)?;
+        let estimator_ctx = estimator_ctx.lock().await;
         let mut handler = estimator_ctx.abort_handler.lock().await;
         if handler.is_some() {
             return MmError::err(FeeEstimatorError::AlreadyStarted);
         }
-        *handler = Some(spawn_abortable(fee_estimator_loop(
-            estimator_ctx.estimated_fees.clone(),
-            coin.clone(),
-        )));
+        *handler = Some(spawn_abortable(Self::fee_estimator_loop(coin.clone())));
         Ok(())
     }
 
-    async fn request_to_stop(ctx: MmArc) -> Result<(), MmError<FeeEstimatorError>> {
-        let estimator_ctx = Self::from_ctx(ctx)?;
+    async fn request_to_stop(coin: &EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
+        let estimator_ctx = Self::get_estimator_ctx(coin)?;
+        let estimator_ctx = estimator_ctx.lock().await;
         let mut handle_guard = estimator_ctx.abort_handler.lock().await;
         // Handler will be dropped here, stopping the spawned loop immediately
         handle_guard
@@ -119,17 +137,16 @@ impl FeeEstimatorContext {
             .or_mm_err(|| FeeEstimatorError::NotRunning)
     }
 
-    async fn get_estimated_fees(ctx: MmArc) -> Result<FeePerGasEstimated, MmError<FeeEstimatorError>> {
-        let estimator_ctx = Self::from_ctx(ctx.clone())?;
+    async fn get_estimated_fees(coin: &EthCoin) -> Result<FeePerGasEstimated, MmError<FeeEstimatorError>> {
+        let estimator_ctx = Self::get_estimator_ctx(coin)?;
+        let estimator_ctx = estimator_ctx.lock().await;
         let estimated_fees = estimator_ctx.estimated_fees.lock().await;
         Ok(estimated_fees.clone())
     }
 
     fn check_if_chain_id_supported(coin: &EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
-        if let Some(chain_id) = coin.chain_id {
-            if chain_id != ETH_SUPPORTED_CHAIN_ID {
-                return MmError::err(FeeEstimatorError::ChainNotSupported);
-            }
+        if coin.platform_fee_estimator_ctx.is_none() {
+            return MmError::err(FeeEstimatorError::ChainNotSupported);
         }
         Ok(())
     }
@@ -143,31 +160,32 @@ impl FeeEstimatorContext {
         Self::check_if_chain_id_supported(&eth_coin)?;
         Ok(eth_coin)
     }
-}
 
-/// Loop polling gas fee estimator
-///
-/// This loop periodically calls get_eip1559_gas_fee which fetches fee per gas estimations from a gas api provider or calculates them internally
-/// The retrieved data are stored in the fee estimator context
-/// To connect to the chain and gas api provider the web3 instances are used from an EthCoin coin passed in the start rpc param,
-/// so this coin must be enabled first.
-/// Once the loop started any other EthCoin in mainnet may request fee estimations.
-/// It is up to GUI to start and stop the loop when it needs it (considering that the data in context may be used
-/// for any coin with Eth or Erc20 type from the mainnet).
-async fn fee_estimator_loop(estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>, coin: EthCoin) {
-    loop {
-        let started = common::now_float();
-        *estimated_fees.lock().await = coin.get_eip1559_gas_fee().compat().await.unwrap_or_default();
+    /// Loop polling gas fee estimator
+    ///
+    /// This loop periodically calls get_eip1559_gas_fee which fetches fee per gas estimations from a gas api provider or calculates them internally
+    /// The retrieved data are stored in the fee estimator context
+    /// To connect to the chain and gas api provider the web3 instances are used from an EthCoin coin passed in the start rpc param,
+    /// so this coin must be enabled first.
+    /// Once the loop started any other EthCoin in mainnet may request fee estimations.
+    /// It is up to GUI to start and stop the loop when it needs it (considering that the data in context may be used
+    /// for any coin with Eth or Erc20 type from the mainnet).
+    async fn fee_estimator_loop(coin: EthCoin) {
+        loop {
+            let started = common::now_float();
+            if let Ok(estimator_ctx) = Self::get_estimator_ctx(&coin) {
+                let estimated_fees = coin.get_eip1559_gas_fee().compat().await.unwrap_or_default();
+                let estimator_ctx = estimator_ctx.lock().await;
+                *estimator_ctx.estimated_fees.lock().await = estimated_fees;
+            }
 
-        let elapsed = common::now_float() - started;
-        debug!(
-            "{FEE_ESTIMATOR_NAME} getting estimated values processed in {} seconds",
-            elapsed
-        );
+            let elapsed = common::now_float() - started;
+            debug!("{FEE_ESTIMATOR_NAME} call to provider processed in {} seconds", elapsed);
 
-        let wait_secs = FeeEstimatorContext::get_refresh_interval() - elapsed;
-        let wait_secs = if wait_secs < 0.0 { 0.0 } else { wait_secs };
-        Timer::sleep(wait_secs).await;
+            let wait_secs = FeeEstimatorContext::get_refresh_interval() - elapsed;
+            let wait_secs = if wait_secs < 0.0 { 0.0 } else { wait_secs };
+            Timer::sleep(wait_secs).await;
+        }
     }
 }
 
@@ -202,7 +220,7 @@ pub type FeeEstimatorResult = Result<FeePerGasEstimated, MmError<FeeEstimatorErr
 /// Start gas priority fee estimator loop
 pub async fn start_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopRequest) -> FeeEstimatorStartStopResult {
     let coin = FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
-    FeeEstimatorContext::start_if_not_running(ctx, &coin).await?;
+    FeeEstimatorContext::start_if_not_running(&coin).await?;
     Ok(FeeEstimatorStartStopResponse {
         result: "Success".to_string(),
     })
@@ -210,8 +228,8 @@ pub async fn start_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopReque
 
 /// Stop gas priority fee estimator loop
 pub async fn stop_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopRequest) -> FeeEstimatorStartStopResult {
-    FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
-    FeeEstimatorContext::request_to_stop(ctx).await?;
+    let coin = FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
+    FeeEstimatorContext::request_to_stop(&coin).await?;
     Ok(FeeEstimatorStartStopResponse {
         result: "Success".to_string(),
     })
@@ -224,7 +242,7 @@ pub async fn stop_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopReques
 ///
 /// Returns latest estimated fee per gas for the next block
 pub async fn get_eth_estimated_fee_per_gas(ctx: MmArc, req: FeeEstimatorRequest) -> FeeEstimatorResult {
-    FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
-    let estimated_fees = FeeEstimatorContext::get_estimated_fees(ctx).await?;
+    let coin = FeeEstimatorContext::check_if_coin_supported(&ctx, &req.coin).await?;
+    let estimated_fees = FeeEstimatorContext::get_estimated_fees(&coin).await?;
     Ok(estimated_fees)
 }

@@ -32,7 +32,7 @@ use bitcrypto::{dhash160, keccak256, ripemd160, sha256};
 use common::custom_futures::repeatable::{Ready, Retry, RetryOnError};
 use common::custom_futures::timeout::FutureTimerExt;
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem, AbortedError, Timer};
-use common::executor::{AbortSettings, SpawnAbortable};
+use common::executor::{AbortOnDropHandle, AbortSettings, SpawnAbortable};
 use common::log::{debug, error, info, warn};
 use common::number_type_casting::SafeTypeCastingNumbers;
 use common::{get_utc_timestamp, now_sec, small_rng, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -469,6 +469,16 @@ impl TryFrom<PrivKeyBuildPolicy> for EthPrivKeyBuildPolicy {
     }
 }
 
+/// Gas fee estimator loop context, runs a loop to estimate max fee and max priority fee per gas according to EIP-1559 for the next block
+///
+/// This FeeEstimatorContext handles rpc requests which start and stop gas fee estimation loop and handles the loop itself.
+/// FeeEstimatorContext keeps the latest estimated gas fees to return them on rpc request
+pub(crate) struct FeeEstimatorContext {
+    /// Latest estimated gas fee values
+    pub(crate) estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>,
+    pub(crate) abort_handler: AsyncMutex<Option<AbortOnDropHandle>>,
+}
+
 /// pImpl idiom.
 pub struct EthCoinImpl {
     ticker: String,
@@ -496,6 +506,8 @@ pub struct EthCoinImpl {
     /// consisting of the token address and token ID, separated by a comma. This field is essential for tracking the NFT assets
     /// information (chain & contract type, amount etc.), where ownership and amount, in ERC1155 case, might change over time.
     pub nfts_infos: Arc<AsyncMutex<HashMap<String, NftInfo>>>,
+    /// Context for eth fee per gas estimator loop. Created if coin supports fee per gas estimation
+    pub(crate) platform_fee_estimator_ctx: Option<Arc<AsyncMutex<FeeEstimatorContext>>>,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// and on [`MmArc::stop`].
     pub abortable_system: AbortableQueue,
@@ -6163,6 +6175,8 @@ pub async fn eth_coin_from_conf_and_request(
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = try_s!(ctx.abortable_system.create_subsystem());
 
+    let platform_fee_estimator_ctx = try_s!(FeeEstimatorContext::new(ctx, conf, &coin_type).await);
+
     let coin = EthCoinImpl {
         priv_key_policy: key_pair,
         my_address,
@@ -6183,6 +6197,7 @@ pub async fn eth_coin_from_conf_and_request(
         nonce_lock,
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx,
         abortable_system,
     };
 

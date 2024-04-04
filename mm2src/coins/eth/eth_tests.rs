@@ -156,6 +156,7 @@ fn eth_coin_from_keypair(
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx: None,
         abortable_system: AbortableQueue::default(),
     }));
     (ctx, eth_coin)
@@ -365,6 +366,7 @@ fn test_nonce_several_urls() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx: None,
         abortable_system: AbortableQueue::default(),
     }));
 
@@ -415,6 +417,7 @@ fn test_wait_for_payment_spend_timeout() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx: None,
         abortable_system: AbortableQueue::default(),
     };
 
@@ -1127,6 +1130,7 @@ fn test_message_hash() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx: None,
         abortable_system: AbortableQueue::default(),
     }));
 
@@ -1173,6 +1177,7 @@ fn test_sign_verify_message() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx: None,
         abortable_system: AbortableQueue::default(),
     }));
 
@@ -1228,6 +1233,7 @@ fn test_eth_extract_secret() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx: None,
         abortable_system: AbortableQueue::default(),
     }));
 
