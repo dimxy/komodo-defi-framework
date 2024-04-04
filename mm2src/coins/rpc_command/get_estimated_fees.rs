@@ -12,8 +12,12 @@ use mm2_err_handle::prelude::*;
 use std::sync::Arc;
 
 const FEE_ESTIMATOR_NAME: &str = "eth_gas_fee_estimator_loop";
-const ETH_SUPPORTED_CHAIN_ID: u64 = 1; // only eth mainnet is supported (Blocknative gas platform currently supports Ethereum and Polygon/Matic mainnets.)
-                                       // To support fee estimations for other chains add a FeeEstimatorContext for a new chain
+
+/// Chain id for which fee per gas estimations are supported.
+/// Only eth mainnet currently is supported (Blocknative gas platform currently supports Ethereum and Polygon/Matic mainnets.)
+/// TODO: make a setting in the coins file (platform coin) to indicate which chains support:
+/// typed transactions, fee estimations by fee history and/or a gas provider.
+const ETH_SUPPORTED_CHAIN_ID: u64 = 1;
 
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
