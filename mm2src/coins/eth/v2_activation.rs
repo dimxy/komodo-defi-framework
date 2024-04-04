@@ -285,13 +285,16 @@ impl EthCoin {
         // all spawned futures related to `ERC20` coin will be aborted as well.
         let abortable_system = ctx.abortable_system.create_subsystem()?;
 
+        let coin_type = EthCoinType::Erc20 {
+            platform: protocol.platform,
+            token_addr: protocol.token_addr,
+        };
+        let platform_fee_estimator_ctx = FeeEstimatorContext::new(&ctx, &conf, &coin_type).await;
+
         let token = EthCoinImpl {
             priv_key_policy: self.priv_key_policy.clone(),
             my_address: self.my_address,
-            coin_type: EthCoinType::Erc20 {
-                platform: protocol.platform,
-                token_addr: protocol.token_addr,
-            },
+            coin_type,
             sign_message_prefix: self.sign_message_prefix.clone(),
             swap_contract_address: self.swap_contract_address,
             fallback_swap_contract: self.fallback_swap_contract,
@@ -308,6 +311,7 @@ impl EthCoin {
             nonce_lock: self.nonce_lock.clone(),
             erc20_tokens_infos: Default::default(),
             nfts_infos: Default::default(),
+            platform_fee_estimator_ctx,
             abortable_system,
         };
 
@@ -326,17 +330,25 @@ impl EthCoin {
         let chain = Chain::from_ticker(self.ticker())?;
         let ticker = chain.to_nft_ticker().to_string();
 
+        let ctx = MmArc::from_weak(&self.ctx)
+            .ok_or_else(|| String::from("No context"))
+            .map_err(EthTokenActivationError::InternalError)?;
+
+        let conf = coin_conf(&ctx, &ticker);
+
         // Create an abortable system linked to the `platform_coin` (which is self) so if the platform coin is disabled,
         // all spawned futures related to global Non-Fungible Token will be aborted as well.
         let abortable_system = self.abortable_system.create_subsystem()?;
 
         let nft_infos = get_nfts_for_activation(&chain, &self.my_address, url).await?;
+        let coin_type = EthCoinType::Nft {
+            platform: self.ticker.clone(),
+        };
+        let platform_fee_estimator_ctx = FeeEstimatorContext::new(&ctx, &conf, &coin_type).await;
 
         let global_nft = EthCoinImpl {
             ticker,
-            coin_type: EthCoinType::Nft {
-                platform: self.ticker.clone(),
-            },
+            coin_type,
             priv_key_policy: self.priv_key_policy.clone(),
             my_address: self.my_address,
             sign_message_prefix: self.sign_message_prefix.clone(),
@@ -354,6 +366,7 @@ impl EthCoin {
             nonce_lock: self.nonce_lock.clone(),
             erc20_tokens_infos: Default::default(),
             nfts_infos: Arc::new(AsyncMutex::new(nft_infos)),
+            platform_fee_estimator_ctx,
             abortable_system,
         };
         Ok(EthCoin(Arc::new(global_nft)))
@@ -439,11 +452,13 @@ pub async fn eth_coin_from_conf_and_request_v2(
     // Create an abortable system linked to the `MmCtx` so if the app is stopped on `MmArc::stop`,
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = ctx.abortable_system.create_subsystem()?;
+    let coin_type = EthCoinType::Eth;
+    let platform_fee_estimator_ctx = FeeEstimatorContext::new(ctx, conf, &coin_type).await;
 
     let coin = EthCoinImpl {
         priv_key_policy,
         my_address,
-        coin_type: EthCoinType::Eth,
+        coin_type,
         sign_message_prefix,
         swap_contract_address: req.swap_contract_address,
         fallback_swap_contract: req.fallback_swap_contract,
@@ -460,6 +475,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         nonce_lock,
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        platform_fee_estimator_ctx,
         abortable_system,
     };
 
