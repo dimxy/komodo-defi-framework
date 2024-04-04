@@ -4942,6 +4942,7 @@ impl EthCoin {
                 .ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
             let gas_api_conf = ctx.conf["gas_api"].clone();
             if gas_api_conf.is_null() {
+                debug!("No eth gas api provider config, using only history estimator");
                 return history_estimator_fut
                     .await
                     .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
@@ -4956,6 +4957,10 @@ impl EthCoin {
             };
             provider_estimator_fut
                 .or_else(|provider_estimator_err| {
+                    debug!(
+                        "Call to eth gas api provider failed {}, using internal fee estimator",
+                        provider_estimator_err
+                    );
                     history_estimator_fut.map_err(move |history_estimator_err| {
                         MmError::new(Web3RpcError::Internal(format!(
                             "All gas api requests failed, provider estimator error: {}, history estimator error: {}",

@@ -306,16 +306,12 @@ impl FeePerGasSimpleEstimator {
 mod gas_api {
     use super::FeePerGasEstimated;
     use crate::eth::{Web3RpcError, Web3RpcResult};
-    use common::log::debug;
     use http::StatusCode;
     use mm2_err_handle::mm_error::MmError;
     use mm2_err_handle::prelude::*;
     use mm2_net::transport::slurp_url_with_headers;
     use mm2_number::BigDecimal;
-    use serde::de::{Deserializer, SeqAccess, Visitor};
     use serde_json::{self as json};
-    use std::collections::HashMap;
-    use std::fmt;
     use url::Url;
 
     lazy_static! {
@@ -383,7 +379,6 @@ mod gas_api {
                 .mm_err(|e| e.to_string())?;
             if resp.0 != StatusCode::OK {
                 let error = format!("{} failed with status code {}", url, resp.0);
-                debug!("infura gas api error: {}", error);
                 return MmError::err(error);
             }
             let estimated_fees = json::from_slice(&resp.2).map_to_mm(|e| e.to_string())?;
@@ -422,49 +417,11 @@ mod gas_api {
     #[derive(Clone, Debug, Deserialize)]
     pub(crate) struct BlocknativeEstimatedPrices {
         pub confidence: u32,
-        pub price: u64,
+        pub price: BigDecimal,
         #[serde(rename = "maxPriorityFeePerGas")]
         pub max_priority_fee_per_gas: BigDecimal,
         #[serde(rename = "maxFeePerGas")]
         pub max_fee_per_gas: BigDecimal,
-    }
-
-    #[allow(dead_code)]
-    #[derive(Clone, Debug, Deserialize)]
-    pub(crate) struct BlocknativeBaseFee {
-        pub confidence: u32,
-        #[serde(rename = "baseFee")]
-        pub base_fee: BigDecimal,
-    }
-
-    struct BlocknativeEstimatedBaseFees {}
-
-    impl BlocknativeEstimatedBaseFees {
-        /// Parse blocknative's base_fees in pending blocks : '[ "pending+1" : {}, "pending+2" : {}, ..]' removing 'pending+n'
-        fn parse_pending<'de, D>(deserializer: D) -> Result<Vec<Vec<BlocknativeBaseFee>>, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            struct PendingBlockFeeParser;
-            impl<'de> Visitor<'de> for PendingBlockFeeParser {
-                type Value = Vec<Vec<BlocknativeBaseFee>>;
-
-                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                    formatter.write_str("[u32, BigDecimal]")
-                }
-
-                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                    let mut pending_block_fees = Vec::<Vec<BlocknativeBaseFee>>::new();
-                    while let Some(fees) = seq.next_element::<HashMap<String, Vec<BlocknativeBaseFee>>>()? {
-                        if let Some(fees) = fees.iter().next() {
-                            pending_block_fees.push(fees.1.clone());
-                        }
-                    }
-                    Ok(pending_block_fees)
-                }
-            }
-            deserializer.deserialize_any(PendingBlockFeeParser {})
-        }
     }
 
     /// Blocknative gas prices response
@@ -476,18 +433,13 @@ mod gas_api {
         pub network: String,
         pub unit: String,
         #[serde(rename = "maxPrice")]
-        pub max_price: u32,
+        pub max_price: BigDecimal,
         #[serde(rename = "currentBlockNumber")]
         pub current_block_number: u32,
         #[serde(rename = "msSinceLastBlock")]
         pub ms_since_last_block: u32,
         #[serde(rename = "blockPrices")]
         pub block_prices: Vec<BlocknativeBlockPrices>,
-        #[serde(
-            rename = "estimatedBaseFees",
-            deserialize_with = "BlocknativeEstimatedBaseFees::parse_pending"
-        )]
-        pub estimated_base_fees: Vec<Vec<BlocknativeBaseFee>>,
     }
 
     /// Blocknative gas api provider caller
@@ -523,7 +475,6 @@ mod gas_api {
                 .mm_err(|e| e.to_string())?;
             if resp.0 != StatusCode::OK {
                 let error = format!("{} failed with status code {}", url, resp.0);
-                debug!("blocknative gas api error: {}", error);
                 return MmError::err(error);
             }
             let block_prices = json::from_slice(&resp.2).map_err(|e| e.to_string())?;
