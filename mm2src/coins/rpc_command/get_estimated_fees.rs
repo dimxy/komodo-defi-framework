@@ -5,7 +5,6 @@ use crate::{lp_coinfind_or_err, AsyncMutex, CoinFindError, MmCoinEnum, NumConver
 use common::executor::{spawn_abortable, Timer};
 use common::log::debug;
 use common::{HttpStatusCode, StatusCode};
-use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use serde_json::Value as Json;
@@ -152,7 +151,7 @@ impl FeeEstimatorContext {
         loop {
             let started = common::now_float();
             if let Ok(estimator_ctx) = Self::get_estimator_ctx(&coin) {
-                let estimated_fees = coin.get_eip1559_gas_fee().compat().await.unwrap_or_default();
+                let estimated_fees = coin.get_eip1559_gas_fee().await.unwrap_or_default();
                 let estimator_ctx = estimator_ctx.lock().await;
                 *estimator_ctx.estimated_fees.lock().await = estimated_fees;
             }
