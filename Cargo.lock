@@ -2174,7 +2174,7 @@ dependencies = [
 [[package]]
 name = "ethcore-transaction"
 version = "0.1.0"
-source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#7fbfac76c6a2b889ae334aaa770782321d4c6b2b"
+source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git#931d2f6093ef4a9584e137cdff29504acd8e5955"
 dependencies = [
  "ethereum-types",
  "ethkey",
@@ -2201,7 +2201,7 @@ dependencies = [
 [[package]]
 name = "ethkey"
 version = "0.3.0"
-source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#7fbfac76c6a2b889ae334aaa770782321d4c6b2b"
+source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git#931d2f6093ef4a9584e137cdff29504acd8e5955"
 dependencies = [
  "byteorder",
  "edit-distance",
@@ -4109,7 +4109,7 @@ checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 [[package]]
 name = "mem"
 version = "0.1.0"
-source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#7fbfac76c6a2b889ae334aaa770782321d4c6b2b"
+source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git#931d2f6093ef4a9584e137cdff29504acd8e5955"
 
 [[package]]
 name = "memchr"
@@ -8647,7 +8647,7 @@ dependencies = [
 [[package]]
 name = "unexpected"
 version = "0.1.0"
-source = "git+https://github.com/dimxy/mm2-parity-ethereum.git?branch=eip1559-support#7fbfac76c6a2b889ae334aaa770782321d4c6b2b"
+source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git#931d2f6093ef4a9584e137cdff29504acd8e5955"
 
 [[package]]
 name = "unicode-bidi"
@@ -9009,7 +9009,7 @@ dependencies = [
 [[package]]
 name = "web3"
 version = "0.19.0"
-source = "git+https://github.com/dimxy/rust-web3?branch=add-chain-id#09f3b2818adfebd80985377c5fa7088dd7b11489"
+source = "git+https://github.com/KomodoPlatform/rust-web3?tag=v0.20.0#01de1d732e61c920cfb2fb1533db7d7110c8a457"
 dependencies = [
  "arrayvec 0.7.1",
  "base64 0.13.0",
