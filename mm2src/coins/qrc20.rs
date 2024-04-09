@@ -1399,17 +1399,17 @@ impl MmCoin for Qrc20Coin {
                 .await?
         };
 
-        let total_fee = if include_refund_fee {
-            let sender_refund_fee = {
-                let sender_refund_output =
-                    self.sender_refund_output(&self.swap_contract_address, swap_id, value, secret_hash, receiver_addr)?;
-                self.preimage_trade_fee_required_to_send_outputs(vec![sender_refund_output], &stage)
-                    .await?
-            };
-            erc20_payment_fee + sender_refund_fee
+        // Optionally calculate refund fee.
+        let sender_refund_fee = if include_refund_fee {
+            let sender_refund_output =
+                self.sender_refund_output(&self.swap_contract_address, swap_id, value, secret_hash, receiver_addr)?;
+            self.preimage_trade_fee_required_to_send_outputs(vec![sender_refund_output], &stage)
+                .await?
         } else {
-            erc20_payment_fee
+            BigDecimal::from(0) // No refund fee if not included.
         };
+
+        let total_fee = erc20_payment_fee + sender_refund_fee;
 
         Ok(TradeFee {
             coin: self.platform.clone(),

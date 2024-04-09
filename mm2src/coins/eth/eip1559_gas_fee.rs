@@ -66,7 +66,7 @@ pub struct GasApiConfig {
 }
 
 /// Priority level estimated max fee per gas
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct FeePerGasLevel {
     /// estimated max priority tip fee per gas in gwei
     pub max_priority_fee_per_gas: BigDecimal,
@@ -98,17 +98,6 @@ pub struct FeePerGasEstimated {
     pub base_fee_trend: String,
     /// priority trend (up or down)
     pub priority_fee_trend: String,
-}
-
-impl Default for FeePerGasLevel {
-    fn default() -> Self {
-        Self {
-            max_priority_fee_per_gas: BigDecimal::from(0),
-            max_fee_per_gas: BigDecimal::from(0),
-            min_wait_time: None,
-            max_wait_time: None,
-        }
-    }
 }
 
 impl From<InfuraFeePerGas> for FeePerGasEstimated {
@@ -249,33 +238,37 @@ impl FeePerGasSimpleEstimator {
         base_fee: BigDecimal,
         fee_history: &FeeHistoryResult,
     ) -> Web3RpcResult<FeePerGasLevel> {
-        let level_i = level as usize;
+        let level_index = level as usize;
         let level_rewards = fee_history
             .priority_rewards
             .as_ref()
             .or_mm_err(|| Web3RpcError::Internal("expected reward in eth_feeHistory".into()))?
             .iter()
-            .map(|rewards| {
-                if level_i < rewards.len() {
-                    rewards[level_i]
-                } else {
-                    U256::from(0)
-                }
-            })
+            .map(|rewards| rewards.get(level_index).copied().unwrap_or_else(|| U256::from(0)))
             .collect::<Vec<_>>();
 
-        let max_priority_fee_per_gas = Self::percentile_of(&level_rewards, Self::PRIORITY_FEE_PERCENTILES[level_i]);
-        let max_priority_fee_per_gas =
+        // Calculate the max priority fee per gas based on the rewards percentile.
+        let max_priority_fee_per_gas = Self::percentile_of(&level_rewards, Self::PRIORITY_FEE_PERCENTILES[level_index]);
+        // Convert the priority fee to a BigDecimal, falling back to 0 on error.
+        let max_priority_fee_per_gas_decimal =
             u256_to_big_decimal(max_priority_fee_per_gas, ETH_GWEI_DECIMALS).unwrap_or_else(|_| BigDecimal::from(0));
-        let max_fee_per_gas = base_fee
-            * BigDecimal::from_f64(Self::ADJUST_MAX_FEE[level_i]).unwrap_or_else(|| BigDecimal::from(0))
-            + max_priority_fee_per_gas.clone()
-                * BigDecimal::from_f64(Self::ADJUST_MAX_PRIORITY_FEE[level_i]).unwrap_or_else(|| BigDecimal::from(0)); // TODO maybe use checked ops
+
+        // Calculate the max fee per gas by adjusting the base fee and adding the priority fee.
+        let adjust_max_fee =
+            BigDecimal::from_f64(Self::ADJUST_MAX_FEE[level_index]).unwrap_or_else(|| BigDecimal::from(0));
+        let adjust_max_priority_fee =
+            BigDecimal::from_f64(Self::ADJUST_MAX_PRIORITY_FEE[level_index]).unwrap_or_else(|| BigDecimal::from(0));
+
+        // TODO: consider use checked ops
+        let max_fee_per_gas =
+            base_fee * adjust_max_fee + max_priority_fee_per_gas_decimal.clone() * adjust_max_priority_fee;
+
         Ok(FeePerGasLevel {
-            max_priority_fee_per_gas,
+            max_priority_fee_per_gas: max_priority_fee_per_gas_decimal,
             max_fee_per_gas,
+            // TODO: Consider adding default wait times if applicable (and mark them as uncertain).
             min_wait_time: None,
-            max_wait_time: None, // TODO: maybe fill with some default values (and mark them as uncertain)?
+            max_wait_time: None,
         })
     }
 
