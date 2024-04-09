@@ -138,7 +138,7 @@ impl EthCoin {
         let contract_type = args.contract_type;
         let (decoded, index_bytes) = try_tx_s!(get_decoded_tx_data_and_index_bytes(
             contract_type,
-            &args.maker_payment_tx.unsigned().data()
+            args.maker_payment_tx.unsigned().data()
         ));
 
         let (state, htlc_params) = try_tx_s!(
