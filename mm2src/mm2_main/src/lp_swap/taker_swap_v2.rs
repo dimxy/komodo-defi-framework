@@ -2,10 +2,10 @@ use super::swap_v2_common::*;
 use super::{LockedAmount, LockedAmountInfo, SavedTradeFee, SwapsContext, TakerSwapPreparedParams,
             NEGOTIATE_SEND_INTERVAL, NEGOTIATION_TIMEOUT_SEC};
 use crate::mm2::lp_swap::swap_lock::SwapLock;
-use crate::mm2::lp_swap::swap_v2_pb::*;
 use crate::mm2::lp_swap::{broadcast_swap_v2_msg_every, check_balance_for_taker_swap, recv_swap_v2_msg, swap_v2_topic,
                           SecretHashAlgo, SwapConfirmationsSettings, TransactionIdentifier, MAX_STARTED_AT_DIFF,
                           TAKER_SWAP_V2_TYPE};
+use crate::mm2::lp_swap::{swap_v2_pb::*, NO_REFUND_FEE};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use coins::{CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, GenTakerFundingSpendArgs,
@@ -930,7 +930,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
 
         let taker_payment_fee = match state_machine
             .taker_coin
-            .get_sender_trade_fee(preimage_value, stage, false)
+            .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE)
             .await
         {
             Ok(fee) => fee,

@@ -1831,6 +1831,11 @@ pub fn generate_secret() -> Result<[u8; 32], rand::Error> {
     Ok(sec)
 }
 
+/// Add refund fee to calculate maximul available balance for a swap (including possible refund)
+pub(crate) const INCLUDE_REFUND_FEE: bool = true;
+/// Do not add refund fee to calculate fee needed only to make a successful swap
+pub(crate) const NO_REFUND_FEE: bool = false;
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod lp_swap_tests {
     use super::*;

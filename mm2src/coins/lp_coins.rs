@@ -4544,6 +4544,12 @@ pub async fn my_tx_history(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, S
     Ok(try_s!(Response::builder().body(body)))
 }
 
+/// `get_trade_fee` rpc implementation.
+/// There is some consideration about this rpc:  
+/// for eth coin this rpc returns max possible trade fee (estimated for maximum possible gas limit for any kind of swap).
+/// However for eth coin, as part of fixing this issue https://github.com/KomodoPlatform/komodo-defi-framework/issues/1848,
+/// `max_taker_vol' and `trade_preimage` rpc now return more accurate required gas calculations.
+/// So maybe it would be better to deprecate this `get_trade_fee` rpc
 pub async fn get_trade_fee(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
     let ticker = try_s!(req["coin"].as_str().ok_or("No 'coin' field")).to_owned();
     let coin = match lp_coinfind(&ctx, &ticker).await {

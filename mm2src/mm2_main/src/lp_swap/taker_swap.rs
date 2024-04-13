@@ -9,7 +9,7 @@ use super::{broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg
             recv_swap_msg, swap_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo,
             NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap,
             SavedSwapIo, SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
-            SwapsContext, TransactionIdentifier, WAIT_CONFIRM_INTERVAL_SEC};
+            SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, WAIT_CONFIRM_INTERVAL_SEC};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::TakerOrderBuilder;
 use crate::mm2::lp_swap::swap_v2_common::mark_swap_as_finished;
@@ -1010,7 +1010,9 @@ impl TakerSwap {
                 )]))
             },
         };
-        let get_sender_trade_fee_fut = self.taker_coin.get_sender_trade_fee(preimage_value, stage, false);
+        let get_sender_trade_fee_fut = self
+            .taker_coin
+            .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE);
         let taker_payment_trade_fee = match get_sender_trade_fee_fut.await {
             Ok(fee) => fee,
             Err(e) => {
@@ -2368,7 +2370,7 @@ pub async fn check_balance_for_taker_swap(
                 .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, my_coin.ticker()))?;
             let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
             let taker_payment_trade_fee = my_coin
-                .get_sender_trade_fee(preimage_value, stage, true) // use send+refund fee to check balance for swap
+                .get_sender_trade_fee(preimage_value, stage, INCLUDE_REFUND_FEE)
                 .await
                 .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, my_coin.ticker()))?;
             let maker_payment_spend_trade_fee = other_coin
@@ -2463,7 +2465,7 @@ pub async fn taker_swap_trade_preimage(
 
     let preimage_value = TradePreimageValue::Exact(my_coin_volume.to_decimal());
     let my_coin_trade_fee = my_coin
-        .get_sender_trade_fee(preimage_value, stage, false)
+        .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE)
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, my_coin_ticker))?;
     let other_coin_trade_fee = other_coin
@@ -2588,7 +2590,7 @@ pub async fn calc_max_taker_vol(
     let max_possible = &balance - &locked;
     let preimage_value = TradePreimageValue::UpperBound(max_possible.to_decimal());
     let max_trade_fee = coin
-        .get_sender_trade_fee(preimage_value, stage, true) // use send+refund fee to get max trade amount
+        .get_sender_trade_fee(preimage_value, stage, INCLUDE_REFUND_FEE)
         .await
         .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, my_coin))?;
 
