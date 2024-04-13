@@ -1,7 +1,7 @@
 //! RPCs to start/stop gas fee estimator and get estimated base and priority fee per gas
 
-use crate::eth::{EthCoin, EthCoinType, FeeEstimatorContext, FeePerGasEstimated};
 use crate::{lp_coinfind_or_err, AsyncMutex, CoinFindError, MmCoinEnum, NumConversError};
+use crate::eth::{EthCoin, EthCoinType, FeeEstimatorContext, FeeEstimatorState, FeePerGasEstimated};
 use common::executor::{spawn_abortable, Timer};
 use common::log::debug;
 use common::{HttpStatusCode, StatusCode};
@@ -12,19 +12,16 @@ use std::sync::Arc;
 
 const FEE_ESTIMATOR_NAME: &str = "eth_gas_fee_estimator_loop";
 
-/// Chain id for which fee per gas estimations are supported.
-/// Only eth mainnet currently is supported (Blocknative gas platform currently supports Ethereum and Polygon/Matic mainnets.)
-/// TODO: make a setting in the coins file (platform coin) to indicate which chains support:
-/// typed transactions, fee estimations by fee history and/or a gas provider.
-const ETH_SUPPORTED_CHAIN_ID: u64 = 1;
 
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum FeeEstimatorError {
     #[display(fmt = "No such coin {}", coin)]
     NoSuchCoin { coin: String },
-    #[display(fmt = "Gas fee estimation not supported for this coin or chain id")]
+    #[display(fmt = "Gas fee estimation not supported for this coin")]
     CoinNotSupported,
+    #[display(fmt = "Platform coin needs to be enabled for gas fee estimation")]
+    PlatformCoinRequired,
     #[display(fmt = "Gas fee estimator is already started")]
     AlreadyStarted,
     #[display(fmt = "Transport error: {}", _0)]
@@ -40,6 +37,7 @@ impl HttpStatusCode for FeeEstimatorError {
         match self {
             FeeEstimatorError::NoSuchCoin { .. }
             | FeeEstimatorError::CoinNotSupported
+            | FeeEstimatorError::PlatformCoinRequired
             | FeeEstimatorError::AlreadyStarted
             | FeeEstimatorError::NotRunning => StatusCode::BAD_REQUEST,
             FeeEstimatorError::Transport(_) | FeeEstimatorError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -63,39 +61,73 @@ impl From<CoinFindError> for FeeEstimatorError {
     }
 }
 
-impl FeeEstimatorContext {
-    /// Creates gas fee estimator context if supported for this coin and chain id. Otherwise returns None.
-    /// When gas fee estimator rpc is called and no fee estimator was created
-    /// it is assumed it is not supported for the coin or chain or coin config is inappropriate
-    pub(crate) async fn new(ctx: &MmArc, conf: &Json, coin_type: &EthCoinType) -> Option<Arc<AsyncMutex<Self>>> {
-        let chain_id = conf["chain_id"].as_u64()?;
-        if chain_id != ETH_SUPPORTED_CHAIN_ID {
-            return None;
+/// Gas fee estimator configuration
+#[derive(Deserialize)]
+enum FeeEstimatorConf {
+    NotConfigured,
+    #[serde(rename = "simple")]
+    Simple,
+    #[serde(rename = "provider")]
+    Provider,
+}
+
+impl Default for FeeEstimatorConf {
+    fn default() -> Self { Self::NotConfigured }
+}
+
+impl FeeEstimatorState {
+    /// Creates gas FeeEstimatorContext if configured for this coin and chain id, otherwise returns None.
+    /// The created context object (or None) is wrapped into a FeeEstimatorState so a gas fee rpc caller may know the reason why it was not created
+    pub(crate) async fn init_fee_estimator(
+        ctx: &MmArc,
+        conf: &Json,
+        coin_type: &EthCoinType,
+    ) -> Result<Arc<FeeEstimatorState>, String> {
+        let fee_estimator_json = conf["gas_fee_estimator"].clone();
+        let fee_estimator_conf: FeeEstimatorConf = if !fee_estimator_json.is_null() {
+            try_s!(json::from_value(fee_estimator_json))
+        } else {
+            Default::default()
         };
-        match coin_type {
-            EthCoinType::Eth => Some(Arc::new(AsyncMutex::new(Self {
-                estimated_fees: Default::default(),
-                abort_handler: AsyncMutex::new(None),
-            }))),
-            EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform, .. } => {
-                let platform_coin = lp_coinfind_or_err(ctx, platform).await.ok()?;
-                match platform_coin {
-                    MmCoinEnum::EthCoin(eth_coin) => eth_coin.platform_fee_estimator_ctx.as_ref().cloned(),
-                    _ => None,
-                }
+        match fee_estimator_conf {
+            FeeEstimatorConf::Simple | FeeEstimatorConf::Provider => match coin_type {
+                EthCoinType::Eth => {
+                    let fee_estimator_ctx = AsyncMutex::new(FeeEstimatorContext {
+                        estimated_fees: Default::default(),
+                        abort_handler: AsyncMutex::new(None),
+                    });
+                    let fee_estimator_state = if matches!(fee_estimator_conf, FeeEstimatorConf::Simple) {
+                        FeeEstimatorState::Simple(fee_estimator_ctx)
+                    } else {
+                        FeeEstimatorState::Provider(fee_estimator_ctx)
+                    };
+                    Ok(Arc::new(fee_estimator_state))
+                },
+                EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform, .. } => {
+                    let platform_coin = lp_coinfind_or_err(ctx, platform).await;
+                    match platform_coin {
+                        Ok(MmCoinEnum::EthCoin(eth_coin)) => Ok(eth_coin.platform_fee_estimator_state.clone()),
+                        _ => Ok(Arc::new(FeeEstimatorState::PlatformCoinRequired)),
+                    }
+                },
             },
+            FeeEstimatorConf::NotConfigured => Ok(Arc::new(FeeEstimatorState::CoinNotSupported)),
         }
     }
+}
 
+impl FeeEstimatorContext {
     /// Fee estimation update period in secs, basically equals to eth blocktime
     const fn get_refresh_interval() -> f64 { 15.0 }
 
-    fn get_estimator_ctx(coin: &EthCoin) -> Result<Arc<AsyncMutex<FeeEstimatorContext>>, MmError<FeeEstimatorError>> {
-        Ok(coin
-            .platform_fee_estimator_ctx
-            .as_ref()
-            .ok_or_else(|| MmError::new(FeeEstimatorError::CoinNotSupported))?
-            .clone())
+    fn get_estimator_ctx(coin: &EthCoin) -> Result<&AsyncMutex<FeeEstimatorContext>, MmError<FeeEstimatorError>> {
+        match coin.platform_fee_estimator_state.deref() {
+            FeeEstimatorState::CoinNotSupported => MmError::err(FeeEstimatorError::CoinNotSupported),
+            FeeEstimatorState::PlatformCoinRequired => MmError::err(FeeEstimatorError::PlatformCoinRequired),
+            FeeEstimatorState::Simple(fee_estimator_ctx) | FeeEstimatorState::Provider(fee_estimator_ctx) => {
+                Ok(fee_estimator_ctx)
+            },
+        }
     }
 
     async fn start_if_not_running(coin: &EthCoin) -> Result<(), MmError<FeeEstimatorError>> {
@@ -132,9 +164,7 @@ impl FeeEstimatorContext {
             MmCoinEnum::EthCoin(eth) => eth,
             _ => return MmError::err(FeeEstimatorError::CoinNotSupported),
         };
-        if eth_coin.platform_fee_estimator_ctx.is_none() {
-            return MmError::err(FeeEstimatorError::CoinNotSupported);
-        }
+        let _ = Self::get_estimator_ctx(&eth_coin)?;
         Ok(eth_coin)
     }
 
