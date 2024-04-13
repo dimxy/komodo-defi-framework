@@ -215,6 +215,9 @@ const ETH_MAX_TRADE_GAS: u64 = 150_000;
 /// Lifetime of generated signed message for gui-auth requests
 const GUI_AUTH_SIGNED_MESSAGE_LIFETIME_SEC: i64 = 90;
 
+/// Max transaction type according to EIP-2718
+const ETH_MAX_TX_TYPE: u64 = 0x7f;
+
 lazy_static! {
     pub static ref SWAP_CONTRACT: Contract = Contract::load(SWAP_CONTRACT_ABI.as_bytes()).unwrap();
     pub static ref ERC20_CONTRACT: Contract = Contract::load(ERC20_ABI.as_bytes()).unwrap();
@@ -807,6 +810,9 @@ async fn withdraw_impl(coin: EthCoin, req: WithdrawRequest) -> WithdrawResult {
                 .map_to_mm(WithdrawError::Transport)?;
 
             let tx_type = tx_type_from_pay_for_gas_option!(pay_for_gas_option);
+            if !coin.is_tx_type_supported(&tx_type) {
+                return MmError::err(WithdrawError::TxTypeNotSupported);
+            }
             let tx_builder = UnSignedEthTxBuilder::new(tx_type, nonce, gas, Action::Call(call_addr), eth_value, data);
             let tx_builder = tx_builder_with_pay_for_gas_option(&coin, tx_builder, &pay_for_gas_option)?;
             let tx = tx_builder
@@ -965,6 +971,9 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
         .map_to_mm(WithdrawError::Transport)?;
 
     let tx_type = tx_type_from_pay_for_gas_option!(pay_for_gas_option);
+    if !eth_coin.is_tx_type_supported(&tx_type) {
+        return MmError::err(WithdrawError::TxTypeNotSupported);
+    }
     let tx_builder = UnSignedEthTxBuilder::new(tx_type, nonce, gas, Action::Call(call_addr), eth_value, data);
     let tx_builder = tx_builder_with_pay_for_gas_option(&eth_coin, tx_builder, &pay_for_gas_option)?;
     let tx = tx_builder
@@ -1050,6 +1059,9 @@ pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> Withd
         .map_to_mm(WithdrawError::Transport)?;
 
     let tx_type = tx_type_from_pay_for_gas_option!(pay_for_gas_option);
+    if !eth_coin.is_tx_type_supported(&tx_type) {
+        return MmError::err(WithdrawError::TxTypeNotSupported);
+    }
     let tx_builder = UnSignedEthTxBuilder::new(tx_type, nonce, gas, Action::Call(call_addr), eth_value, data);
     let tx_builder = tx_builder_with_pay_for_gas_option(&eth_coin, tx_builder, &pay_for_gas_option)?;
     let tx = tx_builder
@@ -2491,6 +2503,9 @@ async fn sign_transaction_with_keypair(
     );
 
     let tx_type = tx_type_from_pay_for_gas_option!(pay_for_gas_option);
+    if !coin.is_tx_type_supported(&tx_type) {
+        return Err(TransactionErr::Plain("Eth transaction type not supported".into()));
+    }
     let tx_builder = UnSignedEthTxBuilder::new(tx_type, nonce, gas, action, value, data);
     let tx_builder = tx_builder_with_pay_for_gas_option(coin, tx_builder, &pay_for_gas_option)
         .map_err(|e| TransactionErr::Plain(e.get_inner().to_string()))?;
@@ -3504,6 +3519,17 @@ impl EthCoin {
                 Timer::sleep(2.).await;
             }
         }
+    }
+
+    fn is_tx_type_supported(&self, tx_type: &TxType) -> bool {
+        let tx_type_as_num = match tx_type {
+            TxType::Legacy => 0_u64,
+            TxType::Type1 => 1_u64,
+            TxType::Type2 => 2_u64,
+            TxType::Invalid => return false,
+        };
+        let max_tx_type = self.max_eth_tx_type.unwrap_or(0_u64);
+        tx_type_as_num <= max_tx_type
     }
 }
 
@@ -6051,6 +6077,25 @@ fn rpc_event_handlers_for_eth_transport(ctx: &MmArc, ticker: String) -> Vec<RpcT
     vec![CoinTransportMetrics::new(metrics, ticker, RpcClientType::Ethereum).into_shared()]
 }
 
+async fn get_max_eth_tx_type_conf(ctx: &MmArc, conf: &Json, coin_type: &EthCoinType) -> Result<Option<u64>, String> {
+    let max_eth_tx_type = match &coin_type {
+        EthCoinType::Eth => conf["max_eth_tx_type"].as_u64(),
+        EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => {
+            let platform_coin = lp_coinfind_or_err(ctx, platform).await;
+            match platform_coin {
+                Ok(MmCoinEnum::EthCoin(eth_coin)) => eth_coin.max_eth_tx_type,
+                _ => None,
+            }
+        },
+    };
+    if let Some(max_eth_tx_type) = max_eth_tx_type {
+        if max_eth_tx_type > ETH_MAX_TX_TYPE {
+            return Err("eth tx type too big in coins file".into());
+        }
+    }
+    Ok(max_eth_tx_type)
+}
+
 #[inline]
 fn new_nonce_lock() -> Arc<AsyncMutex<()>> { Arc::new(AsyncMutex::new(())) }
 
@@ -6213,6 +6258,7 @@ pub async fn eth_coin_from_conf_and_request(
     let abortable_system = try_s!(ctx.abortable_system.create_subsystem());
 
     let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(ctx, conf, &coin_type).await?;
+    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
 
     let coin = EthCoinImpl {
         priv_key_policy: key_pair,
@@ -6227,6 +6273,7 @@ pub async fn eth_coin_from_conf_and_request(
         web3_instances: AsyncMutex::new(web3_instances),
         history_sync_state: Mutex::new(initial_history_state),
         swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+        max_eth_tx_type,
         ctx: ctx.weak(),
         required_confirmations,
         chain_id: conf["chain_id"].as_u64(),

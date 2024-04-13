@@ -156,6 +156,7 @@ fn eth_coin_from_keypair(
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        max_eth_tx_type: None,
         platform_fee_estimator_state: Arc::new(FeeEstimatorState::CoinNotSupported),
         abortable_system: AbortableQueue::default(),
     }));
@@ -366,6 +367,7 @@ fn test_nonce_several_urls() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        max_eth_tx_type: None,
         platform_fee_estimator_state: Arc::new(FeeEstimatorState::CoinNotSupported),
         abortable_system: AbortableQueue::default(),
     }));
@@ -410,6 +412,7 @@ fn test_wait_for_payment_spend_timeout() {
         ticker: "ETH".into(),
         web3_instances: AsyncMutex::new(vec![Web3Instance { web3, is_parity: false }]),
         swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+        max_eth_tx_type: None,
         ctx: ctx.weak(),
         required_confirmations: 1.into(),
         chain_id: None,
@@ -1130,6 +1133,7 @@ fn test_message_hash() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        max_eth_tx_type: None,
         platform_fee_estimator_state: Arc::new(FeeEstimatorState::CoinNotSupported),
         abortable_system: AbortableQueue::default(),
     }));
@@ -1177,6 +1181,7 @@ fn test_sign_verify_message() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        max_eth_tx_type: None,
         platform_fee_estimator_state: Arc::new(FeeEstimatorState::CoinNotSupported),
         abortable_system: AbortableQueue::default(),
     }));
@@ -1233,6 +1238,7 @@ fn test_eth_extract_secret() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        max_eth_tx_type: None,
         platform_fee_estimator_state: Arc::new(FeeEstimatorState::CoinNotSupported),
         abortable_system: AbortableQueue::default(),
     }));

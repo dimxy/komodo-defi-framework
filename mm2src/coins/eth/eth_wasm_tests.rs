@@ -48,6 +48,7 @@ async fn test_send() {
         nonce_lock: new_nonce_lock(),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        max_eth_tx_type: None,
         platform_fee_estimator_state: Arc::new(FeeEstimatorState::CoinNotSupported),
         abortable_system: AbortableQueue::default(),
     }));

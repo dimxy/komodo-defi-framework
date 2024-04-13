@@ -85,6 +85,10 @@ impl From<ParseChainTypeError> for EthActivationV2Error {
     fn from(e: ParseChainTypeError) -> Self { EthActivationV2Error::InternalError(e.to_string()) }
 }
 
+impl From<String> for EthActivationV2Error {
+    fn from(e: String) -> Self { EthActivationV2Error::InternalError(e) }
+}
+
 /// An alternative to `crate::PrivKeyActivationPolicy`, typical only for ETH coin.
 #[derive(Clone, Deserialize)]
 pub enum EthPrivKeyActivationPolicy {
@@ -181,6 +185,10 @@ impl From<GetNftInfoError> for EthTokenActivationError {
 
 impl From<ParseChainTypeError> for EthTokenActivationError {
     fn from(e: ParseChainTypeError) -> Self { EthTokenActivationError::InternalError(e.to_string()) }
+}
+
+impl From<String> for EthTokenActivationError {
+    fn from(e: String) -> Self { EthTokenActivationError::InternalError(e) }
 }
 
 /// Represents the parameters required for activating either an ERC-20 token or an NFT on the Ethereum platform.
@@ -290,6 +298,7 @@ impl EthCoin {
             token_addr: protocol.token_addr,
         };
         let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(&ctx, &conf, &coin_type).await?;
+        let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type).await?;
 
         let token = EthCoinImpl {
             priv_key_policy: self.priv_key_policy.clone(),
@@ -304,6 +313,7 @@ impl EthCoin {
             web3_instances: AsyncMutex::new(web3_instances),
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
             swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+            max_eth_tx_type,
             ctx: self.ctx.clone(),
             required_confirmations,
             chain_id: self.chain_id,
@@ -345,6 +355,7 @@ impl EthCoin {
             platform: self.ticker.clone(),
         };
         let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(&ctx, &conf, &coin_type).await?;
+        let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type).await?;
 
         let global_nft = EthCoinImpl {
             ticker,
@@ -359,6 +370,7 @@ impl EthCoin {
             decimals: self.decimals,
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
             swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+            max_eth_tx_type,
             required_confirmations: AtomicU64::new(self.required_confirmations.load(Ordering::Relaxed)),
             ctx: self.ctx.clone(),
             chain_id: self.chain_id,
@@ -454,6 +466,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
     let abortable_system = ctx.abortable_system.create_subsystem()?;
     let coin_type = EthCoinType::Eth;
     let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(ctx, conf, &coin_type).await?;
+    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
 
     let coin = EthCoinImpl {
         priv_key_policy,
@@ -468,6 +481,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         web3_instances: AsyncMutex::new(web3_instances),
         history_sync_state: Mutex::new(HistorySyncState::NotEnabled),
         swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+        max_eth_tx_type,
         ctx: ctx.weak(),
         required_confirmations,
         chain_id,

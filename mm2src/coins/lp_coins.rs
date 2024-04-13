@@ -2834,6 +2834,8 @@ pub enum WithdrawError {
     },
     #[display(fmt = "Signing error {}", _0)]
     SigningError(String),
+    #[display(fmt = "Eth transaction type not supported")]
+    TxTypeNotSupported,
 }
 
 impl HttpStatusCode for WithdrawError {
@@ -2861,6 +2863,7 @@ impl HttpStatusCode for WithdrawError {
             | WithdrawError::NotEnoughNftsAmount { .. }
             | WithdrawError::MyAddressNotNftOwner { .. }
             | WithdrawError::NoChainIdSet { .. }
+            | WithdrawError::TxTypeNotSupported
             | WithdrawError::SigningError(_) => StatusCode::BAD_REQUEST,
             WithdrawError::HwError(_) => StatusCode::GONE,
             #[cfg(target_arch = "wasm32")]
