@@ -6162,22 +6162,36 @@ fn rpc_event_handlers_for_eth_transport(ctx: &MmArc, ticker: String) -> Vec<RpcT
 }
 
 async fn get_max_eth_tx_type_conf(ctx: &MmArc, conf: &Json, coin_type: &EthCoinType) -> Result<Option<u64>, String> {
-    let max_eth_tx_type = match &coin_type {
-        EthCoinType::Eth => conf["max_eth_tx_type"].as_u64(),
-        EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => {
-            let platform_coin = lp_coinfind_or_err(ctx, platform).await;
-            match platform_coin {
-                Ok(MmCoinEnum::EthCoin(eth_coin)) => eth_coin.max_eth_tx_type,
-                _ => None,
+    fn check_max_eth_tx_type_conf(conf: &Json) -> Result<Option<u64>, String> {
+        if !conf["max_eth_tx_type"].is_null() {
+            let max_eth_tx_type = conf["max_eth_tx_type"]
+                .as_u64()
+                .ok_or_else(|| "max_eth_tx_type in coins is invalid".to_string())?;
+            if max_eth_tx_type > ETH_MAX_TX_TYPE {
+                return Err("max_eth_tx_type in coins is too big".to_string());
             }
-        },
-    };
-    if let Some(max_eth_tx_type) = max_eth_tx_type {
-        if max_eth_tx_type > ETH_MAX_TX_TYPE {
-            return Err("eth tx type too big in coins file".into());
+            Ok(Some(max_eth_tx_type))
+        } else {
+            Ok(None)
         }
     }
-    Ok(max_eth_tx_type)
+
+    match &coin_type {
+        EthCoinType::Eth => check_max_eth_tx_type_conf(conf),
+        EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => {
+            let coin_max_eth_tx_type = check_max_eth_tx_type_conf(conf)?;
+            // Normally we suppose max_eth_tx_type is in platform coin but also try to get it from tokens for tests to work:
+            if let Some(coin_max_eth_tx_type) = coin_max_eth_tx_type {
+                Ok(Some(coin_max_eth_tx_type))
+            } else {
+                let platform_coin = lp_coinfind_or_err(ctx, platform).await;
+                match platform_coin {
+                    Ok(MmCoinEnum::EthCoin(eth_coin)) => Ok(eth_coin.max_eth_tx_type),
+                    _ => Ok(None),
+                }
+            }
+        },
+    }
 }
 
 #[inline]

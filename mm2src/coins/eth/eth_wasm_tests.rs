@@ -82,7 +82,8 @@ async fn init_eth_coin_helper() -> Result<(MmArc, MmCoinEnum), String> {
             },
             "chain_id": 1,
             "rpcport": 80,
-            "mm2": 1
+            "mm2": 1,
+            "max_eth_tx_type": 2
         }]
     });
 
@@ -126,14 +127,18 @@ async fn wasm_test_sign_eth_tx() {
 async fn wasm_test_sign_eth_tx_with_priority_fee() {
     // we need to hold ref to _ctx until the end of the test (because of the weak ref to MmCtx in EthCoinImpl)
     let (_ctx, coin) = init_eth_coin_helper().await.unwrap();
-    coin.set_swap_transaction_fee_policy(SwapTxFeePolicy::Medium);
     let sign_req = json::from_value(json!({
         "coin": "ETH",
         "type": "ETH",
         "tx": {
             "to": "0x7Bc1bBDD6A0a722fC9bffC49c921B685ECB84b94".to_string(),
             "value": "1.234",
-            "gas_limit": "21000"
+            "gas_limit": "21000",
+            "pay_for_gas": {
+                "tx_type": "Eip1559",
+                "max_fee_per_gas": "1234.567",
+                "max_priority_fee_per_gas": "1.2",
+            }
         }
     }))
     .unwrap();
