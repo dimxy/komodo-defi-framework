@@ -469,6 +469,27 @@ pub struct SignUtxoTransactionParams {
     // pub branch_id: Option<u32>, zcash or komodo optional consensus branch id, used for signing transactions ahead of current height
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct LegacyGasPrice {
+    /// Gas price in decimal gwei
+    pub gas_price: BigDecimal,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Eip1559FeePerGas {
+    /// Max fee per gas in decimal gwei
+    pub max_fee_per_gas: BigDecimal,
+    /// Max priority fee per gas in decimal gwei
+    pub max_priority_fee_per_gas: BigDecimal,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "tx_type")]
+pub enum PayForGasParams {
+    Legacy(LegacyGasPrice),
+    Eip1559(Eip1559FeePerGas),
+}
+
 /// sign_raw_transaction RPC request's params for signing raw eth transactions
 #[derive(Clone, Debug, Deserialize)]
 pub struct SignEthTransactionParams {
@@ -480,6 +501,8 @@ pub struct SignEthTransactionParams {
     data: Option<String>,
     /// Eth gas use limit
     gas_limit: U256,
+    /// Optional gas price or fee per gas params
+    pay_for_gas: Option<PayForGasParams>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

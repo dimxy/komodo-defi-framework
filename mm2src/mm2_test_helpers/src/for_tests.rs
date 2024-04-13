@@ -774,6 +774,8 @@ pub fn eth_testnet_conf() -> Json {
         "coin": "ETH",
         "name": "ethereum",
         "mm2": 1,
+        "chain_id": 5,
+        "max_eth_tx_type": 2,
         "derivation_path": "m/44'/60'",
         "protocol": {
             "type": "ETH"

@@ -255,6 +255,8 @@ pub(crate) struct Eip1559FeePerGas {
     pub(crate) max_priority_fee_per_gas: U256,
 }
 
+/// Internal structure describing how transaction pays for gas unit:
+/// either legacy gas price or EIP-1559 fee per gas
 #[derive(Clone, Debug)]
 pub(crate) enum PayForGasOption {
     Legacy(LegacyGasPrice),
@@ -278,6 +280,21 @@ impl PayForGasOption {
             PayForGasOption::Legacy(..) => (None, None),
         }
     }
+}
+
+impl TryFrom<PayForGasParams> for PayForGasOption {
+    fn try_from(param: PayForGasParams) -> Result<Self, Self::Error> {
+        match param {
+            PayForGasParams::Legacy(legacy) => Ok(Self::Legacy(LegacyGasPrice {
+                gas_price: wei_from_gwei_decimal!(&legacy.gas_price)?,
+            })),
+            PayForGasParams::Eip1559(eip1559) => Ok(Self::Eip1559(Eip1559FeePerGas {
+                max_fee_per_gas: wei_from_gwei_decimal!(&eip1559.max_fee_per_gas)?,
+                max_priority_fee_per_gas: wei_from_gwei_decimal!(&eip1559.max_priority_fee_per_gas)?,
+            })),
+        }
+    }
+    type Error = MmError<NumConversError>;
 }
 
 type GasDetails = (U256, PayForGasOption);
@@ -2501,6 +2518,7 @@ lazy_static! {
 
 type EthTxFut = Box<dyn Future<Item = SignedEthTx, Error = TransactionErr> + Send + 'static>;
 
+#[allow(clippy::too_many_arguments)]
 async fn sign_transaction_with_keypair(
     ctx: MmArc,
     coin: &EthCoin,
@@ -2509,6 +2527,7 @@ async fn sign_transaction_with_keypair(
     action: Action,
     data: Vec<u8>,
     gas: U256,
+    pay_for_gas_option: &PayForGasOption,
 ) -> Result<(SignedEthTx, Vec<Web3Instance>), TransactionErr> {
     let mut status = ctx.log.status_handle();
     macro_rules! tags {
@@ -2520,18 +2539,13 @@ async fn sign_transaction_with_keypair(
     status.status(tags!(), "get_addr_nonce…");
     let (nonce, web3_instances_with_latest_nonce) =
         try_tx_s!(coin.clone().get_addr_nonce(coin.my_address).compat().await);
-    status.status(tags!(), "get_gas_price…");
-    let pay_for_gas_option = try_tx_s!(
-        coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
-            .await
-    );
 
     let tx_type = tx_type_from_pay_for_gas_option!(pay_for_gas_option);
     if !coin.is_tx_type_supported(&tx_type) {
         return Err(TransactionErr::Plain("Eth transaction type not supported".into()));
     }
     let tx_builder = UnSignedEthTxBuilder::new(tx_type, nonce, gas, action, value, data);
-    let tx_builder = tx_builder_with_pay_for_gas_option(coin, tx_builder, &pay_for_gas_option)
+    let tx_builder = tx_builder_with_pay_for_gas_option(coin, tx_builder, pay_for_gas_option)
         .map_err(|e| TransactionErr::Plain(e.get_inner().to_string()))?;
     let tx = tx_builder.build()?;
 
@@ -2541,6 +2555,8 @@ async fn sign_transaction_with_keypair(
     ))
 }
 
+/// Sign and send eth transaction with provided keypair,
+/// This fn is primarily for swap transactions so it uses swap tx fee policy
 async fn sign_and_send_transaction_with_keypair(
     ctx: MmArc,
     coin: &EthCoin,
@@ -2556,8 +2572,15 @@ async fn sign_and_send_transaction_with_keypair(
             &[&"sign-and-send"]
         };
     }
+
+    status.status(tags!(), "get_gas_price…");
+    let pay_for_gas_option = try_tx_s!(
+        coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
+            .await
+    );
+
     let (signed, web3_instances_with_latest_nonce) =
-        sign_transaction_with_keypair(ctx, coin, key_pair, value, action, data, gas).await?;
+        sign_transaction_with_keypair(ctx, coin, key_pair, value, action, data, gas, &pay_for_gas_option).await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
     status.status(tags!(), "send_raw_transaction…");
 
@@ -2572,6 +2595,8 @@ async fn sign_and_send_transaction_with_keypair(
     Ok(signed)
 }
 
+/// Sign and send eth transaction with metamask API,
+/// This fn is primarily for swap transactions so it uses swap tx fee policy
 #[cfg(target_arch = "wasm32")]
 async fn sign_and_send_transaction_with_metamask(
     coin: EthCoin,
@@ -2646,12 +2671,35 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
             activated_key: ref key_pair,
             ..
         } => {
-            return sign_transaction_with_keypair(ctx, coin, key_pair, value, action, data, args.gas_limit)
-                .await
-                .map(|(signed_tx, _)| RawTransactionRes {
-                    tx_hex: signed_tx.tx_hex().into(),
-                })
-                .map_to_mm(|err| RawTransactionError::TransactionError(err.get_plain_text_format()));
+            let pay_for_gas_option = if let Some(ref pay_for_gas) = args.pay_for_gas {
+                pay_for_gas.clone().try_into()?
+            } else {
+                let mut status = ctx.log.status_handle();
+                macro_rules! tags {
+                    () => {
+                        &[&"sign-and-send"]
+                    };
+                }
+                // use legacy gas_price() if not set
+                status.status(tags!(), "get_gas_price…");
+                let gas_price = coin.get_gas_price().await?;
+                PayForGasOption::Legacy(LegacyGasPrice { gas_price })
+            };
+            return sign_transaction_with_keypair(
+                ctx,
+                coin,
+                key_pair,
+                value,
+                action,
+                data,
+                args.gas_limit,
+                &pay_for_gas_option,
+            )
+            .await
+            .map(|(signed_tx, _)| RawTransactionRes {
+                tx_hex: signed_tx.tx_hex().into(),
+            })
+            .map_to_mm(|err| RawTransactionError::TransactionError(err.get_plain_text_format()));
         },
         #[cfg(target_arch = "wasm32")]
         EthPrivKeyPolicy::Metamask(_) => MmError::err(RawTransactionError::InvalidParam(
@@ -3559,6 +3607,8 @@ impl EthCoin {
 
 #[cfg_attr(test, mockable)]
 impl EthCoin {
+    /// Sign and send eth transaction.
+    /// This function is primarily for swap transactions so internally it relies on the swap tx fee policy
     pub(crate) fn sign_and_send_transaction(&self, value: U256, action: Action, data: Vec<u8>, gas: U256) -> EthTxFut {
         let ctx = try_tx_fus!(MmArc::from_weak(&self.ctx).ok_or("!ctx"));
         let coin = self.clone();

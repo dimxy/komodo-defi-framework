@@ -126,6 +126,9 @@ mocktopus = "0.8.0"
 testcontainers = "0.15.0"
 web3 = { git = "https://github.com/KomodoPlatform/rust-web3", tag = "v0.20.0", default-features = false, features = ["http"] }
 ethabi = { version = "17.0.0" }
+rlp = { version = "0.5" }
+ethcore-transaction = { git = "https://github.com/KomodoPlatform/mm2-parity-ethereum.git" }
+rustc-hex = "2"
 
 [build-dependencies]
 chrono = "0.4"
