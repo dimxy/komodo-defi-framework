@@ -1,17 +1,97 @@
 //! RPCs to start/stop gas fee estimator and get estimated base and priority fee per gas
 
-use crate::{lp_coinfind_or_err, AsyncMutex, CoinFindError, MmCoinEnum, NumConversError};
 use crate::eth::{EthCoin, EthCoinType, FeeEstimatorContext, FeeEstimatorState, FeePerGasEstimated};
+use crate::{lp_coinfind_or_err, wei_to_gwei_decimal, AsyncMutex, CoinFindError, MmCoinEnum, NumConversError};
 use common::executor::{spawn_abortable, Timer};
 use common::log::debug;
 use common::{HttpStatusCode, StatusCode};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use serde_json::Value as Json;
+use mm2_number::BigDecimal;
+use serde::{Deserialize, Serialize};
+use serde_json::{self as json, Value as Json};
+use std::convert::{TryFrom, TryInto};
+use std::ops::Deref;
 use std::sync::Arc;
 
 const FEE_ESTIMATOR_NAME: &str = "eth_gas_fee_estimator_loop";
 
+/// Estimated fee per gas units
+#[derive(Clone, Debug, Serialize)]
+pub enum EstimationUnits {
+    Gwei,
+}
+
+impl Default for EstimationUnits {
+    fn default() -> Self { Self::Gwei }
+}
+
+/// Priority level estimated max fee per gas
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct FeePerGasLevel {
+    /// estimated max priority tip fee per gas in gwei
+    pub max_priority_fee_per_gas: BigDecimal,
+    /// estimated max fee per gas in gwei
+    pub max_fee_per_gas: BigDecimal,
+    /// estimated transaction min wait time in mempool in ms for this priority level
+    pub min_wait_time: Option<u32>,
+    /// estimated transaction max wait time in mempool in ms for this priority level
+    pub max_wait_time: Option<u32>,
+}
+
+/// External struct for estimated fee per gas for several priority levels, in gwei
+/// low/medium/high levels are supported
+#[derive(Default, Debug, Clone, Serialize)]
+pub struct FeePerGasEstimatedExt {
+    /// base fee for the next block in gwei
+    pub base_fee: BigDecimal,
+    /// estimated low priority fee
+    pub low: FeePerGasLevel,
+    /// estimated medium priority fee
+    pub medium: FeePerGasLevel,
+    /// estimated high priority fee
+    pub high: FeePerGasLevel,
+    /// which estimator used
+    pub source: String,
+    /// base trend (up or down)
+    pub base_fee_trend: String,
+    /// priority trend (up or down)
+    pub priority_fee_trend: String,
+    /// fee units
+    pub units: EstimationUnits,
+}
+
+impl TryFrom<FeePerGasEstimated> for FeePerGasEstimatedExt {
+    fn try_from(fees: FeePerGasEstimated) -> Result<Self, Self::Error> {
+        Ok(Self {
+            base_fee: wei_to_gwei_decimal!(fees.base_fee)?,
+            low: FeePerGasLevel {
+                max_fee_per_gas: wei_to_gwei_decimal!(fees.low.max_fee_per_gas)?,
+                max_priority_fee_per_gas: wei_to_gwei_decimal!(fees.low.max_priority_fee_per_gas)?,
+                min_wait_time: fees.low.min_wait_time,
+                max_wait_time: fees.low.max_wait_time,
+            },
+            medium: FeePerGasLevel {
+                max_fee_per_gas: wei_to_gwei_decimal!(fees.medium.max_fee_per_gas)?,
+                max_priority_fee_per_gas: wei_to_gwei_decimal!(fees.medium.max_priority_fee_per_gas)?,
+                min_wait_time: fees.medium.min_wait_time,
+                max_wait_time: fees.medium.max_wait_time,
+            },
+            high: FeePerGasLevel {
+                max_fee_per_gas: wei_to_gwei_decimal!(fees.high.max_fee_per_gas)?,
+                max_priority_fee_per_gas: wei_to_gwei_decimal!(fees.high.max_priority_fee_per_gas)?,
+                min_wait_time: fees.high.min_wait_time,
+                max_wait_time: fees.high.max_wait_time,
+            },
+            source: fees.source.to_string(),
+            base_fee_trend: fees.base_fee_trend,
+            priority_fee_trend: fees.priority_fee_trend,
+            units: EstimationUnits::Gwei,
+        })
+    }
+
+    type Error = MmError<NumConversError>;
+}
 
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -222,7 +302,7 @@ pub struct FeeEstimatorRequest {
     coin: String,
 }
 
-pub type FeeEstimatorResult = Result<FeePerGasEstimated, MmError<FeeEstimatorError>>;
+pub type FeeEstimatorResult = Result<FeePerGasEstimatedExt, MmError<FeeEstimatorError>>;
 
 /// Start gas priority fee estimator loop
 pub async fn start_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopRequest) -> FeeEstimatorStartStopResult {
@@ -251,5 +331,5 @@ pub async fn stop_eth_fee_estimator(ctx: MmArc, req: FeeEstimatorStartStopReques
 pub async fn get_eth_estimated_fee_per_gas(ctx: MmArc, req: FeeEstimatorRequest) -> FeeEstimatorResult {
     let coin = FeeEstimatorContext::check_if_estimator_supported(&ctx, &req.coin).await?;
     let estimated_fees = FeeEstimatorContext::get_estimated_fees(&coin).await?;
-    Ok(estimated_fees)
+    estimated_fees.try_into().mm_err(Into::into)
 }

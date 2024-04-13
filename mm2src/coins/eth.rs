@@ -230,6 +230,20 @@ pub type Web3RpcFut<T> = Box<dyn Future<Item = T, Error = MmError<Web3RpcError>>
 pub type Web3RpcResult<T> = Result<T, MmError<Web3RpcError>>;
 type EthPrivKeyPolicy = PrivKeyPolicy<KeyPair>;
 
+#[macro_export]
+macro_rules! wei_from_gwei_decimal {
+    ($big_decimal: expr) => {
+        $crate::eth::wei_from_big_decimal($big_decimal, $crate::eth::ETH_GWEI_DECIMALS)
+    };
+}
+
+#[macro_export]
+macro_rules! wei_to_gwei_decimal {
+    ($gwei: expr) => {
+        $crate::eth::u256_to_big_decimal($gwei, $crate::eth::ETH_GWEI_DECIMALS)
+    };
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct LegacyGasPrice {
     pub(crate) gas_price: U256,
@@ -283,6 +297,8 @@ pub enum Web3RpcError {
     InvalidGasApiConfig(String),
     #[display(fmt = "Nft Protocol is not supported yet!")]
     NftProtocolNotSupported,
+    #[display(fmt = "Number conversion: {}", _0)]
+    NumConversError(String),
 }
 
 impl From<web3::Error> for Web3RpcError {
@@ -306,6 +322,7 @@ impl From<Web3RpcError> for RawTransactionError {
             Web3RpcError::Transport(tr) | Web3RpcError::InvalidResponse(tr) => RawTransactionError::Transport(tr),
             Web3RpcError::Internal(internal)
             | Web3RpcError::Timeout(internal)
+            | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => RawTransactionError::InternalError(internal),
             Web3RpcError::NftProtocolNotSupported => {
                 RawTransactionError::InternalError("Nft Protocol is not supported yet!".to_string())
@@ -332,6 +349,10 @@ impl From<MetamaskError> for Web3RpcError {
     }
 }
 
+impl From<NumConversError> for Web3RpcError {
+    fn from(e: NumConversError) -> Self { Web3RpcError::NumConversError(e.to_string()) }
+}
+
 impl From<ethabi::Error> for WithdrawError {
     fn from(e: ethabi::Error) -> Self {
         // Currently, we use the `ethabi` crate to work with a smart contract ABI known at compile time.
@@ -350,6 +371,7 @@ impl From<Web3RpcError> for WithdrawError {
             Web3RpcError::Transport(err) | Web3RpcError::InvalidResponse(err) => WithdrawError::Transport(err),
             Web3RpcError::Internal(internal)
             | Web3RpcError::Timeout(internal)
+            | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => WithdrawError::InternalError(internal),
             Web3RpcError::NftProtocolNotSupported => WithdrawError::NftProtocolNotSupported,
         }
@@ -370,6 +392,7 @@ impl From<Web3RpcError> for TradePreimageError {
             Web3RpcError::Transport(err) | Web3RpcError::InvalidResponse(err) => TradePreimageError::Transport(err),
             Web3RpcError::Internal(internal)
             | Web3RpcError::Timeout(internal)
+            | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => TradePreimageError::InternalError(internal),
             Web3RpcError::NftProtocolNotSupported => TradePreimageError::NftProtocolNotSupported,
         }
@@ -402,6 +425,7 @@ impl From<Web3RpcError> for BalanceError {
             Web3RpcError::Transport(tr) | Web3RpcError::InvalidResponse(tr) => BalanceError::Transport(tr),
             Web3RpcError::Internal(internal)
             | Web3RpcError::Timeout(internal)
+            | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => BalanceError::Internal(internal),
             Web3RpcError::NftProtocolNotSupported => {
                 BalanceError::Internal("Nft Protocol is not supported yet!".to_string())
@@ -5046,38 +5070,21 @@ impl EthCoin {
             },
             SwapTxFeePolicy::Low | SwapTxFeePolicy::Medium | SwapTxFeePolicy::High => {
                 let fee_per_gas = coin.get_eip1559_gas_fee().await?;
-                let pay_result = (|| -> MmResult<PayForGasOption, NumConversError> {
-                    match swap_fee_policy {
-                        SwapTxFeePolicy::Low => Ok(PayForGasOption::Eip1559(Eip1559FeePerGas {
-                            max_fee_per_gas: wei_from_big_decimal(&fee_per_gas.low.max_fee_per_gas, ETH_GWEI_DECIMALS)?,
-                            max_priority_fee_per_gas: wei_from_big_decimal(
-                                &fee_per_gas.low.max_priority_fee_per_gas,
-                                ETH_GWEI_DECIMALS,
-                            )?,
-                        })),
-                        SwapTxFeePolicy::Medium => Ok(PayForGasOption::Eip1559(Eip1559FeePerGas {
-                            max_fee_per_gas: wei_from_big_decimal(
-                                &fee_per_gas.medium.max_fee_per_gas,
-                                ETH_GWEI_DECIMALS,
-                            )?,
-                            max_priority_fee_per_gas: wei_from_big_decimal(
-                                &fee_per_gas.medium.max_priority_fee_per_gas,
-                                ETH_GWEI_DECIMALS,
-                            )?,
-                        })),
-                        _ => Ok(PayForGasOption::Eip1559(Eip1559FeePerGas {
-                            max_fee_per_gas: wei_from_big_decimal(
-                                &fee_per_gas.high.max_fee_per_gas,
-                                ETH_GWEI_DECIMALS,
-                            )?,
-                            max_priority_fee_per_gas: wei_from_big_decimal(
-                                &fee_per_gas.high.max_priority_fee_per_gas,
-                                ETH_GWEI_DECIMALS,
-                            )?,
-                        })),
-                    }
-                })();
-                pay_result.mm_err(|e| Web3RpcError::Internal(format!("gas api result conversion error: {}", e)))
+                let pay_result = match swap_fee_policy {
+                    SwapTxFeePolicy::Low => PayForGasOption::Eip1559(Eip1559FeePerGas {
+                        max_fee_per_gas: fee_per_gas.low.max_fee_per_gas,
+                        max_priority_fee_per_gas: fee_per_gas.low.max_priority_fee_per_gas,
+                    }),
+                    SwapTxFeePolicy::Medium => PayForGasOption::Eip1559(Eip1559FeePerGas {
+                        max_fee_per_gas: fee_per_gas.medium.max_fee_per_gas,
+                        max_priority_fee_per_gas: fee_per_gas.medium.max_priority_fee_per_gas,
+                    }),
+                    _ => PayForGasOption::Eip1559(Eip1559FeePerGas {
+                        max_fee_per_gas: fee_per_gas.high.max_fee_per_gas,
+                        max_priority_fee_per_gas: fee_per_gas.high.max_priority_fee_per_gas,
+                    }),
+                };
+                Ok(pay_result)
             },
             SwapTxFeePolicy::Unsupported => Err(MmError::new(Web3RpcError::Internal("swap fee policy not set".into()))),
         }
@@ -5302,9 +5309,12 @@ impl EthCoin {
 pub struct EthTxFeeDetails {
     pub coin: String,
     pub gas: u64,
-    /// WEI units per 1 gas
-    pub gas_price: BigDecimal, // if fee per gas is used we set gas_price as max_fee_per_gas for compatibility with GUI
-    pub max_fee_per_gas: Option<BigDecimal>, //
+    /// Gas price in ETH per gas unit
+    /// if 'max_fee_per_gas' and 'max_priority_fee_per_gas' are used we set 'gas_price' as 'max_fee_per_gas' for compatibility with GUI
+    pub gas_price: BigDecimal,
+    /// Max fee per gas in ETH per gas unit
+    pub max_fee_per_gas: Option<BigDecimal>,
+    /// Max priority fee per gas in ETH per gas unit
     pub max_priority_fee_per_gas: Option<BigDecimal>,
     pub total_fee: BigDecimal,
 }
@@ -5430,8 +5440,8 @@ impl MmCoin for EthCoin {
                     .await
                     .map_err(|e| e.to_string())?;
 
-                let fee =
-                    calc_total_fee(U256::from(ETH_MAX_TRADE_GAS), &pay_for_gas_option).map_err(|e| e.to_string())?;
+                let fee = calc_total_fee(U256::from(gas_limit::ETH_MAX_TRADE_GAS), &pay_for_gas_option)
+                    .map_err(|e| e.to_string())?;
                 let fee_coin = match &coin.coin_type {
                     EthCoinType::Eth => &coin.ticker,
                     EthCoinType::Erc20 { platform, .. } => platform,
@@ -6460,6 +6470,7 @@ impl From<Web3RpcError> for EthGasDetailsErr {
             Web3RpcError::Transport(tr) | Web3RpcError::InvalidResponse(tr) => EthGasDetailsErr::Transport(tr),
             Web3RpcError::Internal(internal)
             | Web3RpcError::Timeout(internal)
+            | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => EthGasDetailsErr::Internal(internal),
             Web3RpcError::NftProtocolNotSupported => EthGasDetailsErr::NftProtocolNotSupported,
         }

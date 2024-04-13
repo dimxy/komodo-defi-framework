@@ -73,6 +73,7 @@ impl From<Web3RpcError> for ValidatePaymentError {
             Web3RpcError::InvalidResponse(resp) => ValidatePaymentError::InvalidRpcResponse(resp),
             Web3RpcError::Internal(internal)
             | Web3RpcError::Timeout(internal)
+            | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => ValidatePaymentError::InternalError(internal),
             Web3RpcError::NftProtocolNotSupported => ValidatePaymentError::NftProtocolNotSupported,
         }
