@@ -145,4 +145,8 @@ async fn wasm_test_sign_eth_tx_with_priority_fee() {
     let res = coin.sign_raw_tx(&sign_req).await;
     console::log_1(&format!("res={:?}", res).into());
     assert!(res.is_ok());
+    let tx: UnverifiedTransactionWrapper = rlp::decode(&res.unwrap().tx_hex).expect("decoding signed tx okay");
+    if !matches!(tx, UnverifiedTransactionWrapper::Eip1559(..)) {
+        panic!("expected eip1559 tx");
+    }
 }
