@@ -54,6 +54,7 @@ use ethereum_types::{Address, H160, H256, U256};
 use ethkey::{public_to_address, sign, verify_address, KeyPair, Public, Signature};
 use futures::compat::Future01CompatExt;
 use futures::future::{join, join_all, select_ok, try_join_all, Either, FutureExt, TryFutureExt};
+use futures::lock::MutexGuard as AsyncMutexGuard;
 use futures01::Future;
 use http::Uri;
 use instant::Instant;
@@ -2532,24 +2533,29 @@ lazy_static! {
 
 type EthTxFut = Box<dyn Future<Item = SignedEthTx, Error = TransactionErr> + Send + 'static>;
 
+/// Signs an Eth transaction using `key_pair`.
+///
+/// This method polls for the latest nonce from the RPC nodes and uses it for the transaction to be signed.
+/// A `nonce_lock` is returned so that the caller doesn't release it until the transaction is sent and the
+/// address nonce is updated on RPC nodes.
 #[allow(clippy::too_many_arguments)]
-async fn sign_transaction_with_keypair(
+async fn sign_transaction_with_keypair<'a>(
     ctx: MmArc,
-    coin: &EthCoin,
+    coin: &'a EthCoin,
     key_pair: &KeyPair,
     value: U256,
     action: Action,
     data: Vec<u8>,
     gas: U256,
     pay_for_gas_option: &PayForGasOption,
-) -> Result<(SignedEthTx, Vec<Web3Instance>), TransactionErr> {
+) -> Result<(SignedEthTx, Vec<Web3Instance>, AsyncMutexGuard<'a, ()>), TransactionErr> {
     let mut status = ctx.log.status_handle();
     macro_rules! tags {
         () => {
             &[&"sign"]
         };
     }
-    let _nonce_lock = coin.nonce_lock.lock().await;
+    let nonce_lock = coin.nonce_lock.lock().await;
     status.status(tags!(), "get_addr_nonce…");
     let (nonce, web3_instances_with_latest_nonce) =
         try_tx_s!(coin.clone().get_addr_nonce(coin.my_address).compat().await);
@@ -2566,6 +2572,7 @@ async fn sign_transaction_with_keypair(
     Ok((
         tx.sign(key_pair.secret(), coin.chain_id)?,
         web3_instances_with_latest_nonce,
+        nonce_lock,
     ))
 }
 
@@ -2593,7 +2600,7 @@ async fn sign_and_send_transaction_with_keypair(
             .await
     );
 
-    let (signed, web3_instances_with_latest_nonce) =
+    let (signed, web3_instances_with_latest_nonce, _nonce_lock) =
         sign_transaction_with_keypair(ctx, coin, key_pair, value, action, data, gas, &pay_for_gas_option).await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
     status.status(tags!(), "send_raw_transaction…");
@@ -2710,7 +2717,7 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
                 &pay_for_gas_option,
             )
             .await
-            .map(|(signed_tx, _)| RawTransactionRes {
+            .map(|(signed_tx, _, _)| RawTransactionRes {
                 tx_hex: signed_tx.tx_hex().into(),
             })
             .map_to_mm(|err| RawTransactionError::TransactionError(err.get_plain_text_format()));
@@ -5311,7 +5318,10 @@ impl EthCoin {
 
     /// Requests the nonce from all available nodes and returns the highest nonce available with the list of nodes that returned the highest nonce.
     /// Transactions will be sent using the nodes that returned the highest nonce.
-    fn get_addr_nonce(self, addr: Address) -> Box<dyn Future<Item = (U256, Vec<Web3Instance>), Error = String> + Send> {
+    pub fn get_addr_nonce(
+        self,
+        addr: Address,
+    ) -> Box<dyn Future<Item = (U256, Vec<Web3Instance>), Error = String> + Send> {
         const TMP_SOCKET_DURATION: Duration = Duration::from_secs(300);
 
         let fut = async move {
