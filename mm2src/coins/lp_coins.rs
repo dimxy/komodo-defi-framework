@@ -85,6 +85,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
 use zcash_primitives::transaction::Transaction as ZTransaction;
+#[cfg(any(test, feature = "mocktopus"))] use mocktopus::macros::*;
 
 cfg_native! {
     use crate::lightning::LightningCoin;

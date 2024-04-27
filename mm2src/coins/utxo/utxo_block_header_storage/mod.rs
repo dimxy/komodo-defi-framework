@@ -9,8 +9,7 @@ pub use wasm::IDBBlockHeadersStorage;
 use async_trait::async_trait;
 use chain::BlockHeader;
 use mm2_core::mm_ctx::MmArc;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-use mocktopus::macros::*;
+#[cfg(all(test, not(target_arch = "wasm32")))] use mocktopus::macros::*;
 use primitives::hash::H256;
 use spv_validation::storage::{BlockHeaderStorageError, BlockHeaderStorageOps};
 use std::collections::HashMap;

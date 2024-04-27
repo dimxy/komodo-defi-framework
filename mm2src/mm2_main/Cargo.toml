@@ -121,6 +121,7 @@ mm2_test_helpers = { path = "../mm2_test_helpers" }
 winapi = "0.3"
 
 [dev-dependencies]
+coins = { path = "../coins", features = ["mocktopus"] }
 mm2_test_helpers = { path = "../mm2_test_helpers" }
 mocktopus = "0.8.0"
 testcontainers = "0.15.0"

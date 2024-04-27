@@ -26,7 +26,7 @@ use keys::KeyPair;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::{BigDecimal, MmNumber};
-use mocktopus::macros::*;
+#[cfg(any(test, feature = "mocktopus"))] use mocktopus::macros::*;
 use rpc::v1::types::Bytes as BytesJson;
 use serde_json::Value as Json;
 use std::ops::Deref;
@@ -57,7 +57,7 @@ impl TestCoin {
 }
 
 #[async_trait]
-#[mockable]
+#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
 impl MarketCoinOps for TestCoin {
     fn ticker(&self) -> &str { &self.ticker }
 
@@ -109,7 +109,7 @@ impl MarketCoinOps for TestCoin {
 }
 
 #[async_trait]
-#[mockable]
+#[cfg_attr(test, mockable)]
 impl SwapOps for TestCoin {
     fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, uuid: &[u8]) -> TransactionFut { unimplemented!() }
 
@@ -250,7 +250,7 @@ impl MakerSwapTakerCoin for TestCoin {
 }
 
 #[async_trait]
-#[mockable]
+#[cfg_attr(test, mockable)]
 impl WatcherOps for TestCoin {
     fn create_maker_payment_spend_preimage(
         &self,
@@ -324,7 +324,7 @@ impl WatcherOps for TestCoin {
 }
 
 #[async_trait]
-#[mockable]
+#[cfg_attr(test, mockable)]
 impl MmCoin for TestCoin {
     fn is_asset_chain(&self) -> bool { unimplemented!() }
 
@@ -451,7 +451,7 @@ impl ParseCoinAssocTypes for TestCoin {
 }
 
 #[async_trait]
-#[mockable]
+#[cfg_attr(test, mockable)]
 impl TakerCoinSwapOpsV2 for TestCoin {
     async fn send_taker_funding(&self, args: SendTakerFundingArgs<'_>) -> Result<Self::Tx, TransactionErr> { todo!() }
 
