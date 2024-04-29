@@ -1040,6 +1040,9 @@ pub enum WatcherRewardError {
 
 /// Swap operations (mostly based on the Hash/Time locked transactions implemented by coin wallets).
 #[async_trait]
+// Note: when you want to use mocked objects in this crate (like TestCoin, etc) from mm2_main crate
+// you also need to add cfg_attr feature = "mocktopus" to 'mockable' because mocktopus is marked as 'optional' in coins/Cargo.toml
+// otherwise mocks called from other crates won't work
 #[cfg_attr(any(test, feature = "mocktopus"), mockable)]
 pub trait SwapOps {
     fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8]) -> TransactionFut;

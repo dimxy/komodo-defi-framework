@@ -116,7 +116,7 @@ impl MarketCoinOps for TestCoin {
 }
 
 #[async_trait]
-#[cfg_attr(test, mockable)]
+#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
 impl SwapOps for TestCoin {
     fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8]) -> TransactionFut { unimplemented!() }
 
@@ -263,7 +263,7 @@ impl MakerSwapTakerCoin for TestCoin {
 }
 
 #[async_trait]
-#[cfg_attr(test, mockable)]
+#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
 impl WatcherOps for TestCoin {
     fn create_maker_payment_spend_preimage(
         &self,
@@ -337,7 +337,7 @@ impl WatcherOps for TestCoin {
 }
 
 #[async_trait]
-#[cfg_attr(test, mockable)]
+#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
 impl MmCoin for TestCoin {
     fn is_asset_chain(&self) -> bool { unimplemented!() }
 
@@ -465,7 +465,7 @@ impl ParseCoinAssocTypes for TestCoin {
 }
 
 #[async_trait]
-#[cfg_attr(test, mockable)]
+#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
 impl TakerCoinSwapOpsV2 for TestCoin {
     async fn send_taker_funding(&self, args: SendTakerFundingArgs<'_>) -> Result<Self::Tx, TransactionErr> { todo!() }
 
