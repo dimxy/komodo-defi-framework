@@ -3527,7 +3527,7 @@ impl DexFee {
     }
 
     /// Returns dex fee discount if KMD is traded
-    fn dex_fee_rate(base: &str, rel: &str) -> MmNumber {
+    pub fn dex_fee_rate(base: &str, rel: &str) -> MmNumber {
         let fee_discount_tickers: &[&str] = if var("MYCOIN_FEE_DISCOUNT").is_ok() {
             &["KMD", "MYCOIN"] // used in tests
         } else {

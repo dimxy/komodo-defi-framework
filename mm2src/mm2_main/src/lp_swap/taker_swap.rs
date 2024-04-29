@@ -5,11 +5,11 @@ use super::swap_lock::{SwapLock, SwapLockOps};
 use super::swap_watcher::{watcher_topic, SwapWatcherMsg};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg_every,
-            check_other_coin_balance_for_swap, dex_fee_amount_from_taker_coin, dex_fee_rate, get_locked_amount,
-            recv_swap_msg, swap_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo,
-            NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap,
-            SavedSwapIo, SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
-            SwapsContext, TransactionIdentifier, WAIT_CONFIRM_INTERVAL_SEC};
+            check_other_coin_balance_for_swap, dex_fee_amount_from_taker_coin, get_locked_amount, recv_swap_msg,
+            swap_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
+            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
+            SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext,
+            TransactionIdentifier, WAIT_CONFIRM_INTERVAL_SEC};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::TakerOrderBuilder;
 use crate::mm2::lp_swap::swap_v2_common::mark_swap_as_finished;
@@ -17,7 +17,7 @@ use crate::mm2::lp_swap::taker_restart::get_command_based_on_watcher_activity;
 use crate::mm2::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, tx_helper_topic,
                           wait_for_maker_payment_conf_duration, TakerSwapWatcherData, MAX_STARTED_AT_DIFF};
 use coins::lp_price::fetch_swap_coins_price;
-use coins::{lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage,
+use coins::{lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage,
             FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
             RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash,
             TradeFee, TradePreimageValue, ValidatePaymentInput, WaitForHTLCTxSpendArgs};
@@ -2654,7 +2654,7 @@ pub fn max_taker_vol_from_available(
     rel: &str,
     min_tx_amount: &MmNumber,
 ) -> Result<MmNumber, MmError<MaxTakerVolumeLessThanDust>> {
-    let dex_fee_rate = dex_fee_rate(base, rel);
+    let dex_fee_rate = DexFee::dex_fee_rate(base, rel);
     let threshold_coef = &(&MmNumber::from(1) + &dex_fee_rate) / &dex_fee_rate;
     let max_vol = if available > min_tx_amount * &threshold_coef {
         available / (MmNumber::from(1) + dex_fee_rate)

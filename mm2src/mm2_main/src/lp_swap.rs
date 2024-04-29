@@ -69,13 +69,13 @@ use common::time_cache::DuplicateCache;
 use common::{bits256, calc_total_pages,
              executor::{spawn_abortable, AbortOnDropHandle, SpawnFuture, Timer},
              log::{error, info},
-             var, HttpStatusCode, PagingOptions, StatusCode};
+             HttpStatusCode, PagingOptions, StatusCode};
 use derive_more::Display;
 use http::Response;
 use mm2_core::mm_ctx::{from_ctx, MmArc};
 use mm2_err_handle::prelude::*;
 use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, PeerId, TopicPrefix};
-use mm2_number::{BigDecimal, BigRational, MmNumber, MmNumberMultiRepr};
+use mm2_number::{BigDecimal, MmNumber, MmNumberMultiRepr};
 use mm2_state_machine::storable_state_machine::StateMachineStorage;
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
@@ -789,21 +789,6 @@ pub fn lp_atomic_locktime(maker_coin: &str, taker_coin: &str, version: AtomicLoc
             my_conf_settings,
             other_conf_settings,
         } => lp_atomic_locktime_v2(maker_coin, taker_coin, &my_conf_settings, &other_conf_settings),
-    }
-}
-
-/// Returns dex fee fraction
-fn dex_fee_rate(base: &str, rel: &str) -> MmNumber {
-    let fee_discount_tickers: &[&str] = if var("MYCOIN_FEE_DISCOUNT").is_ok() {
-        &["KMD", "MYCOIN"] // used in tests
-    } else {
-        &["KMD"]
-    };
-    if fee_discount_tickers.contains(&base) || fee_discount_tickers.contains(&rel) {
-        // 1/777 - 10%
-        BigRational::new(9.into(), 7770.into()).into()
-    } else {
-        BigRational::new(1.into(), 777.into()).into()
     }
 }
 
