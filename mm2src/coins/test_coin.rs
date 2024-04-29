@@ -64,7 +64,7 @@ impl MarketCoinOps for TestCoin {
 
     fn my_address(&self) -> MmResult<String, MyAddressError> { unimplemented!() }
 
-    fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> { unimplemented!() }
+    async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> { unimplemented!() }
 
     fn sign_message_hash(&self, _message: &str) -> Option<[u8; 32]> { unimplemented!() }
 
@@ -111,6 +111,8 @@ impl MarketCoinOps for TestCoin {
     fn is_kmd(&self) -> bool { false }
 
     fn is_evm(&self) -> bool { false }
+
+    fn is_trezor(&self) -> bool { unimplemented!() }
 }
 
 #[async_trait]
@@ -122,11 +124,17 @@ impl SwapOps for TestCoin {
 
     fn send_taker_payment(&self, _taker_payment_args: SendPaymentArgs) -> TransactionFut { unimplemented!() }
 
-    fn send_maker_spends_taker_payment(&self, _maker_spends_payment_args: SpendPaymentArgs) -> TransactionFut {
+    async fn send_maker_spends_taker_payment(
+        &self,
+        _maker_spends_payment_args: SpendPaymentArgs<'_>,
+    ) -> TransactionResult {
         unimplemented!()
     }
 
-    fn send_taker_spends_maker_payment(&self, _taker_spends_payment_args: SpendPaymentArgs) -> TransactionFut {
+    async fn send_taker_spends_maker_payment(
+        &self,
+        _taker_spends_payment_args: SpendPaymentArgs<'_>,
+    ) -> TransactionResult {
         unimplemented!()
     }
 
@@ -430,6 +438,7 @@ impl ToBytes for TestSig {
     fn to_bytes(&self) -> Vec<u8> { vec![] }
 }
 
+#[async_trait]
 impl ParseCoinAssocTypes for TestCoin {
     type Address = String;
     type AddressParseError = String;
@@ -442,7 +451,7 @@ impl ParseCoinAssocTypes for TestCoin {
     type Sig = TestSig;
     type SigParseError = String;
 
-    fn my_addr(&self) -> &Self::Address { todo!() }
+    async fn my_addr(&self) -> Self::Address { todo!() }
 
     fn parse_address(&self, address: &str) -> Result<Self::Address, Self::AddressParseError> { todo!() }
 

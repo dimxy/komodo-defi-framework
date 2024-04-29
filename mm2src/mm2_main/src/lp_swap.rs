@@ -1799,13 +1799,13 @@ pub fn generate_secret() -> Result<[u8; 32], rand::Error> {
 mod lp_swap_tests {
     use super::*;
     use crate::mm2::lp_native_dex::{fix_directories, init_p2p};
+    use coins::hd_wallet::HDPathAccountToAddressId;
     use coins::utxo::rpc_clients::ElectrumRpcRequest;
     use coins::utxo::utxo_standard::utxo_standard_coin_with_priv_key;
     use coins::utxo::{UtxoActivationParams, UtxoRpcMode};
     use coins::PrivKeyActivationPolicy;
     use coins::{DexFee, DexFeeBurnDestination, MarketCoinOps, TestCoin};
     use common::{block_on, new_uuid};
-    use crypto::StandardHDCoinAddress;
     use mm2_core::mm_ctx::MmCtxBuilder;
     use mm2_test_helpers::for_tests::{morty_conf, rick_conf, MORTY_ELECTRUM_ADDRS, RICK_ELECTRUM_ADDRS};
     use mocktopus::mocking::*;
@@ -2250,7 +2250,7 @@ mod lp_swap_tests {
             enable_params: Default::default(),
             priv_key_policy: PrivKeyActivationPolicy::ContextPrivKey,
             check_utxo_maturity: None,
-            path_to_address: StandardHDCoinAddress::default(),
+            path_to_address: HDPathAccountToAddressId::default(),
         }
     }
 
