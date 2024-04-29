@@ -1036,8 +1036,8 @@ impl Deref for EthCoin {
 
 #[async_trait]
 impl SwapOps for EthCoin {
-    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
-        let address = try_tx_fus!(addr_from_raw_pubkey(fee_addr));
+    fn send_taker_fee(&self, dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
+        let address = try_tx_fus!(addr_from_raw_pubkey(self.dex_pubkey()));
 
         Box::new(
             self.send_to_address(
@@ -1098,7 +1098,6 @@ impl SwapOps for EthCoin {
         validate_fee_impl(self.clone(), EthValidateFeeArgs {
             fee_tx_hash: &tx.hash,
             expected_sender: validate_fee_args.expected_sender,
-            fee_addr: validate_fee_args.fee_addr,
             amount: &validate_fee_args.dex_fee.fee_amount().into(),
             min_block_number: validate_fee_args.min_block_number,
             uuid: validate_fee_args.uuid,
@@ -1442,7 +1441,6 @@ impl WatcherOps for EthCoin {
         validate_fee_impl(self.clone(), EthValidateFeeArgs {
             fee_tx_hash: &H256::from_slice(validate_fee_args.taker_fee_hash.as_slice()),
             expected_sender: &validate_fee_args.sender_pubkey,
-            fee_addr: &validate_fee_args.fee_addr,
             amount: &BigDecimal::from(0),
             min_block_number: validate_fee_args.min_block_number,
             uuid: &[],
@@ -2398,6 +2396,9 @@ impl MarketCoinOps for EthCoin {
         let pow = self.decimals as u32;
         MmNumber::from(1) / MmNumber::from(10u64.pow(pow))
     }
+
+    #[inline]
+    fn is_evm(&self) -> bool { true }
 }
 
 pub fn signed_eth_tx_from_bytes(bytes: &[u8]) -> Result<SignedEthTx, String> {
@@ -5502,8 +5503,7 @@ fn validate_fee_impl(coin: EthCoin, validate_fee_args: EthValidateFeeArgs<'_>) -
     let sender_addr = try_f!(
         addr_from_raw_pubkey(validate_fee_args.expected_sender).map_to_mm(ValidatePaymentError::InvalidParameter)
     );
-    let fee_addr =
-        try_f!(addr_from_raw_pubkey(validate_fee_args.fee_addr).map_to_mm(ValidatePaymentError::InvalidParameter));
+    let fee_addr = try_f!(addr_from_raw_pubkey(coin.dex_pubkey()).map_to_mm(ValidatePaymentError::InvalidParameter));
     let amount = validate_fee_args.amount.clone();
     let min_block_number = validate_fee_args.min_block_number;
 

@@ -46,6 +46,7 @@ use crypto::Bip44Chain;
 use futures::{FutureExt, TryFutureExt};
 use mm2_metrics::MetricsArc;
 use mm2_number::MmNumber;
+#[cfg(test)] use mocktopus::macros::*;
 use script::Opcode;
 use utxo_signer::UtxoSignerOps;
 
@@ -303,10 +304,11 @@ impl UtxoStandardOps for UtxoStandardCoin {
 }
 
 #[async_trait]
+#[cfg_attr(test, mockable)]
 impl SwapOps for UtxoStandardCoin {
     #[inline]
-    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
-        utxo_common::send_taker_fee(self.clone(), fee_addr, dex_fee)
+    fn send_taker_fee(&self, dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
+        utxo_common::send_taker_fee(self.clone(), dex_fee)
     }
 
     #[inline]
@@ -349,9 +351,8 @@ impl SwapOps for UtxoStandardCoin {
             tx,
             utxo_common::DEFAULT_FEE_VOUT,
             validate_fee_args.expected_sender,
-            validate_fee_args.dex_fee,
+            validate_fee_args.dex_fee.clone(),
             validate_fee_args.min_block_number,
-            validate_fee_args.fee_addr,
         )
     }
 
@@ -899,6 +900,8 @@ impl MarketCoinOps for UtxoStandardCoin {
     fn min_tx_amount(&self) -> BigDecimal { utxo_common::min_tx_amount(self.as_ref()) }
 
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
+
+    fn is_kmd(&self) -> bool { &self.utxo_arc.conf.ticker == "KMD" }
 }
 
 #[async_trait]

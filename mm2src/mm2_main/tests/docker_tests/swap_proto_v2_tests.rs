@@ -276,7 +276,7 @@ fn send_and_spend_taker_payment_dex_fee_burn() {
     let taker_pub = taker_coin.my_public_key().unwrap();
     let maker_pub = maker_coin.my_public_key().unwrap();
 
-    let dex_fee = &DexFee::with_burn("0.75".into(), "0.25".into());
+    let dex_fee = &DexFee::create_from_fields("0.75".into(), "0.25".into(), "KMD");
 
     let send_args = SendTakerFundingArgs {
         time_lock: funding_time_lock,

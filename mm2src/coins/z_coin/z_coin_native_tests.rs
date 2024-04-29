@@ -231,7 +231,6 @@ fn zombie_coin_validate_dex_fee() {
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,
         expected_sender: &[],
-        fee_addr: &[],
         dex_fee: &DexFee::Standard(MmNumber::from("0.001")),
         min_block_number: 12000,
         uuid: &[1; 16],
@@ -247,7 +246,6 @@ fn zombie_coin_validate_dex_fee() {
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,
         expected_sender: &[],
-        fee_addr: &[],
         dex_fee: &DexFee::Standard(MmNumber::from("0.01")),
         min_block_number: 12000,
         uuid: &[2; 16],
@@ -262,7 +260,6 @@ fn zombie_coin_validate_dex_fee() {
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,
         expected_sender: &[],
-        fee_addr: &[],
         dex_fee: &DexFee::Standard(MmNumber::from("0.01")),
         min_block_number: 14000,
         uuid: &[1; 16],
@@ -277,7 +274,6 @@ fn zombie_coin_validate_dex_fee() {
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,
         expected_sender: &[],
-        fee_addr: &[],
         dex_fee: &DexFee::Standard(MmNumber::from("0.01")),
         min_block_number: 12000,
         uuid: &[1; 16],

@@ -837,8 +837,8 @@ impl UtxoCommonOps for BchCoin {
 #[async_trait]
 impl SwapOps for BchCoin {
     #[inline]
-    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
-        utxo_common::send_taker_fee(self.clone(), fee_addr, dex_fee)
+    fn send_taker_fee(&self, dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
+        utxo_common::send_taker_fee(self.clone(), dex_fee)
     }
 
     #[inline]
@@ -881,9 +881,8 @@ impl SwapOps for BchCoin {
             tx,
             utxo_common::DEFAULT_FEE_VOUT,
             validate_fee_args.expected_sender,
-            validate_fee_args.dex_fee,
+            validate_fee_args.dex_fee.clone(),
             validate_fee_args.min_block_number,
-            validate_fee_args.fee_addr,
         )
     }
 

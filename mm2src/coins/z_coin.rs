@@ -1197,7 +1197,7 @@ impl MarketCoinOps for ZCoin {
 
 #[async_trait]
 impl SwapOps for ZCoin {
-    fn send_taker_fee(&self, _fee_addr: &[u8], dex_fee: DexFee, uuid: &[u8]) -> TransactionFut {
+    fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8]) -> TransactionFut {
         let selfi = self.clone();
         let uuid = uuid.to_owned();
         let fut = async move {
@@ -1369,7 +1369,7 @@ impl SwapOps for ZCoin {
             TransactionEnum::ZTransaction(t) => t.clone(),
             _ => panic!("Unexpected tx {:?}", validate_fee_args.fee_tx),
         };
-        let amount_sat = try_f!(validate_fee_args.dex_fee.fee_uamount(self.utxo_arc.decimals));
+        let amount_sat = try_f!(validate_fee_args.dex_fee.fee_amount_as_u64(self.utxo_arc.decimals));
         let expected_memo = MemoBytes::from_bytes(validate_fee_args.uuid).expect("Uuid length < 512");
         let min_block_number = validate_fee_args.min_block_number;
 

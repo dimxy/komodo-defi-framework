@@ -26,7 +26,8 @@ use keys::KeyPair;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::{BigDecimal, MmNumber};
-#[cfg(any(test, feature = "mocktopus"))] use mocktopus::macros::*;
+#[cfg(any(test, feature = "mocktopus"))]
+use mocktopus::macros::*;
 use rpc::v1::types::Bytes as BytesJson;
 use serde_json::Value as Json;
 use std::ops::Deref;
@@ -106,12 +107,16 @@ impl MarketCoinOps for TestCoin {
     fn min_tx_amount(&self) -> BigDecimal { Default::default() }
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
+
+    fn is_kmd(&self) -> bool { false }
+
+    fn is_evm(&self) -> bool { false }
 }
 
 #[async_trait]
 #[cfg_attr(test, mockable)]
 impl SwapOps for TestCoin {
-    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, uuid: &[u8]) -> TransactionFut { unimplemented!() }
+    fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8]) -> TransactionFut { unimplemented!() }
 
     fn send_maker_payment(&self, _maker_payment_args: SendPaymentArgs) -> TransactionFut { unimplemented!() }
 

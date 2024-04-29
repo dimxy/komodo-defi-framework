@@ -2466,9 +2466,9 @@ impl MarketCoinOps for TendermintCoin {
 #[async_trait]
 #[allow(unused_variables)]
 impl SwapOps for TendermintCoin {
-    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, uuid: &[u8]) -> TransactionFut {
+    fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8]) -> TransactionFut {
         self.send_taker_fee_for_denom(
-            fee_addr,
+            self.dex_pubkey(),
             dex_fee.fee_amount().into(),
             self.denom.clone(),
             self.decimals,
@@ -2628,7 +2628,7 @@ impl SwapOps for TendermintCoin {
         self.validate_fee_for_denom(
             validate_fee_args.fee_tx,
             validate_fee_args.expected_sender,
-            validate_fee_args.fee_addr,
+            self.dex_pubkey(),
             &validate_fee_args.dex_fee.fee_amount().into(),
             self.decimals,
             validate_fee_args.uuid,
@@ -3260,7 +3260,6 @@ pub mod tendermint_coin_tests {
             .validate_fee(ValidateFeeArgs {
                 fee_tx: &create_htlc_tx,
                 expected_sender: &[],
-                fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
                 dex_fee: &DexFee::Standard(invalid_amount.clone()),
                 min_block_number: 0,
                 uuid: &[1; 16],
@@ -3294,7 +3293,6 @@ pub mod tendermint_coin_tests {
             .validate_fee(ValidateFeeArgs {
                 fee_tx: &random_transfer_tx,
                 expected_sender: &[],
-                fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
                 dex_fee: &DexFee::Standard(invalid_amount.clone()),
                 min_block_number: 0,
                 uuid: &[1; 16],
@@ -3327,7 +3325,6 @@ pub mod tendermint_coin_tests {
             .validate_fee(ValidateFeeArgs {
                 fee_tx: &dex_fee_tx,
                 expected_sender: &[],
-                fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
                 dex_fee: &DexFee::Standard(invalid_amount),
                 min_block_number: 0,
                 uuid: &[1; 16],
@@ -3347,7 +3344,6 @@ pub mod tendermint_coin_tests {
             .validate_fee(ValidateFeeArgs {
                 fee_tx: &dex_fee_tx,
                 expected_sender: &DEX_FEE_ADDR_RAW_PUBKEY,
-                fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
                 dex_fee: &DexFee::Standard(valid_amount.clone().into()),
                 min_block_number: 0,
                 uuid: &[1; 16],
@@ -3366,7 +3362,6 @@ pub mod tendermint_coin_tests {
             .validate_fee(ValidateFeeArgs {
                 fee_tx: &dex_fee_tx,
                 expected_sender: &pubkey,
-                fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
                 dex_fee: &DexFee::Standard(valid_amount.into()),
                 min_block_number: 0,
                 uuid: &[1; 16],
