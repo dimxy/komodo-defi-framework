@@ -108,7 +108,7 @@ impl MarketCoinOps for TestCoin {
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
 
-    fn is_kmd(&self) -> bool { false }
+    fn is_kmd(&self) -> bool { &self.ticker == "KMD" }
 
     fn is_evm(&self) -> bool { false }
 

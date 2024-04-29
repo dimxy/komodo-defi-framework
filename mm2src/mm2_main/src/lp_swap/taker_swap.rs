@@ -3102,8 +3102,7 @@ mod taker_swap_tests {
             let coin = TestCoin::new(base);
             let mock_min_tx_amount = min_tx_amount.clone();
             TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(mock_min_tx_amount.clone().into()));
-            TestCoin::is_kmd.mock_safe(move |_| MockResult::Return(is_kmd));
-            let dex_fee = DexFee::new_from_taker_coin(&coin, "MORTY", &max_taker_vol).fee_amount();
+            let dex_fee = DexFee::new_from_taker_coin(&coin, "MORTY", &max_taker_vol).total_spend_amount();
             assert!(min_tx_amount < dex_fee);
             assert!(min_tx_amount <= max_taker_vol);
             assert_eq!(max_taker_vol + dex_fee, available);
@@ -3127,7 +3126,6 @@ mod taker_swap_tests {
             let coin = TestCoin::new(base);
             let mock_min_tx_amount = min_tx_amount.clone();
             TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(mock_min_tx_amount.clone().into()));
-            TestCoin::is_kmd.mock_safe(move |_| MockResult::Return(is_kmd));
             let dex_fee = DexFee::new_from_taker_coin(&coin, "MORTY", &max_taker_vol).fee_amount();
             println!(
                 "available={:?} max_taker_vol={:?} dex_fee={:?}",

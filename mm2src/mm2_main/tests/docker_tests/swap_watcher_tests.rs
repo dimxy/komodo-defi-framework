@@ -762,7 +762,6 @@ fn test_watcher_spends_maker_payment_eth_utxo() {
 
     let coin = TestCoin::new("MYCOIN");
     TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(min_tx_amount.clone()));
-    TestCoin::is_kmd.mock_safe(|_| MockResult::Return(false));
     let dex_fee: BigDecimal = DexFee::new_from_taker_coin(&coin, "ETH", &MmNumber::from(mycoin_volume.clone()))
         .fee_amount()
         .into();
@@ -903,7 +902,6 @@ fn test_watcher_spends_maker_payment_erc20_utxo() {
     let min_tx_amount = BigDecimal::from_str("0.00001").unwrap();
     let coin = TestCoin::new("MYCOIN");
     TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(min_tx_amount.clone()));
-    TestCoin::is_kmd.mock_safe(|_| MockResult::Return(false));
     let dex_fee: BigDecimal = DexFee::new_from_taker_coin(&coin, "ERC20DEV", &MmNumber::from(mycoin_volume.clone()))
         .fee_amount()
         .into();
