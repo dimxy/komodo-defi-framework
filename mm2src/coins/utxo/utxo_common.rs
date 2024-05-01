@@ -72,7 +72,7 @@ use utxo_signer::UtxoSignerOps;
 pub mod utxo_tx_history_v2_common;
 
 pub const DEFAULT_FEE_VOUT: usize = 0;
-pub const DEFAULT_SWAP_TX_SPEND_SIZE: u64 = 305;
+pub const DEFAULT_SWAP_TX_SPEND_SIZE: u64 = 305; // TODO: check maybe need to change because of the new burn account output
 pub const DEFAULT_SWAP_VOUT: usize = 0;
 pub const DEFAULT_SWAP_VIN: usize = 0;
 const MIN_BTC_TRADING_VOL: &str = "0.00777";
@@ -1260,6 +1260,8 @@ async fn gen_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
             - outputs[0].value
             - outputs[1].value
             - tx_fee;
+        // taker also adds maker output as we can't use SIGHASH_SINGLE with two outputs, dex fee and burn, 
+        // and both the maker and taker sign all outputs
         outputs.push(TransactionOutput {
             value: maker_value,
             script_pubkey: script.to_bytes(),

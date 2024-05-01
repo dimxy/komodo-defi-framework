@@ -1,10 +1,7 @@
 use crate::{generate_utxo_coin_with_random_privkey, MYCOIN, MYCOIN1};
 use bitcrypto::dhash160;
 use coins::utxo::UtxoCommonOps;
-use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs,
-            MakerCoinSwapOpsV2, MarketCoinOps, ParseCoinAssocTypes, RefundFundingSecretArgs, RefundMakerPaymentArgs,
-            RefundPaymentArgs, SendMakerPaymentArgs, SendTakerFundingArgs, SwapTxTypeWithSecretHash,
-            TakerCoinSwapOpsV2, Transaction, ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
+use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MarketCoinOps, ParseCoinAssocTypes, RefundFundingSecretArgs, RefundMakerPaymentArgs, RefundPaymentArgs, SendMakerPaymentArgs, SendTakerFundingArgs, SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2, Transaction, ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
 use common::{block_on, now_sec, DEX_FEE_ADDR_RAW_PUBKEY};
 use futures01::Future;
 use mm2_number::MmNumber;
@@ -262,7 +259,7 @@ fn send_and_spend_taker_funding() {
 }
 
 #[test]
-fn send_and_spend_taker_payment_dex_fee_burn() {
+fn send_and_spend_taker_payment_dex_fee_burn_kmd() {
     let (_mm_arc, taker_coin, _privkey) = generate_utxo_coin_with_random_privkey(MYCOIN, 1000.into());
     let (_mm_arc, maker_coin, _privkey) = generate_utxo_coin_with_random_privkey(MYCOIN, 1000.into());
 
@@ -365,7 +362,7 @@ fn send_and_spend_taker_payment_dex_fee_burn() {
 }
 
 #[test]
-fn send_and_spend_taker_payment_standard_dex_fee() {
+fn send_and_spend_taker_payment_dex_fee_burn_non_kmd() {
     let (_mm_arc, taker_coin, _privkey) = generate_utxo_coin_with_random_privkey(MYCOIN, 1000.into());
     let (_mm_arc, maker_coin, _privkey) = generate_utxo_coin_with_random_privkey(MYCOIN, 1000.into());
 
@@ -379,7 +376,7 @@ fn send_and_spend_taker_payment_standard_dex_fee() {
     let taker_pub = taker_coin.my_public_key().unwrap();
     let maker_pub = maker_coin.my_public_key().unwrap();
 
-    let dex_fee = &DexFee::Standard(1.into());
+    let dex_fee = &DexFee::create_from_fields("0.75".into(), "0.25".into(), "MYCOIN");
 
     let send_args = SendTakerFundingArgs {
         time_lock: funding_time_lock,
@@ -446,9 +443,13 @@ fn send_and_spend_taker_payment_standard_dex_fee() {
     let taker_payment_spend_preimage =
         block_on(taker_coin.gen_taker_payment_spend_preimage(&gen_taker_payment_spend_args, &[])).unwrap();
 
-    // tx must have 1 output: dex fee
-    assert_eq!(taker_payment_spend_preimage.preimage.outputs.len(), 1);
-    assert_eq!(taker_payment_spend_preimage.preimage.outputs[0].value, 100000000);
+    // tx must have 3 outputs: dex fee, burn (for non-kmd too), and maker amount
+    // because of the burn output we can't use SIGHASH_SINGLE and taker must add the maker output
+    assert_eq!(taker_payment_spend_preimage.preimage.outputs.len(), 3);
+    assert_eq!(taker_payment_spend_preimage.preimage.outputs[0].value, 75_000_000);
+    assert_eq!(taker_payment_spend_preimage.preimage.outputs[1].value, 25_000_000);
+    assert_eq!(taker_payment_spend_preimage.preimage.outputs[2].value, 77699998000);
+
 
     block_on(
         maker_coin.validate_taker_payment_spend_preimage(&gen_taker_payment_spend_args, &taker_payment_spend_preimage),
