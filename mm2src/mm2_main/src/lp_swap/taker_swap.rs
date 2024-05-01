@@ -471,7 +471,7 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                         )
                     }
 
-                    #[cfg(target_arch = "wasm32")]
+                    // #[cfg(target_arch = "wasm32")]
                     if event.is_error() {
                         error!("[swap uuid={uuid}] {event:?}");
                     }

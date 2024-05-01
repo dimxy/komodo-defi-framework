@@ -571,6 +571,7 @@ impl MakerSwap {
             p2p_privkey: self.p2p_privkey.map(SerializableSecp256k1Keypair::from),
         };
 
+        log!("MakerSwap::start secret_hash={}", hex::encode(data.clone().secret_hash.unwrap().into_vec()));
         // This will be done during order match
         self.w().watcher_reward = std::env::var("USE_WATCHER_REWARD").is_ok();
 
@@ -2124,7 +2125,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                         )
                     }
 
-                    #[cfg(target_arch = "wasm32")]
+                    // #[cfg(target_arch = "wasm32")]
                     if event.is_error() {
                         error!("[swap uuid={uuid_str}] {event:?}");
                     }

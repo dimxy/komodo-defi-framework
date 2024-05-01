@@ -2976,6 +2976,7 @@ fn lp_connect_start_bob(ctx: MmArc, maker_match: MakerMatch, maker_order: MakerO
 
         if ctx.use_trading_proto_v2() {
             let secret_hash_algo = detect_secret_hash_algo(&maker_coin, &taker_coin);
+            log!("lp_connect_start_bob create MakerSwapStateMachine");
             match (maker_coin, taker_coin) {
                 (MmCoinEnum::UtxoCoin(m), MmCoinEnum::UtxoCoin(t)) => {
                     let mut maker_swap_state_machine = MakerSwapStateMachine {
@@ -3012,6 +3013,7 @@ fn lp_connect_start_bob(ctx: MmArc, maker_match: MakerMatch, maker_order: MakerO
                 _ => todo!("implement fallback to the old protocol here"),
             }
         } else {
+            log!("lp_connect_start_bob create LEGACY_SWAP_TYPE");
             if let Err(e) = insert_new_swap_to_db(
                 ctx.clone(),
                 maker_coin.ticker(),

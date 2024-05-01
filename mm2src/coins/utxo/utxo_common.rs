@@ -1822,6 +1822,7 @@ pub async fn send_taker_spends_maker_payment<T: UtxoCommonOps + SwapOps>(
         .into_script();
 
     let time_lock = try_tx_s!(args.time_lock.try_into());
+    common::log::info!("send_taker_spends_maker_payment secret_hash.len()={} secret_hash={}", args.secret_hash.len(), hex::encode(args.secret_hash));
     let redeem_script = payment_script(
         time_lock,
         args.secret_hash,

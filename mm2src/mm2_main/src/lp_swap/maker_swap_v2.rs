@@ -423,6 +423,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
     type RecreateError = MmError<SwapRecreateError>;
 
     fn to_db_repr(&self) -> MakerSwapDbRepr {
+        log!("to_db_repr secret_hash={}", hex::encode(self.secret_hash()));
         MakerSwapDbRepr {
             maker_coin: self.maker_coin.ticker().into(),
             maker_volume: self.maker_volume.clone(),

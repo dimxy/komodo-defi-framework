@@ -10,6 +10,7 @@ use derive_more::Display;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
+use common::log::info;
 
 pub type RecreateSwapResult<T> = Result<T, MmError<RecreateSwapError>>;
 
@@ -126,7 +127,7 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
         // We could parse the `TakerSwapEvent::TakerPaymentSpent` event.
         // As for now, don't try to find the secret in the events since we can refund without it.
         secret: H256Json::default(),
-        secret_hash: Some(negotiated_event.secret_hash),
+        secret_hash: Some(negotiated_event.secret_hash.clone()),
         my_persistent_pub: negotiated_event.maker_pubkey,
         lock_duration: started_event.lock_duration,
         maker_amount: started_event.maker_amount,
@@ -150,6 +151,8 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
         taker_coin_htlc_pubkey: negotiated_event.taker_coin_htlc_pubkey,
         p2p_privkey: None,
     });
+
+    log!("recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.into_vec()));
     maker_swap.events.push(MakerSavedEvent {
         timestamp: started_event_timestamp,
         event: maker_started_event,
@@ -370,6 +373,7 @@ async fn recreate_taker_swap(ctx: MmArc, maker_swap: MakerSavedSwap) -> Recreate
         timestamp: negotiated_timestamp,
         event: taker_negotiated_event,
     });
+    log!("recreate_taker_swap secret_hash={}", hex::encode(secret_hash.clone().into_vec()));
 
     // Can be used to extract a secret from [`MakerSwapEvent::TakerPaymentSpent`].
     let maker_coin_ticker = started_event.maker_coin;
