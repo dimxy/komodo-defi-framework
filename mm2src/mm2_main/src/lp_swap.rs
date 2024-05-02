@@ -1043,6 +1043,8 @@ struct MySwapStatusResponse {
 
 impl From<SavedSwap> for MySwapStatusResponse {
     fn from(mut swap: SavedSwap) -> MySwapStatusResponse {
+        println!("from call hide_secrets");
+        log!("from call hide_secrets");
         swap.hide_secrets();
         MySwapStatusResponse {
             my_info: swap.get_my_info(),
@@ -1126,6 +1128,8 @@ async fn broadcast_my_swap_status(ctx: &MmArc, uuid: Uuid) -> Result<(), String>
         Some(status) => status,
         None => return ERR!("swap data is not found"),
     };
+    println!("broadcast_my_swap_status call hide_secrets");
+    log!("broadcast_my_swap_status call hide_secrets");
     status.hide_secrets();
 
     #[cfg(not(target_arch = "wasm32"))]
