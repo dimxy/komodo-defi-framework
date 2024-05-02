@@ -408,7 +408,7 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
         } => match TakerSwap::load_from_db_by_uuid(ctx, maker_coin, taker_coin, &swap_uuid).await {
             Ok((swap, command)) => match command {
                 Some(c) => {
-                    info!("Swap {} kick started.", uuid);
+                    info!("Swap {} kick started. secret_hash={}", uuid, hex::encode(swap.mutable.read().unwrap().secret_hash.to_vec()));
                     (swap, c)
                 },
                 None => {

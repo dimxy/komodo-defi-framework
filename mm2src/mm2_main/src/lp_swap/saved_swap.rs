@@ -130,6 +130,8 @@ impl SavedSwap {
     pub fn hide_secrets(&mut self) {
         match self {
             SavedSwap::Maker(swap) => {
+                println!("hide_secrets enterred SavedSwap::Maker");
+                log!("hide_secrets enterred SavedSwap::Maker");
                 if let Some(ref mut event) = swap.events.first_mut() {
                     if let MakerSwapEvent::Started(ref mut data) = event.event {
                         data.secret = H256Json::default();
@@ -138,6 +140,8 @@ impl SavedSwap {
                 }
             },
             SavedSwap::Taker(swap) => {
+                println!("hide_secrets enterred SavedSwap::Taker");
+                log!("hide_secrets enterred SavedSwap::Taker");
                 if let Some(ref mut event) = swap.events.first_mut() {
                     if let TakerSwapEvent::Started(ref mut data) = event.event {
                         data.p2p_privkey = None;
