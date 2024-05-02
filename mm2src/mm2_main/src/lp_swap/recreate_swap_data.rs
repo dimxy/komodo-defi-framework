@@ -152,8 +152,8 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
         p2p_privkey: None,
     });
 
-    log!("log recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.into_vec()));
-    info!("info recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.into_vec()));
+    log!("log recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.clone().into_vec()));
+    info!("info recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.clone().into_vec()));
     println!("println recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.into_vec()));
 
     maker_swap.events.push(MakerSavedEvent {
