@@ -408,7 +408,7 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
         } => match TakerSwap::load_from_db_by_uuid(ctx, maker_coin, taker_coin, &swap_uuid).await {
             Ok((swap, command)) => match command {
                 Some(c) => {
-                    info!("Swap {} kick started. secret_hash={}", uuid, hex::encode(swap.mutable.read().unwrap().secret_hash.to_vec()));
+                    info!("Swap {} kick started (TakerSwap). secret={} secret_hash={}", uuid, swap.mutable.read().unwrap().secret.to_string(), hex::encode(swap.mutable.read().unwrap().secret_hash.to_vec()));
                     (swap, c)
                 },
                 None => {
@@ -834,7 +834,8 @@ impl TakerSwap {
             TakerSwapEvent::TakerPaymentWaitConfirmFailed(err) => self.errors.lock().push(err),
             TakerSwapEvent::TakerPaymentSpent(data) => {
                 self.w().taker_payment_spend = Some(data.transaction);
-                self.w().secret = data.secret;
+                self.w().secret = data.secret.clone();
+                println!("TakerSwap::apply_event self.r().secret={} data.secret={}", self.r().secret, data.secret);
             },
             TakerSwapEvent::TakerPaymentWaitForSpendFailed(err) => self.errors.lock().push(err),
             TakerSwapEvent::MakerPaymentSpent(tx) => self.w().maker_payment_spend = Some(tx),
@@ -1782,6 +1783,7 @@ impl TakerSwap {
 
         let other_maker_coin_htlc_pub = self.r().other_maker_coin_htlc_pub;
         let secret = self.r().secret;
+        println!("spend_maker_payment secret={}", secret.to_string());
         let taker_spends_payment_args = SpendPaymentArgs {
             other_payment_tx: &self.r().maker_payment.clone().unwrap().tx_hex,
             time_lock: self.maker_payment_lock.load(Ordering::Relaxed),

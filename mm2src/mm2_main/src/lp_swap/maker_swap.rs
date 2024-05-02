@@ -1347,6 +1347,7 @@ impl MakerSwap {
                 .taker_payment_requires_nota
                 .unwrap_or_else(|| taker_coin.requires_notarization()),
         };
+        println!("MakerSwap::load_from_saved data.secret={}", data.secret.to_string());
         let swap = MakerSwap::new(
             ctx,
             taker,
@@ -1362,6 +1363,7 @@ impl MakerSwap {
             data.p2p_privkey.map(SerializableSecp256k1Keypair::into_inner),
             data.secret.into(),
         );
+        
         let command = saved.events.last().unwrap().get_command();
         for saved_event in saved.events {
             swap.apply_event(saved_event.event);
@@ -2051,7 +2053,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
         } => match MakerSwap::load_from_db_by_uuid(ctx, maker_coin, taker_coin, &swap_uuid).await {
             Ok((swap, command)) => match command {
                 Some(c) => {
-                    info!("Swap {} kick started.", uuid);
+                    info!("Swap {} kick started (MakerSwap). swap.mutable.data.secret={} secret_hash={}", uuid, swap.mutable.read().unwrap().data.secret.to_string(), hex::encode(swap.mutable.read().unwrap().data.secret_hash.as_ref().unwrap().to_vec()));
                     (swap, c)
                 },
                 None => {
