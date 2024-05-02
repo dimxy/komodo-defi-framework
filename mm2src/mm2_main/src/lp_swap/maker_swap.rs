@@ -1365,6 +1365,7 @@ impl MakerSwap {
         );
         
         let command = saved.events.last().unwrap().get_command();
+        println!("MakerSwap::load_from_saved saved.events.len={}", saved.events.len());
         for saved_event in saved.events {
             swap.apply_event(saved_event.event);
         }
@@ -2128,9 +2129,9 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                     }
 
                     // #[cfg(target_arch = "wasm32")]
-                    if event.is_error() {
+                    //if event.is_error() {
                         error!("[swap uuid={uuid_str}] {event:?}");
-                    }
+                    //}
 
                     status.status(swap_tags!(), &event.status_str());
                     running_swap.apply_event(event);

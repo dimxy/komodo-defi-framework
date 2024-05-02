@@ -472,9 +472,9 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                     }
 
                     // #[cfg(target_arch = "wasm32")]
-                    if event.is_error() {
+                    //if event.is_error() {
                         error!("[swap uuid={uuid}] {event:?}");
-                    }
+                    //}
 
                     status.status(&[&"swap", &("uuid", uuid.as_str())], &event.status_str());
                     running_swap.apply_event(event);
@@ -2028,6 +2028,7 @@ impl TakerSwap {
             fail_at,
         );
 
+        println!("TakerSwap::load_from_saved saved.events.len={}", saved.events.len());
         for saved_event in &saved.events {
             swap.apply_event(saved_event.event.clone());
         }
