@@ -152,7 +152,10 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
         p2p_privkey: None,
     });
 
-    log!("recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.into_vec()));
+    log!("log recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.into_vec()));
+    info!("info recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.into_vec()));
+    println!("println recreate_maker_swap negotiated_event.secret_hash={}", hex::encode(negotiated_event.secret_hash.into_vec()));
+
     maker_swap.events.push(MakerSavedEvent {
         timestamp: started_event_timestamp,
         event: maker_started_event,
@@ -373,7 +376,10 @@ async fn recreate_taker_swap(ctx: MmArc, maker_swap: MakerSavedSwap) -> Recreate
         timestamp: negotiated_timestamp,
         event: taker_negotiated_event,
     });
-    log!("recreate_taker_swap secret_hash={}", hex::encode(secret_hash.clone().into_vec()));
+    log!("log recreate_taker_swap secret_hash={}", hex::encode(secret_hash.clone().into_vec()));
+    info!("info recreate_taker_swap secret_hash={}", hex::encode(secret_hash.clone().into_vec()));
+    println!("println recreate_taker_swap secret_hash={}", hex::encode(secret_hash.clone().into_vec()));
+
 
     // Can be used to extract a secret from [`MakerSwapEvent::TakerPaymentSpent`].
     let maker_coin_ticker = started_event.maker_coin;
