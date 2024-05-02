@@ -472,9 +472,11 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                     }
 
                     // #[cfg(target_arch = "wasm32")]
-                    //if event.is_error() {
+                    if event.is_error() {
                         error!("[swap uuid={uuid}] {event:?}");
-                    //}
+                    } else {
+                        info!("[swap uuid={uuid}] {event:?}");
+                    }
 
                     status.status(&[&"swap", &("uuid", uuid.as_str())], &event.status_str());
                     running_swap.apply_event(event);
@@ -2038,11 +2040,14 @@ impl TakerSwap {
             None => return Ok((swap, None)),
         };
 
+        println!("TakerSwap::load_from_saved last command={:?}", command);
         if taker_coin.is_supported_by_watchers()
             && maker_coin.is_supported_by_watchers()
             && saved.watcher_message_sent()
         {
+            
             command = get_command_based_on_watcher_activity(&ctx, &swap, saved, command).await?;
+            println!("TakerSwap::load_from_saved last watcher command={:?}", command);
         }
         drop_mutability!(command);
 
