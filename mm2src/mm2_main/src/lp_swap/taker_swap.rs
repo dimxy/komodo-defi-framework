@@ -408,7 +408,7 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
         } => match TakerSwap::load_from_db_by_uuid(ctx, maker_coin, taker_coin, &swap_uuid).await {
             Ok((swap, command)) => match command {
                 Some(c) => {
-                    info!("Swap {} kick started (TakerSwap). secret={} secret_hash={}", uuid, swap.mutable.read().unwrap().secret.to_string(), hex::encode(swap.mutable.read().unwrap().secret_hash.to_vec()));
+                    info!("Swap {} kick started. (TakerSwap) secret={} secret_hash={}", uuid, swap.mutable.read().unwrap().secret.to_string(), hex::encode(swap.mutable.read().unwrap().secret_hash.to_vec()));
                     (swap, c)
                 },
                 None => {
@@ -2046,7 +2046,7 @@ impl TakerSwap {
             && saved.watcher_message_sent()
         {
             
-            command = get_command_based_on_watcher_activity(&ctx, &swap, saved, command).await?;
+            // command = get_command_based_on_watcher_activity(&ctx, &swap, saved, command).await?;
             println!("TakerSwap::load_from_saved last watcher command={:?}", command);
         }
         drop_mutability!(command);

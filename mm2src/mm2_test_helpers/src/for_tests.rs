@@ -1159,8 +1159,8 @@ pub struct RaiiDump {
 #[cfg(not(target_arch = "wasm32"))]
 impl Drop for RaiiDump {
     fn drop(&mut self) {
-        const DARK_YELLOW_ANSI_CODE: &str = "\x1b[33m";
-        const YELLOW_ANSI_CODE: &str = "\x1b[93m";
+        const DARK_YELLOW_ANSI_CODE: &str = "\x1b[32m";
+        const YELLOW_ANSI_CODE: &str = "\x1b[34m";
         const RESET_COLOR_ANSI_CODE: &str = "\x1b[0m";
 
         // `term` bypasses the stdout capturing, we should only use it if the capturing was disabled.

@@ -2054,7 +2054,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
         } => match MakerSwap::load_from_db_by_uuid(ctx, maker_coin, taker_coin, &swap_uuid).await {
             Ok((swap, command)) => match command {
                 Some(c) => {
-                    info!("Swap {} kick started (MakerSwap). swap.mutable.data.secret={} secret_hash={}", uuid, swap.mutable.read().unwrap().data.secret.to_string(), hex::encode(swap.mutable.read().unwrap().data.secret_hash.as_ref().unwrap().to_vec()));
+                    info!("Swap {} kick started. (MakerSwap) swap.mutable.data.secret={} secret_hash={}", uuid, swap.mutable.read().unwrap().data.secret.to_string(), hex::encode(swap.mutable.read().unwrap().data.secret_hash.as_ref().unwrap().to_vec()));
                     (swap, c)
                 },
                 None => {
