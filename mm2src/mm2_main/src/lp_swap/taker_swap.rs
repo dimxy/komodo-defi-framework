@@ -786,7 +786,7 @@ impl TakerSwap {
     #[inline]
     fn wait_refund_until(&self) -> u64 { self.r().data.taker_payment_lock + 3700 }
 
-    fn apply_event(&self, event: TakerSwapEvent) {
+    pub(crate) fn apply_event(&self, event: TakerSwapEvent) {
         match event {
             TakerSwapEvent::Started(data) => {
                 self.w().data = data;
@@ -2045,8 +2045,7 @@ impl TakerSwap {
             && maker_coin.is_supported_by_watchers()
             && saved.watcher_message_sent()
         {
-            
-            // command = get_command_based_on_watcher_activity(&ctx, &swap, saved, command).await?;
+            command = get_command_based_on_watcher_activity(&ctx, &swap, saved, command).await?;
             println!("TakerSwap::load_from_saved last watcher command={:?}", command);
         }
         drop_mutability!(command);
