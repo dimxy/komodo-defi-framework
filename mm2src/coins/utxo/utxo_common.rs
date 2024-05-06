@@ -1260,7 +1260,7 @@ async fn gen_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
             - outputs[0].value
             - outputs[1].value
             - tx_fee;
-        // taker also adds maker output as we can't use SIGHASH_SINGLE with two outputs, dex fee and burn, 
+        // taker also adds maker output as we can't use SIGHASH_SINGLE with two outputs, dex fee and burn,
         // and both the maker and taker sign all outputs
         outputs.push(TransactionOutput {
             value: maker_value,
