@@ -80,7 +80,6 @@ use mm2_net::transport::{slurp_url, GuiAuthValidation, GuiAuthValidationGenerato
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, BigUint, MmNumber};
 use mm2_rpc::data::legacy::GasStationPricePolicy;
-//#[cfg(test)] use mocktopus::macros::*;
 use rand::seq::SliceRandom;
 use rlp::{DecoderError, Encodable, RlpStream};
 use rpc::v1::types::Bytes as BytesJson;
