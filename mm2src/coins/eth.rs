@@ -773,8 +773,10 @@ impl EthCoinImpl {
 
     /// The id used to differentiate payments on Etomic swap smart contract
     pub(crate) fn etomic_swap_id(&self, time_lock: u32, secret_hash: &[u8]) -> Vec<u8> {
-        let mut input = vec![];
-        input.extend_from_slice(&time_lock.to_le_bytes());
+        let timelock_bytes = time_lock.to_le_bytes();
+
+        let mut input = Vec::with_capacity(timelock_bytes.len() + secret_hash.len());
+        input.extend_from_slice(&timelock_bytes);
         input.extend_from_slice(secret_hash);
         sha256(&input).to_vec()
     }
@@ -2489,13 +2491,12 @@ async fn sign_and_send_transaction_with_keypair(
     data: Vec<u8>,
     gas: U256,
 ) -> Result<SignedEthTx, TransactionErr> {
-    let my_address = try_tx_s!(coin.derivation_method.single_addr_or_err().await);
     info!(target: "sign-and-send", "get_gas_price…");
     let pay_for_gas_option = try_tx_s!(
         coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
             .await
     );
-    let address_lock = coin.get_address_lock(my_address.to_string()).await;
+    let address_lock = coin.get_address_lock(address.to_string()).await;
     let _nonce_lock = address_lock.lock().await;
     let (signed, web3_instances_with_latest_nonce) = sign_transaction_with_keypair(
         coin,
@@ -4315,8 +4316,11 @@ impl EthCoin {
         address: Address,
     ) -> Result<CoinBalanceMap, MmError<BalanceError>> {
         let coin = || self;
-        let mut requests = Vec::new();
-        for (token_ticker, info) in self.get_erc_tokens_infos() {
+
+        let tokens = self.get_erc_tokens_infos();
+        let mut requests = Vec::with_capacity(tokens.len());
+
+        for (token_ticker, info) in tokens {
             let fut = async move {
                 let balance_as_u256 = coin()
                     .get_token_balance_for_address(address, info.token_address)
