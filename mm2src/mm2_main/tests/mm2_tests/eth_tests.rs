@@ -1,8 +1,8 @@
 use common::block_on;
 use ethcore_transaction::UnverifiedTransactionWrapper;
 use http::StatusCode;
-use mm2_test_helpers::for_tests::{eth_testnet_conf, get_passphrase, MarketMakerIt, Mm2TestConf, ETH_DEV_NODES,
-                                  ETH_DEV_SWAP_CONTRACT};
+use mm2_test_helpers::for_tests::{eth_sepolia_conf, get_passphrase, MarketMakerIt, Mm2TestConf, ETH_SEPOLIA_NODES,
+                                  ETH_SEPOLIA_SWAP_CONTRACT};
 use serde_json::{json, Value as Json};
 use std::str::FromStr;
 
@@ -10,10 +10,10 @@ use std::str::FromStr;
 #[cfg(not(target_arch = "wasm32"))]
 fn test_sign_eth_transaction() {
     let passphrase = get_passphrase(&".env.client", "BOB_PASSPHRASE").unwrap();
-    let coins = json!([eth_testnet_conf()]);
+    let coins = json!([eth_sepolia_conf()]);
     let conf = Mm2TestConf::seednode(&passphrase, &coins);
     let mm = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
-    block_on(enable_eth(&mm, "ETH", ETH_DEV_NODES));
+    block_on(enable_eth(&mm, "ETH", ETH_SEPOLIA_NODES));
     let signed_tx = block_on(call_sign_eth_transaction(
         &mm,
         "ETH",
@@ -30,10 +30,10 @@ fn test_sign_eth_transaction() {
 #[cfg(not(target_arch = "wasm32"))]
 fn test_sign_eth_transaction_eip1559() {
     let passphrase = get_passphrase(&".env.client", "BOB_PASSPHRASE").unwrap();
-    let coins = json!([eth_testnet_conf()]);
+    let coins = json!([eth_sepolia_conf()]);
     let conf = Mm2TestConf::seednode(&passphrase, &coins);
     let mm = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
-    block_on(enable_eth(&mm, "ETH", ETH_DEV_NODES));
+    block_on(enable_eth(&mm, "ETH", ETH_SEPOLIA_NODES));
     let signed_tx = block_on(call_sign_eth_transaction(
         &mm,
         "ETH",
@@ -67,7 +67,7 @@ async fn enable_eth(mm: &MarketMakerIt, platform_coin: &str, nodes: &[&str]) -> 
         "method": "enable",
         "coin": platform_coin,
         "urls": nodes,
-        "swap_contract_address": ETH_DEV_SWAP_CONTRACT,
+        "swap_contract_address": ETH_SEPOLIA_SWAP_CONTRACT,
         "mm2": 1,
         }))
         .await

@@ -1085,6 +1085,7 @@ dependencies = [
  "protobuf",
  "rand 0.7.3",
  "regex",
+ "reqwest",
  "rlp",
  "rmp-serde",
  "rpc",
@@ -2259,7 +2260,7 @@ dependencies = [
 [[package]]
 name = "ethcore-transaction"
 version = "0.1.0"
-source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git#931d2f6093ef4a9584e137cdff29504acd8e5955"
+source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git?rev=mm2-v2.1.1#d5524212230c4773d01b2527e9b3c422a251e0dc"
 dependencies = [
  "ethereum-types",
  "ethkey",
@@ -2286,7 +2287,7 @@ dependencies = [
 [[package]]
 name = "ethkey"
 version = "0.3.0"
-source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git#931d2f6093ef4a9584e137cdff29504acd8e5955"
+source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git?rev=mm2-v2.1.1#d5524212230c4773d01b2527e9b3c422a251e0dc"
 dependencies = [
  "byteorder",
  "edit-distance",
@@ -4213,7 +4214,7 @@ checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
 [[package]]
 name = "mem"
 version = "0.1.0"
-source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git#931d2f6093ef4a9584e137cdff29504acd8e5955"
+source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git?rev=mm2-v2.1.1#d5524212230c4773d01b2527e9b3c422a251e0dc"
 
 [[package]]
 name = "memchr"
@@ -8645,9 +8646,13 @@ dependencies = [
  "byteorder",
  "common",
  "derive_more",
+ "ethcore-transaction",
+ "ethereum-types",
+ "ethkey",
  "futures 0.3.28",
  "hw_common",
  "js-sys",
+ "lazy_static",
  "mm2_err_handle",
  "prost",
  "rand 0.7.3",
@@ -8785,7 +8790,7 @@ dependencies = [
 [[package]]
 name = "unexpected"
 version = "0.1.0"
-source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git#931d2f6093ef4a9584e137cdff29504acd8e5955"
+source = "git+https://github.com/KomodoPlatform/mm2-parity-ethereum.git?rev=mm2-v2.1.1#d5524212230c4773d01b2527e9b3c422a251e0dc"
 
 [[package]]
 name = "unicode-bidi"
