@@ -2506,7 +2506,7 @@ async fn sign_and_send_transaction_with_keypair(
         data,
         gas,
         &pay_for_gas_option,
-        my_address,
+        address,
     )
     .await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
