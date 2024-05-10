@@ -21,6 +21,7 @@ type StaticAddressBytes = &'static [u8];
 
 // new supported eth networks:
 const SEPOLIA_ID: u64 = 11155111;
+const EIP2930_NOT_SUPPORTED_ERROR: &str = "EIP-2930 tx not supported for Trezor";
 
 lazy_static! {
 
@@ -125,7 +126,7 @@ impl<'a> TrezorSession<'a> {
                     .mm_err(|e| TrezorError::Internal(e.to_string()))?
             },
             TransactionWrapper::Eip2930(_) => {
-                return MmError::err(TrezorError::Internal("EIP-2930 tx not supported for Trezor".to_owned()))
+                return MmError::err(TrezorError::Internal(EIP2930_NOT_SUPPORTED_ERROR.to_owned()))
             },
         };
 
@@ -145,7 +146,13 @@ impl<'a> TrezorSession<'a> {
             }
         }
 
-        let sig = extract_eth_signature(&tx_request)?;
+        let sig = match unsigned_tx {
+            TransactionWrapper::Legacy(_) => extract_eth_signature(&tx_request)?,
+            TransactionWrapper::Eip1559(_) => extract_eth_eip1559_signature(&tx_request)?,
+            TransactionWrapper::Eip2930(_) => {
+                return MmError::err(TrezorError::Internal(EIP2930_NOT_SUPPORTED_ERROR.to_owned()))
+            },
+        };
         unsigned_tx
             .clone()
             .with_signature(sig, Some(chain_id))
@@ -299,6 +306,21 @@ fn extract_eth_signature(tx_request: &proto_ethereum::EthereumTxRequest) -> Trez
                 v_refined,
             ))
         },
+        (_, _, _) => Err(MmError::new(TrezorError::Failure(OperationFailure::InvalidSignature))),
+    }
+}
+
+fn extract_eth_eip1559_signature(tx_request: &proto_ethereum::EthereumTxRequest) -> TrezorResult<Signature> {
+    match (
+        tx_request.signature_r.as_ref(),
+        tx_request.signature_s.as_ref(),
+        tx_request.signature_v,
+    ) {
+        (Some(r), Some(s), Some(v)) => Ok(Signature::from_rsv(
+            &H256::from_slice(r.as_slice()),
+            &H256::from_slice(s.as_slice()),
+            v as u8,
+        )),
         (_, _, _) => Err(MmError::new(TrezorError::Failure(OperationFailure::InvalidSignature))),
     }
 }

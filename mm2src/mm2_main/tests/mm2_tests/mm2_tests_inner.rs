@@ -6236,6 +6236,7 @@ fn test_sign_raw_transaction_p2wpkh() {
 
 #[cfg(all(feature = "run-device-tests", not(target_arch = "wasm32")))]
 mod trezor_tests {
+    use coins::EthGasLimitOption;
     use coins::eth::{eth_coin_from_conf_and_request, gas_limit, EthCoin};
     use coins::for_tests::test_withdraw_init_loop;
     use coins::rpc_command::account_balance::{AccountBalanceParams, AccountBalanceRpcOps};
@@ -6626,7 +6627,23 @@ mod trezor_tests {
                 gas_price: 0.1_f32.try_into().unwrap(),
             }),
         ))
-        .expect("withdraw must end successfully");
+        .expect("withdraw eth must end successfully");
+        log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
+
+        // try to create eth withdrawal eip1559 tx
+        let tx_details = block_on(test_withdraw_init_loop(
+            ctx.clone(),
+            ticker_coin,
+            "0xc06eFafa6527fc4b3C8F69Afb173964A3780a104",
+            "0.00001",
+            None, // try withdraw from default account
+            Some(WithdrawFee::EthGasEip1559 {
+                gas_option: EthGasLimitOption::Set(gas_limit::ETH_SEND_COINS),
+                max_fee_per_gas: 12.3_f32.try_into().unwrap(),
+                max_priority_fee_per_gas: 1.2_f32.try_into().unwrap(),
+            }),
+        ))
+        .expect("withdraw eth with eip1559 tx must end successfully");
         log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
 
         // create a non-default address expected as "m/44'/1'/0'/0/1" (must be topped up already)
@@ -6639,7 +6656,7 @@ mod trezor_tests {
         // TODO: ideally should be in loop to handle pin
         let new_addr_resp =
             block_on(eth_coin.get_new_address_rpc_without_conf(new_addr_params)).expect("new account created");
-        println!("create new_addr_resp={:?}", new_addr_resp);
+        log!("create new_addr_resp={:?}", new_addr_resp);
 
         // try to create JST ERC20 token withdrawal tx from a non-default account (should have some tokens on it)
         let tx_details = block_on(test_withdraw_init_loop(
