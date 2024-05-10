@@ -6236,13 +6236,13 @@ fn test_sign_raw_transaction_p2wpkh() {
 
 #[cfg(all(feature = "run-device-tests", not(target_arch = "wasm32")))]
 mod trezor_tests {
-    use coins::EthGasLimitOption;
     use coins::eth::{eth_coin_from_conf_and_request, gas_limit, EthCoin};
     use coins::for_tests::test_withdraw_init_loop;
     use coins::rpc_command::account_balance::{AccountBalanceParams, AccountBalanceRpcOps};
     use coins::rpc_command::get_new_address::{GetNewAddressParams, GetNewAddressRpcOps};
     use coins::rpc_command::init_create_account::for_tests::test_create_new_account_init_loop;
     use coins::utxo::{utxo_standard::UtxoStandardCoin, UtxoActivationParams};
+    use coins::EthGasLimitOption;
     use coins::{lp_coinfind, CoinProtocol, MmCoinEnum, PrivKeyBuildPolicy};
     use coins_activation::platform_for_tests::init_platform_coin_with_tokens_loop;
     use coins_activation::{for_tests::init_standalone_coin_loop, InitStandaloneCoinReq};

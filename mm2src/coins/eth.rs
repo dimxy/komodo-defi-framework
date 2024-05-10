@@ -2498,17 +2498,8 @@ async fn sign_and_send_transaction_with_keypair(
     );
     let address_lock = coin.get_address_lock(address.to_string()).await;
     let _nonce_lock = address_lock.lock().await;
-    let (signed, web3_instances_with_latest_nonce) = sign_transaction_with_keypair(
-        coin,
-        key_pair,
-        value,
-        action,
-        data,
-        gas,
-        &pay_for_gas_option,
-        address,
-    )
-    .await?;
+    let (signed, web3_instances_with_latest_nonce) =
+        sign_transaction_with_keypair(coin, key_pair, value, action, data, gas, &pay_for_gas_option, address).await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
     info!(target: "sign-and-send", "send_raw_transaction…");
 
