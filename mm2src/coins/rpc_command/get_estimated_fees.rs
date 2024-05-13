@@ -169,34 +169,35 @@ impl FeeEstimatorState {
         } else {
             Default::default()
         };
-        match fee_estimator_conf {
-            FeeEstimatorConf::Simple | FeeEstimatorConf::Provider => match coin_type {
-                EthCoinType::Eth => {
-                    let fee_estimator_ctx = AsyncMutex::new(FeeEstimatorContext {
-                        estimated_fees: Default::default(),
-                        abort_handler: AsyncMutex::new(None),
-                    });
-                    let fee_estimator_state = if matches!(fee_estimator_conf, FeeEstimatorConf::Simple) {
-                        FeeEstimatorState::Simple(fee_estimator_ctx)
-                    } else {
-                        FeeEstimatorState::Provider(fee_estimator_ctx)
-                    };
-                    Ok(Arc::new(fee_estimator_state))
-                },
-                EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform, .. } => {
-                    let platform_coin = lp_coinfind_or_err(ctx, platform).await;
-                    match platform_coin {
-                        Ok(MmCoinEnum::EthCoin(eth_coin)) => Ok(eth_coin.platform_fee_estimator_state.clone()),
-                        _ => Ok(Arc::new(FeeEstimatorState::PlatformCoinRequired)),
-                    }
-                },
+        match (fee_estimator_conf, coin_type) {
+            (FeeEstimatorConf::Simple, EthCoinType::Eth) => {
+                let fee_estimator_state = FeeEstimatorState::Simple(FeeEstimatorContext::new());
+                Ok(Arc::new(fee_estimator_state))
             },
-            FeeEstimatorConf::NotConfigured => Ok(Arc::new(FeeEstimatorState::CoinNotSupported)),
+            (FeeEstimatorConf::Provider, EthCoinType::Eth) => {
+                let fee_estimator_state = FeeEstimatorState::Provider(FeeEstimatorContext::new());
+                Ok(Arc::new(fee_estimator_state))
+            },
+            (_, EthCoinType::Erc20 { platform, .. }) | (_, EthCoinType::Nft { platform, .. }) => {
+                let platform_coin = lp_coinfind_or_err(ctx, platform).await;
+                match platform_coin {
+                    Ok(MmCoinEnum::EthCoin(eth_coin)) => Ok(eth_coin.platform_fee_estimator_state.clone()),
+                    _ => Ok(Arc::new(FeeEstimatorState::PlatformCoinRequired)),
+                }
+            },
+            (FeeEstimatorConf::NotConfigured, _) => Ok(Arc::new(FeeEstimatorState::CoinNotSupported)),
         }
     }
 }
 
 impl FeeEstimatorContext {
+    fn new() -> AsyncMutex<FeeEstimatorContext> {
+        AsyncMutex::new(FeeEstimatorContext {
+            estimated_fees: Default::default(),
+            abort_handler: AsyncMutex::new(None),
+        })
+    }
+
     /// Fee estimation update period in secs, basically equals to eth blocktime
     const fn get_refresh_interval() -> f64 { 15.0 }
 
