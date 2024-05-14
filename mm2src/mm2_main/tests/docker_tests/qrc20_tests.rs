@@ -1100,7 +1100,10 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     let secret_hash = &[0; 20];
 
     let dex_fee = DexFee::new_from_taker_coin(&coin, "MYCOIN", &expected_max_taker_vol);
-    let _taker_fee_tx = coin.send_taker_fee(dex_fee, &[]).wait().expect("!send_taker_fee");
+    let _taker_fee_tx = coin
+        .send_taker_fee(dex_fee, &[], timelock)
+        .wait()
+        .expect("!send_taker_fee");
     let taker_payment_args = SendPaymentArgs {
         time_lock_duration: 0,
         time_lock: timelock,
@@ -1736,7 +1739,7 @@ fn test_send_taker_fee_qtum() {
 
     let amount = BigDecimal::from_str("0.01").unwrap();
     let tx = coin
-        .send_taker_fee(DexFee::Standard(amount.clone().into()), &[])
+        .send_taker_fee(DexFee::Standard(amount.clone().into()), &[], 0)
         .wait()
         .expect("!send_taker_fee");
     assert!(matches!(tx, TransactionEnum::UtxoTx(_)), "Expected UtxoTx");
@@ -1762,7 +1765,7 @@ fn test_send_taker_fee_qrc20() {
 
     let amount = BigDecimal::from_str("0.01").unwrap();
     let tx = coin
-        .send_taker_fee(DexFee::Standard(amount.clone().into()), &[])
+        .send_taker_fee(DexFee::Standard(amount.clone().into()), &[], 0)
         .wait()
         .expect("!send_taker_fee");
     assert!(matches!(tx, TransactionEnum::UtxoTx(_)), "Expected UtxoTx");

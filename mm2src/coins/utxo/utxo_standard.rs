@@ -303,7 +303,7 @@ impl UtxoStandardOps for UtxoStandardCoin {
 #[cfg_attr(test, mockable)]
 impl SwapOps for UtxoStandardCoin {
     #[inline]
-    fn send_taker_fee(&self, dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
+    fn send_taker_fee(&self, dex_fee: DexFee, _uuid: &[u8], _expire_at: u64) -> TransactionFut {
         utxo_common::send_taker_fee(self.clone(), dex_fee)
     }
 
