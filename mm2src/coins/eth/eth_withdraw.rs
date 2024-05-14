@@ -5,7 +5,8 @@ use crate::eth::{calc_total_fee, get_eth_gas_details_from_withdraw_fee, tx_build
                  SignedEthTx, TransactionWrapper, UnSignedEthTxBuilder};
 use crate::hd_wallet::{HDCoinWithdrawOps, HDWalletOps, WithdrawFrom, WithdrawSenderAddress};
 use crate::rpc_command::init_withdraw::{WithdrawInProgressStatus, WithdrawTaskHandleShared};
-use crate::{BytesJson, CoinWithDerivationMethod, EthCoin, GetWithdrawSenderAddress, PrivKeyPolicy, TransactionDetails};
+use crate::{BytesJson, CoinWithDerivationMethod, EthCoin, GetWithdrawSenderAddress, PrivKeyPolicy, TransactionData,
+            TransactionDetails};
 use async_trait::async_trait;
 use bip32::DerivationPath;
 use common::custom_futures::timeout::FutureTimerExt;
@@ -315,8 +316,7 @@ where
             my_balance_change: &received_by_me - &spent_by_me,
             spent_by_me,
             received_by_me,
-            tx_hex,
-            tx_hash: tx_hash_str,
+            tx: TransactionData::new_signed(tx_hex, tx_hash_str),
             block_height: 0,
             fee_details: Some(fee_details.into()),
             coin: coin.ticker.clone(),

@@ -1292,8 +1292,7 @@ fn test_withdraw_segwit() {
             "wiftype": 239,
             "segwit": true,
             "bech32_hrp": "tb",
-            "txfee": 0,
-            "estimate_fee_mode": "ECONOMICAL",
+            "txfee": 1000,
             "mm2": 1,
             "required_confirmations": 0,
             "protocol": {
@@ -6415,7 +6414,10 @@ mod trezor_tests {
             None,
         ))
         .expect("withdraw must end successfully");
-        log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
+        log!(
+            "tx_hex={}",
+            serde_json::to_string(&tx_details.tx.tx_hex().unwrap()).unwrap()
+        );
     }
 
     /// Helper to init trezor and wait for completion
@@ -6628,8 +6630,10 @@ mod trezor_tests {
             }),
         ))
         .expect("withdraw eth must end successfully");
-        log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
-
+        log!(
+            "tx_hex={}",
+            serde_json::to_string(&tx_details.tx.tx_hex().unwrap()).unwrap()
+        );
         // try to create eth withdrawal eip1559 tx
         let tx_details = block_on(test_withdraw_init_loop(
             ctx.clone(),
@@ -6644,7 +6648,10 @@ mod trezor_tests {
             }),
         ))
         .expect("withdraw eth with eip1559 tx must end successfully");
-        log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
+        log!(
+            "tx_hex={}",
+            serde_json::to_string(&tx_details.tx.tx_hex().unwrap()).unwrap()
+        );
 
         // create a non-default address expected as "m/44'/1'/0'/0/1" (must be topped up already)
         let new_addr_params: GetNewAddressParams = serde_json::from_value(json!({
@@ -6671,7 +6678,10 @@ mod trezor_tests {
             }),
         ))
         .expect("withdraw must end successfully");
-        log!("tx_hex={}", serde_json::to_string(&tx_details.tx_hex).unwrap());
+        log!(
+            "tx_hex={}",
+            serde_json::to_string(&tx_details.tx.tx_hex().unwrap()).unwrap()
+        );
 
         // if you need to send the tx:
         /* let send_tx_res = block_on(send_raw_transaction(ctx, json!({
