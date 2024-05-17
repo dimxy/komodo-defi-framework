@@ -13,7 +13,6 @@ use url::Url;
 use web3::types::BlockNumber;
 
 pub(crate) use gas_api::BlocknativeGasApiCaller;
-#[allow(unused_imports)]
 pub(crate) use gas_api::InfuraGasApiCaller;
 
 use gas_api::{BlocknativeBlockPricesResponse, InfuraFeePerGas};
@@ -101,6 +100,8 @@ pub struct FeePerGasEstimated {
 }
 
 impl TryFrom<InfuraFeePerGas> for FeePerGasEstimated {
+    type Error = MmError<NumConversError>;
+
     fn try_from(infura_fees: InfuraFeePerGas) -> Result<Self, Self::Error> {
         Ok(Self {
             base_fee: wei_from_gwei_decimal!(&infura_fees.estimated_base_fee)?,
@@ -129,11 +130,11 @@ impl TryFrom<InfuraFeePerGas> for FeePerGasEstimated {
             priority_fee_trend: infura_fees.priority_fee_trend,
         })
     }
-
-    type Error = MmError<NumConversError>;
 }
 
 impl TryFrom<BlocknativeBlockPricesResponse> for FeePerGasEstimated {
+    type Error = MmError<NumConversError>;
+
     fn try_from(block_prices: BlocknativeBlockPricesResponse) -> Result<Self, Self::Error> {
         if block_prices.block_prices.is_empty() {
             return Ok(FeePerGasEstimated::default());
@@ -178,8 +179,6 @@ impl TryFrom<BlocknativeBlockPricesResponse> for FeePerGasEstimated {
             priority_fee_trend: String::default(),
         })
     }
-
-    type Error = MmError<NumConversError>;
 }
 
 /// Simple priority fee per gas estimator based on fee history

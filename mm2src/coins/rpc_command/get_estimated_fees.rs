@@ -62,6 +62,8 @@ pub struct FeePerGasEstimatedExt {
 }
 
 impl TryFrom<FeePerGasEstimated> for FeePerGasEstimatedExt {
+    type Error = MmError<NumConversError>;
+
     fn try_from(fees: FeePerGasEstimated) -> Result<Self, Self::Error> {
         Ok(Self {
             base_fee: wei_to_gwei_decimal!(fees.base_fee)?,
@@ -89,8 +91,6 @@ impl TryFrom<FeePerGasEstimated> for FeePerGasEstimatedExt {
             units: EstimationUnits::Gwei,
         })
     }
-
-    type Error = MmError<NumConversError>;
 }
 
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
@@ -287,11 +287,6 @@ pub struct FeeEstimatorStartStopRequest {
 #[derive(Serialize)]
 pub struct FeeEstimatorStartStopResponse {
     result: String,
-}
-
-impl FeeEstimatorStartStopResponse {
-    #[allow(dead_code)]
-    pub fn get_result(&self) -> &str { &self.result }
 }
 
 pub type FeeEstimatorStartStopResult = Result<FeeEstimatorStartStopResponse, MmError<FeeEstimatorError>>;

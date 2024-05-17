@@ -321,6 +321,8 @@ impl PayForGasOption {
 }
 
 impl TryFrom<PayForGasParams> for PayForGasOption {
+    type Error = MmError<NumConversError>;
+
     fn try_from(param: PayForGasParams) -> Result<Self, Self::Error> {
         match param {
             PayForGasParams::Legacy(legacy) => Ok(Self::Legacy(LegacyGasPrice {
@@ -332,7 +334,6 @@ impl TryFrom<PayForGasParams> for PayForGasOption {
             })),
         }
     }
-    type Error = MmError<NumConversError>;
 }
 
 type GasDetails = (U256, PayForGasOption);

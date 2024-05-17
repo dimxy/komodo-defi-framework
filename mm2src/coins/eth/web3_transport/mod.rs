@@ -128,7 +128,6 @@ pub struct FeeHistoryResult {
     pub oldest_block: U256,
     #[serde(rename = "baseFeePerGas")]
     pub base_fee_per_gas: Vec<U256>,
-
     #[serde(rename = "gasUsedRatio")]
     pub gas_used_ratio: Vec<f64>,
     #[serde(rename = "reward")]
