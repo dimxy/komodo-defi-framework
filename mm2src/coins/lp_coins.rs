@@ -2431,12 +2431,14 @@ pub struct SwapTxFeePolicyRequest {
 pub enum SwapTxFeePolicyError {
     #[from_stringify("CoinFindError")]
     NoSuchCoin(String),
+    #[display(fmt = "eip-1559 policy is not supported for coin {}", _0)]
+    NotSupported(String),
 }
 
 impl HttpStatusCode for SwapTxFeePolicyError {
     fn status_code(&self) -> StatusCode {
         match self {
-            SwapTxFeePolicyError::NoSuchCoin { .. } => StatusCode::BAD_REQUEST,
+            SwapTxFeePolicyError::NoSuchCoin(_) | SwapTxFeePolicyError::NotSupported(_) => StatusCode::BAD_REQUEST,
         }
     }
 }
@@ -3324,12 +3326,6 @@ pub trait MmCoin:
 
     /// For Handling the removal/deactivation of token on platform coin deactivation.
     fn on_token_deactivated(&self, ticker: &str);
-
-    /// Return swap transaction fee policy
-    fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy;
-
-    /// set swap transaction fee policy
-    fn set_swap_transaction_fee_policy(&self, swap_txfee_policy: SwapTxFeePolicy);
 }
 
 /// The coin futures spawner. It's used to spawn futures that can be aborted immediately or after a timeout
@@ -5362,17 +5358,39 @@ fn coins_conf_check(ctx: &MmArc, coins_en: &Json, ticker: &str, req: Option<&Jso
     Ok(())
 }
 
+#[async_trait]
+pub trait Eip1559Ops {
+    /// Return swap transaction fee policy
+    fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy;
+
+    /// set swap transaction fee policy
+    fn set_swap_transaction_fee_policy(&self, swap_txfee_policy: SwapTxFeePolicy);
+}
+
 /// Get eip 1559 transaction fee per gas policy (low, medium, high) set for the coin
 pub async fn get_swap_transaction_fee_policy(ctx: MmArc, req: SwapTxFeePolicyRequest) -> SwapTxFeePolicyResult {
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
-    Ok(coin.get_swap_transaction_fee_policy())
+    match coin {
+        MmCoinEnum::EthCoin(eth_coin) => Ok(eth_coin.get_swap_transaction_fee_policy()),
+        MmCoinEnum::Qrc20Coin(qrc20_coin) => Ok(qrc20_coin.get_swap_transaction_fee_policy()),
+        _ => MmError::err(SwapTxFeePolicyError::NotSupported(req.coin)),
+    }
 }
 
 /// Set eip 1559 transaction fee per gas policy (low, medium, high)
 pub async fn set_swap_transaction_fee_policy(ctx: MmArc, req: SwapTxFeePolicyRequest) -> SwapTxFeePolicyResult {
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
-    coin.set_swap_transaction_fee_policy(req.swap_tx_fee_policy);
-    Ok(coin.get_swap_transaction_fee_policy())
+    match coin {
+        MmCoinEnum::EthCoin(eth_coin) => {
+            eth_coin.set_swap_transaction_fee_policy(req.swap_tx_fee_policy);
+            Ok(eth_coin.get_swap_transaction_fee_policy())
+        },
+        MmCoinEnum::Qrc20Coin(qrc20_coin) => {
+            qrc20_coin.set_swap_transaction_fee_policy(req.swap_tx_fee_policy);
+            Ok(qrc20_coin.get_swap_transaction_fee_policy())
+        },
+        _ => MmError::err(SwapTxFeePolicyError::NotSupported(req.coin)),
+    }
 }
 
 /// Checks addresses that either had empty transaction history last time we checked or has not been checked before.

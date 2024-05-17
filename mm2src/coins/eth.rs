@@ -47,9 +47,9 @@ use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandleShar
 use crate::rpc_command::{account_balance, get_new_address, init_account_balance, init_create_account,
                          init_scan_for_new_addresses};
 use crate::{coin_balance, scan_for_new_addresses_impl, BalanceResult, CoinWithDerivationMethod, DerivationMethod,
-            DexFee, MakerNftSwapOpsV2, ParseCoinAssocTypes, ParseNftAssocTypes, PayForGasParams, PrivKeyPolicy,
-            RefundMakerPaymentArgs, RpcCommonOps, SendNftMakerPaymentArgs, SpendNftMakerPaymentArgs, ToBytes,
-            ValidateNftMakerPaymentArgs, ValidateWatcherSpendInput, WatcherSpendType};
+            DexFee, Eip1559Ops, MakerNftSwapOpsV2, ParseCoinAssocTypes, ParseNftAssocTypes, PayForGasParams,
+            PrivKeyPolicy, RefundMakerPaymentArgs, RpcCommonOps, SendNftMakerPaymentArgs, SpendNftMakerPaymentArgs,
+            ToBytes, ValidateNftMakerPaymentArgs, ValidateWatcherSpendInput, WatcherSpendType};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, keccak256, ripemd160, sha256};
 use common::custom_futures::repeatable::{Ready, Retry, RetryOnError};
@@ -5712,12 +5712,6 @@ impl MmCoin for EthCoin {
             tokens.remove(ticker);
         };
     }
-
-    fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy { self.swap_txfee_policy.lock().unwrap().clone() }
-
-    fn set_swap_transaction_fee_policy(&self, swap_txfee_policy: SwapTxFeePolicy) {
-        *self.swap_txfee_policy.lock().unwrap() = swap_txfee_policy
-    }
 }
 
 pub trait TryToAddress {
@@ -7017,4 +7011,12 @@ pub fn pubkey_from_extended(extended_pubkey: &Secp256k1ExtendedPublicKey) -> Pub
     let mut pubkey_uncompressed = Public::default();
     pubkey_uncompressed.as_mut().copy_from_slice(&serialized[1..]);
     pubkey_uncompressed
+}
+
+impl Eip1559Ops for EthCoin {
+    fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy { self.swap_txfee_policy.lock().unwrap().clone() }
+
+    fn set_swap_transaction_fee_policy(&self, swap_txfee_policy: SwapTxFeePolicy) {
+        *self.swap_txfee_policy.lock().unwrap() = swap_txfee_policy
+    }
 }
