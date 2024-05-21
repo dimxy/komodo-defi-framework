@@ -476,7 +476,7 @@ impl MakerSwap {
         let stage = FeeApproxStage::StartSwap;
         let get_sender_trade_fee_fut = self
             .maker_coin
-            .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE);
+            .get_sender_trade_fee(preimage_value, stage, INCLUDE_REFUND_FEE); // include refund fee to check balance is enough for unhappy swap path
         let maker_payment_trade_fee = match get_sender_trade_fee_fut.await {
             Ok(fee) => fee,
             Err(e) => {
@@ -2237,7 +2237,7 @@ pub async fn maker_swap_trade_preimage(
 
     let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
     let base_coin_fee = base_coin
-        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage, NO_REFUND_FEE)
+        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage, NO_REFUND_FEE) // No refund fee for trade preimage tx. TODO: maybe better to have both payment and refund fee to pass the sum into check_balance_for_maker_swap()
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, base_coin_ticker))?;
     let rel_coin_fee = rel_coin

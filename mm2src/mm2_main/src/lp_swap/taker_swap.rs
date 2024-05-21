@@ -1011,7 +1011,7 @@ impl TakerSwap {
         };
         let get_sender_trade_fee_fut = self
             .taker_coin
-            .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE);
+            .get_sender_trade_fee(preimage_value, stage, INCLUDE_REFUND_FEE); // include refund fee to check balance is enough for unhappy swap path
         let taker_payment_trade_fee = match get_sender_trade_fee_fut.await {
             Ok(fee) => fee,
             Err(e) => {
@@ -2479,7 +2479,7 @@ pub async fn taker_swap_trade_preimage(
 
     let preimage_value = TradePreimageValue::Exact(my_coin_volume.to_decimal());
     let my_coin_trade_fee = my_coin
-        .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE)
+        .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE) // No refund fee for trade preimage tx. TODO: maybe better to have both payment and refund fee to pass the sum into check_balance_for_taker_swap()
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, my_coin_ticker))?;
     let other_coin_trade_fee = other_coin
