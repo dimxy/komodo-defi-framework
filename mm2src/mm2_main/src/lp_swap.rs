@@ -37,7 +37,7 @@
 //!
 
 /******************************************************************************
- * Copyright © 2023 Pampex LTD and TillyHK LTD              *
+ * Copyright © 2023 Pampex LTD and TillyHK LTD                                *
  *                                                                            *
  * See the CONTRIBUTOR-LICENSE-AGREEMENT, COPYING, LICENSE-COPYRIGHT-NOTICE   *
  * and DEVELOPER-CERTIFICATE-OF-ORIGIN files in the LEGAL directory in        *
@@ -1476,7 +1476,7 @@ pub async fn recover_funds_of_swap(ctx: MmArc, req: Json) -> Result<Response<Vec
         "result": {
             "action": recover_data.action,
             "coin": recover_data.coin,
-            "tx_hash": recover_data.transaction.tx_hash(),
+            "tx_hash": recover_data.transaction.tx_hash_as_bytes(),
             "tx_hex": BytesJson::from(recover_data.transaction.tx_hex()),
         }
     })));
@@ -1779,6 +1779,11 @@ pub fn generate_secret() -> Result<[u8; 32], rand::Error> {
     common::os_rng(&mut sec)?;
     Ok(sec)
 }
+
+/// Add refund fee to calculate maximum available balance for a swap (including possible refund)
+pub(crate) const INCLUDE_REFUND_FEE: bool = true;
+/// Do not add refund fee to calculate fee needed only to make a successful swap
+pub(crate) const NO_REFUND_FEE: bool = false;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod lp_swap_tests {

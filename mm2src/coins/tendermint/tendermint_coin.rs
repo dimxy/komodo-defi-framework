@@ -469,7 +469,7 @@ pub struct CosmosTransaction {
 impl crate::Transaction for CosmosTransaction {
     fn tx_hex(&self) -> Vec<u8> { self.data.encode_to_vec() }
 
-    fn tx_hash(&self) -> BytesJson {
+    fn tx_hash_as_bytes(&self) -> BytesJson {
         let bytes = self.data.encode_to_vec();
         let hash = sha256(&bytes);
         hash.to_vec().into()
@@ -902,19 +902,17 @@ impl TendermintCoin {
         memo: String,
         withdraw_fee: Option<WithdrawFee>,
     ) -> MmResult<Fee, TendermintCoinRpcError> {
-        let Ok(activated_priv_key) = self
-            .activation_policy
-            .activated_key_or_err() else {
-                let (gas_price, gas_limit) = self.gas_info_for_withdraw(&withdraw_fee, GAS_LIMIT_DEFAULT);
-                let amount = ((GAS_WANTED_BASE_VALUE * 1.5) * gas_price).ceil();
+        let Ok(activated_priv_key) = self.activation_policy.activated_key_or_err() else {
+            let (gas_price, gas_limit) = self.gas_info_for_withdraw(&withdraw_fee, GAS_LIMIT_DEFAULT);
+            let amount = ((GAS_WANTED_BASE_VALUE * 1.5) * gas_price).ceil();
 
-                let fee_amount = Coin {
-                    denom: self.platform_denom().clone(),
-                    amount: (amount as u64).into(),
-                };
-
-                return Ok(Fee::from_amount_and_gas(fee_amount, gas_limit));
+            let fee_amount = Coin {
+                denom: self.platform_denom().clone(),
+                amount: (amount as u64).into(),
             };
+
+            return Ok(Fee::from_amount_and_gas(fee_amount, gas_limit));
+        };
 
         let (response, raw_response) = loop {
             let account_info = self.account_info(&self.account_id).await?;
@@ -986,12 +984,10 @@ impl TendermintCoin {
         withdraw_fee: Option<WithdrawFee>,
     ) -> MmResult<u64, TendermintCoinRpcError> {
         let account_id = &self.account_id;
-        let Ok(priv_key) = self
-            .activation_policy
-            .activated_key_or_err() else {
-                let (gas_price, _) = self.gas_info_for_withdraw(&withdraw_fee, 0);
-                return Ok(((GAS_WANTED_BASE_VALUE * 1.5) * gas_price).ceil() as u64);
-            };
+        let Ok(priv_key) = self.activation_policy.activated_key_or_err() else {
+            let (gas_price, _) = self.gas_info_for_withdraw(&withdraw_fee, 0);
+            return Ok(((GAS_WANTED_BASE_VALUE * 1.5) * gas_price).ceil() as u64);
+        };
 
         let (response, raw_response) = loop {
             let account_info = self.account_info(account_id).await?;
@@ -2222,6 +2218,7 @@ impl MmCoin for TendermintCoin {
         &self,
         value: TradePreimageValue,
         _stage: FeeApproxStage,
+        _include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         let amount = match value {
             TradePreimageValue::Exact(decimal) | TradePreimageValue::UpperBound(decimal) => decimal,
@@ -3423,7 +3420,7 @@ pub mod tendermint_coin_tests {
 
         // https://nyancat.iobscan.io/#/tx?txHash=565C820C1F95556ADC251F16244AAD4E4274772F41BC13F958C9C2F89A14D137
         let expected_spend_hash = "565C820C1F95556ADC251F16244AAD4E4274772F41BC13F958C9C2F89A14D137";
-        let hash = spend_tx.tx_hash();
+        let hash = spend_tx.tx_hash_as_bytes();
         assert_eq!(hex::encode_upper(hash.0), expected_spend_hash);
     }
 
@@ -3771,7 +3768,7 @@ pub mod tendermint_coin_tests {
 
         // https://nyancat.iobscan.io/#/tx?txHash=565C820C1F95556ADC251F16244AAD4E4274772F41BC13F958C9C2F89A14D137
         let expected_spend_hash = "565C820C1F95556ADC251F16244AAD4E4274772F41BC13F958C9C2F89A14D137";
-        let hash = spend_tx.tx_hash();
+        let hash = spend_tx.tx_hash_as_bytes();
         assert_eq!(hex::encode_upper(hash.0), expected_spend_hash);
     }
 

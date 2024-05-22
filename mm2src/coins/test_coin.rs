@@ -366,6 +366,7 @@ impl MmCoin for TestCoin {
         &self,
         _value: TradePreimageValue,
         _stage: FeeApproxStage,
+        _include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }
@@ -423,7 +424,7 @@ pub struct TestTx {}
 impl Transaction for TestTx {
     fn tx_hex(&self) -> Vec<u8> { todo!() }
 
-    fn tx_hash(&self) -> BytesJson { todo!() }
+    fn tx_hash_as_bytes(&self) -> BytesJson { todo!() }
 }
 
 pub struct TestPreimage {}
