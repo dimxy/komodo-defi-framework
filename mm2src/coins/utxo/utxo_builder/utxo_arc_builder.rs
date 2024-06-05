@@ -1,9 +1,9 @@
 use crate::utxo::rpc_clients::{ElectrumClient, ElectrumClientImpl, UtxoJsonRpcClientInfo, UtxoRpcClientEnum};
+use crate::utxo::utxo_balance_events::UtxoBalanceStreamingEvent;
 use crate::utxo::utxo_block_header_storage::BlockHeaderStorage;
 use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
                                 UtxoFieldsWithIguanaSecretBuilder};
-use crate::utxo::utxo_standard::UtxoStandardCoin;
 use crate::utxo::{generate_and_send_tx, FeePolicy, GetUtxoListOps, UtxoArc, UtxoCommonOps, UtxoSyncStatusLoopHandle,
                   UtxoWeak};
 use crate::{DerivationMethod, PrivKeyBuildPolicy, UtxoActivationParams};
@@ -126,8 +126,9 @@ where
                 return MmError::err(UtxoCoinBuildError::UnsupportedModeForBalanceEvents { mode });
             }
 
-            if let EventInitStatus::Failed(err) =
-                EventBehaviour::spawn_if_active(UtxoStandardCoin::from(utxo_arc), stream_config).await
+            if let EventInitStatus::Failed(err) = UtxoBalanceStreamingEvent::new(utxo_arc)
+                .spawn_if_active(stream_config)
+                .await
             {
                 return MmError::err(UtxoCoinBuildError::FailedSpawningBalanceEvents(err));
             }
