@@ -49,6 +49,7 @@ pub(crate) fn eth_coin_from_keypair(
         EthCoinType::Nft { ref platform } => platform.to_string(),
     };
     let my_address = key_pair.address();
+    let coin_conf = coin_conf(&ctx, &ticker);
 
     let eth_coin = EthCoin(Arc::new(EthCoinImpl {
         coin_type,
@@ -73,6 +74,11 @@ pub(crate) fn eth_coin_from_keypair(
         erc20_tokens_infos: Default::default(),
         nfts_infos: Arc::new(Default::default()),
         platform_fee_estimator_state: Arc::new(FeeEstimatorState::CoinNotSupported),
+        gas_limit: if coin_conf["gas_limit"].is_null() {
+            Default::default()
+        } else {
+            json::from_value(coin_conf["gas_limit"].clone()).expect("expected valid gas_limit config")
+        },
         abortable_system: AbortableQueue::default(),
     }));
     (ctx, eth_coin)
