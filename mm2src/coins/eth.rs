@@ -233,14 +233,14 @@ pub mod gas_limit {
     /// real values are approx 48,6K by etherscan
     pub const ETH_PAYMENT: u64 = 65_000;
     /// Gas limit for swap payment tx with ERC20 tokens
-    /// real values are 98,9K
-    pub const ERC20_PAYMENT: u64 = 120_000;
+    /// real values are 98,9K for ERC20 and 135K for ERC-1967 proxied ERC20 contracts (use 'gas_limit' override in coins to tune)
+    pub const ERC20_PAYMENT: u64 = 150_000;
     /// Gas limit for swap receiver spend tx with coins
     /// real values are 40,7K
     pub const ETH_RECEIVER_SPEND: u64 = 65_000;
     /// Gas limit for swap receiver spend tx with ERC20 tokens
     /// real values are 72,8K
-    pub const ERC20_RECEIVER_SPEND: u64 = 120_000;
+    pub const ERC20_RECEIVER_SPEND: u64 = 150_000;
     /// Gas limit for swap refund tx with coins
     pub const ETH_SENDER_REFUND: u64 = 100_000;
     /// Gas limit for swap refund tx with with ERC20 tokens
