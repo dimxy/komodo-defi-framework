@@ -254,7 +254,7 @@ pub mod gas_limit {
 pub struct EthGasLimitOverride {
     /// Gas limit for sending coins override value
     pub eth_send_coins: Option<u64>,
-    /// Gas limit for swap payment tx with ERC20 tokens override value
+    /// Gas limit for sending ERC20 tokens override value
     pub eth_send_erc20: Option<u64>,
     /// Gas limit for swap payment tx with coins override value
     pub eth_payment: Option<u64>,

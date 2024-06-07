@@ -430,9 +430,8 @@ impl EthCoin {
             gas_limit: if conf["gas_limit"].is_null() {
                 Default::default()
             } else {
-                json::from_value(conf["gas_limit"].clone()).map_to_mm(|e| {
-                    EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e))
-                })?
+                json::from_value(conf["gas_limit"].clone())
+                    .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?
             },
             abortable_system,
         };
@@ -497,9 +496,8 @@ impl EthCoin {
             gas_limit: if conf["gas_limit"].is_null() {
                 Default::default()
             } else {
-                json::from_value(conf["gas_limit"].clone()).map_to_mm(|e| {
-                    EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e))
-                })?
+                json::from_value(conf["gas_limit"].clone())
+                    .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?
             },
             abortable_system,
         };
@@ -640,9 +638,8 @@ pub async fn eth_coin_from_conf_and_request_v2(
         gas_limit: if conf["gas_limit"].is_null() {
             Default::default()
         } else {
-            json::from_value(conf["gas_limit"].clone()).map_to_mm(|e| {
-                EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e))
-            })?
+            json::from_value(conf["gas_limit"].clone())
+                .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?
         },
         abortable_system,
     };
