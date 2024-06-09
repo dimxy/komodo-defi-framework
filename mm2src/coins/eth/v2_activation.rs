@@ -427,12 +427,8 @@ impl EthCoin {
             erc20_tokens_infos: Default::default(),
             nfts_infos: Default::default(),
             platform_fee_estimator_state,
-            gas_limit: if conf["gas_limit"].is_null() {
-                Default::default()
-            } else {
-                json::from_value(conf["gas_limit"].clone())
-                    .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?
-            },
+            gas_limit: extract_gas_limit_from_conf(&conf)
+                .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?,
             abortable_system,
         };
 
@@ -493,12 +489,8 @@ impl EthCoin {
             erc20_tokens_infos: Default::default(),
             nfts_infos: Arc::new(AsyncMutex::new(nft_infos)),
             platform_fee_estimator_state,
-            gas_limit: if conf["gas_limit"].is_null() {
-                Default::default()
-            } else {
-                json::from_value(conf["gas_limit"].clone())
-                    .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?
-            },
+            gas_limit: extract_gas_limit_from_conf(&conf)
+                .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?,
             abortable_system,
         };
         Ok(EthCoin(Arc::new(global_nft)))
@@ -635,12 +627,8 @@ pub async fn eth_coin_from_conf_and_request_v2(
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
         platform_fee_estimator_state,
-        gas_limit: if conf["gas_limit"].is_null() {
-            Default::default()
-        } else {
-            json::from_value(conf["gas_limit"].clone())
-                .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?
-        },
+        gas_limit: extract_gas_limit_from_conf(conf)
+            .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?,
         abortable_system,
     };
 

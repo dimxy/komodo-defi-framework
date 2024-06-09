@@ -6464,11 +6464,7 @@ pub async fn eth_coin_from_conf_and_request(
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
         platform_fee_estimator_state,
-        gas_limit: if conf["gas_limit"].is_null() {
-            Default::default()
-        } else {
-            json::from_value(conf["gas_limit"].clone()).map_err(|e| e.to_string())?
-        },
+        gas_limit: extract_gas_limit_from_conf(conf)?,
         abortable_system,
     };
 
@@ -7099,6 +7095,14 @@ pub fn pubkey_from_extended(extended_pubkey: &Secp256k1ExtendedPublicKey) -> Pub
     let mut pubkey_uncompressed = Public::default();
     pubkey_uncompressed.as_mut().copy_from_slice(&serialized[1..]);
     pubkey_uncompressed
+}
+
+fn extract_gas_limit_from_conf(coin_conf: &Json) -> Result<EthGasLimitOverride, String> {
+    if coin_conf["gas_limit"].is_null() {
+        Ok(Default::default())
+    } else {
+        json::from_value(coin_conf["gas_limit"].clone()).map_err(|e| e.to_string())
+    }
 }
 
 impl Eip1559Ops for EthCoin {
