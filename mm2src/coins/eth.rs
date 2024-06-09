@@ -6440,6 +6440,7 @@ pub async fn eth_coin_from_conf_and_request(
 
     let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(ctx, conf, &coin_type).await?;
     let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
+    let gas_limit = extract_gas_limit_from_conf(conf)?;
 
     let coin = EthCoinImpl {
         priv_key_policy: key_pair,
@@ -6464,7 +6465,7 @@ pub async fn eth_coin_from_conf_and_request(
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
         platform_fee_estimator_state,
-        gas_limit: extract_gas_limit_from_conf(conf)?,
+        gas_limit,
         abortable_system,
     };
 
