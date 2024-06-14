@@ -112,6 +112,8 @@ impl MarketCoinOps for TestCoin {
 
     fn is_evm(&self) -> bool { false }
 
+    fn should_burn_dex_fee(&self) -> bool { false }
+
     fn is_trezor(&self) -> bool { unimplemented!() }
 }
 

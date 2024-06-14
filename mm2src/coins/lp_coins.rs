@@ -1950,6 +1950,9 @@ pub trait MarketCoinOps {
     /// Is eth-like coin
     fn is_evm(&self) -> bool { false }
 
+    /// Should burn part of dex fee coin
+    fn should_burn_dex_fee(&self) -> bool { false }
+
     fn is_trezor(&self) -> bool;
 }
 
@@ -3642,26 +3645,26 @@ impl DexFee {
             return DexFee::Standard(min_tx_amount);
         }
 
-        // use a special dex fee option for kmd
-        if taker_coin.is_kmd() {
-            let (fee_amount, burn_amount) = Self::calc_burn_amount_for_op_return(&dex_fee, &min_tx_amount);
-            return DexFee::WithBurn {
-                fee_amount,
-                burn_amount,
-                burn_destination: DexFeeBurnDestination::KmdOpReturn,
-            };
-        }
-
-        // dex fee burning currently is not supported for evm coins
-        if !taker_coin.is_evm() {
-            let (fee_amount, burn_amount) = Self::calc_burn_amount_for_burn_account(&dex_fee, &min_tx_amount);
-            // burn_amount can be set to zero if it is dust
-            if burn_amount > MmNumber::from(0) {
+        if taker_coin.should_burn_dex_fee() {
+            if taker_coin.is_kmd() {
+                // use a special dex fee option for kmd
+                let (fee_amount, burn_amount) = Self::calc_burn_amount_for_op_return(&dex_fee, &min_tx_amount);
                 return DexFee::WithBurn {
                     fee_amount,
                     burn_amount,
-                    burn_destination: DexFeeBurnDestination::BurnAccount,
+                    burn_destination: DexFeeBurnDestination::KmdOpReturn,
                 };
+            } else {
+                // burn dex fee to the burn account
+                let (fee_amount, burn_amount) = Self::calc_burn_amount_for_burn_account(&dex_fee, &min_tx_amount);
+                // burn_amount can be set to zero if it is dust
+                if burn_amount > MmNumber::from(0) {
+                    return DexFee::WithBurn {
+                        fee_amount,
+                        burn_amount,
+                        burn_destination: DexFeeBurnDestination::BurnAccount,
+                    };
+                }
             }
         }
         DexFee::Standard(dex_fee)
