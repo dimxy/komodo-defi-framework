@@ -1,5 +1,5 @@
 use bitcrypto::dhash160;
-use common::{block_on, now_sec};
+use common::{block_on, now_sec, one_thousand_u32};
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::zombie_conf;
 use std::path::PathBuf;
@@ -14,20 +14,20 @@ use crate::DexFee;
 use crate::{CoinProtocol, SwapTxTypeWithSecretHash};
 use mm2_number::MmNumber;
 
-#[test]
-fn zombie_coin_send_and_refund_maker_payment() {
+#[tokio::test]
+async fn zombie_coin_send_and_refund_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = default_zcoin_activation_params();
     let pk_data = [1; 32];
-    let db_dir = PathBuf::from("./for_tests");
+    let db_dir = PathBuf::from("./for_tests"); // Note: db_dir is not used and in-memory db is created (see fn BlockDbImpl::new)
     let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
     let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
         CoinProtocol::ZHTLC(protocol_info) => protocol_info,
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -36,11 +36,17 @@ fn zombie_coin_send_and_refund_maker_payment() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
     let time_lock = now_sec() - 3600;
-    let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();
+    let maker_uniq_data = [3; 32];
+
+    let taker_uniq_data = [5; 32];
+    let taker_key_pair = coin.derive_htlc_key_pair(taker_uniq_data.as_slice());
+    let taker_pub = taker_key_pair.public();
+
     let secret_hash = [0; 20];
 
     let args = SendPaymentArgs {
@@ -50,7 +56,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
         secret_hash: &secret_hash,
         amount: "0.01".parse().unwrap(),
         swap_contract_address: &None,
-        swap_unique_data: &[],
+        swap_unique_data: maker_uniq_data.as_slice(),
         payment_instructions: &None,
         watcher_reward: None,
         wait_for_confirmation_until: 0,
@@ -66,15 +72,15 @@ fn zombie_coin_send_and_refund_maker_payment() {
             maker_secret_hash: &secret_hash,
         },
         swap_contract_address: &None,
-        swap_unique_data: pk_data.as_slice(),
+        swap_unique_data: maker_uniq_data.as_slice(),
         watcher_reward: false,
     };
-    let refund_tx = block_on(coin.send_maker_refunds_payment(refund_args)).unwrap();
+    let refund_tx = coin.send_maker_refunds_payment(refund_args).await.unwrap();
     log!("refund tx {}", hex::encode(refund_tx.tx_hash_as_bytes().0));
 }
 
-#[test]
-fn zombie_coin_send_and_spend_maker_payment() {
+#[tokio::test]
+async fn zombie_coin_send_and_spend_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = default_zcoin_activation_params();
@@ -86,7 +92,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -95,11 +101,20 @@ fn zombie_coin_send_and_spend_maker_payment() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
     let lock_time = now_sec() - 1000;
-    let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();
+
+    let maker_uniq_data = [3; 32];
+    let maker_key_pair = coin.derive_htlc_key_pair(maker_uniq_data.as_slice());
+    let maker_pub = maker_key_pair.public();
+
+    let taker_uniq_data = [5; 32];
+    let taker_key_pair = coin.derive_htlc_key_pair(taker_uniq_data.as_slice());
+    let taker_pub = taker_key_pair.public();
+
     let secret = [0; 32];
     let secret_hash = dhash160(&secret);
 
@@ -110,7 +125,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
         secret_hash: secret_hash.as_slice(),
         amount: "0.01".parse().unwrap(),
         swap_contract_address: &None,
-        swap_unique_data: &[],
+        swap_unique_data: maker_uniq_data.as_slice(),
         payment_instructions: &None,
         watcher_reward: None,
         wait_for_confirmation_until: 0,
@@ -119,24 +134,22 @@ fn zombie_coin_send_and_spend_maker_payment() {
     let tx = coin.send_maker_payment(maker_payment_args).wait().unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
 
-    let maker_pub = taker_pub;
-
     let spends_payment_args = SpendPaymentArgs {
         other_payment_tx: &tx.tx_hex(),
         time_lock: lock_time,
         other_pubkey: maker_pub,
         secret: &secret,
-        secret_hash: &[],
+        secret_hash: secret_hash.as_slice(),
         swap_contract_address: &None,
-        swap_unique_data: pk_data.as_slice(),
+        swap_unique_data: taker_uniq_data.as_slice(),
         watcher_reward: false,
     };
-    let spend_tx = block_on(coin.send_taker_spends_maker_payment(spends_payment_args)).unwrap();
+    let spend_tx = coin.send_taker_spends_maker_payment(spends_payment_args).await.unwrap();
     log!("spend tx {}", hex::encode(spend_tx.tx_hash_as_bytes().0));
 }
 
-#[test]
-fn zombie_coin_send_dex_fee() {
+#[tokio::test]
+async fn zombie_coin_send_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = default_zcoin_activation_params();
@@ -148,7 +161,7 @@ fn zombie_coin_send_dex_fee() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -157,10 +170,11 @@ fn zombie_coin_send_dex_fee() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
-    let tx = block_on(z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16])).unwrap();
+    let tx = z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16]).await.unwrap();
     log!("dex fee tx {}", tx.txid());
 }
 
@@ -194,8 +208,8 @@ fn prepare_zombie_sapling_cache() {
     }
 }
 
-#[test]
-fn zombie_coin_validate_dex_fee() {
+#[tokio::test]
+async fn zombie_coin_validate_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = default_zcoin_activation_params();
@@ -207,7 +221,7 @@ fn zombie_coin_validate_dex_fee() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -216,7 +230,8 @@ fn zombie_coin_validate_dex_fee() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
     // https://zombie.explorer.lordofthechains.com/tx/ec620194c33eba004904f34c93f4f005a7544988771af1c5a527f65c08e4a4aa
@@ -284,7 +299,7 @@ fn default_zcoin_activation_params() -> ZcoinActivationParams {
         required_confirmations: None,
         requires_notarization: None,
         zcash_params_path: None,
-        scan_blocks_per_iteration: 0,
+        scan_blocks_per_iteration: one_thousand_u32(),
         scan_interval_ms: 0,
         account: 0,
     }
