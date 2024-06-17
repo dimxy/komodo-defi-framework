@@ -1010,11 +1010,10 @@ impl<'a> ZCoinBuilder<'a> {
     }
 
     async fn init_blocks_db(&self) -> Result<BlockDbImpl, MmError<ZcoinClientInitError>> {
-        let cache_db_path = self.db_dir_path.join(format!("{}_cache.db", self.ticker));
         let ctx = self.ctx.clone();
         let ticker = self.ticker.to_string();
 
-        BlockDbImpl::new(&ctx, ticker, cache_db_path)
+        BlockDbImpl::new(&ctx, ticker, PathBuf::new())
             .map_err(|err| MmError::new(ZcoinClientInitError::ZcoinStorageError(err.to_string())))
             .await
     }
@@ -1066,6 +1065,8 @@ impl<'a> ZCoinBuilder<'a> {
 }
 
 /// Initialize `ZCoin` with a forced `z_spending_key`.
+/// db_dir_path is where ZOMBIE_wallet.db located
+/// Note that ZOMBIE_cache.db (db where blocks are downloaded to create ZOMBIE_wallet.db) is created in-memory (see BlockDbImpl::new fn)
 #[cfg(all(test, feature = "zhtlc-native-tests"))]
 #[allow(clippy::too_many_arguments)]
 async fn z_coin_from_conf_and_params_with_z_key(
@@ -1088,6 +1089,8 @@ async fn z_coin_from_conf_and_params_with_z_key(
         Some(z_spending_key),
         protocol_info,
     );
+
+    println!("ZOMBIE_wallet.db will be synch'ed with the chain, this may take a while for the first time.");
     builder.build().await
 }
 
