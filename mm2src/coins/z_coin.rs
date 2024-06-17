@@ -1382,6 +1382,8 @@ impl SwapOps for ZCoin {
         Ok(tx.into())
     }
 
+    /// Currently validates both Standard and WithBurn options for DexFee
+    /// TODO: when all mm2 nodes upgrade to support the burn account then disable validation of the Standard option
     fn validate_fee(&self, validate_fee_args: ValidateFeeArgs<'_>) -> ValidatePaymentFut<()> {
         let z_tx = match validate_fee_args.fee_tx {
             TransactionEnum::ZTransaction(t) => t.clone(),

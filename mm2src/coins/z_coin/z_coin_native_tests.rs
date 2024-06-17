@@ -175,6 +175,30 @@ async fn zombie_coin_send_dex_fee() {
     log!("dex fee tx {}", tx.txid());
 }
 
+#[tokio::test]
+async fn zombie_coin_send_standard_dex_fee() {
+    let ctx = MmCtxBuilder::default().into_mm_arc();
+    let mut conf = zombie_conf();
+    let params = default_zcoin_activation_params();
+    let priv_key = PrivKeyBuildPolicy::IguanaPrivKey([1; 32].into());
+    let db_dir = PathBuf::from("./for_tests");
+    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
+    let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
+        CoinProtocol::ZHTLC(protocol_info) => protocol_info,
+        other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
+    };
+
+    let coin =
+        z_coin_from_conf_and_params_with_z_key(&ctx, "ZOMBIE", &conf, &params, priv_key, db_dir, z_key, protocol_info)
+            .await
+            .unwrap();
+
+    let dex_fee = DexFee::Standard("0.01".into());
+    let tx = z_send_dex_fee(&coin, dex_fee, &[1; 16]).await.unwrap();
+    log!("dex fee tx {}", tx.txid());
+}
+
+/// Use to create ZOMBIE_wallet.db
 #[test]
 fn prepare_zombie_sapling_cache() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
@@ -284,6 +308,40 @@ async fn zombie_coin_validate_dex_fee() {
         fee_tx: &tx,
         expected_sender: &[],
         dex_fee: &expected_fee,
+        min_block_number: 12000,
+        uuid: &[1; 16],
+    };
+    coin.validate_fee(validate_fee_args).wait().unwrap();
+
+    // Test old standard dex fee with no burn output
+    // TODO: disable when the upgrade transition period ends
+
+    // https://zombie.explorer.lordofthechains.com/tx/9890bdf3216de5703db1191e742507e6f3d99153c6f4649ac1f5d1a6c9dc4ef2
+    let tx_2_hex = "0400008085202f890000000000004bf30600e80300000000000001ce2e86d5be524b09c499ee24300e602f5a23ad2ad2caf1ea5006e11635f7c289529cc9e4a07f6c1da4effa9c7732532f9f4f5a2cfa4a56b95b895fb0d5e4605b52b47a48061d9273be3768a128565c4a322b425b91eac5cda7c472fa569063b32aeda9101b4977c3f4c88a86b10a56e7e26836dd27d5e284e633a8bf9275cb5fb4e591342ae176d6ee799f90ebbaf8b350876dbdcd35fd8b9c3300b344a23a17356fa530277e246ea9bd971c0c72b4f2a982af8e69ecdd0ba3aef60cf3680f87ec620f59ad1fbde772ec31868bb9f7ddbe9176cc37bd6bc81a70b4a627ec298a0bfe947d69cd6038baf86217b03b7036e7f7b72da7105748ff7ed1590b82d3fa91ee08532a9e97af2aa7a975e1e1818f8df40f6016d66f3e3b1b7b8292f028d6f597327d6beff979abd4292776824509b565e1b07a4cea07af33c6867e51223e6559d3e6501049905388b732bad6cc038c58145f83a92e57f452d3c6da06c219320246cc6bbb94f97312bb6a7e235c44b587ab81c0b0e13818e9323c31a2f3010247d5d2f4a788ea8a7b4d86bd27e5282ca5d37fe4622918b5315c7dd60349093bbc3f4e855d0f37de1b5ac694a94e09e87c30dfe9480b2564fc2ff059ca33165ea9def502d9099bad081fe2b95595f9566ac22f7ad913ab5a0705ef4d5ede9b245159592427e9feaf4752c93d5264091371ce41b39c7180675c004c148fba84fa48e383edac296c685c1aba3d21fbeade39cf2e3efd9713fbc93985d0e791dd6703ed40d4b936697579da3a0418b74343769fe3f1c1f1babed4d710cb8a2e6705711cc5dcf856c4b42ae2cc6c59ebeb188ea18a62f32565bef077a0a6d7e0246f4fb51c358f41780a75ed07592428ade8b74bbbdb45cfd130fae9c7f35ffa4ecaa30bc3e399c60b0726221ddff730003e5591093df401bba3998022a9a686bdaf4dc2b49879b11d49d507c2003aa9dc4bc968b0f9f0bb5f5c95da2687e24eac51ce779109c1699a804193fac4c167acc274662f071b9c0727e5f643b2da18f088e461d7b6cedfc36722f8c7f8c0c754283cdef8fb9bd2a9df1e527835f4182f32f67f044a44a386db0aba4d94863606c24fc39ffbc5649ce03d4ba2050943549980a7a713a6b4fccba397b86701a07c35193643871c5e582230f0e702be1781d5cd37e2b6d6c7f1ff522232c5e60f5060f71c5416892677ec42252c2cad4e3c62d98923f3aee515a91390f80ba1ea1a2229fce8ca74b63f24132894ee4f28df962c80093e7f0668db63c392d9cb1b5d048e10e1b9b15787a177f5c5ee5e48d84eae3376842dfa05b5480645bae0bbd3255e76c2fab28741f31b745867f74502e32f6dae83f464d4fff583c10e4171e30d32f4debdbfee1c75bb540752bd97257ace24ef4760e8a0631426eb829d29cab26f99915d5487d555df334cac23931ef04bbec58c9e10847adc3ca6de8141210c2f4a61ba3d9f3ad257350763af4eba728583a6112bd7f0d16eb79527955bca3265eaa8678441253ff015be98dd72623c16cc64cc6f4c2fac2b30282a947806bcabe7dae41b246e01374fb6bf8661df7f6d1ec98f231a32c58558f95c7a08f0c0cca0ed1f89a495fa39a91915ab63ee71f3c46da192260eef9337ab0c82aa1a79c464a98a7f6640ce38c3524025be76b45bbe2dd9a3321c59bcca79b3fc894a608fd6bec7c0495c4d36bcb32f68e6f72f8a578fe7256e7fc398e59f68557577b122cfdc090ec1135b97692d6d75cb73bf7be95f790321cdaf1c47612749fc452029804020e19ee04e66df2b21d69b265f6e863ec083f8c472f654b39497fca9c2b61046adfe875a5e90cda3a4a2c07ecb73ab5d25bb942cb6f2e3c38dc1f924d862afa6bce528ee785dc25207ffc62ac3436369ec0e7723eb258427b8def8af709b017931b10f3ea385a9c6d46fd953f71b5d37a318518100c06f01ed4a7553ef96981f0b3b6cf746c97be84a9c4a6a3b7db3818ce6e12c413809b00a8e5af36506a70fa95979fafc19aeea85f9bb2d967fec73e3970d8242fb17fc2cc9b0bc0aaf01d62c552fdb73023d640f8d210050d8628537c2413893238efa398d5c52900e2040864bf29c98b24e4b8be049b134be92b7390b0a7960851b142cb1c3498efef58c1229fdb15b645c264a05c91ebe0f76b4b649f47a6e666a07ee32acd46d612e5f9ed913d2217154cb4fcf2d93624ae2fe21e65674b2b660e6b232bdb30424e6e14be89dad54b37139aee6aba23829cefd09a4555fd6ef102c44698d940ac8e7a193bb2a6591293fcb78224dba61c825dfea42fc849f19bbed4b79a7eefae13d92c3aa5a9eaa48788662da56f707b36cd82c639a8f0f208e94c8f733cbacca2e3e708198b721c03c3eb53ef0a77a6cb1378a8fc65b29bb8fbc07433ba85bbcbc290a86fd47434512f0f5d79db744ccb8762f3baaa8d3660ee9066e88df2973e010389d0c770b6367c31d404d03392df66dae4def35274ff479670bfab8571c11c3df7c07a19094f83a4e798b8cbf386a5fed0f8e2b9ed55953526ef4d4c76d9fd28e241043642101434a95e091a7f8b3cbafafbedceef37b5396dbe84bd01e0b569ee9d615d200e1d52ac4beac89395f797051dd24d449f9aa7f7f1005b2ffceb6a8698e634320772fa4f855de0252294dc8518a937b91b1bbebc230c6d93569441e2ce430f99ae099bdb992cf58980be033c8edfc36470e17c1ea326ea780b35549ea4c3cb222f4e87bb118df4fbb1841509e9dff3a3de8406a8bdde2108ade128e705f14001d38d6f382f27cefbf9e41a2369085c1897d1ec8c40ed4c63306e4c0aee3f35a1ba5e756881241e895c4a3af6ef6e0f712f8f01cf2cd0b03324d683d2093d4f1b73e029afde83aeed8ca7dd04b824797812d78e5b23e9003d3171f02070c2de75e7f9c6b6b7352bbccdd20df2c34c9a98338e00f487b00e6c02d610421b82d299ff35c9eb3b6fca8bc18804844b27c97bbb7dcb688f14e1491029bc94ab957aca94acb17a6e22bc6aae221b710b45e8eeaed33be65b0be10407574b1593c5210893306cf919b8db7c87f6473395fea950b9996c1e40dceabd5200401342b4f94a95d6ed00f2fdacead095ba3190dfc2e2e4560d01bf79f39342a74d5cede10d8917a949d8069f42971289a35bb82e8d5d87b09427ebb0bd1dca16328d409840929aa50c58fc3c1053b372af6a2e5dbe800bcfcd890cd7d89b5f3dbd9db49805acd89f9a198419a646312c43697700f1833c9c644ca357e9176ce74b0c744ff6b8218589cd1aef963259ff2c9c0ac5ba308";
+    let tx_2_bytes = hex::decode(tx_2_hex).unwrap();
+    let tx_2 = ZTransaction::read(tx_2_bytes.as_slice()).unwrap();
+    let tx_2 = tx_2.into();
+
+    // Success validation
+    let validate_fee_args = ValidateFeeArgs {
+        fee_tx: &tx_2,
+        expected_sender: &[],
+        dex_fee: &DexFee::Standard("0.00999999".into()),
+        min_block_number: 12000,
+        uuid: &[1; 16],
+    };
+    let err = coin.validate_fee(validate_fee_args).wait().unwrap_err().into_inner();
+    match err {
+        ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid amount")),
+        _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
+    }
+
+    // Success validation
+    let expected_std_fee = DexFee::Standard("0.01".into());
+    let validate_fee_args = ValidateFeeArgs {
+        fee_tx: &tx_2,
+        expected_sender: &[],
+        dex_fee: &expected_std_fee,
         min_block_number: 12000,
         uuid: &[1; 16],
     };
