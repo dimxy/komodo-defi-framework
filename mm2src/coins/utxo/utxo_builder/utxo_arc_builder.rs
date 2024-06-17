@@ -1,5 +1,5 @@
 use crate::utxo::rpc_clients::{ElectrumClient, ElectrumClientImpl, UtxoJsonRpcClientInfo, UtxoRpcClientEnum};
-use crate::utxo::utxo_balance_events::UtxoBalanceStreamingEvent;
+use crate::utxo::utxo_balance_events::UtxoBalanceEventStreamer;
 use crate::utxo::utxo_block_header_storage::BlockHeaderStorage;
 use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
@@ -122,11 +122,13 @@ where
         }
 
         if let Some(stream_config) = &self.ctx().event_stream_configuration {
+            // FIXME: This will fail whenever the coin is in native mode and event streaming is enabled,
+            // even if balance streaming isn't enabled.
             if is_native_mode {
                 return MmError::err(UtxoCoinBuildError::UnsupportedModeForBalanceEvents { mode });
             }
 
-            if let EventInitStatus::Failed(err) = UtxoBalanceStreamingEvent::new(utxo_arc)
+            if let EventInitStatus::Failed(err) = UtxoBalanceEventStreamer::new(utxo_arc)
                 .spawn_if_active(stream_config)
                 .await
             {

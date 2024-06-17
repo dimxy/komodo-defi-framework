@@ -28,11 +28,11 @@ macro_rules! try_or_continue {
     };
 }
 
-pub struct UtxoBalanceStreamingEvent {
+pub struct UtxoBalanceEventStreamer {
     coin: UtxoStandardCoin,
 }
 
-impl UtxoBalanceStreamingEvent {
+impl UtxoBalanceEventStreamer {
     pub fn new(utxo_arc: UtxoArc) -> Self {
         Self {
             // We wrap the UtxoArc in a UtxoStandardCoin for easier method accessibility.
@@ -43,11 +43,12 @@ impl UtxoBalanceStreamingEvent {
 }
 
 #[async_trait]
-impl EventBehaviour for UtxoBalanceStreamingEvent {
+impl EventBehaviour for UtxoBalanceEventStreamer {
     fn event_name() -> EventName { EventName::CoinBalance }
 
     fn error_event_name() -> ErrorEventName { ErrorEventName::CoinBalanceError }
 
+    // FIXME: Move `interval` to `self`.
     async fn handle(self, _interval: f64, tx: oneshot::Sender<EventInitStatus>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let coin = self.coin;
@@ -194,6 +195,7 @@ impl EventBehaviour for UtxoBalanceStreamingEvent {
                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
 
+                    // FIXME: Note that such an event isn't SSE-ed to any client since no body is listening to it.
                     ctx.stream_channel_controller
                         .broadcast(Event::new(
                             format!("{}:{}", Self::error_event_name(), ticker),
