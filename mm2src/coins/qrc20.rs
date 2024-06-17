@@ -1305,6 +1305,9 @@ impl MarketCoinOps for Qrc20Coin {
         MmNumber::from(1) / MmNumber::from(10u64.pow(pow))
     }
 
+    #[inline]
+    fn should_burn_dex_fee(&self) -> bool { false }
+
     fn is_trezor(&self) -> bool { self.as_ref().priv_key_policy.is_trezor() }
 }
 

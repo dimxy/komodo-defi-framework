@@ -295,6 +295,8 @@ impl MarketCoinOps for SplToken {
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
 
     fn is_trezor(&self) -> bool { self.platform_coin.is_trezor() }
+
+    fn should_burn_dex_fee(&self) -> bool { false }
 }
 
 #[async_trait]

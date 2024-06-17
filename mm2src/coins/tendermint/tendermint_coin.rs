@@ -2522,6 +2522,9 @@ impl MarketCoinOps for TendermintCoin {
     #[inline]
     fn min_trading_vol(&self) -> MmNumber { self.min_tx_amount().into() }
 
+    #[inline]
+    fn should_burn_dex_fee(&self) -> bool { false }
+
     fn is_trezor(&self) -> bool {
         match &self.activation_policy {
             TendermintActivationPolicy::PrivateKey(pk) => pk.is_trezor(),

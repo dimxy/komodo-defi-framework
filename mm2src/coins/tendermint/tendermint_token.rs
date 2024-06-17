@@ -467,6 +467,9 @@ impl MarketCoinOps for TendermintToken {
     #[inline]
     fn min_trading_vol(&self) -> MmNumber { self.min_tx_amount().into() }
 
+    #[inline]
+    fn should_burn_dex_fee(&self) -> bool { false }
+
     fn is_trezor(&self) -> bool { self.platform_coin.is_trezor() }
 }
 

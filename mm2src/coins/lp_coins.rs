@@ -1951,7 +1951,7 @@ pub trait MarketCoinOps {
     fn is_evm(&self) -> bool { false }
 
     /// Should burn part of dex fee coin
-    fn should_burn_dex_fee(&self) -> bool { false }
+    fn should_burn_dex_fee(&self) -> bool;
 
     fn is_trezor(&self) -> bool;
 }

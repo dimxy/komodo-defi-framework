@@ -905,7 +905,7 @@ impl MarketCoinOps for UtxoStandardCoin {
 
     fn is_kmd(&self) -> bool { &self.utxo_arc.conf.ticker == "KMD" }
 
-    fn should_burn_dex_fee(&self) -> bool { true }
+    fn should_burn_dex_fee(&self) -> bool { utxo_common::should_burn_dex_fee() }
 
     fn is_trezor(&self) -> bool { self.as_ref().priv_key_policy.is_trezor() }
 }

@@ -874,6 +874,8 @@ impl MarketCoinOps for QtumCoin {
     fn min_trading_vol(&self) -> MmNumber { utxo_common::min_trading_vol(self.as_ref()) }
 
     fn is_trezor(&self) -> bool { self.as_ref().priv_key_policy.is_trezor() }
+
+    fn should_burn_dex_fee(&self) -> bool { utxo_common::should_burn_dex_fee() }
 }
 
 #[async_trait]

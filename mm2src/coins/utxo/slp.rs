@@ -1209,6 +1209,8 @@ impl MarketCoinOps for SlpToken {
 
     fn min_trading_vol(&self) -> MmNumber { big_decimal_from_sat_unsigned(1, self.decimals()).into() }
 
+    fn should_burn_dex_fee(&self) -> bool { false }
+
     fn is_trezor(&self) -> bool { self.as_ref().priv_key_policy.is_trezor() }
 }
 
