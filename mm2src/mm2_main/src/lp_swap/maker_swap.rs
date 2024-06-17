@@ -2098,11 +2098,9 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
     swap_ctx.running_swaps.lock().unwrap().push(weak_ref);
     let mut swap_fut = Box::pin(
         async move {
-            let mut events;
             loop {
                 let res = running_swap.handle_command(command).await.expect("!handle_command");
-                events = res.1;
-                for event in events {
+                for event in res.1 {
                     let to_save = MakerSavedEvent {
                         timestamp: now_ms(),
                         event: event.clone(),
@@ -2118,6 +2116,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                     save_my_maker_swap_event(&ctx, &running_swap, to_save)
                         .await
                         .expect("!save_my_maker_swap_event");
+                    // FIXME: send SSE here
                     if event.should_ban_taker() {
                         ban_pubkey_on_failed_swap(
                             &ctx,
