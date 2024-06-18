@@ -832,6 +832,7 @@ pub struct ZCoinBuilder<'a> {
     z_coin_params: &'a ZcoinActivationParams,
     utxo_params: UtxoActivationParams,
     priv_key_policy: PrivKeyBuildPolicy,
+    #[cfg_attr(target_arch = "wasm32", allow(unused))]
     db_dir_path: PathBuf,
     /// `Some` if `ZCoin` should be initialized with a forced spending key.
     z_spending_key: Option<ExtendedSpendingKey>,
