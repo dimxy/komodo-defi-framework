@@ -3704,30 +3704,25 @@ impl DexFee {
         }
     }
 
-    /// Drops the dex fee in non-KMD by 25%. This cut will be sent to an output designated as 'burn account' during the taker fee payment 
+    /// Drops the dex fee in non-KMD by 25%. This cut will be sent to an output designated as 'burn account' during the taker fee payment
     /// (so it cannot be dust).
     ///
     /// The cut can be set to zero if any of resulting amounts is less than the minimum transaction amount.
     fn calc_burn_amount_for_burn_account(dex_fee: &MmNumber, min_tx_amount: &MmNumber) -> (MmNumber, MmNumber) {
         // Dex fee with 25% cut
         let new_fee = dex_fee * &MmNumber::from(Self::BURN_CUT);
-        if &new_fee >= min_tx_amount {
-            // Use the max burn value, which is 25%.
-            let burn_amount = dex_fee - &new_fee;
-            // as burn_amount is sent to an actual address it should not be dust
-            if &burn_amount >= min_tx_amount {
-                return (new_fee, burn_amount);
-            }
-        } else {
-            // If the new dex fee is dust set it to min_tx_amount.
-            let burn_amount = dex_fee - min_tx_amount;
-            // burn_amount should not be dust
-            if &burn_amount >= min_tx_amount {
-                // actually currently burn_amount (25%) < new_fee (75%) so this never happens.
-                // added for a case if 25/75 will ever change
-                return (min_tx_amount.clone(), burn_amount);
-            }
+        let burn_amount = dex_fee - &new_fee;
+        if &new_fee >= min_tx_amount && &burn_amount >= min_tx_amount {
+            // Use the max burn value, which is 25%. Ensure burn_amount is not dust
+            return (new_fee, burn_amount);
         }
+        // If the new dex fee is dust set it to min_tx_amount and check the updated burn_amount is not dust.
+        let burn_amount = dex_fee - min_tx_amount;
+        if &new_fee < min_tx_amount && &burn_amount >= min_tx_amount {
+            // actually currently burn_amount (25%) < new_fee (75%) so this never happens. Added for a case if 25/75 will ever change
+            return (min_tx_amount.clone(), burn_amount);
+        }
+        // Default case where burn_amount is considered dust
         (dex_fee.clone(), 0.into())
     }
 
