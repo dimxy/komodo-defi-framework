@@ -3621,14 +3621,14 @@ impl DexFee {
     /// Recreates a `DexFee` from separate fields (usually stored in db).
     pub fn create_from_fields(fee_amount: MmNumber, burn_amount: MmNumber, ticker: &str) -> DexFee {
         if burn_amount > MmNumber::default() {
+            let burn_destination = match ticker {
+                "KMD" => DexFeeBurnDestination::KmdOpReturn,
+                _ => DexFeeBurnDestination::BurnAccount,
+            };
             DexFee::WithBurn {
                 fee_amount,
                 burn_amount,
-                burn_destination: if ticker == "KMD" {
-                    DexFeeBurnDestination::KmdOpReturn
-                } else {
-                    DexFeeBurnDestination::BurnAccount
-                },
+                burn_destination,
             }
         } else {
             DexFee::Standard(fee_amount)
@@ -3672,10 +3672,9 @@ impl DexFee {
 
     /// Returns dex fee discount if KMD is traded
     pub fn dex_fee_rate(base: &str, rel: &str) -> MmNumber {
-        let fee_discount_tickers: &[&str] = if var("MYCOIN_FEE_DISCOUNT").is_ok() {
-            &["KMD", "MYCOIN"] // used in tests
-        } else {
-            &["KMD"]
+        let fee_discount_tickers: &[&str] = match var("MYCOIN_FEE_DISCOUNT") {
+            Ok(_) => &["KMD", "MYCOIN"],
+            Err(_) => &["KMD"],
         };
         if fee_discount_tickers.contains(&base) || fee_discount_tickers.contains(&rel) {
             // 1/777 - 10%
@@ -3685,46 +3684,43 @@ impl DexFee {
         }
     }
 
+    /// Drops the dex fee in KMD by 25%. This cut will be burned during the taker fee payment.
+    ///
+    /// Also the cut can be decreased if the new dex fee amount is less than the minimum transaction amount.
     fn calc_burn_amount_for_op_return(dex_fee: &MmNumber, min_tx_amount: &MmNumber) -> (MmNumber, MmNumber) {
-        // Drop the dex fee by 25%, which will be burned during the taker fee payment.
-        //
-        // This cut will be dropped before return if the final amount is less than
-        // the minimum transaction amount.
-
         // Dex fee with 25% cut
         let new_fee = dex_fee * &MmNumber::from(Self::BURN_CUT);
-
         if &new_fee >= min_tx_amount {
             // Use the max burn value, which is 25%.
             let burn_amount = dex_fee - &new_fee;
-
             // we don't care if burn_amount < dust as any amount can be sent to op_return
             (new_fee, burn_amount)
-        } else {
-            // Burn only the exceed amount because fee after 25% cut is less
-            // than `min_tx_amount`.
+        } else if dex_fee >= min_tx_amount {
+            // Burn only the exceeding amount because fee after 25% cut is less than `min_tx_amount`.
             let burn_amount = dex_fee - min_tx_amount;
-
             (min_tx_amount.clone(), burn_amount)
+        } else {
+            (dex_fee.clone(), MmNumber::from(0))
         }
     }
 
+    /// Drops the dex fee in non-KMD by 25%. This cut will be sent to an output designated as 'burn account' during the taker fee payment 
+    /// (so it cannot be dust).
+    ///
+    /// The cut can be set to zero if any of resulting amounts is less than the minimum transaction amount.
     fn calc_burn_amount_for_burn_account(dex_fee: &MmNumber, min_tx_amount: &MmNumber) -> (MmNumber, MmNumber) {
         // Dex fee with 25% cut
         let new_fee = dex_fee * &MmNumber::from(Self::BURN_CUT);
-
         if &new_fee >= min_tx_amount {
             // Use the max burn value, which is 25%.
             let burn_amount = dex_fee - &new_fee;
-
-            // as burn_amount is actually sent to an account it should not be dust
+            // as burn_amount is sent to an actual address it should not be dust
             if &burn_amount >= min_tx_amount {
                 return (new_fee, burn_amount);
             }
         } else {
-            // Burn only the exceed amount because fee after 25% cut is less than `min_tx_amount`.
+            // If the new dex fee is dust set it to min_tx_amount.
             let burn_amount = dex_fee - min_tx_amount;
-
             // burn_amount should not be dust
             if &burn_amount >= min_tx_amount {
                 // actually currently burn_amount (25%) < new_fee (75%) so this never happens.
