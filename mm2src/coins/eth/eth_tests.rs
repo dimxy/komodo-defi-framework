@@ -1017,8 +1017,10 @@ fn test_gas_limit_conf() {
         _ => panic!("not eth coin"),
     };
     assert!(
-        eth_coin.gas_limit.erc20_payment.unwrap() == 120000
-            && eth_coin.gas_limit.erc20_receiver_spend.unwrap() == 130000
-            && eth_coin.gas_limit.erc20_sender_refund.unwrap() == 110000
+        eth_coin.gas_limit.eth_send_coins == 21_000
+            && eth_coin.gas_limit.erc20_payment == 120000
+            && eth_coin.gas_limit.erc20_receiver_spend == 130000
+            && eth_coin.gas_limit.erc20_sender_refund == 110000
+            && eth_coin.gas_limit.eth_max_trade_gas == 150_000
     );
 }

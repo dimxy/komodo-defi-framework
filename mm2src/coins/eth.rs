@@ -222,7 +222,7 @@ const GAS_PRICE_APPROXIMATION_PERCENT_ON_ORDER_ISSUE: u64 = 5;
 /// - it may increase by 3% during the swap.
 const GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE: u64 = 7;
 
-/// Heuristic gas limits for withdraw and swap operations (for swaps also including extra margin value for possible changes in opcodes gas)
+/// Heuristic default gas limits for withdraw and swap operations (including extra margin value for possible changes in opcodes cost)
 pub mod gas_limit {
     /// Gas limit for sending coins
     pub const ETH_SEND_COINS: u64 = 21_000;
@@ -250,26 +250,43 @@ pub mod gas_limit {
 }
 
 /// Coin conf param to override default gas limits
-#[derive(Default, Deserialize)]
-pub struct EthGasLimitOverride {
-    /// Gas limit for sending coins override value
-    pub eth_send_coins: Option<u64>,
-    /// Gas limit for sending ERC20 tokens override value
-    pub eth_send_erc20: Option<u64>,
-    /// Gas limit for swap payment tx with coins override value
-    pub eth_payment: Option<u64>,
-    /// Gas limit for swap payment tx with ERC20 tokens override value
-    pub erc20_payment: Option<u64>,
-    /// Gas limit for swap receiver spend tx with coins override value
-    pub eth_receiver_spend: Option<u64>,
-    /// Gas limit for swap receiver spend tx with ERC20 tokens override value
-    pub erc20_receiver_spend: Option<u64>,
-    /// Gas limit for swap refund tx with coins override value
-    pub eth_sender_refund: Option<u64>,
-    /// Gas limit for swap refund tx with with ERC20 tokens override value
-    pub erc20_sender_refund: Option<u64>,
-    /// Gas limit for other operations override value
-    pub eth_max_trade_gas: Option<u64>,
+#[derive(Deserialize)]
+#[serde(default)]
+pub struct EthGasLimit {
+    /// Gas limit for sending coins
+    pub eth_send_coins: u64,
+    /// Gas limit for sending ERC20 tokens
+    pub eth_send_erc20: u64,
+    /// Gas limit for swap payment tx with coins
+    pub eth_payment: u64,
+    /// Gas limit for swap payment tx with ERC20 tokens
+    pub erc20_payment: u64,
+    /// Gas limit for swap receiver spend tx with coins
+    pub eth_receiver_spend: u64,
+    /// Gas limit for swap receiver spend tx with ERC20 tokens
+    pub erc20_receiver_spend: u64,
+    /// Gas limit for swap refund tx with coins
+    pub eth_sender_refund: u64,
+    /// Gas limit for swap refund tx with with ERC20 tokens
+    pub erc20_sender_refund: u64,
+    /// Gas limit for other operations
+    pub eth_max_trade_gas: u64,
+}
+
+impl Default for EthGasLimit {
+    fn default() -> Self {
+        EthGasLimit {
+            eth_send_coins: gas_limit::ETH_SEND_COINS,
+            eth_send_erc20: gas_limit::ETH_SEND_ERC20,
+            eth_payment: gas_limit::ETH_PAYMENT,
+            erc20_payment: gas_limit::ERC20_PAYMENT,
+            eth_receiver_spend: gas_limit::ETH_RECEIVER_SPEND,
+            erc20_receiver_spend: gas_limit::ERC20_RECEIVER_SPEND,
+            eth_sender_refund: gas_limit::ETH_SENDER_REFUND,
+            erc20_sender_refund: gas_limit::ERC20_SENDER_REFUND,
+            eth_max_trade_gas: gas_limit::ETH_MAX_TRADE_GAS,
+        }
+    }
 }
 
 /// Lifetime of generated signed message for gui-auth requests
@@ -660,7 +677,7 @@ pub struct EthCoinImpl {
     /// Context for eth fee per gas estimator loop. Created if coin supports fee per gas estimation
     pub(crate) platform_fee_estimator_state: Arc<FeeEstimatorState>,
     /// Config provided gas limits for swap and send transactions
-    pub(crate) gas_limit: EthGasLimitOverride,
+    pub(crate) gas_limit: EthGasLimit,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// and on [`MmArc::stop`].
     pub abortable_system: AbortableQueue,
@@ -3611,7 +3628,7 @@ impl EthCoin {
                 value,
                 Action::Call(address),
                 vec![],
-                U256::from(self.gas_limit.eth_send_coins.unwrap_or(gas_limit::ETH_SEND_COINS)),
+                U256::from(self.gas_limit.eth_send_coins),
             ),
             EthCoinType::Erc20 {
                 platform: _,
@@ -3624,7 +3641,7 @@ impl EthCoin {
                     0.into(),
                     Action::Call(*token_addr),
                     data,
-                    U256::from(self.gas_limit.eth_send_erc20.unwrap_or(gas_limit::ETH_SEND_ERC20)),
+                    U256::from(self.gas_limit.eth_send_erc20),
                 )
             },
             EthCoinType::Nft { .. } => {
@@ -3679,7 +3696,7 @@ impl EthCoin {
                         Token::Uint(time_lock),
                     ])),
                 };
-                let gas = U256::from(self.gas_limit.eth_payment.unwrap_or(gas_limit::ETH_PAYMENT));
+                let gas = U256::from(self.gas_limit.eth_payment);
                 self.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, gas)
             },
             EthCoinType::Erc20 {
@@ -3750,7 +3767,7 @@ impl EthCoin {
                 };
 
                 let wait_for_required_allowance_until = args.wait_for_confirmation_until;
-                let gas = U256::from(self.gas_limit.erc20_payment.unwrap_or(gas_limit::ERC20_PAYMENT));
+                let gas = U256::from(self.gas_limit.erc20_payment);
 
                 let arc = self.clone();
                 Box::new(allowance_fut.and_then(move |allowed| -> EthTxFut {
@@ -3860,12 +3877,7 @@ impl EthCoin {
                                 0.into(),
                                 Call(swap_contract_address),
                                 data,
-                                U256::from(
-                                    clone
-                                        .gas_limit
-                                        .eth_receiver_spend
-                                        .unwrap_or(gas_limit::ETH_RECEIVER_SPEND),
-                                ),
+                                U256::from(clone.gas_limit.eth_receiver_spend),
                             )
                         }),
                 )
@@ -3913,12 +3925,7 @@ impl EthCoin {
                                 0.into(),
                                 Call(swap_contract_address),
                                 data,
-                                U256::from(
-                                    clone
-                                        .gas_limit
-                                        .erc20_receiver_spend
-                                        .unwrap_or(gas_limit::ERC20_RECEIVER_SPEND),
-                                ),
+                                U256::from(clone.gas_limit.erc20_receiver_spend),
                             )
                         }),
                 )
@@ -3992,12 +3999,7 @@ impl EthCoin {
                                 0.into(),
                                 Call(swap_contract_address),
                                 data,
-                                U256::from(
-                                    clone
-                                        .gas_limit
-                                        .eth_sender_refund
-                                        .unwrap_or(gas_limit::ETH_SENDER_REFUND),
-                                ),
+                                U256::from(clone.gas_limit.eth_sender_refund),
                             )
                         }),
                 )
@@ -4048,12 +4050,7 @@ impl EthCoin {
                                 0.into(),
                                 Call(swap_contract_address),
                                 data,
-                                U256::from(
-                                    clone
-                                        .gas_limit
-                                        .erc20_sender_refund
-                                        .unwrap_or(gas_limit::ERC20_SENDER_REFUND),
-                                ),
+                                U256::from(clone.gas_limit.erc20_sender_refund),
                             )
                         }),
                 )
@@ -4126,11 +4123,7 @@ impl EthCoin {
                     0.into(),
                     Call(swap_contract_address),
                     data,
-                    U256::from(
-                        self.gas_limit
-                            .eth_receiver_spend
-                            .unwrap_or(gas_limit::ETH_RECEIVER_SPEND),
-                    ),
+                    U256::from(self.gas_limit.eth_receiver_spend),
                 )
                 .compat()
                 .await
@@ -4182,11 +4175,7 @@ impl EthCoin {
                     0.into(),
                     Call(swap_contract_address),
                     data,
-                    U256::from(
-                        self.gas_limit
-                            .erc20_receiver_spend
-                            .unwrap_or(gas_limit::ERC20_RECEIVER_SPEND),
-                    ),
+                    U256::from(self.gas_limit.erc20_receiver_spend),
                 )
                 .compat()
                 .await
@@ -4259,7 +4248,7 @@ impl EthCoin {
                     0.into(),
                     Call(swap_contract_address),
                     data,
-                    U256::from(self.gas_limit.eth_sender_refund.unwrap_or(gas_limit::ETH_SENDER_REFUND)),
+                    U256::from(self.gas_limit.eth_sender_refund),
                 )
                 .compat()
                 .await
@@ -4311,11 +4300,7 @@ impl EthCoin {
                     0.into(),
                     Call(swap_contract_address),
                     data,
-                    U256::from(
-                        self.gas_limit
-                            .erc20_sender_refund
-                            .unwrap_or(gas_limit::ERC20_SENDER_REFUND),
-                    ),
+                    U256::from(self.gas_limit.erc20_sender_refund),
                 )
                 .compat()
                 .await
@@ -5571,11 +5556,8 @@ impl MmCoin for EthCoin {
                     .await
                     .map_err(|e| e.to_string())?;
 
-                let fee = calc_total_fee(
-                    U256::from(coin.gas_limit.eth_max_trade_gas.unwrap_or(gas_limit::ETH_MAX_TRADE_GAS)),
-                    &pay_for_gas_option,
-                )
-                .map_err(|e| e.to_string())?;
+                let fee = calc_total_fee(U256::from(coin.gas_limit.eth_max_trade_gas), &pay_for_gas_option)
+                    .map_err(|e| e.to_string())?;
                 let fee_coin = match &coin.coin_type {
                     EthCoinType::Eth => &coin.ticker,
                     EthCoinType::Erc20 { platform, .. } => platform,
@@ -5606,14 +5588,13 @@ impl MmCoin for EthCoin {
             EthCoinType::Eth => {
                 // this gas_limit includes gas for `ethPayment` and optionally `senderRefund` contract calls
                 if include_refund_fee {
-                    U256::from(self.gas_limit.eth_payment.unwrap_or(gas_limit::ETH_PAYMENT))
-                        + U256::from(self.gas_limit.eth_sender_refund.unwrap_or(gas_limit::ETH_SENDER_REFUND))
+                    U256::from(self.gas_limit.eth_payment) + U256::from(self.gas_limit.eth_sender_refund)
                 } else {
-                    U256::from(self.gas_limit.eth_payment.unwrap_or(gas_limit::ETH_PAYMENT))
+                    U256::from(self.gas_limit.eth_payment)
                 }
             },
             EthCoinType::Erc20 { token_addr, .. } => {
-                let mut gas = U256::from(self.gas_limit.erc20_payment.unwrap_or(gas_limit::ERC20_PAYMENT));
+                let mut gas = U256::from(self.gas_limit.erc20_payment);
                 let value = match value {
                     TradePreimageValue::Exact(value) | TradePreimageValue::UpperBound(value) => {
                         wei_from_big_decimal(&value, self.decimals)?
@@ -5634,12 +5615,9 @@ impl MmCoin for EthCoin {
                     // this gas_limit includes gas for `approve`, `erc20Payment` contract calls
                     gas += approve_gas_limit;
                 }
+                // add 'senderRefund' gas if requested
                 if include_refund_fee {
-                    gas += U256::from(
-                        self.gas_limit
-                            .erc20_sender_refund
-                            .unwrap_or(gas_limit::ERC20_SENDER_REFUND),
-                    ); // add 'senderRefund' gas if requested
+                    gas += U256::from(self.gas_limit.erc20_sender_refund);
                 }
                 gas
             },
@@ -5670,25 +5648,11 @@ impl MmCoin for EthCoin {
             let (fee_coin, total_fee) = match &coin.coin_type {
                 EthCoinType::Eth => (
                     &coin.ticker,
-                    calc_total_fee(
-                        U256::from(
-                            coin.gas_limit
-                                .eth_receiver_spend
-                                .unwrap_or(gas_limit::ETH_RECEIVER_SPEND),
-                        ),
-                        &pay_for_gas_option,
-                    )?,
+                    calc_total_fee(U256::from(coin.gas_limit.eth_receiver_spend), &pay_for_gas_option)?,
                 ),
                 EthCoinType::Erc20 { platform, .. } => (
                     platform,
-                    calc_total_fee(
-                        U256::from(
-                            coin.gas_limit
-                                .erc20_receiver_spend
-                                .unwrap_or(gas_limit::ERC20_RECEIVER_SPEND),
-                        ),
-                        &pay_for_gas_option,
-                    )?,
+                    calc_total_fee(U256::from(coin.gas_limit.erc20_receiver_spend), &pay_for_gas_option)?,
                 ),
                 EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
             };
@@ -6723,11 +6687,7 @@ async fn get_eth_gas_details_from_withdraw_fee(
 
     // covering edge case by deducting the standard transfer fee when we want to max withdraw ETH
     let eth_value_for_estimate = if fungible_max && eth_coin.coin_type == EthCoinType::Eth {
-        eth_value
-            - calc_total_fee(
-                U256::from(eth_coin.gas_limit.eth_send_coins.unwrap_or(gas_limit::ETH_SEND_COINS)),
-                &pay_for_gas_option,
-            )?
+        eth_value - calc_total_fee(U256::from(eth_coin.gas_limit.eth_send_coins), &pay_for_gas_option)?
     } else {
         eth_value
     };
@@ -7098,7 +7058,7 @@ pub fn pubkey_from_extended(extended_pubkey: &Secp256k1ExtendedPublicKey) -> Pub
     pubkey_uncompressed
 }
 
-fn extract_gas_limit_from_conf(coin_conf: &Json) -> Result<EthGasLimitOverride, String> {
+fn extract_gas_limit_from_conf(coin_conf: &Json) -> Result<EthGasLimit, String> {
     if coin_conf["gas_limit"].is_null() {
         Ok(Default::default())
     } else {
