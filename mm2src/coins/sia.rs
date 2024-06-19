@@ -239,6 +239,7 @@ impl MmCoin for SiaCoin {
         &self,
         _value: TradePreimageValue,
         _stage: FeeApproxStage,
+        _include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }
@@ -377,7 +378,9 @@ impl MarketCoinOps for SiaCoin {
 
 #[async_trait]
 impl SwapOps for SiaCoin {
-    fn send_taker_fee(&self, _fee_addr: &[u8], _dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut { unimplemented!() }
+    fn send_taker_fee(&self, _fee_addr: &[u8], _dex_fee: DexFee, _uuid: &[u8], _expire_at: u64) -> TransactionFut {
+        unimplemented!()
+    }
 
     fn send_maker_payment(&self, _maker_payment_args: SendPaymentArgs) -> TransactionFut { unimplemented!() }
 

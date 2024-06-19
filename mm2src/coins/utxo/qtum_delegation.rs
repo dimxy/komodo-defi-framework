@@ -8,7 +8,7 @@ use crate::utxo::utxo_common::{big_decimal_from_sat_unsigned, UtxoTxBuilder};
 use crate::utxo::{qtum, utxo_common, Address, GetUtxoListOps, UtxoCommonOps};
 use crate::utxo::{PrivKeyPolicyNotAllowed, UTXO_LOCK};
 use crate::{DelegationError, DelegationFut, DelegationResult, MarketCoinOps, StakingInfos, StakingInfosError,
-            StakingInfosFut, StakingInfosResult, TransactionDetails, TransactionType};
+            StakingInfosFut, StakingInfosResult, TransactionData, TransactionDetails, TransactionType};
 use bitcrypto::dhash256;
 use common::now_sec;
 use derive_more::Display;
@@ -186,7 +186,7 @@ impl QtumCoin {
                         .map(|padded_staker_address_hex| padded_staker_address_hex.trim_start_matches('0'))
                 }) {
                 let hash = H160::from_str(raw).map_to_mm(|e| StakingInfosError::Internal(e.to_string()))?;
-                let address = self.utxo_address_from_contract_addr(hash);
+                let address = self.utxo_addr_from_contract_addr(hash);
                 Ok(Some(address.to_string()))
             } else {
                 Ok(None)
@@ -290,16 +290,7 @@ impl QtumCoin {
                 DelegationError::from_generate_tx_error(gen_tx_error, self.ticker().to_string(), utxo.decimals)
             })?;
 
-        let prev_script = self
-            .script_for_address(&my_address)
-            .map_err(|e| DelegationError::InternalError(e.to_string()))?;
-        let signed = sign_tx(
-            unsigned,
-            key_pair,
-            prev_script,
-            utxo.conf.signature_version,
-            utxo.conf.fork_id,
-        )?;
+        let signed = sign_tx(unsigned, key_pair, utxo.conf.signature_version, utxo.conf.fork_id)?;
 
         let miner_fee = data.fee_amount + data.unused_change;
         let generated_tx = GenerateQrc20TxResult {
@@ -324,8 +315,10 @@ impl QtumCoin {
         let my_balance_change = &received_by_me - &spent_by_me;
 
         Ok(TransactionDetails {
-            tx_hex: serialize(&generated_tx.signed).into(),
-            tx_hash: generated_tx.signed.hash().reversed().to_vec().to_tx_hash(),
+            tx: TransactionData::new_signed(
+                serialize(&generated_tx.signed).into(),
+                generated_tx.signed.hash().reversed().to_vec().to_tx_hash(),
+            ),
             from: vec![my_address_string],
             to: vec![to_address],
             total_amount: qtum_amount,

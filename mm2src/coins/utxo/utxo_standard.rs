@@ -301,7 +301,7 @@ impl UtxoStandardOps for UtxoStandardCoin {
 #[async_trait]
 impl SwapOps for UtxoStandardCoin {
     #[inline]
-    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
+    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, _uuid: &[u8], _expire_at: u64) -> TransactionFut {
         utxo_common::send_taker_fee(self.clone(), fee_addr, dex_fee)
     }
 
@@ -954,6 +954,7 @@ impl MmCoin for UtxoStandardCoin {
         &self,
         value: TradePreimageValue,
         stage: FeeApproxStage,
+        _include_refund_fee: bool, // refund fee is taken from swap output
     ) -> TradePreimageResult<TradeFee> {
         utxo_common::get_sender_trade_fee(self, value, stage).await
     }

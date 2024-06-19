@@ -355,6 +355,9 @@ fn test_one_hundred_maker_payments_in_a_row_native() {
                 },
                 value: tx.outputs[2].value,
                 height: None,
+                script: coin
+                    .script_for_address(&block_on(coin.as_ref().derivation_method.unwrap_single_addr()))
+                    .unwrap(),
             });
             sent_tx.push(tx);
         }
@@ -375,6 +378,7 @@ fn test_one_hundred_maker_payments_in_a_row_native() {
         },
         value: last_tx.outputs[2].value,
         height: None,
+        script: last_tx.outputs[2].script_pubkey.clone().into(),
     };
     assert_eq!(vec![expected_unspent], unspents);
 }
@@ -2475,9 +2479,11 @@ fn test_maker_order_should_not_kick_start_and_appear_in_orderbook_if_balance_is_
         ))
         .wait()
         .unwrap();
-    coin.send_raw_tx(&hex::encode(&withdraw.tx_hex.0)).wait().unwrap();
+    coin.send_raw_tx(&hex::encode(&withdraw.tx.tx_hex().unwrap().0))
+        .wait()
+        .unwrap();
     let confirm_payment_input = ConfirmPaymentInput {
-        payment_tx: withdraw.tx_hex.0,
+        payment_tx: withdraw.tx.tx_hex().unwrap().0.to_owned(),
         confirmations: 1,
         requires_nota: false,
         wait_until: wait_until_sec(10),

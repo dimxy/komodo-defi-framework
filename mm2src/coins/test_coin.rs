@@ -114,7 +114,9 @@ impl MarketCoinOps for TestCoin {
 #[async_trait]
 #[mockable]
 impl SwapOps for TestCoin {
-    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, uuid: &[u8]) -> TransactionFut { unimplemented!() }
+    fn send_taker_fee(&self, fee_addr: &[u8], dex_fee: DexFee, uuid: &[u8], _expire_at: u64) -> TransactionFut {
+        unimplemented!()
+    }
 
     fn send_maker_payment(&self, _maker_payment_args: SendPaymentArgs) -> TransactionFut { unimplemented!() }
 
@@ -362,6 +364,7 @@ impl MmCoin for TestCoin {
         &self,
         _value: TradePreimageValue,
         _stage: FeeApproxStage,
+        _include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }
@@ -419,7 +422,7 @@ pub struct TestTx {}
 impl Transaction for TestTx {
     fn tx_hex(&self) -> Vec<u8> { todo!() }
 
-    fn tx_hash(&self) -> BytesJson { todo!() }
+    fn tx_hash_as_bytes(&self) -> BytesJson { todo!() }
 }
 
 pub struct TestPreimage {}

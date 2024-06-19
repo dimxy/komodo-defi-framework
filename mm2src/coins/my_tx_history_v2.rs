@@ -5,8 +5,8 @@ use crate::tx_history_storage::{CreateTxHistoryStorageError, FilteringAddresses,
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
 use crate::MyAddressError;
 use crate::{coin_conf, lp_coinfind_or_err, BlockHeightAndTime, CoinFindError, HDPathAccountToAddressId,
-            HistorySyncState, MmCoin, MmCoinEnum, Transaction, TransactionDetails, TransactionType, TxFeeDetails,
-            UtxoRpcError};
+            HistorySyncState, MmCoin, MmCoinEnum, Transaction, TransactionData, TransactionDetails, TransactionType,
+            TxFeeDetails, UtxoRpcError};
 use async_trait::async_trait;
 use bitcrypto::sha256;
 use common::{calc_total_pages, ten, HttpStatusCode, PagingOptionsEnum, StatusCode};
@@ -217,7 +217,7 @@ impl<'a, Addr: Clone + DisplayAddress + Eq + std::hash::Hash, Tx: Transaction> T
         let mut to: Vec<_> = self.to_addresses.iter().map(DisplayAddress::display_address).collect();
         to.sort();
 
-        let tx_hash = self.tx.tx_hash();
+        let tx_hash = self.tx.tx_hash_as_bytes();
         let internal_id = match &self.transaction_type {
             TransactionType::TokenTransfer(token_id) => {
                 let mut bytes_for_hash = tx_hash.0.clone();
@@ -237,13 +237,13 @@ impl<'a, Addr: Clone + DisplayAddress + Eq + std::hash::Hash, Tx: Transaction> T
             | TransactionType::RemoveDelegation
             | TransactionType::FeeForTokenTx
             | TransactionType::StandardTransfer
-            | TransactionType::NftTransfer => tx_hash.clone(),
+            | TransactionType::NftTransfer
+            | TransactionType::TendermintIBCTransfer => tx_hash.clone(),
         };
 
         TransactionDetails {
             coin: self.coin,
-            tx_hex: self.tx.tx_hex().into(),
-            tx_hash: tx_hash.to_tx_hash(),
+            tx: TransactionData::new_signed(self.tx.tx_hex().into(), tx_hash.to_tx_hash()),
             from,
             to,
             total_amount: self.total_amount,

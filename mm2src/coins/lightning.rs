@@ -152,7 +152,7 @@ pub(crate) struct GetOpenChannelsResult {
 impl Transaction for PaymentHash {
     fn tx_hex(&self) -> Vec<u8> { self.0.to_vec() }
 
-    fn tx_hash(&self) -> BytesJson { self.0.to_vec().into() }
+    fn tx_hash_as_bytes(&self) -> BytesJson { self.0.to_vec().into() }
 }
 
 impl LightningCoin {
@@ -610,7 +610,7 @@ impl LightningCoin {
 #[async_trait]
 impl SwapOps for LightningCoin {
     // Todo: This uses dummy data for now for the sake of swap P.O.C., this should be implemented probably after agreeing on how fees will work for lightning
-    fn send_taker_fee(&self, _fee_addr: &[u8], _dex_fee: DexFee, _uuid: &[u8]) -> TransactionFut {
+    fn send_taker_fee(&self, _fee_addr: &[u8], _dex_fee: DexFee, _uuid: &[u8], _expire_at: u64) -> TransactionFut {
         let fut = async move { Ok(TransactionEnum::LightningPayment(PaymentHash([1; 32]))) };
         Box::new(fut.boxed().compat())
     }
@@ -1336,6 +1336,7 @@ impl MmCoin for LightningCoin {
         &self,
         _value: TradePreimageValue,
         _stage: FeeApproxStage,
+        _include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         Ok(TradeFee {
             coin: self.ticker().to_owned(),
