@@ -14,15 +14,7 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
         Err(err) => return handle_internal_error(err).await,
     };
 
-    let config = match &ctx.event_stream_configuration {
-        Some(config) => config,
-        None => {
-            return handle_internal_error(
-                "Event stream configuration couldn't be found. This should never happen.".to_string(),
-            )
-            .await
-        },
-    };
+    let config = &ctx.event_stream_configuration;
 
     let filtered_events = request
         .uri()

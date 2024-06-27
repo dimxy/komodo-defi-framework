@@ -429,14 +429,18 @@ fn migration_1(_ctx: &MmArc) {}
 
 async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
     // This condition only executed if events were enabled in mm2 configuration.
-    if let Some(config) = &ctx.event_stream_configuration {
-        if let EventInitStatus::Failed(err) = NetworkEvent::new(ctx.clone()).spawn_if_active(config).await {
-            return MmError::err(MmInitError::NetworkEventInitFailed(err));
-        }
+    if let EventInitStatus::Failed(err) = NetworkEvent::new(ctx.clone())
+        .spawn_if_active(&ctx.event_stream_configuration)
+        .await
+    {
+        return MmError::err(MmInitError::NetworkEventInitFailed(err));
+    }
 
-        if let EventInitStatus::Failed(err) = HeartbeatEvent::new(ctx.clone()).spawn_if_active(config).await {
-            return MmError::err(MmInitError::HeartbeatEventInitFailed(err));
-        }
+    if let EventInitStatus::Failed(err) = HeartbeatEvent::new(ctx.clone())
+        .spawn_if_active(&ctx.event_stream_configuration)
+        .await
+    {
+        return MmError::err(MmInitError::HeartbeatEventInitFailed(err));
     }
 
     Ok(())

@@ -662,10 +662,10 @@ impl ZCoin {
 
     async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
         let coin = self.clone();
-        if let Some(stream_config) = &ctx.event_stream_configuration {
-            if let EventInitStatus::Failed(err) = EventBehaviour::spawn_if_active(coin, stream_config).await {
-                return ERR!("Failed spawning zcoin balance event with error: {}", err);
-            }
+        if let EventInitStatus::Failed(err) =
+            EventBehaviour::spawn_if_active(coin, &ctx.event_stream_configuration).await
+        {
+            return ERR!("Failed spawning zcoin balance event with error: {}", err);
         }
 
         Ok(())
@@ -891,11 +891,9 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
         );
 
         let blocks_db = self.init_blocks_db().await?;
-        let (z_balance_event_sender, z_balance_event_handler) = if self.ctx.event_stream_configuration.is_some() {
+        let (z_balance_event_sender, z_balance_event_handler) = {
             let (sender, receiver) = futures::channel::mpsc::unbounded();
             (Some(sender), Some(Arc::new(AsyncMutex::new(receiver))))
-        } else {
-            (None, None)
         };
 
         let (sync_state_connector, light_wallet_db) = match &self.z_coin_params.mode {

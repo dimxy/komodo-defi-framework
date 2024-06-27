@@ -359,11 +359,9 @@ pub extern "C" fn spawn_rpc(ctx_h: u32) {
 
     let ctx = MmArc::from_ffi_handle(ctx_h).expect("No context");
 
-    let is_event_stream_enabled = ctx.event_stream_configuration.is_some();
-
     let make_svc_fut = move |remote_addr: SocketAddr| async move {
         Ok::<_, Infallible>(service_fn(move |req: Request<Body>| async move {
-            if is_event_stream_enabled && req.uri().path() == SSE_ENDPOINT {
+            if req.uri().path() == SSE_ENDPOINT {
                 let res = handle_sse(req, ctx_h).await?;
                 return Ok::<_, Infallible>(res);
             }

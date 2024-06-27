@@ -5282,10 +5282,10 @@ impl EthCoin {
     }
 
     async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
-        if let Some(stream_config) = &ctx.event_stream_configuration {
-            if let EventInitStatus::Failed(err) = EventBehaviour::spawn_if_active(self.clone(), stream_config).await {
-                return ERR!("Failed spawning balance events. Error: {}", err);
-            }
+        if let EventInitStatus::Failed(err) =
+            EventBehaviour::spawn_if_active(self.clone(), &ctx.event_stream_configuration).await
+        {
+            return ERR!("Failed spawning balance events. Error: {}", err);
         }
 
         Ok(())

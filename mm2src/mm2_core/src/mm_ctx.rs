@@ -81,7 +81,7 @@ pub struct MmCtx {
     /// Data transfer bridge between server and client where server (which is the mm2 runtime) initiates the request.
     pub(crate) data_asker: DataAsker,
     /// Configuration of event streaming used for SSE.
-    pub event_stream_configuration: Option<EventStreamConfiguration>,
+    pub event_stream_configuration: EventStreamConfiguration,
     /// True if the MarketMaker instance needs to stop.
     pub stop: Constructible<bool>,
     /// Unique context identifier, allowing us to more easily pass the context through the FFI boundaries.  
@@ -155,7 +155,7 @@ impl MmCtx {
             rpc_started: Constructible::default(),
             stream_channel_controller: Controller::new(),
             data_asker: DataAsker::default(),
-            event_stream_configuration: None,
+            event_stream_configuration: Default::default(),
             stop: Constructible::default(),
             ffi_handle: Constructible::default(),
             ordermatch_ctx: Mutex::new(None),
@@ -757,10 +757,8 @@ impl MmCtxBuilder {
 
             let event_stream_configuration = &ctx.conf["event_stream_configuration"];
             if !event_stream_configuration.is_null() {
-                let event_stream_configuration: EventStreamConfiguration =
-                    json::from_value(event_stream_configuration.clone())
-                        .expect("Invalid json value in 'event_stream_configuration'.");
-                ctx.event_stream_configuration = Some(event_stream_configuration);
+                ctx.event_stream_configuration = json::from_value(event_stream_configuration.clone())
+                    .expect("Invalid json value in 'event_stream_configuration'.");
             }
         }
 

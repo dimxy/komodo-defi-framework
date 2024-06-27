@@ -109,7 +109,6 @@ where
         let utxo = self.build_utxo_fields().await?;
         let sync_status_loop_handle = utxo.block_headers_status_notifier.clone();
         let spv_conf = utxo.conf.spv_conf.clone();
-        let (is_native_mode, mode) = (utxo.rpc_client.is_native(), utxo.rpc_client.to_string());
         let utxo_arc = UtxoArc::new(utxo);
 
         self.spawn_merge_utxo_loop_if_required(&utxo_arc, self.constructor.clone());
@@ -121,19 +120,11 @@ where
             spawn_block_header_utxo_loop(self.ticker, &utxo_arc, sync_handle, spv_conf);
         }
 
-        if let Some(stream_config) = &self.ctx().event_stream_configuration {
-            // FIXME: This will fail whenever the coin is in native mode and event streaming is enabled,
-            // even if balance streaming isn't enabled.
-            if is_native_mode {
-                return MmError::err(UtxoCoinBuildError::UnsupportedModeForBalanceEvents { mode });
-            }
-
-            if let EventInitStatus::Failed(err) = UtxoBalanceEventStreamer::new(utxo_arc)
-                .spawn_if_active(stream_config)
-                .await
-            {
-                return MmError::err(UtxoCoinBuildError::FailedSpawningBalanceEvents(err));
-            }
+        if let EventInitStatus::Failed(err) = UtxoBalanceEventStreamer::new(utxo_arc)
+            .spawn_if_active(&self.ctx().event_stream_configuration)
+            .await
+        {
+            return MmError::err(UtxoCoinBuildError::FailedSpawningBalanceEvents(err));
         }
 
         Ok(result_coin)

@@ -12,10 +12,7 @@ unsafe impl Send for SendableMessagePort {}
 
 /// Handles broadcasted messages from `mm2_event_stream` continuously for WASM.
 pub async fn handle_worker_stream(ctx: MmArc) {
-    let config = ctx
-        .event_stream_configuration
-        .as_ref()
-        .expect("Event stream configuration couldn't be found. This should never happen.");
+    let config = &ctx.event_stream_configuration;
 
     let mut channel_controller = ctx.stream_channel_controller.clone();
     let mut rx = channel_controller.create_channel(config.total_active_events());

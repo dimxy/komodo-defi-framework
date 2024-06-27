@@ -90,6 +90,13 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
             Ok(scripthash_to_address_map)
         }
 
+        if coin.as_ref().rpc_client.is_native() {
+            let e = "Native mode is not supported for event streaming";
+            tx.send(EventInitStatus::Failed(e.to_string()))
+                .expect(RECEIVER_DROPPED_MSG);
+            panic!("{}", e);
+        }
+
         let ctx = match MmArc::from_weak(&coin.as_ref().ctx) {
             Some(ctx) => ctx,
             None => {

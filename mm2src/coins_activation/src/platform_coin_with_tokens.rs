@@ -481,9 +481,9 @@ where
         );
     }
 
-    if let Some(config) = &ctx.event_stream_configuration {
-        platform_coin.handle_balance_streaming(config).await?;
-    }
+    platform_coin
+        .handle_balance_streaming(&ctx.event_stream_configuration)
+        .await?;
 
     let coins_ctx = CoinsContext::from_ctx(&ctx).unwrap();
     coins_ctx
