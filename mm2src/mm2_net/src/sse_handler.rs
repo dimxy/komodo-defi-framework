@@ -37,7 +37,7 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
             events_param.split(',').map(|event| event.to_string()).collect()
         });
 
-    let mut channel_controller = ctx.stream_channel_controller.clone();
+    let channel_controller = ctx.stream_channel_controller.clone();
     let mut rx = channel_controller.create_channel(config.total_active_events());
     let body = Body::wrap_stream(async_stream::stream! {
         while let Some(event) = rx.recv().await {

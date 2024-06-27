@@ -14,24 +14,15 @@ impl<M> Clone for Controller<M> {
 /// Inner part of the controller
 pub struct ChannelsInner<M> {
     last_id: u64,
-    channels: HashMap<ChannelId, Channel<M>>,
+    channels: HashMap<ChannelId, Sender<Arc<M>>>,
 }
 
-struct Channel<M> {
-    tx: Sender<Arc<M>>,
-}
-
-/// guard to trace channels disconnection
-pub struct ChannelGuard<M: Send + Sync> {
-    channel_id: ChannelId,
-    controller: Controller<M>,
-}
-
-/// Receiver to cleanup resources on `Drop`
-pub struct GuardedReceiver<M: Send + Sync> {
+/// A smart channel receiver that will run a hook when it's dropped to remove itself from the controller.
+pub struct ChannelReceiver<M: Send + Sync + 'static> {
+    /// The receiver end of the channel.
     rx: Receiver<Arc<M>>,
-    #[allow(dead_code)]
-    guard: ChannelGuard<M>,
+    /// A hook that's ran when the receiver channel receiver is dropped.
+    channel_drop_hook: Box<dyn Fn() + Send>,
 }
 
 impl<M: Send + Sync> Controller<M> {
@@ -39,17 +30,23 @@ impl<M: Send + Sync> Controller<M> {
     pub fn new() -> Self { Default::default() }
 
     /// Creates a new channel and returns it's events receiver
-    pub fn create_channel(&mut self, concurrency: usize) -> GuardedReceiver<M> {
+    pub fn create_channel(&self, concurrency: usize) -> ChannelReceiver<M> {
         let (tx, rx) = mpsc::channel::<Arc<M>>(concurrency);
-        let channel = Channel { tx };
 
         let mut inner = self.0.lock();
         let channel_id = inner.last_id.overflowing_add(1).0;
-        inner.channels.insert(channel_id, channel);
+        inner.channels.insert(channel_id, tx);
         inner.last_id = channel_id;
 
-        let guard = ChannelGuard::new(channel_id, self.clone());
-        GuardedReceiver { rx, guard }
+        let channel_drop_hook = {
+            let controller = self.clone();
+            // Remove the channel from the controller when the receiver is dropped.
+            Box::new(move || {
+                common::log::debug!("Dropping event receiver");
+                controller.remove_channel(&channel_id)
+            })
+        };
+        ChannelReceiver { rx, channel_drop_hook }
     }
 
     /// Returns number of active channels
@@ -58,19 +55,19 @@ impl<M: Send + Sync> Controller<M> {
     /// Broadcast message to all channels
     pub async fn broadcast(&self, message: M) {
         let msg = Arc::new(message);
-        for rx in self.all_senders() {
-            rx.send(Arc::clone(&msg)).await.ok();
+        for tx in self.all_channels() {
+            tx.send(Arc::clone(&msg)).await.ok();
         }
     }
 
     /// Removes the channel from the controller
-    fn remove_channel(&mut self, channel_id: &ChannelId) {
+    fn remove_channel(&self, channel_id: &ChannelId) {
         let mut inner = self.0.lock();
         inner.channels.remove(channel_id);
     }
 
-    /// Returns all the active channels
-    fn all_senders(&self) -> Vec<Sender<Arc<M>>> { self.0.lock().channels.values().map(|c| c.tx.clone()).collect() }
+    /// Returns all the active channel senders
+    fn all_channels(&self) -> Vec<Sender<Arc<M>>> { self.0.lock().channels.values().cloned().collect() }
 }
 
 impl<M> Default for Controller<M> {
@@ -83,21 +80,13 @@ impl<M> Default for Controller<M> {
     }
 }
 
-impl<M: Send + Sync> ChannelGuard<M> {
-    fn new(channel_id: ChannelId, controller: Controller<M>) -> Self { Self { channel_id, controller } }
-}
-
-impl<M: Send + Sync> Drop for ChannelGuard<M> {
-    fn drop(&mut self) {
-        common::log::debug!("Dropping event channel with id: {}", self.channel_id);
-
-        self.controller.remove_channel(&self.channel_id);
-    }
-}
-
-impl<M: Send + Sync> GuardedReceiver<M> {
+impl<M: Send + Sync> ChannelReceiver<M> {
     /// Receives the next event from the channel
     pub async fn recv(&mut self) -> Option<Arc<M>> { self.rx.recv().await }
+}
+
+impl<M: Send + Sync> Drop for ChannelReceiver<M> {
+    fn drop(&mut self) { (self.channel_drop_hook)(); }
 }
 
 #[cfg(any(test, target_arch = "wasm32"))]
@@ -111,17 +100,17 @@ mod tests {
     }
 
     cross_test!(test_create_channel_and_broadcast, {
-        let mut controller = Controller::new();
-        let mut guard_receiver = controller.create_channel(1);
+        let controller = Controller::new();
+        let mut channel_receiver = controller.create_channel(1);
 
         controller.broadcast("Message".to_string()).await;
 
-        let received_msg = guard_receiver.recv().await.unwrap();
+        let received_msg = channel_receiver.recv().await.unwrap();
         assert_eq!(*received_msg, "Message".to_string());
     });
 
     cross_test!(test_multiple_channels_and_broadcast, {
-        let mut controller = Controller::new();
+        let controller = Controller::new();
 
         let mut receivers = Vec::new();
         for _ in 0..3 {
@@ -137,20 +126,18 @@ mod tests {
     });
 
     cross_test!(test_channel_cleanup_on_drop, {
-        let mut controller: Controller<()> = Controller::new();
-        let guard_receiver = controller.create_channel(1);
+        let controller: Controller<()> = Controller::new();
+        let channel_receiver = controller.create_channel(1);
 
         assert_eq!(controller.num_connections(), 1);
 
-        drop(guard_receiver);
-
-        common::executor::Timer::sleep(0.1).await; // Give time for the drop to execute
+        drop(channel_receiver);
 
         assert_eq!(controller.num_connections(), 0);
     });
 
     cross_test!(test_broadcast_across_channels, {
-        let mut controller = Controller::new();
+        let controller = Controller::new();
 
         let mut receivers = Vec::new();
         for _ in 0..3 {
@@ -166,8 +153,8 @@ mod tests {
     });
 
     cross_test!(test_multiple_messages_and_drop, {
-        let mut controller = Controller::new();
-        let mut guard_receiver = controller.create_channel(6);
+        let controller = Controller::new();
+        let mut channel_receiver = controller.create_channel(6);
 
         controller.broadcast("Message 1".to_string()).await;
         controller.broadcast("Message 2".to_string()).await;
@@ -178,7 +165,7 @@ mod tests {
 
         let mut received_msgs = Vec::new();
         for _ in 0..6 {
-            let received_msg = guard_receiver.recv().await.unwrap();
+            let received_msg = channel_receiver.recv().await.unwrap();
             received_msgs.push(received_msg);
         }
 
@@ -189,10 +176,8 @@ mod tests {
         assert_eq!(*received_msgs[4], "Message 5".to_string());
         assert_eq!(*received_msgs[5], "Message 6".to_string());
 
-        // Consume the GuardedReceiver to trigger drop and channel cleanup
-        drop(guard_receiver);
-
-        common::executor::Timer::sleep(0.1).await; // Give time for the drop to execute
+        // Drop the channel receiver to trigger the drop hook (remove itself from the controller).
+        drop(channel_receiver);
 
         assert_eq!(controller.num_connections(), 0);
     });
