@@ -448,7 +448,7 @@ async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
 
 #[cfg(target_arch = "wasm32")]
 fn init_wasm_event_streaming(ctx: &MmArc) {
-    if ctx.event_stream_configuration.is_some() {
+    if ctx.event_stream_configuration.total_active_events() != 0 {
         ctx.spawner().spawn(handle_worker_stream(ctx.clone()));
     }
 }
