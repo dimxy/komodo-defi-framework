@@ -3629,13 +3629,13 @@ pub enum DexFeeBurnDestination {
 pub enum DexFee {
     /// Standard dex fee which will be sent to the dex fee address
     Standard(MmNumber),
-    /// Dex fee with the burn amount.
-    ///   - `fee_amount` goes to the dex fee address.
-    ///   - `burn_amount` will be burned.
-    ///   - `burn_destination` how to burn the burn_amount.
+    /// Dex fee with the burn amount
     WithBurn {
+        /// Amount to go to the dex fee address
         fee_amount: MmNumber,
+        /// Amount to be burned
         burn_amount: MmNumber,
+        /// This indicates how to burn the burn_amount
         burn_destination: DexFeeBurnDestination,
     },
 }

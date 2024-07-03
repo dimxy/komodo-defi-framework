@@ -2642,9 +2642,9 @@ fn test_get_sender_trade_fee_dynamic_tx_fee() {
     assert_eq!(fee1, fee3);
 }
 
-#[test]
 // validate an old tx with no output with the burn account
 // TODO: remove when we disable such old style txns
+#[test]
 fn test_validate_old_fee_tx() {
     let rpc_client = electrum_client_for_test(MARTY_ELECTRUM_ADDRS);
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Electrum(rpc_client), None, false);
