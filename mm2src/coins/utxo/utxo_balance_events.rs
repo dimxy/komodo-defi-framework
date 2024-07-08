@@ -91,10 +91,9 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
         }
 
         if coin.as_ref().rpc_client.is_native() {
-            let e = "Native mode is not supported for event streaming";
-            tx.send(EventInitStatus::Failed(e.to_string()))
-                .expect(RECEIVER_DROPPED_MSG);
-            panic!("{}", e);
+            // We won't consider this an error but just an unsupported scenario and continue running.
+            tx.send(EventInitStatus::Success).expect(RECEIVER_DROPPED_MSG);
+            panic!("Native mode is not supported for event streaming", e);
         }
 
         let ctx = match MmArc::from_weak(&coin.as_ref().ctx) {
