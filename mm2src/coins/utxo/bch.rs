@@ -2,8 +2,9 @@ use super::*;
 use crate::coin_balance::{EnableCoinBalanceError, HDAddressBalance, HDBalanceAddress, HDWalletBalance,
                           HDWalletBalanceOps};
 use crate::coin_errors::{MyAddressError, ValidatePaymentResult};
-use crate::hd_wallet::{ExtractExtendedPubkey, HDCoinAddress, HDCoinHDAccount, HDCoinHDAddress, HDCoinWithdrawOps,
-                       HDExtractPubkeyError, HDXPubExtractor, TrezorCoinError, WithdrawSenderAddress};
+use crate::hd_wallet::{ExtractExtendedPubkey, HDCoinAddress, HDCoinExtendedPubkey, HDCoinHDAccount, HDCoinHDAddress,
+                       HDCoinWithdrawOps, HDExtractPubkeyError, HDXPubExtractor, TrezorCoinError,
+                       WithdrawSenderAddress};
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxDetailsBuilder,
                               TxHistoryStorage};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
@@ -1414,7 +1415,7 @@ impl HDWalletCoinOps for BchCoin {
 
     fn address_from_extended_pubkey(
         &self,
-        extended_pubkey: &Secp256k1ExtendedPublicKey,
+        extended_pubkey: &HDCoinExtendedPubkey<Self>,
         derivation_path: DerivationPath,
     ) -> HDCoinHDAddress<Self> {
         utxo_common::address_from_extended_pubkey(self, extended_pubkey, derivation_path)

@@ -1,14 +1,14 @@
 use super::*;
 use crate::coin_balance::HDAddressBalanceScanner;
-use crate::hd_wallet::{ExtractExtendedPubkey, HDAccount, HDAddress, HDExtractPubkeyError, HDWallet, HDXPubExtractor,
-                       TrezorCoinError};
+use crate::hd_wallet::{ExtractExtendedPubkey, HDAccount, HDAddress, HDCoinExtendedPubkey, HDExtractPubkeyError,
+                       HDWallet, HDXPubExtractor, TrezorCoinError};
 use async_trait::async_trait;
 use bip32::DerivationPath;
 use crypto::Secp256k1ExtendedPublicKey;
 use ethereum_types::{Address, Public};
 
 pub type EthHDAddress = HDAddress<Address, Public>;
-pub type EthHDAccount = HDAccount<EthHDAddress>;
+pub type EthHDAccount = HDAccount<EthHDAddress, Secp256k1ExtendedPublicKey>;
 pub type EthHDWallet = HDWallet<EthHDAccount>;
 
 #[async_trait]
@@ -35,7 +35,7 @@ impl HDWalletCoinOps for EthCoin {
 
     fn address_from_extended_pubkey(
         &self,
-        extended_pubkey: &Secp256k1ExtendedPublicKey,
+        extended_pubkey: &HDCoinExtendedPubkey<Self>,
         derivation_path: DerivationPath,
     ) -> HDCoinHDAddress<Self> {
         let pubkey = pubkey_from_extended(extended_pubkey);
