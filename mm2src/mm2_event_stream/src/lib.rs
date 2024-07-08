@@ -1,6 +1,9 @@
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt;
+
+use serde::Deserialize;
+use serde_json::Value as Json;
+
 #[cfg(target_arch = "wasm32")] use std::path::PathBuf;
 
 #[cfg(target_arch = "wasm32")]
@@ -77,7 +80,7 @@ pub struct EventStreamConfiguration {
     #[serde(default)]
     pub access_control_allow_origin: String,
     #[serde(default)]
-    active_events: HashMap<EventName, EventConfig>,
+    active_events: HashMap<EventName, Json>,
     /// The path to the worker script for event streaming.
     #[cfg(target_arch = "wasm32")]
     #[serde(default = "default_worker_path")]
@@ -87,16 +90,6 @@ pub struct EventStreamConfiguration {
 #[cfg(target_arch = "wasm32")]
 #[inline]
 fn default_worker_path() -> PathBuf { PathBuf::from(DEFAULT_WORKER_PATH) }
-
-/// Represents the configuration for a specific event within the event stream.
-#[derive(Clone, Default, Deserialize)]
-pub struct EventConfig {
-    /// The interval in seconds at which the event should be streamed.
-    #[serde(default = "default_stream_interval")]
-    pub stream_interval_seconds: f64,
-}
-
-const fn default_stream_interval() -> f64 { 5. }
 
 impl Default for EventStreamConfiguration {
     fn default() -> Self {
@@ -112,7 +105,7 @@ impl Default for EventStreamConfiguration {
 impl EventStreamConfiguration {
     /// Retrieves the configuration for a specific event by its name.
     #[inline]
-    pub fn get_event(&self, event_name: &EventName) -> Option<EventConfig> {
+    pub fn get_event(&self, event_name: &EventName) -> Option<Json> {
         self.active_events.get(event_name).cloned()
     }
 

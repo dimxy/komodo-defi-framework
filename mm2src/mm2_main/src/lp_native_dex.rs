@@ -205,10 +205,8 @@ pub enum MmInitError {
     OrdersKickStartError(String),
     #[display(fmt = "Error initializing wallet: {}", _0)]
     WalletInitError(String),
-    #[display(fmt = "NETWORK event initialization failed: {}", _0)]
-    NetworkEventInitFailed(String),
-    #[display(fmt = "HEARTBEAT event initialization failed: {}", _0)]
-    HeartbeatEventInitFailed(String),
+    #[display(fmt = "Event streamer initialization failed: {}", _0)]
+    EventStreamerInitFailed(String),
     #[from_trait(WithHwRpcError::hw_rpc_error)]
     #[display(fmt = "{}", _0)]
     HwError(HwRpcError),
@@ -428,19 +426,20 @@ fn migrate_db(ctx: &MmArc) -> MmInitResult<()> {
 fn migration_1(_ctx: &MmArc) {}
 
 async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
-    // This condition only executed if events were enabled in mm2 configuration.
-    if let EventInitStatus::Failed(err) = NetworkEvent::new(ctx.clone())
-        .spawn_if_active(&ctx.event_stream_configuration)
-        .await
-    {
-        return MmError::err(MmInitError::NetworkEventInitFailed(err));
+    if let Some(config) = ctx.event_stream_configuration.get_event(&NetworkEvent::event_name()) {
+        NetworkEvent::try_new(config, ctx.clone())
+            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to initialize network event: {e}")))?
+            .spawn()
+            .await
+            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn network event: {e}")))?;
     }
 
-    if let EventInitStatus::Failed(err) = HeartbeatEvent::new(ctx.clone())
-        .spawn_if_active(&ctx.event_stream_configuration)
-        .await
-    {
-        return MmError::err(MmInitError::HeartbeatEventInitFailed(err));
+    if let Some(config) = ctx.event_stream_configuration.get_event(&HeartbeatEvent::event_name()) {
+        HeartbeatEvent::try_new(config, ctx.clone())
+            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to initialize heartbeat event: {e}")))?
+            .spawn()
+            .await
+            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn heartbeat event: {e}")))?;
     }
 
     Ok(())
