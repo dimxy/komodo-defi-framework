@@ -25,6 +25,7 @@ use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxDa
 use crate::utxo::{UnsupportedAddr, UtxoFeeDetails};
 use crate::z_coin::storage::{BlockDbImpl, WalletDbShared};
 use crate::z_coin::z_balance_streaming::ZBalanceEventHandler;
+use crate::z_coin::z_balance_streaming::ZCoinBalanceEventStreamer;
 use crate::z_coin::z_tx_history::{fetch_tx_history_from_db, ZCoinTxHistoryItem};
 use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput,
             DexFee, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin,
@@ -59,7 +60,7 @@ use keys::hash::H256;
 use keys::{KeyPair, Message, Public};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::behaviour::{EventBehaviour, EventInitStatus};
+use mm2_event_stream::behaviour::EventBehaviour;
 use mm2_number::{BigDecimal, MmNumber};
 #[cfg(test)] use mocktopus::macros::*;
 use primitives::bytes::Bytes;
@@ -661,11 +662,15 @@ impl ZCoin {
     }
 
     async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
-        let coin = self.clone();
-        if let EventInitStatus::Failed(err) =
-            EventBehaviour::spawn_if_active(coin, &ctx.event_stream_configuration).await
+        if let Some(config) = ctx
+            .event_stream_configuration
+            .get_event(&ZCoinBalanceEventStreamer::event_name())
         {
-            return ERR!("Failed spawning zcoin balance event with error: {}", err);
+            ZCoinBalanceEventStreamer::try_new(config, self.clone())
+                .map_err(|e| ERRL!("Failed to initialize zcoin balance streaming: {}", e))?
+                .spawn()
+                .await
+                .map_err(|e| ERRL!("Failed to spawn zcoin balance streaming: {}", e))?;
         }
 
         Ok(())

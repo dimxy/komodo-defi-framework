@@ -239,6 +239,8 @@ use coin_errors::{MyAddressError, ValidatePaymentError, ValidatePaymentFut, Vali
 #[cfg(test)]
 pub mod coins_tests;
 
+mod streaming_events_config;
+
 pub mod eth;
 use eth::GetValidEthWithdrawAddError;
 use eth::{eth_coin_from_conf_and_request, get_eth_address, EthCoin, EthGasDetailsErr, EthTxFeeDetails,

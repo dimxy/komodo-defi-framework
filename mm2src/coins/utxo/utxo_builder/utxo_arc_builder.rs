@@ -14,7 +14,7 @@ use common::log::{debug, error, info, warn};
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::behaviour::{EventBehaviour, EventInitStatus};
+use mm2_event_stream::behaviour::EventBehaviour;
 #[cfg(test)] use mocktopus::macros::*;
 use rand::Rng;
 use script::Builder;
@@ -120,11 +120,24 @@ where
             spawn_block_header_utxo_loop(self.ticker, &utxo_arc, sync_handle, spv_conf);
         }
 
-        if let EventInitStatus::Failed(err) = UtxoBalanceEventStreamer::new(utxo_arc)
-            .spawn_if_active(&self.ctx().event_stream_configuration)
-            .await
+        if let Some(config) = self
+            .ctx()
+            .event_stream_configuration
+            .get_event(&UtxoBalanceEventStreamer::event_name())
         {
-            return MmError::err(UtxoCoinBuildError::FailedSpawningBalanceEvents(err));
+            UtxoBalanceEventStreamer::try_new(config, utxo_arc)
+                .map_to_mm(|e| {
+                    UtxoCoinBuildError::FailedSpawningBalanceEvents(format!(
+                        "Failed to initialize utxo event streaming: {e}"
+                    ))
+                })?
+                .spawn()
+                .await
+                .map_to_mm(|e| {
+                    UtxoCoinBuildError::FailedSpawningBalanceEvents(format!(
+                        "Failed to spawn utxo event streaming: {e}"
+                    ))
+                })?;
         }
 
         Ok(result_coin)

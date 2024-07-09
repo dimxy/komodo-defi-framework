@@ -105,9 +105,7 @@ impl Default for EventStreamConfiguration {
 impl EventStreamConfiguration {
     /// Retrieves the configuration for a specific event by its name.
     #[inline]
-    pub fn get_event(&self, event_name: &EventName) -> Option<Json> {
-        self.active_events.get(event_name).cloned()
-    }
+    pub fn get_event(&self, event_name: &EventName) -> Option<Json> { self.active_events.get(event_name).cloned() }
 
     /// Gets the total number of active events in the configuration.
     #[inline]

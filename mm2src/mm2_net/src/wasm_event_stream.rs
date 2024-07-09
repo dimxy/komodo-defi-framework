@@ -14,7 +14,7 @@ unsafe impl Send for SendableMessagePort {}
 pub async fn handle_worker_stream(ctx: MmArc) {
     let config = &ctx.event_stream_configuration;
 
-    let mut channel_controller = ctx.stream_channel_controller.clone();
+    let channel_controller = ctx.stream_channel_controller.clone();
     let mut rx = channel_controller.create_channel(config.total_active_events());
 
     let worker_path = config

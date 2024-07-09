@@ -1,15 +1,17 @@
 use async_trait::async_trait;
 use common::{executor::{AbortSettings, SpawnAbortable, Timer},
              log, Future01CompatExt};
-use futures::channel::oneshot::{self, Receiver, Sender};
+use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{behaviour::{EventBehaviour, EventInitStatus},
-                       ErrorEventName, Event, EventName, EventStreamConfiguration};
+use mm2_event_stream::{behaviour::EventBehaviour, ErrorEventName, Event, EventName};
+use serde::Deserialize;
+use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
 
 use super::{utxo_standard::UtxoStandardCoin, UtxoArc};
+use crate::streaming_events_config::BalanceEventConfig;
 use crate::{utxo::{output_script,
                    rpc_clients::electrum_script_hash,
                    utxo_common::{address_balance, address_to_scripthash},
@@ -28,17 +30,30 @@ macro_rules! try_or_continue {
     };
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyConfig {}
+
 pub struct UtxoBalanceEventStreamer {
+    /// Whether the event is enabled for this coin.
+    enabled: bool,
     coin: UtxoStandardCoin,
 }
 
 impl UtxoBalanceEventStreamer {
-    pub fn new(utxo_arc: UtxoArc) -> Self {
-        Self {
+    pub fn try_new(config: Json, utxo_arc: UtxoArc) -> serde_json::Result<Self> {
+        let config: BalanceEventConfig = serde_json::from_value(config)?;
+        let enabled = match config.find_coin(&utxo_arc.conf.ticker) {
+            // This is just an extra check to make sure the config is correct (no config)
+            Some(c) => serde_json::from_value::<EmptyConfig>(c).map(|_| true)?,
+            None => false,
+        };
+        Ok(Self {
+            enabled,
             // We wrap the UtxoArc in a UtxoStandardCoin for easier method accessibility.
             // The UtxoArc might belong to a different coin type though.
             coin: UtxoStandardCoin::from(utxo_arc),
-        }
+        })
     }
 }
 
@@ -48,8 +63,7 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
 
     fn error_event_name() -> ErrorEventName { ErrorEventName::CoinBalanceError }
 
-    // FIXME: Move `interval` to `self`.
-    async fn handle(self, _interval: f64, tx: oneshot::Sender<EventInitStatus>) {
+    async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let coin = self.coin;
 
@@ -90,18 +104,11 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
             Ok(scripthash_to_address_map)
         }
 
-        if coin.as_ref().rpc_client.is_native() {
-            // We won't consider this an error but just an unsupported scenario and continue running.
-            tx.send(EventInitStatus::Success).expect(RECEIVER_DROPPED_MSG);
-            panic!("Native mode is not supported for event streaming", e);
-        }
-
         let ctx = match MmArc::from_weak(&coin.as_ref().ctx) {
             Some(ctx) => ctx,
             None => {
                 let msg = "MM context must have been initialized already.";
-                tx.send(EventInitStatus::Failed(msg.to_owned()))
-                    .expect(RECEIVER_DROPPED_MSG);
+                tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
                 panic!("{}", msg);
             },
         };
@@ -110,13 +117,12 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
             Some(t) => t,
             None => {
                 let e = "Scripthash notification receiver can not be empty.";
-                tx.send(EventInitStatus::Failed(e.to_string()))
-                    .expect(RECEIVER_DROPPED_MSG);
+                tx.send(Err(e.to_string())).expect(RECEIVER_DROPPED_MSG);
                 panic!("{}", e);
             },
         };
 
-        tx.send(EventInitStatus::Success).expect(RECEIVER_DROPPED_MSG);
+        tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
         let mut scripthash_to_address_map = BTreeMap::default();
         while let Some(message) = scripthash_notification_handler.lock().await.next().await {
@@ -228,30 +234,38 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
         }
     }
 
-    async fn spawn_if_active(self, config: &EventStreamConfiguration) -> EventInitStatus {
-        if let Some(event) = config.get_event(&Self::event_name()) {
-            log::info!(
-                "{} event is activated for {}. `stream_interval_seconds`({}) has no effect on this.",
-                Self::event_name(),
-                self.coin.ticker(),
-                event.stream_interval_seconds
-            );
-
-            let (tx, rx): (Sender<EventInitStatus>, Receiver<EventInitStatus>) = oneshot::channel();
-            let settings = AbortSettings::info_on_abort(format!(
-                "{} event is stopped for {}.",
-                Self::event_name(),
-                self.coin.ticker()
-            ));
-            self.coin
-                .spawner()
-                .spawn_with_settings(self.handle(event.stream_interval_seconds, tx), settings);
-
-            rx.await.unwrap_or_else(|e| {
-                EventInitStatus::Failed(format!("Event initialization status must be received: {}", e))
-            })
-        } else {
-            EventInitStatus::Inactive
+    async fn spawn(self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
         }
+
+        if self.coin.as_ref().rpc_client.is_native() {
+            log::warn!(
+                "Native RPC client is not supported for {} event. Skipping event initialization.",
+                self.event_id(),
+            );
+            // We won't consider this an error but just an unsupported scenario and continue running.
+            return Ok(());
+        }
+
+        log::info!(
+            "{} event is activated for coin: {}",
+            Self::event_name(),
+            self.coin.ticker(),
+        );
+
+        let (tx, rx) = oneshot::channel();
+        let settings = AbortSettings::info_on_abort(format!(
+            "{} event is stopped for {}.",
+            Self::event_name(),
+            self.coin.ticker()
+        ));
+        self.coin.spawner().spawn_with_settings(self.handle(tx), settings);
+
+        rx.await.unwrap_or_else(|e| {
+            Err(format!(
+                "The handler was aborted before sending event initialization status: {e}"
+            ))
+        })
     }
 }

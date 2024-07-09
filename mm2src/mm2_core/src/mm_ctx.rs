@@ -757,6 +757,7 @@ impl MmCtxBuilder {
 
             let event_stream_configuration = &ctx.conf["event_stream_configuration"];
             if !event_stream_configuration.is_null() {
+                // FIXME: Consider validating all the fields in the event streaming configuration here.
                 ctx.event_stream_configuration = json::from_value(event_stream_configuration.clone())
                     .expect("Invalid json value in 'event_stream_configuration'.");
             }

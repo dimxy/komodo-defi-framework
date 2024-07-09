@@ -2,20 +2,53 @@ use async_trait::async_trait;
 use common::{executor::{AbortSettings, SpawnAbortable, Timer},
              log, Future01CompatExt};
 use ethereum_types::Address;
-use futures::{channel::oneshot::{self, Receiver, Sender},
-              stream::FuturesUnordered,
-              StreamExt};
+use futures::{channel::oneshot, stream::FuturesUnordered, StreamExt};
 use instant::Instant;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmError;
-use mm2_event_stream::{behaviour::{EventBehaviour, EventInitStatus},
-                       ErrorEventName, Event, EventName, EventStreamConfiguration};
+use mm2_event_stream::{behaviour::EventBehaviour, ErrorEventName, Event, EventName};
 use mm2_number::BigDecimal;
+use serde::Deserialize;
+use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 
 use super::EthCoin;
+use crate::streaming_events_config::BalanceEventConfig;
 use crate::{eth::{u256_to_big_decimal, Erc20TokenInfo},
             BalanceError, CoinWithDerivationMethod, MmCoin};
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SingleEthCoinConfig {
+    #[serde(default = "default_stream_interval")]
+    pub stream_interval_seconds: f64,
+}
+
+const fn default_stream_interval() -> f64 { 10. }
+
+pub struct EthBalanceEventStreamer {
+    /// Whether the event is enabled for this coin.
+    enabled: bool,
+    /// The period in seconds between each balance check.
+    interval: f64,
+    coin: EthCoin,
+}
+
+impl EthBalanceEventStreamer {
+    pub fn try_new(config: Json, coin: EthCoin) -> serde_json::Result<Self> {
+        let config: BalanceEventConfig = serde_json::from_value(config)?;
+        let coin_config: Option<SingleEthCoinConfig> = match config.find_coin(&coin.ticker) {
+            // Try to parse the coin config.
+            Some(c) => Some(serde_json::from_value(c)?),
+            None => None,
+        };
+        Ok(Self {
+            enabled: coin_config.is_some(),
+            interval: coin_config.map(|c| c.stream_interval_seconds).unwrap_or(0.0),
+            coin,
+        })
+    }
+}
 
 struct BalanceData {
     ticker: String,
@@ -113,12 +146,12 @@ async fn fetch_balance(
 }
 
 #[async_trait]
-impl EventBehaviour for EthCoin {
+impl EventBehaviour for EthBalanceEventStreamer {
     fn event_name() -> EventName { EventName::CoinBalance }
 
     fn error_event_name() -> ErrorEventName { ErrorEventName::CoinBalanceError }
 
-    async fn handle(self, interval: f64, tx: oneshot::Sender<EventInitStatus>) {
+    async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
 
         async fn start_polling(coin: EthCoin, ctx: MmArc, interval: f64) {
@@ -147,7 +180,7 @@ impl EventBehaviour for EthCoin {
                         let e = serde_json::to_value(e).expect("Serialization shouldn't fail.");
                         ctx.stream_channel_controller
                             .broadcast(Event::new(
-                                format!("{}:{}", EthCoin::error_event_name(), coin.ticker),
+                                format!("{}:{}", EthBalanceEventStreamer::error_event_name(), coin.ticker),
                                 e.to_string(),
                             ))
                             .await;
@@ -184,7 +217,12 @@ impl EventBehaviour for EthCoin {
                             let e = serde_json::to_value(err.error).expect("Serialization shouldn't fail.");
                             ctx.stream_channel_controller
                                 .broadcast(Event::new(
-                                    format!("{}:{}:{}", EthCoin::error_event_name(), err.ticker, err.address),
+                                    format!(
+                                        "{}:{}:{}",
+                                        EthBalanceEventStreamer::error_event_name(),
+                                        err.ticker,
+                                        err.address
+                                    ),
                                     e.to_string(),
                                 ))
                                 .await;
@@ -195,7 +233,7 @@ impl EventBehaviour for EthCoin {
                 if !balance_updates.is_empty() {
                     ctx.stream_channel_controller
                         .broadcast(Event::new(
-                            EthCoin::event_name().to_string(),
+                            EthBalanceEventStreamer::event_name().to_string(),
                             json!(balance_updates).to_string(),
                         ))
                         .await;
@@ -205,36 +243,43 @@ impl EventBehaviour for EthCoin {
             }
         }
 
-        let ctx = match MmArc::from_weak(&self.ctx) {
+        let ctx = match MmArc::from_weak(&self.coin.ctx) {
             Some(ctx) => ctx,
             None => {
                 let msg = "MM context must have been initialized already.";
-                tx.send(EventInitStatus::Failed(msg.to_owned()))
-                    .expect(RECEIVER_DROPPED_MSG);
+                tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
                 panic!("{}", msg);
             },
         };
 
-        tx.send(EventInitStatus::Success).expect(RECEIVER_DROPPED_MSG);
+        tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
-        start_polling(self, ctx, interval).await
+        start_polling(self.coin, ctx, self.interval).await
     }
 
-    async fn spawn_if_active(self, config: &EventStreamConfiguration) -> EventInitStatus {
-        if let Some(event) = config.get_event(&Self::event_name()) {
-            log::info!("{} event is activated for {}", Self::event_name(), self.ticker,);
-
-            let (tx, rx): (Sender<EventInitStatus>, Receiver<EventInitStatus>) = oneshot::channel();
-            let fut = self.clone().handle(event.stream_interval_seconds, tx);
-            let settings =
-                AbortSettings::info_on_abort(format!("{} event is stopped for {}.", Self::event_name(), self.ticker));
-            self.spawner().spawn_with_settings(fut, settings);
-
-            rx.await.unwrap_or_else(|e| {
-                EventInitStatus::Failed(format!("Event initialization status must be received: {}", e))
-            })
-        } else {
-            EventInitStatus::Inactive
+    async fn spawn(self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
         }
+        log::info!(
+            "{} event is activated for {}, and polling every {}s",
+            Self::event_name(),
+            self.coin.ticker,
+            self.interval
+        );
+
+        let (tx, rx) = oneshot::channel();
+        let settings = AbortSettings::info_on_abort(format!(
+            "{} event is stopped for {}.",
+            Self::event_name(),
+            self.coin.ticker
+        ));
+        self.coin.spawner().spawn_with_settings(self.handle(tx), settings);
+
+        rx.await.unwrap_or_else(|e| {
+            Err(format!(
+                "The handler was aborted before sending event initialization status: {e}"
+            ))
+        })
     }
 }

@@ -1,13 +1,14 @@
 use async_trait::async_trait;
 use common::{executor::{SpawnFuture, Timer},
              log::info};
-use futures::channel::oneshot::{self, Receiver, Sender};
+use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{behaviour::EventBehaviour, Event, EventName, EventStreamConfiguration};
+use mm2_event_stream::{behaviour::EventBehaviour, Event, EventName};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HeartbeatEventConfig {
     #[serde(default = "default_stream_interval")]
     pub stream_interval_seconds: f64,
@@ -23,7 +24,7 @@ pub struct HeartbeatEvent {
 impl HeartbeatEvent {
     pub fn try_new(config: Json, ctx: MmArc) -> Result<Self, String> {
         Ok(Self {
-            config: serde_json::from_value(config)?,
+            config: serde_json::from_value(config).map_err(|e| e.to_string())?,
             ctx,
         })
     }

@@ -63,6 +63,7 @@ use crypto::privkey::key_pair_from_secret;
 use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
 use derive_more::Display;
 use enum_derives::EnumFromStringify;
+use eth_balance_events::EthBalanceEventStreamer;
 use ethabi::{Contract, Function, Token};
 use ethcore_transaction::tx_builders::TxBuilderError;
 use ethcore_transaction::{Action, TransactionWrapper, TransactionWrapperBuilder as UnSignedEthTxBuilder,
@@ -78,7 +79,7 @@ use http::Uri;
 use instant::Instant;
 use keys::Public as HtlcPubKey;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
-use mm2_event_stream::behaviour::{EventBehaviour, EventInitStatus};
+use mm2_event_stream::behaviour::EventBehaviour;
 use mm2_net::transport::{GuiAuthValidation, GuiAuthValidationGenerator};
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, BigUint, MmNumber};
@@ -5282,12 +5283,16 @@ impl EthCoin {
     }
 
     async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
-        if let EventInitStatus::Failed(err) =
-            EventBehaviour::spawn_if_active(self.clone(), &ctx.event_stream_configuration).await
+        if let Some(config) = ctx
+            .event_stream_configuration
+            .get_event(&EthBalanceEventStreamer::event_name())
         {
-            return ERR!("Failed spawning balance events. Error: {}", err);
+            EthBalanceEventStreamer::try_new(config, self.clone())
+                .map_err(|e| ERRL!("Failed to initialize eth balance streaming: {}", e))?
+                .spawn()
+                .await
+                .map_err(|e| ERRL!("Failed to spawn eth balance streaming: {}", e))?;
         }
-
         Ok(())
     }
 

@@ -10,6 +10,7 @@ use crate::prelude::*;
 use async_trait::async_trait;
 use coins::hd_wallet::HDPathAccountToAddressId;
 use coins::my_tx_history_v2::TxHistoryStorage;
+use coins::tendermint::tendermint_balance_events::TendermintBalanceEventStreamer;
 use coins::tendermint::tendermint_tx_history_v2::tendermint_history_loop;
 use coins::tendermint::{tendermint_priv_key_policy, TendermintActivationPolicy, TendermintCoin, TendermintCommons,
                         TendermintConf, TendermintInitError, TendermintInitErrorKind, TendermintProtocolInfo,
@@ -20,7 +21,7 @@ use common::executor::{AbortSettings, SpawnAbortable};
 use common::{true_f, Future01CompatExt};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::behaviour::{EventBehaviour, EventInitStatus};
+use mm2_event_stream::behaviour::EventBehaviour;
 use mm2_event_stream::EventStreamConfiguration;
 use mm2_number::BigDecimal;
 use rpc_task::RpcTaskHandleShared;
@@ -372,11 +373,22 @@ impl PlatformCoinWithTokensActivationOps for TendermintCoin {
         &self,
         config: &EventStreamConfiguration,
     ) -> Result<(), MmError<Self::ActivationError>> {
-        if let EventInitStatus::Failed(err) = EventBehaviour::spawn_if_active(self.clone(), config).await {
-            return MmError::err(TendermintInitError {
-                ticker: self.ticker().to_owned(),
-                kind: TendermintInitErrorKind::BalanceStreamInitError(err),
-            });
+        if let Some(config) = config.get_event(&TendermintBalanceEventStreamer::event_name()) {
+            TendermintBalanceEventStreamer::try_new(config, self.clone())
+                .map_to_mm(|e| TendermintInitError {
+                    ticker: self.ticker().to_owned(),
+                    kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
+                        "Failed to initialize tendermint balance streaming: {e}"
+                    )),
+                })?
+                .spawn()
+                .await
+                .map_to_mm(|e| TendermintInitError {
+                    ticker: self.ticker().to_owned(),
+                    kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
+                        "Failed to spawn tendermint balance streaming handler: {e}"
+                    )),
+                })?;
         }
         Ok(())
     }

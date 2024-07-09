@@ -1,11 +1,15 @@
-use crate::{ErrorEventName, EventName, EventStreamConfiguration};
+use crate::{ErrorEventName, EventName};
 use async_trait::async_trait;
 use futures::channel::oneshot;
 
 #[async_trait]
 pub trait EventBehaviour {
-    /// Returns the unique name of the event as an EventName enum variant.
+    /// Returns the name of the event as an EventName enum variant.
     fn event_name() -> EventName;
+
+    /// Returns a human readable unique identifier for the event streamer.
+    /// No other event should have the same identifier.
+    fn event_id(&self) -> String { unimplemented!() }
 
     /// Returns the name of the error event as an ErrorEventName enum variant.
     /// By default, it returns `ErrorEventName::GenericError,` which shows as "ERROR" in the event stream.
