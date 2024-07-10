@@ -4,6 +4,10 @@ use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct BalanceEventConfig {
+    /// A map of coin tickers to their balance streaming configuration.
+    ///
+    /// The configuration doesn't have a specific structure at this point, every coin
+    /// has its own configuration structure.
     coins: HashMap<String, Json>,
 }
 
@@ -20,3 +24,10 @@ impl BalanceEventConfig {
             .map(|(_, value)| value.clone())
     }
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+/// An empty configuration struct.
+///
+/// It's used mainly to make sure there is no config provided.
+pub(crate) struct EmptySubConfig {}

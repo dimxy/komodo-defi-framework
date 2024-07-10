@@ -8,17 +8,12 @@ use jsonrpc_core::{Id as RpcId, Params as RpcParams, Value as RpcValue, Version 
 use mm2_core::mm_ctx::MmArc;
 use mm2_event_stream::{behaviour::EventBehaviour, ErrorEventName, Event, EventName};
 use mm2_number::BigDecimal;
-use serde::Deserialize;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 
 use super::TendermintCoin;
-use crate::streaming_events_config::BalanceEventConfig;
+use crate::streaming_events_config::{BalanceEventConfig, EmptySubConfig};
 use crate::{tendermint::TendermintCommons, utxo::utxo_common::big_decimal_from_sat_unsigned, MarketCoinOps, MmCoin};
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EmptyConfig {}
 
 pub struct TendermintBalanceEventStreamer {
     /// Whether the event is enabled for this coin.
@@ -31,7 +26,7 @@ impl TendermintBalanceEventStreamer {
         let config: BalanceEventConfig = serde_json::from_value(config)?;
         let enabled = match config.find_coin(coin.ticker()) {
             // This is just an extra check to make sure the config is correct (no config)
-            Some(c) => serde_json::from_value::<EmptyConfig>(c).map(|_| true)?,
+            Some(c) => serde_json::from_value::<EmptySubConfig>(c).map(|_| true)?,
             None => false,
         };
         Ok(Self { enabled, coin })

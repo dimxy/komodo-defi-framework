@@ -13,9 +13,10 @@ use serde_json::{json, Value as Json};
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetworkEventConfig {
+    /// The time in seconds to wait after sending network info before sending another one.
     #[serde(default = "default_stream_interval")]
     pub stream_interval_seconds: f64,
-    /// Always (force) send the event data, even if it's the same as the previous one.
+    /// Always (force) send network info data, even if it's the same as the previous one sent.
     #[serde(default)]
     pub always_send: bool,
 }

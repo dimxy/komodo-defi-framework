@@ -20,6 +20,7 @@ use crate::{eth::{u256_to_big_decimal, Erc20TokenInfo},
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SingleEthCoinConfig {
+    /// The time in seconds to wait before re-polling the balance and streaming.
     #[serde(default = "default_stream_interval")]
     pub stream_interval_seconds: f64,
 }

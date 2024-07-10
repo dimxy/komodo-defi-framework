@@ -10,6 +10,7 @@ use serde_json::Value as Json;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HeartbeatEventConfig {
+    /// The time in seconds to wait before sending another ping event.
     #[serde(default = "default_stream_interval")]
     pub stream_interval_seconds: f64,
 }
