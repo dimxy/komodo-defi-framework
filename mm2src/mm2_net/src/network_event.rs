@@ -67,7 +67,7 @@ impl EventBehaviour for NetworkEvent {
             if previously_sent != event_data || self.config.always_send {
                 self.ctx
                     .stream_channel_controller
-                    .broadcast(Event::new(Self::event_name().to_string(), event_data.to_string()))
+                    .broadcast(Event::new(Self::event_name().to_string(), event_data.clone(), None))
                     .await;
 
                 previously_sent = event_data;

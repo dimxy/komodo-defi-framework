@@ -5,9 +5,10 @@ use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{behaviour::EventBehaviour, ErrorEventName, Event, EventName};
+use mm2_event_stream::{behaviour::EventBehaviour, ErrorEventName, Event, EventName, Filter};
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 use super::{utxo_standard::UtxoStandardCoin, UtxoArc};
 use crate::streaming_events_config::{BalanceEventConfig, EmptySubConfig};
@@ -61,6 +62,7 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let coin = self.coin;
+        let filter = Arc::new(UtxoBalanceEventFilter::new(coin.ticker()));
 
         async fn subscribe_to_addresses(
             utxo: &UtxoCoinFields,
@@ -130,9 +132,10 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
                             log::error!("{e}");
 
                             ctx.stream_channel_controller
-                                .broadcast(Event::new(
+                                .broadcast(Event::err(
                                     format!("{}:{}", Self::error_event_name(), coin.ticker()),
-                                    json!({ "error": e }).to_string(),
+                                    json!({ "error": e }),
+                                    Some(filter.clone()),
                                 ))
                                 .await;
                         },
@@ -148,9 +151,10 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
                             log::error!("{e}");
 
                             ctx.stream_channel_controller
-                                .broadcast(Event::new(
+                                .broadcast(Event::err(
                                     format!("{}:{}", Self::error_event_name(), coin.ticker()),
-                                    json!({ "error": e }).to_string(),
+                                    json!({ "error": e }),
+                                    Some(filter.clone()),
                                 ))
                                 .await;
                         },
@@ -204,9 +208,10 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
 
                     // FIXME: Note that such an event isn't SSE-ed to any client since no body is listening to it.
                     ctx.stream_channel_controller
-                        .broadcast(Event::new(
+                        .broadcast(Event::err(
                             format!("{}:{}", Self::error_event_name(), ticker),
-                            e.to_string(),
+                            e,
+                            Some(filter.clone()),
                         ))
                         .await;
 
@@ -223,7 +228,8 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
             ctx.stream_channel_controller
                 .broadcast(Event::new(
                     Self::event_name().to_string(),
-                    json!(vec![payload]).to_string(),
+                    json!(vec![payload]),
+                    Some(filter.clone()),
                 ))
                 .await;
         }
@@ -262,5 +268,28 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
                 "The handler was aborted before sending event initialization status: {e}"
             ))
         })
+    }
+}
+
+struct UtxoBalanceEventFilter {
+    /// The event name we are looking for to let this event pass.
+    event_name_match: String,
+}
+
+impl UtxoBalanceEventFilter {
+    pub fn new(ticker: &str) -> Self {
+        Self {
+            // The client requested event must have our ticker in that format to pass through.
+            event_name_match: format!("{}_{}", UtxoBalanceEventStreamer::event_name(), ticker),
+        }
+    }
+}
+
+impl Filter for UtxoBalanceEventFilter {
+    fn filter(&self, message: &Json, requested_events: &HashSet<String>) -> Option<Json> {
+        if requested_events.is_empty() || requested_events.contains(&self.event_name_match) {
+            return Some(message.clone());
+        }
+        None
     }
 }

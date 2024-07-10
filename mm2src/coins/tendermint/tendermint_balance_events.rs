@@ -145,9 +145,10 @@ impl EventBehaviour for TendermintBalanceEventStreamer {
                                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
                                     ctx.stream_channel_controller
-                                        .broadcast(Event::new(
+                                        .broadcast(Event::err(
                                             format!("{}:{}", Self::error_event_name(), ticker),
-                                            e.to_string(),
+                                            e,
+                                            None,
                                         ))
                                         .await;
 
@@ -180,10 +181,7 @@ impl EventBehaviour for TendermintBalanceEventStreamer {
 
                     if !balance_updates.is_empty() {
                         ctx.stream_channel_controller
-                            .broadcast(Event::new(
-                                Self::event_name().to_string(),
-                                json!(balance_updates).to_string(),
-                            ))
+                            .broadcast(Event::new(Self::event_name().to_string(), json!(balance_updates), None))
                             .await;
                     }
                 }

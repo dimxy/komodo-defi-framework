@@ -84,7 +84,7 @@ impl EventBehaviour for ZCoinBalanceEventStreamer {
                     });
 
                     ctx.stream_channel_controller
-                        .broadcast(Event::new(Self::event_name().to_string(), payload.to_string()))
+                        .broadcast(Event::err(Self::event_name().to_string(), payload, None))
                         .await;
                 },
                 Err(err) => {
@@ -93,10 +93,7 @@ impl EventBehaviour for ZCoinBalanceEventStreamer {
                     let e = serde_json::to_value(err).expect("Serialization should't fail.");
                     return ctx
                         .stream_channel_controller
-                        .broadcast(Event::new(
-                            format!("{}:{}", Self::error_event_name(), ticker),
-                            e.to_string(),
-                        ))
+                        .broadcast(Event::new(format!("{}:{}", Self::error_event_name(), ticker), e, None))
                         .await;
                 },
             };

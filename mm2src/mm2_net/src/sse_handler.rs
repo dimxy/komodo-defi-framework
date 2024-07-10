@@ -1,7 +1,7 @@
 use hyper::{body::Bytes, Body, Request, Response};
 use mm2_core::mm_ctx::MmArc;
 use serde_json::json;
-use std::convert::Infallible;
+use std::{collections::HashSet, convert::Infallible};
 
 pub const SSE_ENDPOINT: &str = "/event-stream";
 
@@ -25,7 +25,7 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
                 .find(|param| param.starts_with("filter="))
                 .map(|param| param.trim_start_matches("filter="))
         })
-        .map_or(Vec::new(), |events_param| {
+        .map_or(HashSet::new(), |events_param| {
             events_param.split(',').map(|event| event.to_string()).collect()
         });
 
@@ -33,12 +33,10 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
     let mut rx = channel_controller.create_channel(config.total_active_events());
     let body = Body::wrap_stream(async_stream::stream! {
         while let Some(event) = rx.recv().await {
-            // If there are no filtered events, that means we want to
-            // stream out all the events.
-            if filtered_events.is_empty() || filtered_events.contains(&event.event_type().to_owned()) {
+            if let Some((event_type, message)) = event.get_data(&filtered_events) {
                 let data = json!({
-                    "_type": event.event_type(),
-                    "message": event.message(),
+                    "_type": event_type,
+                    "message": message,
                 });
 
                 yield Ok::<_, hyper::Error>(Bytes::from(format!("data: {data} \n\n")));

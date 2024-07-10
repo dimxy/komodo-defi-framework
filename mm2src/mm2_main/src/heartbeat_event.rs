@@ -41,7 +41,7 @@ impl EventBehaviour for HeartbeatEvent {
         loop {
             self.ctx
                 .stream_channel_controller
-                .broadcast(Event::new(Self::event_name().to_string(), json!({}).to_string()))
+                .broadcast(Event::new(Self::event_name().to_string(), json!({}), None))
                 .await;
 
             Timer::sleep(self.config.stream_interval_seconds).await;

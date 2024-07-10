@@ -180,9 +180,10 @@ impl EventBehaviour for EthBalanceEventStreamer {
                         log::error!("Failed getting addresses for {}. Error: {}", coin.ticker, e);
                         let e = serde_json::to_value(e).expect("Serialization shouldn't fail.");
                         ctx.stream_channel_controller
-                            .broadcast(Event::new(
+                            .broadcast(Event::err(
                                 format!("{}:{}", EthBalanceEventStreamer::error_event_name(), coin.ticker),
-                                e.to_string(),
+                                e,
+                                None,
                             ))
                             .await;
                         sleep_remaining_time(interval, now).await;
@@ -217,14 +218,15 @@ impl EventBehaviour for EthBalanceEventStreamer {
                             );
                             let e = serde_json::to_value(err.error).expect("Serialization shouldn't fail.");
                             ctx.stream_channel_controller
-                                .broadcast(Event::new(
+                                .broadcast(Event::err(
                                     format!(
                                         "{}:{}:{}",
                                         EthBalanceEventStreamer::error_event_name(),
                                         err.ticker,
                                         err.address
                                     ),
-                                    e.to_string(),
+                                    e,
+                                    None,
                                 ))
                                 .await;
                         },
@@ -235,7 +237,8 @@ impl EventBehaviour for EthBalanceEventStreamer {
                     ctx.stream_channel_controller
                         .broadcast(Event::new(
                             EthBalanceEventStreamer::event_name().to_string(),
-                            json!(balance_updates).to_string(),
+                            json!(balance_updates),
+                            None,
                         ))
                         .await;
                 }
