@@ -38,8 +38,7 @@ impl Event {
 #[derive(Deserialize, Eq, Hash, PartialEq)]
 pub enum EventName {
     /// Indicates a change in the balance of a coin.
-    #[serde(rename = "COIN_BALANCE")]
-    CoinBalance,
+    BALANCE,
     /// Event triggered at regular intervals to indicate that the system is operational.
     HEARTBEAT,
     /// Returns p2p network information at a regular interval.
@@ -49,7 +48,7 @@ pub enum EventName {
 impl fmt::Display for EventName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CoinBalance => write!(f, "COIN_BALANCE"),
+            Self::BALANCE => write!(f, "COIN_BALANCE"),
             Self::HEARTBEAT => write!(f, "HEARTBEAT"),
             Self::NETWORK => write!(f, "NETWORK"),
         }

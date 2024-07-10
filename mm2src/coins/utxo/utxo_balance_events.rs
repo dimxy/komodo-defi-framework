@@ -59,7 +59,7 @@ impl UtxoBalanceEventStreamer {
 
 #[async_trait]
 impl EventBehaviour for UtxoBalanceEventStreamer {
-    fn event_name() -> EventName { EventName::CoinBalance }
+    fn event_name() -> EventName { EventName::BALANCE }
 
     fn error_event_name() -> ErrorEventName { ErrorEventName::CoinBalanceError }
 
