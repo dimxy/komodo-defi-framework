@@ -15,6 +15,9 @@ use serde_json::{json, Value as Json};
 struct NetworkEventConfig {
     #[serde(default = "default_stream_interval")]
     pub stream_interval_seconds: f64,
+    /// Always (force) send the event data, even if it's the same as the previous one.
+    #[serde(default)]
+    pub always_send: bool,
 }
 
 const fn default_stream_interval() -> f64 { 5. }
@@ -60,7 +63,7 @@ impl EventBehaviour for NetworkEvent {
                 "relay_mesh": relay_mesh,
             });
 
-            if previously_sent != event_data {
+            if previously_sent != event_data || self.config.always_send {
                 self.ctx
                     .stream_channel_controller
                     .broadcast(Event::new(Self::event_name().to_string(), event_data.to_string()))
