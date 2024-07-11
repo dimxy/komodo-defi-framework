@@ -2,7 +2,7 @@ use super::*;
 use crate::coin_balance::{HDAddressBalance, HDWalletBalanceObject, HDWalletBalanceOps};
 use crate::coin_errors::{MyAddressError, ValidatePaymentError, ValidatePaymentResult};
 use crate::eth::EthCoinType;
-use crate::hd_wallet::{HDCoinAddress, HDCoinHDAccount, HDCoinWithdrawOps, TrezorCoinError};
+use crate::hd_wallet::{HDCoinAddress, HDCoinHDAccount, HDCoinWithdrawOps, UniExtendedPublicKey, TrezorCoinError};
 use crate::lp_price::get_base_price_in_rel;
 use crate::rpc_command::init_withdraw::WithdrawTaskHandleShared;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UnspentMap, UtxoRpcClientEnum,
@@ -103,6 +103,19 @@ pub async fn get_tx_fee(coin: &UtxoCoinFields) -> UtxoRpcResult<ActualTxFee> {
             Ok(ActualTxFee::Dynamic(fee))
         },
         TxFee::FixedPerKb(satoshis) => Ok(ActualTxFee::FixedPerKb(*satoshis)),
+    }
+}
+
+pub(crate) fn address_from_extended_pubkey_wrapper<T>(
+    coin: &T,
+    extended_pubkey: &UniExtendedPublicKey,
+    derivation_path: DerivationPath,
+) -> UtxoHDAddress
+where
+    T: UtxoCommonOps,
+{
+    match extended_pubkey {
+        UniExtendedPublicKey::Secp256K1Pk(secp256k1_pk) => address_from_extended_pubkey(coin, secp256k1_pk, derivation_path),
     }
 }
 

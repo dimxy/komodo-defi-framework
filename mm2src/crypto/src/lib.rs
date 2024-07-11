@@ -27,7 +27,7 @@ pub use encrypt::EncryptedData;
 pub use global_hd_ctx::{derive_secp256k1_secret, GlobalHDAccountArc};
 pub use hw_client::{HwClient, HwConnectionStatus, HwDeviceInfo, HwProcessingError, HwPubkey, HwWalletType,
                     TrezorConnectProcessor};
-pub use hw_common::primitives::{Bip32Error, ChildNumber, DerivationPath, EcdsaCurve, ExtendedPublicKey,
+pub use hw_common::primitives::{Bip32Error, ChildNumber, DerivationPath, EcdsaCurve,
                                 Secp256k1ExtendedPublicKey, XPub};
 pub use hw_ctx::{HardwareWalletArc, HardwareWalletCtx};
 pub use hw_error::{from_hw_error, HwError, HwResult, HwRpcError, WithHwRpcError};

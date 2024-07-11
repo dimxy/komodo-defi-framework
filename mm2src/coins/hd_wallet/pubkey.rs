@@ -15,19 +15,40 @@ use std::sync::Arc;
 
 const SHOW_PUBKEY_ON_DISPLAY: bool = false;
 
-/// A trait that should be implemented by any extended public key type
-/// to allow it to work with the HD wallet traits.
-pub trait ExtendedPublicKeyOps: FromStr + Sized {
-    /// Derives a child extended public key from the current one.
-    fn derive_child(&self, child_number: ChildNumber) -> Result<Self, Bip32Error>;
-    /// Converts the extended public key to a string.
-    fn to_string(&self, prefix: Prefix) -> String;
+/// General extended public key type encapsulating several algorithms
+#[derive(Debug, Clone)]
+pub enum UniExtendedPublicKey {
+    Secp256K1Pk(Secp256k1ExtendedPublicKey),
+    // TODO: add Ed25519 ext pk, Schnorr pk whenever we need it
 }
 
-impl ExtendedPublicKeyOps for Secp256k1ExtendedPublicKey {
-    fn derive_child(&self, child_number: ChildNumber) -> Result<Self, Bip32Error> { self.derive_child(child_number) }
+impl FromStr for UniExtendedPublicKey {
+    type Err = String; // TODO: create error type
 
-    fn to_string(&self, prefix: Prefix) -> String { self.to_string(prefix) }
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // TODO: try parse other pubkeys (or indicate which type to parse in a param)
+        match Secp256k1ExtendedPublicKey::from_str(s) {
+            Ok(ext_pk) => Ok(UniExtendedPublicKey::Secp256K1Pk(ext_pk)),
+            Err(err) => Err(err.to_string()),
+        }
+    }
+}
+
+impl UniExtendedPublicKey {
+    pub fn derive_child(&self, child_number: ChildNumber) -> Result<Self, Bip32Error> {
+        match self {
+            UniExtendedPublicKey::Secp256K1Pk(ext_pk) => {
+                let secp256k1_child = ext_pk.derive_child(child_number)?;
+                Ok(UniExtendedPublicKey::Secp256K1Pk(secp256k1_child))
+            }
+        }
+    }
+
+    pub fn to_string(&self, prefix: Prefix) -> String { 
+        match self {
+            UniExtendedPublicKey::Secp256K1Pk(ext_pk) => ext_pk.to_string(prefix) 
+        }
+    }
 }
 
 /// This trait should be implemented for coins
@@ -35,13 +56,12 @@ impl ExtendedPublicKeyOps for Secp256k1ExtendedPublicKey {
 /// The extraction can be from either an internal or external wallet.
 #[async_trait]
 pub trait ExtractExtendedPubkey {
-    type ExtendedPublicKey;
 
     async fn extract_extended_pubkey<XPubExtractor>(
         &self,
         xpub_extractor: Option<XPubExtractor>,
         derivation_path: DerivationPath,
-    ) -> MmResult<Self::ExtendedPublicKey, HDExtractPubkeyError>
+    ) -> MmResult<UniExtendedPublicKey, HDExtractPubkeyError>
     where
         XPubExtractor: HDXPubExtractor + Send;
 }

@@ -246,9 +246,7 @@ use eth::{eth_coin_from_conf_and_request, get_eth_address, EthCoin, EthGasDetail
 use ethereum_types::U256;
 
 pub mod hd_wallet;
-use hd_wallet::{AccountUpdatingError, AddressDerivingError, HDAccountOps, HDAddressId, HDAddressOps, HDCoinAddress,
-                HDCoinHDAccount, HDExtractPubkeyError, HDPathAccountToAddressId, HDWalletAddress, HDWalletCoinOps,
-                HDWalletOps, HDWithdrawError, HDXPubExtractor, WithdrawFrom, WithdrawSenderAddress};
+use hd_wallet::{AccountUpdatingError, AddressDerivingError, HDAccountOps, HDAddressId, HDAddressOps, HDCoinAddress, HDCoinHDAccount, HDExtractPubkeyError, HDPathAccountToAddressId, HDWalletAddress, HDWalletCoinOps, HDWalletOps, HDWithdrawError, HDXPubExtractor, UniExtendedPublicKey, WithdrawFrom, WithdrawSenderAddress};
 
 #[cfg(not(target_arch = "wasm32"))] pub mod lightning;
 #[cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]
@@ -3994,7 +3992,7 @@ pub async fn extract_extended_pubkey_impl<Coin, XPubExtractor>(
     coin: &Coin,
     xpub_extractor: Option<XPubExtractor>,
     derivation_path: DerivationPath,
-) -> MmResult<Secp256k1ExtendedPublicKey, HDExtractPubkeyError>
+) -> MmResult<UniExtendedPublicKey, HDExtractPubkeyError>
 where
     XPubExtractor: HDXPubExtractor + Send,
     Coin: HDWalletCoinOps + CoinWithPrivKeyPolicy,
@@ -4003,7 +4001,8 @@ where
         Some(xpub_extractor) => {
             let trezor_coin = coin.trezor_coin()?;
             let xpub = xpub_extractor.extract_xpub(trezor_coin, derivation_path).await?;
-            Secp256k1ExtendedPublicKey::from_str(&xpub).map_to_mm(|e| HDExtractPubkeyError::InvalidXpub(e.to_string()))
+            let secp256k1_pk = Secp256k1ExtendedPublicKey::from_str(&xpub).map_to_mm(|e| HDExtractPubkeyError::InvalidXpub(e.to_string()))?;
+            Ok(UniExtendedPublicKey::Secp256K1Pk(secp256k1_pk))
         },
         None => {
             let mut priv_key = coin
@@ -4017,7 +4016,7 @@ where
                     .map_to_mm(|e| HDExtractPubkeyError::Internal(e.to_string()))?;
             }
             drop_mutability!(priv_key);
-            Ok(priv_key.public_key())
+            Ok(UniExtendedPublicKey::Secp256K1Pk(priv_key.public_key()))
         },
     }
 }

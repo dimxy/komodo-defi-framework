@@ -1,25 +1,25 @@
 use super::*;
 use crate::coin_balance::HDAddressBalanceScanner;
-use crate::hd_wallet::{ExtractExtendedPubkey, HDAccount, HDAddress, HDCoinExtendedPubkey, HDExtractPubkeyError,
+use crate::hd_wallet::{ExtractExtendedPubkey, HDAccount, HDAddress, HDExtractPubkeyError,
                        HDWallet, HDXPubExtractor, TrezorCoinError};
 use async_trait::async_trait;
 use bip32::DerivationPath;
-use crypto::Secp256k1ExtendedPublicKey;
 use ethereum_types::{Address, Public};
+use crate::hd_wallet::UniExtendedPublicKey;
+
 
 pub type EthHDAddress = HDAddress<Address, Public>;
-pub type EthHDAccount = HDAccount<EthHDAddress, Secp256k1ExtendedPublicKey>;
+pub type EthHDAccount = HDAccount<EthHDAddress>;
 pub type EthHDWallet = HDWallet<EthHDAccount>;
 
 #[async_trait]
 impl ExtractExtendedPubkey for EthCoin {
-    type ExtendedPublicKey = Secp256k1ExtendedPublicKey;
 
     async fn extract_extended_pubkey<XPubExtractor>(
         &self,
         xpub_extractor: Option<XPubExtractor>,
         derivation_path: DerivationPath,
-    ) -> MmResult<Self::ExtendedPublicKey, HDExtractPubkeyError>
+    ) -> MmResult<UniExtendedPublicKey, HDExtractPubkeyError>
     where
         XPubExtractor: HDXPubExtractor + Send,
     {
@@ -35,15 +35,19 @@ impl HDWalletCoinOps for EthCoin {
 
     fn address_from_extended_pubkey(
         &self,
-        extended_pubkey: &HDCoinExtendedPubkey<Self>,
+        extended_pubkey: &UniExtendedPublicKey,
         derivation_path: DerivationPath,
     ) -> HDCoinHDAddress<Self> {
-        let pubkey = pubkey_from_extended(extended_pubkey);
-        let address = public_to_address(&pubkey);
-        EthHDAddress {
-            address,
-            pubkey,
-            derivation_path,
+        match extended_pubkey {
+            UniExtendedPublicKey::Secp256K1Pk(secp256k1_pk) => {
+                let pubkey = pubkey_from_extended(secp256k1_pk);
+                let address = public_to_address(&pubkey);
+                EthHDAddress {
+                    address,
+                    pubkey,
+                    derivation_path,
+                }
+            }
         }
     }
 

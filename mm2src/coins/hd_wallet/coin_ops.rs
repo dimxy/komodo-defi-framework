@@ -1,6 +1,4 @@
-use super::{inner_impl, AccountUpdatingError, AddressDerivingError, AddressDerivingResult, ExtendedPublicKeyOps,
-            HDAccountOps, HDCoinAddress, HDCoinExtendedPubkey, HDCoinHDAccount, HDCoinHDAddress, HDConfirmAddress,
-            HDWalletOps, NewAddressDeriveConfirmError, NewAddressDerivingError};
+use super::{inner_impl, AccountUpdatingError, AddressDerivingError, AddressDerivingResult, HDAccountOps, HDCoinAddress, HDCoinHDAccount, HDCoinHDAddress, HDConfirmAddress, HDWalletOps, UniExtendedPublicKey, NewAddressDeriveConfirmError, NewAddressDerivingError};
 use crate::hd_wallet::{HDAddressOps, HDWalletStorageOps, TrezorCoinError};
 use async_trait::async_trait;
 use bip32::{ChildNumber, DerivationPath};
@@ -33,7 +31,7 @@ pub trait HDWalletCoinOps {
     /// Derives an address for the coin that implements this trait from an extended public key and a derivation path.
     fn address_from_extended_pubkey(
         &self,
-        extended_pubkey: &HDCoinExtendedPubkey<Self>,
+        extended_pubkey: &UniExtendedPublicKey,
         derivation_path: DerivationPath,
     ) -> HDCoinHDAddress<Self>;
 

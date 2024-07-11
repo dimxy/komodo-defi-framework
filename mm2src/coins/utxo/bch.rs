@@ -2,7 +2,7 @@ use super::*;
 use crate::coin_balance::{EnableCoinBalanceError, HDAddressBalance, HDBalanceAddress, HDWalletBalance,
                           HDWalletBalanceOps};
 use crate::coin_errors::{MyAddressError, ValidatePaymentResult};
-use crate::hd_wallet::{ExtractExtendedPubkey, HDCoinAddress, HDCoinExtendedPubkey, HDCoinHDAccount, HDCoinHDAddress,
+use crate::hd_wallet::{ExtractExtendedPubkey, HDCoinAddress, HDCoinHDAccount, HDCoinHDAddress,
                        HDCoinWithdrawOps, HDExtractPubkeyError, HDXPubExtractor, TrezorCoinError,
                        WithdrawSenderAddress};
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxDetailsBuilder,
@@ -40,6 +40,8 @@ use mm2_number::MmNumber;
 use serde_json::{self as json, Value as Json};
 use serialization::{deserialize, CoinVariant};
 use std::sync::MutexGuard;
+use crate::hd_wallet::UniExtendedPublicKey;
+
 
 pub type BchUnspentMap = HashMap<Address, BchUnspents>;
 
@@ -1395,13 +1397,12 @@ impl IguanaBalanceOps for BchCoin {
 
 #[async_trait]
 impl ExtractExtendedPubkey for BchCoin {
-    type ExtendedPublicKey = Secp256k1ExtendedPublicKey;
 
     async fn extract_extended_pubkey<XPubExtractor>(
         &self,
         xpub_extractor: Option<XPubExtractor>,
         derivation_path: DerivationPath,
-    ) -> MmResult<Self::ExtendedPublicKey, HDExtractPubkeyError>
+    ) -> MmResult<UniExtendedPublicKey, HDExtractPubkeyError>
     where
         XPubExtractor: HDXPubExtractor + Send,
     {
@@ -1415,10 +1416,10 @@ impl HDWalletCoinOps for BchCoin {
 
     fn address_from_extended_pubkey(
         &self,
-        extended_pubkey: &HDCoinExtendedPubkey<Self>,
+        extended_pubkey: &UniExtendedPublicKey,
         derivation_path: DerivationPath,
     ) -> HDCoinHDAddress<Self> {
-        utxo_common::address_from_extended_pubkey(self, extended_pubkey, derivation_path)
+        utxo_common::address_from_extended_pubkey_wrapper(self, extended_pubkey, derivation_path)
     }
 
     fn trezor_coin(&self) -> MmResult<String, TrezorCoinError> { utxo_common::trezor_coin(self) }

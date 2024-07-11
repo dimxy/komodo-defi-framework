@@ -388,7 +388,7 @@ pub(crate) mod common_impl {
     use super::*;
     use crate::coin_balance::{HDWalletBalanceObject, HDWalletBalanceOps};
     use crate::hd_wallet::{create_new_account, ExtractExtendedPubkey, HDAccountOps, HDAccountStorageOps,
-                           HDCoinExtendedPubkey, HDCoinHDAccount, HDWalletOps};
+                           HDCoinHDAccount, HDWalletOps};
 
     pub async fn init_create_new_account_rpc<'a, Coin, XPubExtractor>(
         coin: &Coin,
@@ -397,7 +397,7 @@ pub(crate) mod common_impl {
         xpub_extractor: Option<XPubExtractor>,
     ) -> MmResult<HDAccountBalance<HDWalletBalanceObject<Coin>>, CreateAccountRpcError>
     where
-        Coin: ExtractExtendedPubkey<ExtendedPublicKey = HDCoinExtendedPubkey<Coin>>
+        Coin: ExtractExtendedPubkey
             + HDWalletBalanceOps
             + CoinWithDerivationMethod
             + Send
