@@ -6,7 +6,7 @@ use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::MethodCall;
 use jsonrpc_core::{Id as RpcId, Params as RpcParams, Value as RpcValue, Version as RpcVersion};
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventBehaviour, EventName};
+use mm2_event_stream::{Event, EventStreamer, EventName};
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -34,7 +34,7 @@ impl TendermintBalanceEventStreamer {
 }
 
 #[async_trait]
-impl EventBehaviour for TendermintBalanceEventStreamer {
+impl EventStreamer for TendermintBalanceEventStreamer {
     fn event_name() -> EventName { EventName::BALANCE }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {

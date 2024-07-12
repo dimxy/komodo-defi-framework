@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use futures::channel::oneshot;
 
 #[async_trait]
-pub trait EventBehaviour {
+pub trait EventStreamer {
     /// Returns the name of the event as an EventName enum variant.
     fn event_name() -> EventName;
 

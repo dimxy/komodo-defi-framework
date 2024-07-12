@@ -4,7 +4,7 @@ use common::{executor::{SpawnFuture, Timer},
              log::info};
 use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-pub use mm2_event_stream::EventBehaviour;
+pub use mm2_event_stream::EventStreamer;
 use mm2_event_stream::{Event, EventName};
 use mm2_libp2p::behaviours::atomicdex;
 use serde::Deserialize;
@@ -38,7 +38,7 @@ impl NetworkEvent {
 }
 
 #[async_trait]
-impl EventBehaviour for NetworkEvent {
+impl EventStreamer for NetworkEvent {
     fn event_name() -> EventName { EventName::NETWORK }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {

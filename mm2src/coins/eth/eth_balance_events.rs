@@ -6,7 +6,7 @@ use futures::{channel::oneshot, stream::FuturesUnordered, StreamExt};
 use instant::Instant;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmError;
-use mm2_event_stream::{Event, EventBehaviour, EventName};
+use mm2_event_stream::{Event, EventStreamer, EventName};
 use mm2_number::BigDecimal;
 use serde::Deserialize;
 use serde_json::Value as Json;
@@ -147,7 +147,7 @@ async fn fetch_balance(
 }
 
 #[async_trait]
-impl EventBehaviour for EthBalanceEventStreamer {
+impl EventStreamer for EthBalanceEventStreamer {
     fn event_name() -> EventName { EventName::BALANCE }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {

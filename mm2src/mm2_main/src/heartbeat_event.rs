@@ -3,7 +3,7 @@ use common::{executor::{SpawnFuture, Timer},
              log::info};
 use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventBehaviour, EventName};
+use mm2_event_stream::{Event, EventStreamer, EventName};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -32,7 +32,7 @@ impl HeartbeatEvent {
 }
 
 #[async_trait]
-impl EventBehaviour for HeartbeatEvent {
+impl EventStreamer for HeartbeatEvent {
     fn event_name() -> EventName { EventName::HEARTBEAT }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {

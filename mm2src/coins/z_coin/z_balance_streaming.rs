@@ -11,7 +11,7 @@ use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::EventBehaviour;
+use mm2_event_stream::EventStreamer;
 use mm2_event_stream::{Event, EventName};
 use serde_json::Value as Json;
 use std::sync::Arc;
@@ -38,7 +38,7 @@ impl ZCoinBalanceEventStreamer {
 }
 
 #[async_trait]
-impl EventBehaviour for ZCoinBalanceEventStreamer {
+impl EventStreamer for ZCoinBalanceEventStreamer {
     fn event_name() -> EventName { EventName::BALANCE }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {

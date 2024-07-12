@@ -5,7 +5,7 @@ use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventBehaviour, EventName, Filter};
+use mm2_event_stream::{Event, EventStreamer, EventName, Filter};
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -54,7 +54,7 @@ impl UtxoBalanceEventStreamer {
 }
 
 #[async_trait]
-impl EventBehaviour for UtxoBalanceEventStreamer {
+impl EventStreamer for UtxoBalanceEventStreamer {
     fn event_name() -> EventName { EventName::BALANCE }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {

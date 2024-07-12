@@ -28,7 +28,7 @@ use enum_derives::EnumFromTrait;
 use mm2_core::mm_ctx::{MmArc, MmCtx};
 use mm2_err_handle::common_errors::InternalError;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::EventBehaviour;
+use mm2_event_stream::EventStreamer;
 use mm2_libp2p::behaviours::atomicdex::{GossipsubConfig, DEPRECATED_NETID_LIST};
 use mm2_libp2p::{spawn_gossipsub, AdexBehaviourError, NodeType, RelayAddress, RelayAddressError, SeedNodeInfo,
                  SwarmRuntime, WssCerts};
