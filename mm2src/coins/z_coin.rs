@@ -60,7 +60,7 @@ use keys::hash::H256;
 use keys::{KeyPair, Message, Public};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::behaviour::EventBehaviour;
+use mm2_event_stream::EventBehaviour;
 use mm2_number::{BigDecimal, MmNumber};
 #[cfg(test)] use mocktopus::macros::*;
 use primitives::bytes::Bytes;

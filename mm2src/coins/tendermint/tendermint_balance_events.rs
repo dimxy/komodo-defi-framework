@@ -6,7 +6,7 @@ use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::MethodCall;
 use jsonrpc_core::{Id as RpcId, Params as RpcParams, Value as RpcValue, Version as RpcVersion};
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{behaviour::EventBehaviour, ErrorEventName, Event, EventName};
+use mm2_event_stream::{Event, EventBehaviour, EventName};
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -36,8 +36,6 @@ impl TendermintBalanceEventStreamer {
 #[async_trait]
 impl EventBehaviour for TendermintBalanceEventStreamer {
     fn event_name() -> EventName { EventName::BALANCE }
-
-    fn error_event_name() -> ErrorEventName { ErrorEventName::CoinBalanceError }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
@@ -145,11 +143,7 @@ impl EventBehaviour for TendermintBalanceEventStreamer {
                                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
                                     ctx.stream_channel_controller
-                                        .broadcast(Event::err(
-                                            format!("{}:{}", Self::error_event_name(), ticker),
-                                            e,
-                                            None,
-                                        ))
+                                        .broadcast(Event::err(format!("{}:{}", Self::event_name(), ticker), e, None))
                                         .await;
 
                                     continue;

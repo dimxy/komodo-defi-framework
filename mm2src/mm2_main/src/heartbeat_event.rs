@@ -3,7 +3,7 @@ use common::{executor::{SpawnFuture, Timer},
              log::info};
 use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{behaviour::EventBehaviour, Event, EventName};
+use mm2_event_stream::{Event, EventBehaviour, EventName};
 use serde::Deserialize;
 use serde_json::Value as Json;
 

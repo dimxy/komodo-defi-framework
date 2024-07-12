@@ -11,8 +11,8 @@ use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::behaviour::EventBehaviour;
-use mm2_event_stream::{ErrorEventName, Event, EventName};
+use mm2_event_stream::EventBehaviour;
+use mm2_event_stream::{Event, EventName};
 use serde_json::Value as Json;
 use std::sync::Arc;
 
@@ -40,8 +40,6 @@ impl ZCoinBalanceEventStreamer {
 #[async_trait]
 impl EventBehaviour for ZCoinBalanceEventStreamer {
     fn event_name() -> EventName { EventName::BALANCE }
-
-    fn error_event_name() -> ErrorEventName { ErrorEventName::CoinBalanceError }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
@@ -84,7 +82,7 @@ impl EventBehaviour for ZCoinBalanceEventStreamer {
                     });
 
                     ctx.stream_channel_controller
-                        .broadcast(Event::err(Self::event_name().to_string(), payload, None))
+                        .broadcast(Event::new(Self::event_name().to_string(), payload, None))
                         .await;
                 },
                 Err(err) => {
@@ -93,7 +91,7 @@ impl EventBehaviour for ZCoinBalanceEventStreamer {
                     let e = serde_json::to_value(err).expect("Serialization should't fail.");
                     return ctx
                         .stream_channel_controller
-                        .broadcast(Event::new(format!("{}:{}", Self::error_event_name(), ticker), e, None))
+                        .broadcast(Event::err(format!("{}:{}", Self::event_name(), ticker), e, None))
                         .await;
                 },
             };

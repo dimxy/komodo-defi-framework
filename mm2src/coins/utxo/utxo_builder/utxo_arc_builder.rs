@@ -14,7 +14,7 @@ use common::log::{debug, error, info, warn};
 use futures::compat::Future01CompatExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::behaviour::EventBehaviour;
+use mm2_event_stream::EventBehaviour;
 #[cfg(test)] use mocktopus::macros::*;
 use rand::Rng;
 use script::Builder;

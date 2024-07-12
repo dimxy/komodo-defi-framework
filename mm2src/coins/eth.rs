@@ -79,7 +79,7 @@ use http::Uri;
 use instant::Instant;
 use keys::Public as HtlcPubKey;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
-use mm2_event_stream::behaviour::EventBehaviour;
+use mm2_event_stream::EventBehaviour;
 use mm2_net::transport::{GuiAuthValidation, GuiAuthValidationGenerator};
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, BigUint, MmNumber};

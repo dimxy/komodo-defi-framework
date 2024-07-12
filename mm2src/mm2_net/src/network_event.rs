@@ -4,7 +4,7 @@ use common::{executor::{SpawnFuture, Timer},
              log::info};
 use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-pub use mm2_event_stream::behaviour::EventBehaviour;
+pub use mm2_event_stream::EventBehaviour;
 use mm2_event_stream::{Event, EventName};
 use mm2_libp2p::behaviours::atomicdex;
 use serde::Deserialize;

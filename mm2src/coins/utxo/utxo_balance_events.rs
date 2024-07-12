@@ -5,7 +5,7 @@ use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{behaviour::EventBehaviour, ErrorEventName, Event, EventName, Filter};
+use mm2_event_stream::{Event, EventBehaviour, EventName, Filter};
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -56,8 +56,6 @@ impl UtxoBalanceEventStreamer {
 #[async_trait]
 impl EventBehaviour for UtxoBalanceEventStreamer {
     fn event_name() -> EventName { EventName::BALANCE }
-
-    fn error_event_name() -> ErrorEventName { ErrorEventName::CoinBalanceError }
 
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
@@ -133,7 +131,7 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
 
                             ctx.stream_channel_controller
                                 .broadcast(Event::err(
-                                    format!("{}:{}", Self::error_event_name(), coin.ticker()),
+                                    format!("{}:{}", Self::event_name(), coin.ticker()),
                                     json!({ "error": e }),
                                     Some(filter.clone()),
                                 ))
@@ -152,7 +150,7 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
 
                             ctx.stream_channel_controller
                                 .broadcast(Event::err(
-                                    format!("{}:{}", Self::error_event_name(), coin.ticker()),
+                                    format!("{}:{}", Self::event_name(), coin.ticker()),
                                     json!({ "error": e }),
                                     Some(filter.clone()),
                                 ))
@@ -209,7 +207,7 @@ impl EventBehaviour for UtxoBalanceEventStreamer {
                     // FIXME: Note that such an event isn't SSE-ed to any client since no body is listening to it.
                     ctx.stream_channel_controller
                         .broadcast(Event::err(
-                            format!("{}:{}", Self::error_event_name(), ticker),
+                            format!("{}:{}", Self::event_name(), ticker),
                             e,
                             Some(filter.clone()),
                         ))

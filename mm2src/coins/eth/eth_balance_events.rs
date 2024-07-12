@@ -6,7 +6,7 @@ use futures::{channel::oneshot, stream::FuturesUnordered, StreamExt};
 use instant::Instant;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmError;
-use mm2_event_stream::{behaviour::EventBehaviour, ErrorEventName, Event, EventName};
+use mm2_event_stream::{Event, EventBehaviour, EventName};
 use mm2_number::BigDecimal;
 use serde::Deserialize;
 use serde_json::Value as Json;
@@ -150,8 +150,6 @@ async fn fetch_balance(
 impl EventBehaviour for EthBalanceEventStreamer {
     fn event_name() -> EventName { EventName::BALANCE }
 
-    fn error_event_name() -> ErrorEventName { ErrorEventName::CoinBalanceError }
-
     async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
 
@@ -181,7 +179,7 @@ impl EventBehaviour for EthBalanceEventStreamer {
                         let e = serde_json::to_value(e).expect("Serialization shouldn't fail.");
                         ctx.stream_channel_controller
                             .broadcast(Event::err(
-                                format!("{}:{}", EthBalanceEventStreamer::error_event_name(), coin.ticker),
+                                format!("{}:{}", EthBalanceEventStreamer::event_name(), coin.ticker),
                                 e,
                                 None,
                             ))
@@ -221,7 +219,7 @@ impl EventBehaviour for EthBalanceEventStreamer {
                                 .broadcast(Event::err(
                                     format!(
                                         "{}:{}:{}",
-                                        EthBalanceEventStreamer::error_event_name(),
+                                        EthBalanceEventStreamer::event_name(),
                                         err.ticker,
                                         err.address
                                     ),

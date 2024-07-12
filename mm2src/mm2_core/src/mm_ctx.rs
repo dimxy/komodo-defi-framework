@@ -6,7 +6,7 @@ use common::log::{self, LogLevel, LogOnError, LogState};
 use common::{cfg_native, cfg_wasm32, small_rng};
 use gstuff::{try_s, Constructible, ERR, ERRL};
 use lazy_static::lazy_static;
-use mm2_event_stream::{controller::Controller, Event, EventStreamConfiguration};
+use mm2_event_stream::{Controller, Event, EventStreamConfiguration};
 use mm2_metrics::{MetricsArc, MetricsOps};
 use primitives::hash::H160;
 use rand::Rng;
@@ -82,6 +82,7 @@ pub struct MmCtx {
     pub(crate) data_asker: DataAsker,
     /// Configuration of event streaming used for SSE.
     pub event_stream_configuration: EventStreamConfiguration,
+    //pub event_stream_manager:
     /// True if the MarketMaker instance needs to stop.
     pub stop: Constructible<bool>,
     /// Unique context identifier, allowing us to more easily pass the context through the FFI boundaries.  
