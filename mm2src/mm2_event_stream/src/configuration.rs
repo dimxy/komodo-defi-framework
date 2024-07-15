@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use super::EventName;
-
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -17,7 +15,7 @@ pub struct EventStreamConfiguration {
     #[serde(default)]
     pub access_control_allow_origin: String,
     #[serde(default)]
-    active_events: HashMap<EventName, Json>,
+    active_events: HashMap<String, Json>,
     /// The path to the worker script for event streaming.
     #[cfg(target_arch = "wasm32")]
     #[serde(default = "default_worker_path")]
@@ -42,7 +40,7 @@ impl Default for EventStreamConfiguration {
 impl EventStreamConfiguration {
     /// Retrieves the configuration for a specific event by its name.
     #[inline]
-    pub fn get_event(&self, event_name: &EventName) -> Option<Json> { self.active_events.get(event_name).cloned() }
+    pub fn get_event(&self, event_name: &str) -> Option<Json> { self.active_events.get(event_name).cloned() }
 
     /// Gets the total number of active events in the configuration.
     #[inline]

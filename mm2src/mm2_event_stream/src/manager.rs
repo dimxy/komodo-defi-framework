@@ -18,7 +18,7 @@ pub enum StreamingSendError {
     NoDataIn,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct StreamingManager {
     /// A map from streamer IDs to their communication channels (if present) and shutdown handles.
     streamers: Arc<RwLock<HashMap<String, (oneshot::Sender<()>, Option<UnboundedSender<Box<dyn Any + Send>>>)>>>,

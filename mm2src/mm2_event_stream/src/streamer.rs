@@ -10,8 +10,10 @@ use futures::{select, FutureExt, Stream, StreamExt};
 /// A marker to indicate that the event streamer doesn't take any input data.
 pub struct NoDataIn;
 
-/// Helper function to cast mpsc::UnboundedReceiver to impl Stream.
-fn rx_to_stream<T>(rx: mpsc::UnboundedReceiver<T>) -> impl Stream<Item = T> { rx }
+/// A mixture trait combining `Stream` and `Send` together (to avoid confusing annotation).
+pub trait StreamHandlerInput<D>: Stream<Item = D> + Send {}
+/// Implement the trait for all types `T` that implement `Stream<Item = D> + Send` for all `D`.
+impl<T, D> StreamHandlerInput<D> for T where T: Stream<Item = D> + Send {}
 
 #[async_trait]
 pub trait EventStreamer
@@ -28,7 +30,11 @@ where
     ///
     /// `ready_tx` is a oneshot sender that is used to send the initialization status of the event.
     /// `data_rx` is a receiver that the streamer *could* use to receive data from the outside world.
-    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, data_rx: impl Stream<Item = Self::DataInType>);
+    async fn handle(
+        self,
+        ready_tx: oneshot::Sender<Result<(), String>>,
+        data_rx: impl StreamHandlerInput<Self::DataInType>,
+    );
 
     /// Spawns the `Self::handle` in a separate thread.
     ///
@@ -53,7 +59,7 @@ where
         // An unbounded channel to send data to the handler.
         let (any_data_sender, any_data_receiver) = mpsc::unbounded::<Box<dyn Any + Send>>();
         // A middleware to cast the data of type `Box<dyn Any>` to the actual input datatype of this streamer.
-        let data_receiver = rx_to_stream(any_data_receiver).filter_map({
+        let data_receiver = any_data_receiver.filter_map({
             let streamer_id = streamer_id.clone();
             move |any_input_data| {
                 let streamer_id = streamer_id.clone();

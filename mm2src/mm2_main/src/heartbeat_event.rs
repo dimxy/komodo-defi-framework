@@ -1,9 +1,8 @@
 use async_trait::async_trait;
-use common::{executor::{SpawnFuture, Timer},
-             log::info};
+use common::executor::Timer;
 use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, EventName};
+use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -33,35 +32,20 @@ impl HeartbeatEvent {
 
 #[async_trait]
 impl EventStreamer for HeartbeatEvent {
-    fn event_name() -> EventName { EventName::HEARTBEAT }
+    type DataInType = NoDataIn;
 
-    async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
+    fn streamer_id(&self) -> &str { "HEARTBEAT" }
+
+    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<Self::DataInType>) {
         tx.send(Ok(())).unwrap();
 
         loop {
             self.ctx
                 .stream_channel_controller
-                .broadcast(Event::new(Self::event_name().to_string(), json!({}), None))
+                .broadcast(Event::new(self.streamer_id().to_string(), json!({}), None))
                 .await;
 
             Timer::sleep(self.config.stream_interval_seconds).await;
         }
-    }
-
-    async fn spawn(self) -> Result<(), String> {
-        info!(
-            "{} event is activated with config: {:?}",
-            Self::event_name(),
-            self.config
-        );
-
-        let (tx, rx) = oneshot::channel();
-        self.ctx.spawner().spawn(self.handle(tx));
-
-        rx.await.unwrap_or_else(|e| {
-            Err(format!(
-                "The handler dropped before sending an initialization status: {e}",
-            ))
-        })
     }
 }
