@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::EventName;
+use super::EventName;
 
 use serde::Deserialize;
 use serde_json::Value as Json;
