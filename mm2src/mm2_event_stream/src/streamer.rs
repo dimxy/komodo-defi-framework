@@ -10,10 +10,8 @@ use futures::{select, FutureExt, Stream, StreamExt};
 /// A marker to indicate that the event streamer doesn't take any input data.
 pub struct NoDataIn;
 
-/// Helper function casting mpsc::Receiver as Stream.
-fn rx_to_stream<T>(rx: mpsc::UnboundedReceiver<T>) -> impl Stream<Item = T> {
-    rx //.map_err(|_| panic!("errors not possible on rx"))
-}
+/// Helper function to cast mpsc::UnboundedReceiver to impl Stream.
+fn rx_to_stream<T>(rx: mpsc::UnboundedReceiver<T>) -> impl Stream<Item = T> { rx }
 
 #[async_trait]
 pub trait EventStreamer
@@ -24,7 +22,7 @@ where
 
     /// Returns a human readable unique identifier for the event streamer.
     /// No other event streamer should have the same identifier.
-    fn streamer_id(&self) -> String { unimplemented!() }
+    fn streamer_id(&self) -> String;
 
     /// Event handler that is responsible for broadcasting event data to the streaming channels.
     ///
@@ -56,15 +54,16 @@ where
         let (any_data_sender, any_data_receiver) = mpsc::unbounded::<Box<dyn Any + Send>>();
         // A middleware to cast the data of type `Box<dyn Any>` to the actual input datatype of this streamer.
         let data_receiver = rx_to_stream(any_data_receiver).filter_map({
-            //let err_msg = format!("Couldn't downcast a received message to {}. This message wasn't intended to be sent to this streamer ({streamer_id}).", any::type_name::<Self::DataInType>());
-            move |any_input_data| async move {
-                if let Ok(input_data) = any_input_data.downcast::<Self::DataInType>() {
-                    Some(*input_data)
-                } else {
-                    // FIXME: Can't use `streamer_id` here.
-                    //error!("Couldn't downcast a received message to {}. This message wasn't intended to be sent to this streamer ({streamer_id}).", any::type_name::<Self::DataInType>());
-                    //error!("{err_msg}");
-                    None
+            let streamer_id = streamer_id.clone();
+            move |any_input_data| {
+                let streamer_id = streamer_id.clone();
+                async move {
+                    if let Ok(input_data) = any_input_data.downcast() {
+                        Some(*input_data)
+                    } else {
+                        error!("Couldn't downcast a received message to {}. This message wasn't intended to be sent to this streamer ({streamer_id}).", any::type_name::<Self::DataInType>());
+                        None
+                    }
                 }
             }
         });

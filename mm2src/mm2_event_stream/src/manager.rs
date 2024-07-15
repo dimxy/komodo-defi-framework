@@ -19,7 +19,7 @@ pub enum StreamingSendError {
 
 pub struct StreamingManager {
     /// A map from streamer IDs to their communication channels (if present) and shutdown handles.
-    streamers: HashMap<String, (Option<UnboundedSender<Box<dyn Any + Send>>>, oneshot::Sender<()>)>,
+    streamers: HashMap<String, (oneshot::Sender<()>, Option<UnboundedSender<Box<dyn Any + Send>>>)>,
 }
 
 impl StreamingManager {
@@ -30,7 +30,7 @@ impl StreamingManager {
         streamer.spawn(spawner).await.map(|(shutdown_signal, data_in_channel)| {
             // And store its handles if spawned successfully.
             self.streamers
-                .insert(streamer_id.clone(), (data_in_channel, shutdown_signal))
+                .insert(streamer_id.clone(), (shutdown_signal, data_in_channel))
                 // Two different streamers shouldn't conflict if IDs are unique, so this is a bug.
                 .map(|_| {
                     common::log::error!(
@@ -43,7 +43,7 @@ impl StreamingManager {
 
     /// Sends data to a streamer of a known ID.
     pub fn send<T: Send + 'static>(&self, streamer_id: &str, data: T) -> Result<(), StreamingSendError> {
-        let (data_in, _) = self
+        let (_, data_in) = self
             .streamers
             .get(streamer_id)
             .ok_or(StreamingSendError::StreamerNotFound)?;
