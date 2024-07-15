@@ -1,14 +1,19 @@
 use std::any::{self, Any};
 
-use common::executor::{abortable_queue::WeakSpawner, AbortSettings, SpawnAbortable, SpawnFuture};
+use common::executor::{abortable_queue::WeakSpawner, AbortSettings, SpawnAbortable};
 use common::log::{error, info};
 
 use async_trait::async_trait;
 use futures::channel::{mpsc, oneshot};
-use futures::StreamExt;
+use futures::{select, FutureExt, Stream, StreamExt};
 
 /// A marker to indicate that the event streamer doesn't take any input data.
 pub struct NoDataIn;
+
+/// Helper function casting mpsc::Receiver as Stream.
+fn rx_to_stream<T>(rx: mpsc::UnboundedReceiver<T>) -> impl Stream<Item = T> {
+    rx //.map_err(|_| panic!("errors not possible on rx"))
+}
 
 #[async_trait]
 pub trait EventStreamer
@@ -25,11 +30,7 @@ where
     ///
     /// `ready_tx` is a oneshot sender that is used to send the initialization status of the event.
     /// `data_rx` is a receiver that the streamer *could* use to receive data from the outside world.
-    async fn handle(
-        self,
-        ready_tx: oneshot::Sender<Result<(), String>>,
-        data_rx: mpsc::UnboundedReceiver<Self::DataInType>,
-    );
+    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, data_rx: impl Stream<Item = Self::DataInType>);
 
     /// Spawns the `Self::handle` in a separate thread.
     ///
@@ -52,12 +53,32 @@ where
         // A oneshot channel to shutdown the handler.
         let (tx_shutdown, rx_shutdown) = oneshot::channel::<()>();
         // An unbounded channel to send data to the handler.
-        let (data_sender, data_receiver) = mpsc::unbounded();
+        let (any_data_sender, any_data_receiver) = mpsc::unbounded::<Box<dyn Any + Send>>();
+        // A middleware to cast the data of type `Box<dyn Any>` to the actual input datatype of this streamer.
+        let data_receiver = rx_to_stream(any_data_receiver).filter_map({
+            //let err_msg = format!("Couldn't downcast a received message to {}. This message wasn't intended to be sent to this streamer ({streamer_id}).", any::type_name::<Self::DataInType>());
+            move |any_input_data| async move {
+                if let Ok(input_data) = any_input_data.downcast::<Self::DataInType>() {
+                    Some(*input_data)
+                } else {
+                    // FIXME: Can't use `streamer_id` here.
+                    //error!("Couldn't downcast a received message to {}. This message wasn't intended to be sent to this streamer ({streamer_id}).", any::type_name::<Self::DataInType>());
+                    //error!("{err_msg}");
+                    None
+                }
+            }
+        });
 
-        // FIXME: select! between shutdown or handle here.
-        let handler_with_shutdown = async move {
-            drop(rx_shutdown);
-            self.handle(tx_ready, data_receiver).await;
+        let handler_with_shutdown = {
+            let streamer_id = streamer_id.clone();
+            async move {
+                select! {
+                    _ = rx_shutdown.fuse() => {
+                        info!("Manually shutting down event streamer: {streamer_id}.")
+                    }
+                    _ = self.handle(tx_ready, data_receiver).fuse() => {}
+                }
+            }
         };
         let settings = AbortSettings::info_on_abort(format!("{streamer_id} streamer has stopped."));
         spawner.spawn_with_settings(handler_with_shutdown, settings);
@@ -72,32 +93,6 @@ where
         if any::TypeId::of::<Self::DataInType>() == any::TypeId::of::<NoDataIn>() {
             Ok((tx_shutdown, None))
         } else {
-            let (any_data_sender, mut rx) = mpsc::unbounded::<Box<dyn Any + Send>>();
-
-            // To store the data senders in the `StreamingManager`, they have to be casted to the same type
-            // (`UnboundedSender<Box<dyn Any>>`). But for convenience, we want the implementors of the trait
-            // to think that the sending channel is of type `UnboundedSender<Self::DataInType>`.
-            // This spawned task will listen to the incoming `Box<dyn Any>` data and convert it to `Self::DataInType`.
-            //
-            // One other solution is to let `Self::handle` take a `UnboundedReceiver<Box<dyn Any>>` and cast
-            // it internally, but this means this (confusing) boiler plate will need to be done for each
-            // implementation of this trait.
-            //
-            // FIXME: Check if something like `rx_to_stream` (rpc_clients.rs) could work without an extra thread.
-            spawner.spawn(async move {
-                while let Some(any_input_data) = rx.next().await {
-                    if let Ok(input_data) = any_input_data.downcast() {
-                        if let Err(_) = data_sender.unbounded_send(*input_data) {
-                            // The handler dropped the data receiver.
-                            return;
-                        }
-                    }
-                    else {
-                        error!("Couldn't downcast a received message to {}. This message wasn't intended to be sent to this streamer ({streamer_id}).", any::type_name::<Self::DataInType>());
-                    }
-                }
-            });
-
             Ok((tx_shutdown, Some(any_data_sender)))
         }
     }
