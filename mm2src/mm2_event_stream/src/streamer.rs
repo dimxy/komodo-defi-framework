@@ -22,7 +22,7 @@ where
 
     /// Returns a human readable unique identifier for the event streamer.
     /// No other event streamer should have the same identifier.
-    fn streamer_id(&self) -> String;
+    fn streamer_id(&self) -> &str;
 
     /// Event handler that is responsible for broadcasting event data to the streaming channels.
     ///
@@ -43,7 +43,7 @@ where
         // Also for AbortSettings, we can make this customizable with a default impl.
         spawner: WeakSpawner,
     ) -> Result<(oneshot::Sender<()>, Option<mpsc::UnboundedSender<Box<dyn Any + Send>>>), String> {
-        let streamer_id = self.streamer_id();
+        let streamer_id = self.streamer_id().to_string();
         info!("Spawning event streamer: {streamer_id}");
 
         // A oneshot channel to receive the initialization status of the handler through.

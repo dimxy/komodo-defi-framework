@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use super::EventStreamer;
 use common::executor::abortable_queue::WeakSpawner;
@@ -17,36 +18,35 @@ pub enum StreamingSendError {
     NoDataIn,
 }
 
+#[derive(Clone)]
 pub struct StreamingManager {
     /// A map from streamer IDs to their communication channels (if present) and shutdown handles.
-    streamers: HashMap<String, (oneshot::Sender<()>, Option<UnboundedSender<Box<dyn Any + Send>>>)>,
+    streamers: Arc<RwLock<HashMap<String, (oneshot::Sender<()>, Option<UnboundedSender<Box<dyn Any + Send>>>)>>>,
 }
 
 impl StreamingManager {
     /// Spawns and adds a new streamer `streamer` to the manager.
-    pub async fn add(&mut self, streamer: impl EventStreamer, spawner: WeakSpawner) -> Result<(), String> {
-        let streamer_id = streamer.streamer_id();
-        // Spawn the streamer.
-        streamer.spawn(spawner).await.map(|(shutdown_signal, data_in_channel)| {
-            // And store its handles if spawned successfully.
-            self.streamers
-                .insert(streamer_id.clone(), (shutdown_signal, data_in_channel))
-                // Two different streamers shouldn't conflict if IDs are unique, so this is a bug.
-                .map(|_| {
-                    common::log::error!(
-                        "A streamer with the same id ({}) existed and now has been removed.",
-                        streamer_id
-                    )
-                });
-        })
+    pub async fn add(&self, streamer: impl EventStreamer, spawner: WeakSpawner) -> Result<(), String> {
+        let streamer_id = streamer.streamer_id().to_string();
+        // NOTE: We spawn the streamer *before* checking if it can be added or not because
+        // we don't know how much time will it take for spawning and we don't want to lock
+        // the manager for too long.
+        let channels = streamer.spawn(spawner).await?;
+        let mut streamers = self.streamers.write().unwrap();
+        // If that streamer already exists, refuse to add it.
+        if streamers.contains_key(&streamer_id) {
+            return Err(format!(
+                "A streamer with the same id ({streamer_id}) exists, it must be shutdown before re-using the same id."
+            ));
+        }
+        streamers.insert(streamer_id, channels);
+        Ok(())
     }
 
     /// Sends data to a streamer of a known ID.
     pub fn send<T: Send + 'static>(&self, streamer_id: &str, data: T) -> Result<(), StreamingSendError> {
-        let (_, data_in) = self
-            .streamers
-            .get(streamer_id)
-            .ok_or(StreamingSendError::StreamerNotFound)?;
+        let streamers = self.streamers.read().unwrap();
+        let (_, data_in) = streamers.get(streamer_id).ok_or(StreamingSendError::StreamerNotFound)?;
         let data_in = data_in.as_ref().ok_or(StreamingSendError::NoDataIn)?;
         data_in
             .unbounded_send(Box::new(data))
@@ -54,8 +54,10 @@ impl StreamingManager {
     }
 
     /// Shuts down a streamer of a known ID.
-    pub fn shut(&mut self, streamer_id: &str) -> Result<(), StreamingSendError> {
+    pub fn shut(&self, streamer_id: &str) -> Result<(), StreamingSendError> {
         self.streamers
+            .write()
+            .unwrap()
             .remove(streamer_id)
             .ok_or(StreamingSendError::StreamerNotFound)?;
         Ok(())
