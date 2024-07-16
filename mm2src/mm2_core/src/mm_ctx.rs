@@ -339,8 +339,8 @@ impl MmCtx {
     /// Returns whether node is configured to use [Upgraded Trading Protocol](https://github.com/KomodoPlatform/komodo-defi-framework/issues/1895)
     pub fn use_trading_proto_v2(&self) -> bool { self.conf["use_trading_proto_v2"].as_bool().unwrap_or_default() }
 
-    /// Returns the cloneable `MmFutSpawner`.
-    pub fn spawner(&self) -> MmFutSpawner { MmFutSpawner::new(&self.abortable_system) }
+    /// Returns the cloneable `WeakSpawner`.
+    pub fn spawner(&self) -> WeakSpawner { self.abortable_system.weak_spawner() }
 
     /// True if the MarketMaker instance needs to stop.
     pub fn is_stopping(&self) -> bool { self.stop.copy_or(false) }
@@ -637,44 +637,6 @@ impl MmArc {
             .register_listener()
             .map_err(|e| MmMetricsError::Internal(e.to_string()))?;
         prometheus::spawn_prometheus_exporter(self.metrics.weak(), address, shutdown_detector, credentials)
-    }
-}
-
-/// The futures spawner pinned to the `MmCtx` context.
-/// It's used to spawn futures that can be aborted immediately or after a timeout
-/// on the [`MmArc::stop`] function call.
-///
-/// # Note
-///
-/// `MmFutSpawner` doesn't prevent the spawned futures from being aborted.
-#[derive(Clone)]
-pub struct MmFutSpawner {
-    inner: WeakSpawner,
-}
-
-impl MmFutSpawner {
-    pub fn new(system: &AbortableQueue) -> MmFutSpawner {
-        MmFutSpawner {
-            inner: system.weak_spawner(),
-        }
-    }
-}
-
-impl SpawnFuture for MmFutSpawner {
-    fn spawn<F>(&self, f: F)
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        self.inner.spawn(f)
-    }
-}
-
-impl SpawnAbortable for MmFutSpawner {
-    fn spawn_with_settings<F>(&self, fut: F, settings: AbortSettings)
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        self.inner.spawn_with_settings(fut, settings)
     }
 }
 

@@ -430,17 +430,17 @@ async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
         let network_steamer = NetworkEvent::try_new(config, ctx.clone())
             .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to initialize network event: {e}")))?;
         ctx.event_stream_manager
-        // FIXME: weak doesnt work, get rid of mmfutspawner & coinfutspawner and replace them with plain week spawner.
-            .add(network_steamer, ctx.spawner().weak())
+            .add(network_steamer, ctx.spawner())
             .await
             .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn network event: {e}")))?;
     }
 
     if let Some(config) = ctx.event_stream_configuration.get_event("HEARTBEAT") {
-        let heartbeat_streamer = HeartbeatEvent::try_new(config, ctx.clone())
-            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to initialize heartbeat event: {e}")))?;
+        let heartbeat_streamer = HeartbeatEvent::try_new(config, ctx.clone()).map_to_mm(|e| {
+            MmInitError::EventStreamerInitFailed(format!("Failed to initialize heartbeat event: {e}"))
+        })?;
         ctx.event_stream_manager
-            .add(heartbeat_streamer, ctx.spawner().weak())
+            .add(heartbeat_streamer, ctx.spawner())
             .await
             .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn heartbeat event: {e}")))?;
     }

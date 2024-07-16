@@ -387,7 +387,7 @@ impl PlatformCoinWithTokensActivationOps for TendermintCoin {
             })
             .map_to_mm(|e| e)?;
         ctx.event_stream_manager
-            .add(balance_streamer, self.spawner().weak())
+            .add(balance_streamer, self.spawner())
             .await
             .map_to_mm(|e| TendermintInitError {
                 ticker: self.ticker().to_owned(),

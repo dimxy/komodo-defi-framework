@@ -3228,8 +3228,8 @@ pub trait MmCoin:
     ///
     /// # Note
     ///
-    /// `CoinFutSpawner` doesn't prevent the spawned futures from being aborted.
-    fn spawner(&self) -> CoinFutSpawner;
+    /// `WeakSpawner` doesn't prevent the spawned futures from being aborted.
+    fn spawner(&self) -> WeakSpawner;
 
     fn withdraw(&self, req: WithdrawRequest) -> WithdrawFut;
 
@@ -3353,43 +3353,6 @@ pub trait MmCoin:
 
     /// For Handling the removal/deactivation of token on platform coin deactivation.
     fn on_token_deactivated(&self, ticker: &str);
-}
-
-/// The coin futures spawner. It's used to spawn futures that can be aborted immediately or after a timeout
-/// on the the coin deactivation.
-///
-/// # Note
-///
-/// `CoinFutSpawner` doesn't prevent the spawned futures from being aborted.
-#[derive(Clone)]
-pub struct CoinFutSpawner {
-    inner: WeakSpawner,
-}
-
-impl CoinFutSpawner {
-    pub fn new(system: &AbortableQueue) -> CoinFutSpawner {
-        CoinFutSpawner {
-            inner: system.weak_spawner(),
-        }
-    }
-}
-
-impl SpawnFuture for CoinFutSpawner {
-    fn spawn<F>(&self, f: F)
-    where
-        F: Future03<Output = ()> + Send + 'static,
-    {
-        self.inner.spawn(f)
-    }
-}
-
-impl SpawnAbortable for CoinFutSpawner {
-    fn spawn_with_settings<F>(&self, fut: F, settings: AbortSettings)
-    where
-        F: Future03<Output = ()> + Send + 'static,
-    {
-        self.inner.spawn_with_settings(fut, settings)
-    }
 }
 
 #[derive(Clone)]
