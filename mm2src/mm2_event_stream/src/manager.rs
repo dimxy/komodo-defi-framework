@@ -2,7 +2,8 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use super::EventStreamer;
+use crate::{Controller, Event, EventStreamer};
+
 use common::executor::abortable_queue::WeakSpawner;
 
 use futures::channel::mpsc::UnboundedSender;
@@ -22,6 +23,8 @@ pub enum StreamingSendError {
 pub struct StreamingManager {
     /// A map from streamer IDs to their communication channels (if present) and shutdown handles.
     streamers: Arc<RwLock<HashMap<String, (oneshot::Sender<()>, Option<UnboundedSender<Box<dyn Any + Send>>>)>>>,
+    /// The stream-out controller/broadcaster that all streamers use to stream data to the clients (using SSE).
+    controller: Controller<Event>,
 }
 
 impl StreamingManager {
@@ -31,7 +34,7 @@ impl StreamingManager {
         // NOTE: We spawn the streamer *before* checking if it can be added or not because
         // we don't know how long will it take for to spawn up and we don't want to lock
         // the manager for too long.
-        let channels = streamer.spawn(spawner).await?;
+        let channels = streamer.spawn(spawner, self.controller()).await?;
         let mut streamers = self.streamers.write().unwrap();
         // If that streamer already exists, refuse to add it.
         if streamers.contains_key(&streamer_id) {
@@ -62,4 +65,14 @@ impl StreamingManager {
             .ok_or(StreamingSendError::StreamerNotFound)?;
         Ok(())
     }
+
+    /// Broadcasts some event directly to listening clients.
+    ///
+    /// In contrast to `StreamingManager::send`, which sends some data to a streamer,
+    /// this method broadcasts an event to the listening *clients* directly, independently
+    /// of any streamer (i.e. bypassing any streamer).
+    pub async fn broadcast(&self, event: Event) { self.controller.broadcast(event).await }
+
+    /// Returns the controller/broadcaster (the middle tie between the streamers and the clients).
+    pub fn controller(&self) -> Controller<Event> { self.controller.clone() }
 }

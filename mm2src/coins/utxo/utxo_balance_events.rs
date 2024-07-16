@@ -4,7 +4,7 @@ use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, Filter, StreamHandlerInput};
+use mm2_event_stream::{Controller, Event, EventStreamer, Filter, StreamHandlerInput};
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -60,6 +60,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
 
     async fn handle(
         self,
+        broadcaster: Controller<Event>,
         ready_tx: oneshot::Sender<Result<(), String>>,
         mut data_rx: impl StreamHandlerInput<ScripthashNotification>,
     ) {
@@ -133,7 +134,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                         Err(e) => {
                             log::error!("{e}");
 
-                            ctx.stream_channel_controller
+                            broadcaster
                                 .broadcast(Event::err(
                                     streamer_id.clone(),
                                     json!({ "error": e }),
@@ -152,7 +153,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                         Err(e) => {
                             log::error!("{e}");
 
-                            ctx.stream_channel_controller
+                            broadcaster
                                 .broadcast(Event::err(
                                     streamer_id.clone(),
                                     json!({ "error": e }),
@@ -208,7 +209,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
 
-                    ctx.stream_channel_controller
+                    broadcaster
                         .broadcast(Event::err(streamer_id.clone(), e, Some(filter.clone())))
                         .await;
 
@@ -222,7 +223,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                 "balance": { "spendable": balance.spendable, "unspendable": balance.unspendable }
             });
 
-            ctx.stream_channel_controller
+            broadcaster
                 .broadcast(Event::new(
                     streamer_id.clone(),
                     json!(vec![payload]),

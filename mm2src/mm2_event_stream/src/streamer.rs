@@ -1,5 +1,6 @@
 use std::any::{self, Any};
 
+use crate::{Controller, Event};
 use common::executor::{abortable_queue::WeakSpawner, AbortSettings, SpawnAbortable};
 use common::log::{error, info};
 
@@ -32,6 +33,7 @@ where
     /// `data_rx` is a receiver that the streamer *could* use to receive data from the outside world.
     async fn handle(
         self,
+        broadcaster: Controller<Event>,
         ready_tx: oneshot::Sender<Result<(), String>>,
         data_rx: impl StreamHandlerInput<Self::DataInType>,
     );
@@ -48,6 +50,7 @@ where
         // we can use `self.spawner()` here to get it.
         // Also for AbortSettings, we can make this customizable with a default impl.
         spawner: WeakSpawner,
+        broadcaster: Controller<Event>,
     ) -> Result<(oneshot::Sender<()>, Option<mpsc::UnboundedSender<Box<dyn Any + Send>>>), String> {
         let streamer_id = self.streamer_id();
         info!("Spawning event streamer: {streamer_id}");
@@ -81,7 +84,7 @@ where
                     _ = rx_shutdown.fuse() => {
                         info!("Manually shutting down event streamer: {streamer_id}.")
                     }
-                    _ = self.handle(tx_ready, data_receiver).fuse() => {}
+                    _ = self.handle(broadcaster, tx_ready, data_receiver).fuse() => {}
                 }
             }
         };

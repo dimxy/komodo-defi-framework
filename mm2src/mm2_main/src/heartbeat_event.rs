@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use common::executor::Timer;
 use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput};
+use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -18,14 +18,12 @@ const fn default_stream_interval() -> f64 { 5. }
 
 pub struct HeartbeatEvent {
     config: HeartbeatEventConfig,
-    ctx: MmArc,
 }
 
 impl HeartbeatEvent {
-    pub fn try_new(config: Json, ctx: MmArc) -> Result<Self, String> {
+    pub fn try_new(config: Json) -> Result<Self, String> {
         Ok(Self {
             config: serde_json::from_value(config).map_err(|e| e.to_string())?,
-            ctx,
         })
     }
 }
@@ -36,12 +34,16 @@ impl EventStreamer for HeartbeatEvent {
 
     fn streamer_id(&self) -> String { "HEARTBEAT".to_string() }
 
-    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
+    async fn handle(
+        self,
+        broadcaster: Controller<Event>,
+        ready_tx: oneshot::Sender<Result<(), String>>,
+        _: impl StreamHandlerInput<NoDataIn>,
+    ) {
         ready_tx.send(Ok(())).unwrap();
 
         loop {
-            self.ctx
-                .stream_channel_controller
+            broadcaster
                 .broadcast(Event::new(self.streamer_id(), json!({}), None))
                 .await;
 

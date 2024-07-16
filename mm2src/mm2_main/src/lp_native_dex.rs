@@ -435,7 +435,7 @@ async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
     }
 
     if let Some(config) = ctx.event_stream_configuration.get_event("HEARTBEAT") {
-        let heartbeat_streamer = HeartbeatEvent::try_new(config, ctx.clone()).map_to_mm(|e| {
+        let heartbeat_streamer = HeartbeatEvent::try_new(config).map_to_mm(|e| {
             MmInitError::EventStreamerInitFailed(format!("Failed to initialize heartbeat event: {e}"))
         })?;
         ctx.event_stream_manager

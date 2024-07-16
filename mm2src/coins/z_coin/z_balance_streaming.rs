@@ -10,7 +10,7 @@ use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput};
+use mm2_event_stream::{Controller, Event, EventStreamer, StreamHandlerInput};
 use serde_json::Value as Json;
 use std::sync::Arc;
 
@@ -41,7 +41,12 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
 
     fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker()) }
 
-    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, data_rx: impl StreamHandlerInput<()>) {
+    async fn handle(
+        self,
+        broadcaster: Controller<Event>,
+        ready_tx: oneshot::Sender<Result<(), String>>,
+        data_rx: impl StreamHandlerInput<()>,
+    ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let streamer_id = self.streamer_id();
         let coin = self.coin;
@@ -82,7 +87,7 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
                         "balance": { "spendable": balance.spendable, "unspendable": balance.unspendable }
                     });
 
-                    ctx.stream_channel_controller
+                    broadcaster
                         .broadcast(Event::new(streamer_id.clone(), payload, None))
                         .await;
                 },
@@ -90,10 +95,7 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
                     let ticker = coin.ticker();
                     error!("Failed getting balance for '{ticker}'. Error: {err}");
                     let e = serde_json::to_value(err).expect("Serialization should't fail.");
-                    return ctx
-                        .stream_channel_controller
-                        .broadcast(Event::err(streamer_id.clone(), e, None))
-                        .await;
+                    return broadcaster.broadcast(Event::err(streamer_id.clone(), e, None)).await;
                 },
             };
         }

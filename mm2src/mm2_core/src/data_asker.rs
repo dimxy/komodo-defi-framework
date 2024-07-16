@@ -68,7 +68,7 @@ impl MmCtx {
             "data": data
         });
 
-        self.stream_channel_controller
+        self.event_stream_manager
             .broadcast(Event::new(format!("{EVENT_NAME}:{data_type}"), input, None))
             .await;
 

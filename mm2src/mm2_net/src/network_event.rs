@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use common::executor::Timer;
 use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput};
+use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_libp2p::behaviours::atomicdex;
 use serde::Deserialize;
 use serde_json::{json, Value as Json};
@@ -41,7 +41,12 @@ impl EventStreamer for NetworkEvent {
 
     fn streamer_id(&self) -> String { "NETWORK".to_string() }
 
-    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
+    async fn handle(
+        self,
+        broadcaster: Controller<Event>,
+        ready_tx: oneshot::Sender<Result<(), String>>,
+        _: impl StreamHandlerInput<NoDataIn>,
+    ) {
         let p2p_ctx = P2PContext::fetch_from_mm_arc(&self.ctx);
         let mut previously_sent = json!({});
 
@@ -65,8 +70,7 @@ impl EventStreamer for NetworkEvent {
             });
 
             if previously_sent != event_data || self.config.always_send {
-                self.ctx
-                    .stream_channel_controller
+                broadcaster
                     .broadcast(Event::new(self.streamer_id(), event_data.clone(), None))
                     .await;
 

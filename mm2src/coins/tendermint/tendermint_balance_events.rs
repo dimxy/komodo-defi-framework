@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::MethodCall;
 use jsonrpc_core::{Id as RpcId, Params as RpcParams, Value as RpcValue, Version as RpcVersion};
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput};
+use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -38,7 +38,12 @@ impl EventStreamer for TendermintBalanceEventStreamer {
 
     fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker()) }
 
-    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
+    async fn handle(
+        self,
+        broadcaster: Controller<Event>,
+        ready_tx: oneshot::Sender<Result<(), String>>,
+        _: impl StreamHandlerInput<NoDataIn>,
+    ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let streamer_id = self.streamer_id();
         let coin = self.coin;
@@ -144,9 +149,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
                                 Err(e) => {
                                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
-                                    ctx.stream_channel_controller
-                                        .broadcast(Event::err(streamer_id.clone(), e, None))
-                                        .await;
+                                    broadcaster.broadcast(Event::err(streamer_id.clone(), e, None)).await;
 
                                     continue;
                                 },
@@ -176,7 +179,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
                     }
 
                     if !balance_updates.is_empty() {
-                        ctx.stream_channel_controller
+                        broadcaster
                             .broadcast(Event::new(streamer_id.clone(), json!(balance_updates), None))
                             .await;
                     }
