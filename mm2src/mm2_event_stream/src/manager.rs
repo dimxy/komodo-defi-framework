@@ -27,9 +27,9 @@ pub struct StreamingManager {
 impl StreamingManager {
     /// Spawns and adds a new streamer `streamer` to the manager.
     pub async fn add(&self, streamer: impl EventStreamer, spawner: WeakSpawner) -> Result<(), String> {
-        let streamer_id = streamer.streamer_id().to_string();
+        let streamer_id = streamer.streamer_id();
         // NOTE: We spawn the streamer *before* checking if it can be added or not because
-        // we don't know how much time will it take for spawning and we don't want to lock
+        // we don't know how long will it take for to spawn up and we don't want to lock
         // the manager for too long.
         let channels = streamer.spawn(spawner).await?;
         let mut streamers = self.streamers.write().unwrap();

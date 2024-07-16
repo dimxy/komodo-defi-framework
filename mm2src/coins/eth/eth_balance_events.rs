@@ -6,7 +6,7 @@ use futures::{channel::oneshot, stream::FuturesUnordered, StreamExt};
 use instant::Instant;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmError;
-use mm2_event_stream::{Event, EventStreamer, EventName};
+use mm2_event_stream::{Event, EventName, EventStreamer, NoDataIn};
 use mm2_number::BigDecimal;
 use serde::Deserialize;
 use serde_json::Value as Json;
@@ -148,10 +148,13 @@ async fn fetch_balance(
 
 #[async_trait]
 impl EventStreamer for EthBalanceEventStreamer {
-    fn event_name() -> EventName { EventName::BALANCE }
+    type DataInType = NoDataIn;
 
-    async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
+    fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker) }
+
+    async fn handle(self, tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
+        let streamer_id = self.streamer_id();
 
         async fn start_polling(coin: EthCoin, ctx: MmArc, interval: f64) {
             async fn sleep_remaining_time(interval: f64, now: Instant) {
@@ -178,11 +181,7 @@ impl EventStreamer for EthBalanceEventStreamer {
                         log::error!("Failed getting addresses for {}. Error: {}", coin.ticker, e);
                         let e = serde_json::to_value(e).expect("Serialization shouldn't fail.");
                         ctx.stream_channel_controller
-                            .broadcast(Event::err(
-                                format!("{}:{}", EthBalanceEventStreamer::event_name(), coin.ticker),
-                                e,
-                                None,
-                            ))
+                            .broadcast(Event::err(streamer_id.clone(), e, None))
                             .await;
                         sleep_remaining_time(interval, now).await;
                         continue;
@@ -215,17 +214,9 @@ impl EventStreamer for EthBalanceEventStreamer {
                                 err.error
                             );
                             let e = serde_json::to_value(err.error).expect("Serialization shouldn't fail.");
+                            // FIXME: We should add the address in the error message.
                             ctx.stream_channel_controller
-                                .broadcast(Event::err(
-                                    format!(
-                                        "{}:{}:{}",
-                                        EthBalanceEventStreamer::event_name(),
-                                        err.ticker,
-                                        err.address
-                                    ),
-                                    e,
-                                    None,
-                                ))
+                                .broadcast(Event::err(streamer_id.clone(), e, None))
                                 .await;
                         },
                     };
@@ -257,31 +248,5 @@ impl EventStreamer for EthBalanceEventStreamer {
         tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
         start_polling(self.coin, ctx, self.interval).await
-    }
-
-    async fn spawn(self) -> Result<(), String> {
-        if !self.enabled {
-            return Ok(());
-        }
-        log::info!(
-            "{} event is activated for {}, and polling every {}s",
-            Self::event_name(),
-            self.coin.ticker,
-            self.interval
-        );
-
-        let (tx, rx) = oneshot::channel();
-        let settings = AbortSettings::info_on_abort(format!(
-            "{} event is stopped for {}.",
-            Self::event_name(),
-            self.coin.ticker
-        ));
-        self.coin.spawner().spawn_with_settings(self.handle(tx), settings);
-
-        rx.await.unwrap_or_else(|e| {
-            Err(format!(
-                "The handler was aborted before sending event initialization status: {e}"
-            ))
-        })
     }
 }

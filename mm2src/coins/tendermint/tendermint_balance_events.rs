@@ -6,7 +6,7 @@ use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::MethodCall;
 use jsonrpc_core::{Id as RpcId, Params as RpcParams, Value as RpcValue, Version as RpcVersion};
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, EventName};
+use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -35,10 +35,13 @@ impl TendermintBalanceEventStreamer {
 
 #[async_trait]
 impl EventStreamer for TendermintBalanceEventStreamer {
-    fn event_name() -> EventName { EventName::BALANCE }
+    type DataInType = NoDataIn;
 
-    async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
+    fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker()) }
+
+    async fn handle(self, tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
+        let streamer_id = self.streaemr_id();
         let coin = self.coin;
 
         fn generate_subscription_query(query_filter: String) -> String {
@@ -143,7 +146,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
                                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
                                     ctx.stream_channel_controller
-                                        .broadcast(Event::err(format!("{}:{}", Self::event_name(), ticker), e, None))
+                                        .broadcast(Event::err(streamer_id.clone(), e, None))
                                         .await;
 
                                     continue;
@@ -175,32 +178,11 @@ impl EventStreamer for TendermintBalanceEventStreamer {
 
                     if !balance_updates.is_empty() {
                         ctx.stream_channel_controller
-                            .broadcast(Event::new(Self::event_name().to_string(), json!(balance_updates), None))
+                            .broadcast(Event::new(streamer_id.clone(), json!(balance_updates), None))
                             .await;
                     }
                 }
             }
         }
-    }
-
-    async fn spawn(self) -> Result<(), String> {
-        if !self.enabled {
-            return Ok(());
-        }
-        log::info!("{} event is activated for {}.", Self::event_name(), self.coin.ticker(),);
-
-        let (tx, rx) = oneshot::channel();
-        let settings = AbortSettings::info_on_abort(format!(
-            "{} event is stopped for {}.",
-            Self::event_name(),
-            self.coin.ticker()
-        ));
-        self.coin.spawner().spawn_with_settings(self.handle(tx), settings);
-
-        rx.await.unwrap_or_else(|e| {
-            Err(format!(
-                "The handler was aborted before sending event initialization status: {e}"
-            ))
-        })
     }
 }

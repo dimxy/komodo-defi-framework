@@ -430,6 +430,7 @@ async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
         let network_steamer = NetworkEvent::try_new(config, ctx.clone())
             .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to initialize network event: {e}")))?;
         ctx.event_stream_manager
+        // FIXME: weak doesnt work, get rid of mmfutspawner & coinfutspawner and replace them with plain week spawner.
             .add(network_steamer, ctx.spawner().weak())
             .await
             .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn network event: {e}")))?;

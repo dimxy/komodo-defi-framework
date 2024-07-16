@@ -21,12 +21,12 @@ use common::executor::{AbortSettings, SpawnAbortable};
 use common::{true_f, Future01CompatExt};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::EventStreamer;
 use mm2_event_stream::EventStreamConfiguration;
+use mm2_event_stream::EventStreamer;
 use mm2_number::BigDecimal;
 use rpc_task::RpcTaskHandleShared;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value as Json;
+use serde_json::{json, Value as Json};
 use std::collections::{HashMap, HashSet};
 
 impl TokenOf for TendermintToken {
@@ -373,24 +373,28 @@ impl PlatformCoinWithTokensActivationOps for TendermintCoin {
         &self,
         config: &EventStreamConfiguration,
     ) -> Result<(), MmError<Self::ActivationError>> {
-        if let Some(config) = config.get_event(&TendermintBalanceEventStreamer::event_name()) {
-            TendermintBalanceEventStreamer::try_new(config, self.clone())
-                .map_to_mm(|e| TendermintInitError {
-                    ticker: self.ticker().to_owned(),
-                    kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
-                        "Failed to initialize tendermint balance streaming: {e}"
-                    )),
-                })?
-                .spawn()
-                .await
-                .map_to_mm(|e| TendermintInitError {
-                    ticker: self.ticker().to_owned(),
-                    kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
-                        "Failed to spawn tendermint balance streaming handler: {e}"
-                    )),
-                })?;
-        }
-        Ok(())
+        let balance_streamer =
+            TendermintBalanceEventStreamer::try_new(json!({}), self.clone()).map_to_mm(|e| TendermintInitError {
+                ticker: self.ticker().to_owned(),
+                kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
+                    "Failed to initialize tendermint balance streaming: {e}"
+                )),
+            })?;
+        let ctx = MmArc::from_weak(&self.ctx)
+            .ok_or_else(|| TendermintInitError {
+                ticker: self.ticker().to_owned(),
+                kind: TendermintInitErrorKind::Internal("MM context must have been initialized already.".to_owned()),
+            })
+            .map_to_mm(|e| e)?;
+        ctx.event_stream_manager
+            .add(balance_streamer, self.spawner().weak())
+            .await
+            .map_to_mm(|e| TendermintInitError {
+                ticker: self.ticker().to_owned(),
+                kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
+                    "Failed to spawn tendermint balance streaming handler: {e}"
+                )),
+            })
     }
 
     fn rpc_task_manager(

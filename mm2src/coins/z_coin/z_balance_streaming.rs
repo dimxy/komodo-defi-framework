@@ -11,8 +11,7 @@ use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::EventStreamer;
-use mm2_event_stream::{Event, EventName};
+use mm2_event_stream::{Event, EventStreamer, StreamerHandleInput};
 use serde_json::Value as Json;
 use std::sync::Arc;
 
@@ -39,10 +38,13 @@ impl ZCoinBalanceEventStreamer {
 
 #[async_trait]
 impl EventStreamer for ZCoinBalanceEventStreamer {
-    fn event_name() -> EventName { EventName::BALANCE }
+    type DataInType = ();
 
-    async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
+    fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker()) }
+
+    async fn handle(self, tx: oneshot::Sender<Result<(), String>>, data_rx: impl StreamerHandleInput<()>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
+        let streamer_id = self.streamer_id();
         let coin = self.coin;
 
         macro_rules! send_status_on_err {
@@ -82,7 +84,7 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
                     });
 
                     ctx.stream_channel_controller
-                        .broadcast(Event::new(Self::event_name().to_string(), payload, None))
+                        .broadcast(Event::new(streamer_id.clone(), payload, None))
                         .await;
                 },
                 Err(err) => {
@@ -91,36 +93,10 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
                     let e = serde_json::to_value(err).expect("Serialization should't fail.");
                     return ctx
                         .stream_channel_controller
-                        .broadcast(Event::err(format!("{}:{}", Self::event_name(), ticker), e, None))
+                        .broadcast(Event::err(streamer_id.clone(), e, None))
                         .await;
                 },
             };
         }
-    }
-
-    async fn spawn(self) -> Result<(), String> {
-        if !self.enabled {
-            return Ok(());
-        }
-        info!(
-            "{} event is activated for {} address {}.",
-            Self::event_name(),
-            self.coin.ticker(),
-            self.coin.my_z_address_encoded(),
-        );
-
-        let (tx, rx) = oneshot::channel();
-        let settings = AbortSettings::info_on_abort(format!(
-            "{} event is stopped for {}.",
-            Self::event_name(),
-            self.coin.ticker()
-        ));
-        self.coin.spawner().spawn_with_settings(self.handle(tx), settings);
-
-        rx.await.unwrap_or_else(|e| {
-            Err(format!(
-                "The handler was aborted before sending event initialization status: {e}"
-            ))
-        })
     }
 }

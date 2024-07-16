@@ -34,15 +34,15 @@ impl HeartbeatEvent {
 impl EventStreamer for HeartbeatEvent {
     type DataInType = NoDataIn;
 
-    fn streamer_id(&self) -> &str { "HEARTBEAT" }
+    fn streamer_id(&self) -> String { "HEARTBEAT".to_string() }
 
-    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<Self::DataInType>) {
+    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
         tx.send(Ok(())).unwrap();
 
         loop {
             self.ctx
                 .stream_channel_controller
-                .broadcast(Event::new(self.streamer_id().to_string(), json!({}), None))
+                .broadcast(Event::new(self.streamer_id(), json!({}), None))
                 .await;
 
             Timer::sleep(self.config.stream_interval_seconds).await;

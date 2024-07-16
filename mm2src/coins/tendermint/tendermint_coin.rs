@@ -350,7 +350,7 @@ pub struct TendermintCoinImpl {
     pub(crate) history_sync_state: Mutex<HistorySyncState>,
     client: TendermintRpcClient,
     pub(crate) chain_registry_name: Option<String>,
-    pub(crate) ctx: MmWeak,
+    pub ctx: MmWeak,
     pub(crate) is_keplr_from_ledger: bool,
 }
 

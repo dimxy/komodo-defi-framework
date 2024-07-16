@@ -120,25 +120,16 @@ where
             spawn_block_header_utxo_loop(self.ticker, &utxo_arc, sync_handle, spv_conf);
         }
 
-        if let Some(config) = self
-            .ctx()
-            .event_stream_configuration
-            .get_event(&UtxoBalanceEventStreamer::event_name())
-        {
-            UtxoBalanceEventStreamer::try_new(config, utxo_arc)
-                .map_to_mm(|e| {
-                    UtxoCoinBuildError::FailedSpawningBalanceEvents(format!(
-                        "Failed to initialize utxo event streaming: {e}"
-                    ))
-                })?
-                .spawn()
-                .await
-                .map_to_mm(|e| {
-                    UtxoCoinBuildError::FailedSpawningBalanceEvents(format!(
-                        "Failed to spawn utxo event streaming: {e}"
-                    ))
-                })?;
-        }
+        let utxo_streamer = UtxoBalanceEventStreamer::try_new(json!({}), utxo_arc.clone()).map_to_mm(|e| {
+            UtxoCoinBuildError::FailedSpawningBalanceEvents(format!("Failed to initialize utxo event streaming: {e}"))
+        })?;
+        self.ctx
+            .event_stream_manager
+            .add(utxo_streamer, utxo_arc.abortable_system.weak_spawner())
+            .await
+            .map_to_mm(|e| {
+                UtxoCoinBuildError::FailedSpawningBalanceEvents(format!("Failed to spawn utxo event streaming: {e}"))
+            })?;
 
         Ok(result_coin)
     }

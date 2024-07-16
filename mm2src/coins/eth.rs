@@ -5283,17 +5283,12 @@ impl EthCoin {
     }
 
     async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
-        if let Some(config) = ctx
-            .event_stream_configuration
-            .get_event(&EthBalanceEventStreamer::event_name())
-        {
-            EthBalanceEventStreamer::try_new(config, self.clone())
-                .map_err(|e| ERRL!("Failed to initialize eth balance streaming: {}", e))?
-                .spawn()
-                .await
-                .map_err(|e| ERRL!("Failed to spawn eth balance streaming: {}", e))?;
-        }
-        Ok(())
+        let balance_streamer = EthBalanceEventStreamer::try_new(json!({}), self.clone())
+            .map_err(|e| ERRL!("Failed to initialize eth balance streaming: {}", e))?;
+        ctx.event_stream_manager
+            .add(balance_streamer, self.spawner().weak())
+            .await
+            .map_err(|e| ERRL!("Failed to spawn eth balance streaming: {}", e))
     }
 
     /// Requests the nonce from all available nodes and returns the highest nonce available with the list of nodes that returned the highest nonce.

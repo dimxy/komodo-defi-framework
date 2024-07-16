@@ -662,18 +662,12 @@ impl ZCoin {
     }
 
     async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
-        if let Some(config) = ctx
-            .event_stream_configuration
-            .get_event(&ZCoinBalanceEventStreamer::event_name())
-        {
-            ZCoinBalanceEventStreamer::try_new(config, self.clone())
-                .map_err(|e| ERRL!("Failed to initialize zcoin balance streaming: {}", e))?
-                .spawn()
-                .await
-                .map_err(|e| ERRL!("Failed to spawn zcoin balance streaming: {}", e))?;
-        }
-
-        Ok(())
+        let balance_streamer = ZCoinBalanceEventStreamer::try_new(json!({}), self.clone())
+            .map_err(|e| ERRL!("Failed to initialize zcoin balance streaming: {}", e))?;
+        ctx.event_stream_manager
+            .add(balance_streamer, self.spawner().weak())
+            .await
+            .map_err(|e| ERRL!("Failed to spawn zcoin balance streaming: {}", e))
     }
 }
 

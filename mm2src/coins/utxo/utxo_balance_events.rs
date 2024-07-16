@@ -5,7 +5,7 @@ use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, EventName, Filter};
+use mm2_event_stream::{Event, EventName, EventStreamer, Filter};
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -48,17 +48,24 @@ impl UtxoBalanceEventStreamer {
             enabled,
             // We wrap the UtxoArc in a UtxoStandardCoin for easier method accessibility.
             // The UtxoArc might belong to a different coin type though.
-            coin: UtxoStandardCoin::from(utxo_arc),
+            coin: UtxoStandardCoin::from(utxo_arc).spawner(),
         })
     }
 }
 
 #[async_trait]
 impl EventStreamer for UtxoBalanceEventStreamer {
-    fn event_name() -> EventName { EventName::BALANCE }
+    type DataInType = ScripthashNotification;
 
-    async fn handle(self, tx: oneshot::Sender<Result<(), String>>) {
+    fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker()) }
+
+    async fn handle(
+        self,
+        tx: oneshot::Sender<Result<(), String>>,
+        data_rx: impl StreamHandlerInput<ScripthashNotification>,
+    ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
+        let streamer_id = self.streamer_id();
         let coin = self.coin;
         let filter = Arc::new(UtxoBalanceEventFilter::new(coin.ticker()));
 
@@ -99,6 +106,13 @@ impl EventStreamer for UtxoBalanceEventStreamer {
             Ok(scripthash_to_address_map)
         }
 
+        if coin.as_ref().rpc_client.is_native() {
+            log::warn!("Native RPC client is not supported for {streamer_id} event. Skipping event initialization.");
+            // We won't consider this an error but just an unsupported scenario and continue running.
+            tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
+            panic!("Native RPC client is not supported for UtxoBalanceEventStreamer.");
+        }
+
         let ctx = match MmArc::from_weak(&coin.as_ref().ctx) {
             Some(ctx) => ctx,
             None => {
@@ -131,7 +145,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
 
                             ctx.stream_channel_controller
                                 .broadcast(Event::err(
-                                    format!("{}:{}", Self::event_name(), coin.ticker()),
+                                    streamer_id.clone(),
                                     json!({ "error": e }),
                                     Some(filter.clone()),
                                 ))
@@ -150,7 +164,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
 
                             ctx.stream_channel_controller
                                 .broadcast(Event::err(
-                                    format!("{}:{}", Self::event_name(), coin.ticker()),
+                                    streamer_id.clone(),
                                     json!({ "error": e }),
                                     Some(filter.clone()),
                                 ))
@@ -204,13 +218,8 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
 
-                    // FIXME: Note that such an event isn't SSE-ed to any client since no body is listening to it.
                     ctx.stream_channel_controller
-                        .broadcast(Event::err(
-                            format!("{}:{}", Self::event_name(), ticker),
-                            e,
-                            Some(filter.clone()),
-                        ))
+                        .broadcast(Event::err(streamer_id.clone(), e, Some(filter.clone())))
                         .await;
 
                     continue;
@@ -225,47 +234,12 @@ impl EventStreamer for UtxoBalanceEventStreamer {
 
             ctx.stream_channel_controller
                 .broadcast(Event::new(
-                    Self::event_name().to_string(),
+                    streamer_id.clone(),
                     json!(vec![payload]),
                     Some(filter.clone()),
                 ))
                 .await;
         }
-    }
-
-    async fn spawn(self) -> Result<(), String> {
-        if !self.enabled {
-            return Ok(());
-        }
-
-        if self.coin.as_ref().rpc_client.is_native() {
-            log::warn!(
-                "Native RPC client is not supported for {} event. Skipping event initialization.",
-                self.event_id(),
-            );
-            // We won't consider this an error but just an unsupported scenario and continue running.
-            return Ok(());
-        }
-
-        log::info!(
-            "{} event is activated for coin: {}",
-            Self::event_name(),
-            self.coin.ticker(),
-        );
-
-        let (tx, rx) = oneshot::channel();
-        let settings = AbortSettings::info_on_abort(format!(
-            "{} event is stopped for {}.",
-            Self::event_name(),
-            self.coin.ticker()
-        ));
-        self.coin.spawner().spawn_with_settings(self.handle(tx), settings);
-
-        rx.await.unwrap_or_else(|e| {
-            Err(format!(
-                "The handler was aborted before sending event initialization status: {e}"
-            ))
-        })
     }
 }
 
@@ -278,7 +252,8 @@ impl UtxoBalanceEventFilter {
     pub fn new(ticker: &str) -> Self {
         Self {
             // The client requested event must have our ticker in that format to pass through.
-            event_name_match: format!("{}_{}", UtxoBalanceEventStreamer::event_name(), ticker),
+            // fixme: Abandon this filter matching
+            event_name_match: String::new(), //format!("BALANCE_{}", UtxoBalanceEventStreamer::event_name(), ticker),
         }
     }
 }
