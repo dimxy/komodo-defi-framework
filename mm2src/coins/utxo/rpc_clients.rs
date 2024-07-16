@@ -33,7 +33,6 @@ use itertools::Itertools;
 use keys::hash::H256;
 use keys::Address;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::StreamingManager;
 use mm2_number::{BigDecimal, BigInt, MmNumber};
 use mm2_rpc::data::legacy::ElectrumProtocol;
 #[cfg(test)] use mocktopus::macros::*;
@@ -1480,8 +1479,7 @@ fn server_name_from_domain(dns_name: &str) -> Result<ServerName, String> {
 pub fn spawn_electrum(
     req: &ElectrumRpcRequest,
     event_handlers: Vec<RpcTransportEventHandlerShared>,
-    streaming_manager: StreamingManager,
-    ticker: String,
+    scripthash_notification_sender: &ScripthashNotificationSender,
     abortable_system: AbortableQueue,
 ) -> Result<ElectrumConnection, String> {
     let config = match req.protocol {
@@ -1508,8 +1506,7 @@ pub fn spawn_electrum(
         req.url.clone(),
         config,
         event_handlers,
-        streaming_manager,
-        ticker,
+        scripthash_notification_sender,
         abortable_system,
     ))
 }
@@ -1663,8 +1660,6 @@ pub struct ElectrumClientImpl {
     /// Please also note that this abortable system is a subsystem of [`UtxoCoinFields::abortable_system`].
     abortable_system: AbortableQueue,
     negotiate_version: bool,
-    /// This is a copy of the streaming manager so to be able to communicate with utxo balance streamer.
-    streaming_manager: StreamingManager,
     /// This is used for balance event streaming implementation for UTXOs.
     /// If balance event streaming isn't enabled, this value will always be `None`; otherwise,
     /// it will be used for sending scripthash messages to trigger re-connections, re-fetching the balances, etc.
@@ -1761,8 +1756,7 @@ impl ElectrumClientImpl {
         let connection = try_s!(spawn_electrum(
             req,
             self.event_handlers.clone(),
-            self.streaming_manager.clone(),
-            self.coin_ticker.clone(),
+            &self.scripthash_notification_sender,
             subsystem,
         ));
         self.connections.lock().await.push(connection);
@@ -2521,7 +2515,7 @@ impl ElectrumClientImpl {
         block_headers_storage: BlockHeaderStorage,
         abortable_system: AbortableQueue,
         negotiate_version: bool,
-        streaming_manager: StreamingManager,
+        scripthash_notification_sender: ScripthashNotificationSender,
     ) -> ElectrumClientImpl {
         let protocol_version = OrdRange::new(1.2, 1.4).unwrap();
         ElectrumClientImpl {
@@ -2535,8 +2529,7 @@ impl ElectrumClientImpl {
             block_headers_storage,
             abortable_system,
             negotiate_version,
-            streaming_manager,
-            scripthash_notification_sender: None,
+            scripthash_notification_sender,
         }
     }
 
@@ -2547,7 +2540,7 @@ impl ElectrumClientImpl {
         protocol_version: OrdRange<f32>,
         block_headers_storage: BlockHeaderStorage,
         abortable_system: AbortableQueue,
-        streaming_manager: StreamingManager,
+        scripthash_notification_sender: ScripthashNotificationSender,
     ) -> ElectrumClientImpl {
         ElectrumClientImpl {
             protocol_version,
@@ -2557,7 +2550,7 @@ impl ElectrumClientImpl {
                 block_headers_storage,
                 abortable_system,
                 false,
-                streaming_manager,
+                scripthash_notification_sender,
             )
         }
     }
@@ -2571,8 +2564,7 @@ fn rx_to_stream(rx: mpsc::Receiver<Vec<u8>>) -> impl Stream<Item = Vec<u8>, Erro
 async fn electrum_process_json(
     raw_json: Json,
     arc: &JsonRpcPendingRequestsShared,
-    streaming_manager: &StreamingManager,
-    ticker: &str,
+    scripthash_notification_sender: &ScripthashNotificationSender,
 ) {
     // detect if we got standard JSONRPC response or subscription response as JSONRPC request
     #[derive(Deserialize)]
@@ -2613,14 +2605,14 @@ async fn electrum_process_json(
                         },
                     };
 
-                    if let Err(e) = streaming_manager.send(
-                        &format!("BALANCE:{ticker}"),
-                        ScripthashNotification::Triggered(scripthash.to_string()),
-                    ) {
-                        error!("Failed sending scripthash message. {e:?}");
-                        return;
+                    if let Some(sender) = scripthash_notification_sender {
+                        debug!("Sending scripthash message");
+                        if let Err(e) = sender.unbounded_send(ScripthashNotification::Triggered(scripthash.to_string()))
+                        {
+                            error!("Failed sending scripthash message. {e}");
+                            return;
+                        };
                     };
-
                     BLOCKCHAIN_SCRIPTHASH_SUB_ID
                 },
                 _ => {
@@ -2648,8 +2640,7 @@ async fn electrum_process_json(
 async fn electrum_process_chunk(
     chunk: &[u8],
     arc: &JsonRpcPendingRequestsShared,
-    streaming_manager: &StreamingManager,
-    ticker: &str,
+    scripthash_notification_sender: ScripthashNotificationSender,
 ) {
     // we should split the received chunk because we can get several responses in 1 chunk.
     let split = chunk.split(|item| *item == b'\n');
@@ -2663,7 +2654,7 @@ async fn electrum_process_chunk(
                     return;
                 },
             };
-            electrum_process_json(raw_json, arc, streaming_manager, ticker).await
+            electrum_process_json(raw_json, arc, &scripthash_notification_sender).await
         }
     }
 }
@@ -2791,8 +2782,7 @@ async fn connect_loop<Spawner: SpawnFuture>(
     responses: JsonRpcPendingRequestsShared,
     connection_tx: Arc<AsyncMutex<Option<mpsc::Sender<Vec<u8>>>>>,
     event_handlers: Vec<RpcTransportEventHandlerShared>,
-    streaming_manager: StreamingManager,
-    ticker: String,
+    scripthash_notification_sender: ScripthashNotificationSender,
     _spawner: Spawner,
 ) -> Result<(), ()> {
     let delay = Arc::new(AtomicU64::new(0));
@@ -2849,8 +2839,7 @@ async fn connect_loop<Spawner: SpawnFuture>(
             let delay = delay.clone();
             let addr = addr.clone();
             let responses = responses.clone();
-            let streaming_manager = streaming_manager.clone();
-            let ticker = ticker.clone();
+            let scripthash_notification_sender = scripthash_notification_sender.clone();
             let event_handlers = event_handlers.clone();
             async move {
                 let mut buffer = String::with_capacity(1024);
@@ -2874,7 +2863,7 @@ async fn connect_loop<Spawner: SpawnFuture>(
                     event_handlers.on_incoming_response(buffer.as_bytes());
                     last_chunk.store(now_ms(), AtomicOrdering::Relaxed);
 
-                    electrum_process_chunk(buffer.as_bytes(), &responses, &streaming_manager, &ticker).await;
+                    electrum_process_chunk(buffer.as_bytes(), &responses, scripthash_notification_sender.clone()).await;
                     buffer.clear();
                 }
             }
@@ -3026,8 +3015,7 @@ fn electrum_connect(
     addr: String,
     config: ElectrumConfig,
     event_handlers: Vec<RpcTransportEventHandlerShared>,
-    streaming_manager: StreamingManager,
-    ticker: String,
+    scripthash_notification_sender: &ScripthashNotificationSender,
     abortable_system: AbortableQueue,
 ) -> ElectrumConnection {
     let responses = Arc::new(AsyncMutex::new(JsonRpcPendingRequests::default()));
@@ -3040,8 +3028,7 @@ fn electrum_connect(
         responses.clone(),
         tx.clone(),
         event_handlers,
-        streaming_manager,
-        ticker,
+        scripthash_notification_sender.clone(),
         spawner.clone(),
     )
     .then(|_| futures::future::ready(()));
