@@ -10,10 +10,10 @@ use futures::{select, FutureExt, Stream, StreamExt};
 /// A marker to indicate that the event streamer doesn't take any input data.
 pub struct NoDataIn;
 
-/// A mixture trait combining `Stream` and `Send` together (to avoid confusing annotation).
-pub trait StreamHandlerInput<D>: Stream<Item = D> + Send {}
-/// Implement the trait for all types `T` that implement `Stream<Item = D> + Send` for all `D`.
-impl<T, D> StreamHandlerInput<D> for T where T: Stream<Item = D> + Send {}
+/// A mixture trait combining `Stream`, `Send` & `Unpin` together (to avoid confusing annotation).
+pub trait StreamHandlerInput<D>: Stream<Item = D> + Send + Unpin {}
+/// Implement the trait for all types `T` that implement `Stream<Item = D> + Send + Unpin` for any `D`.
+impl<T, D> StreamHandlerInput<D> for T where T: Stream<Item = D> + Send + Unpin {}
 
 #[async_trait]
 pub trait EventStreamer
@@ -63,14 +63,14 @@ where
             let streamer_id = streamer_id.clone();
             move |any_input_data| {
                 let streamer_id = streamer_id.clone();
-                async move {
+                Box::pin(async move {
                     if let Ok(input_data) = any_input_data.downcast() {
                         Some(*input_data)
                     } else {
                         error!("Couldn't downcast a received message to {}. This message wasn't intended to be sent to this streamer ({streamer_id}).", any::type_name::<Self::DataInType>());
                         None
                     }
-                }
+                })
             }
         });
 

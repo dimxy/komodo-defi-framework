@@ -61,7 +61,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
     async fn handle(
         self,
         ready_tx: oneshot::Sender<Result<(), String>>,
-        data_rx: impl StreamHandlerInput<ScripthashNotification>,
+        mut data_rx: impl StreamHandlerInput<ScripthashNotification>,
     ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let streamer_id = self.streamer_id();
@@ -121,19 +121,10 @@ impl EventStreamer for UtxoBalanceEventStreamer {
             },
         };
 
-        let scripthash_notification_handler = match coin.as_ref().scripthash_notification_handler.as_ref() {
-            Some(t) => t,
-            None => {
-                let e = "Scripthash notification receiver can not be empty.";
-                ready_tx.send(Err(e.to_string())).expect(RECEIVER_DROPPED_MSG);
-                panic!("{}", e);
-            },
-        };
-
         ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
         let mut scripthash_to_address_map = BTreeMap::default();
-        while let Some(message) = scripthash_notification_handler.lock().await.next().await {
+        while let Some(message) = data_rx.next().await {
             let notified_scripthash = match message {
                 ScripthashNotification::Triggered(t) => t,
                 ScripthashNotification::SubscribeToAddresses(addresses) => {
