@@ -22,7 +22,6 @@ use common::{true_f, Future01CompatExt};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_event_stream::EventStreamConfiguration;
-use mm2_event_stream::EventStreamer;
 use mm2_number::BigDecimal;
 use rpc_task::RpcTaskHandleShared;
 use serde::{Deserialize, Deserializer, Serialize};

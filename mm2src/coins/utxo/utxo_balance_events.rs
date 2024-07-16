@@ -1,11 +1,10 @@
 use async_trait::async_trait;
-use common::{executor::{AbortSettings, SpawnAbortable, Timer},
-             log, Future01CompatExt};
+use common::{executor::Timer, log, Future01CompatExt};
 use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventName, EventStreamer, Filter};
+use mm2_event_stream::{Event, EventStreamer, Filter, StreamHandlerInput};
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
@@ -16,7 +15,7 @@ use crate::{utxo::{output_script,
                    rpc_clients::electrum_script_hash,
                    utxo_common::{address_balance, address_to_scripthash},
                    ScripthashNotification, UtxoCoinFields},
-            CoinWithDerivationMethod, MarketCoinOps, MmCoin};
+            CoinWithDerivationMethod, MarketCoinOps};
 
 macro_rules! try_or_continue {
     ($exp:expr) => {
@@ -48,7 +47,7 @@ impl UtxoBalanceEventStreamer {
             enabled,
             // We wrap the UtxoArc in a UtxoStandardCoin for easier method accessibility.
             // The UtxoArc might belong to a different coin type though.
-            coin: UtxoStandardCoin::from(utxo_arc).spawner(),
+            coin: UtxoStandardCoin::from(utxo_arc),
         })
     }
 }
@@ -61,7 +60,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
 
     async fn handle(
         self,
-        tx: oneshot::Sender<Result<(), String>>,
+        ready_tx: oneshot::Sender<Result<(), String>>,
         data_rx: impl StreamHandlerInput<ScripthashNotification>,
     ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
@@ -109,7 +108,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
         if coin.as_ref().rpc_client.is_native() {
             log::warn!("Native RPC client is not supported for {streamer_id} event. Skipping event initialization.");
             // We won't consider this an error but just an unsupported scenario and continue running.
-            tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
+            ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
             panic!("Native RPC client is not supported for UtxoBalanceEventStreamer.");
         }
 
@@ -117,7 +116,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
             Some(ctx) => ctx,
             None => {
                 let msg = "MM context must have been initialized already.";
-                tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
+                ready_tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
                 panic!("{}", msg);
             },
         };
@@ -126,12 +125,12 @@ impl EventStreamer for UtxoBalanceEventStreamer {
             Some(t) => t,
             None => {
                 let e = "Scripthash notification receiver can not be empty.";
-                tx.send(Err(e.to_string())).expect(RECEIVER_DROPPED_MSG);
+                ready_tx.send(Err(e.to_string())).expect(RECEIVER_DROPPED_MSG);
                 panic!("{}", e);
             },
         };
 
-        tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
+        ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
         let mut scripthash_to_address_map = BTreeMap::default();
         while let Some(message) = scripthash_notification_handler.lock().await.next().await {

@@ -45,8 +45,7 @@ use async_trait::async_trait;
 use base58::FromBase58Error;
 use bip32::ExtendedPrivateKey;
 use common::custom_futures::timeout::TimeoutError;
-use common::executor::{abortable_queue::{AbortableQueue, WeakSpawner},
-                       AbortSettings, AbortedError, SpawnAbortable, SpawnFuture};
+use common::executor::{abortable_queue::WeakSpawner, AbortedError, SpawnFuture};
 use common::log::{warn, LogOnError};
 use common::{calc_total_pages, now_sec, ten, HttpStatusCode};
 use crypto::{derive_secp256k1_secret, Bip32Error, Bip44Chain, CryptoCtx, CryptoCtxError, DerivationPath,
@@ -75,7 +74,6 @@ use serde_json::{self as json, Value as Json};
 use std::cmp::Ordering;
 use std::collections::hash_map::{HashMap, RawEntryMut};
 use std::collections::HashSet;
-use std::future::Future as Future03;
 use std::num::{NonZeroUsize, TryFromIntError};
 use std::ops::{Add, AddAssign, Deref};
 use std::str::FromStr;

@@ -1,6 +1,5 @@
 use async_trait::async_trait;
-use common::{executor::{AbortSettings, SpawnAbortable},
-             http_uri_to_ws_address, log};
+use common::{http_uri_to_ws_address, log};
 use futures::channel::oneshot;
 use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::MethodCall;
@@ -13,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::TendermintCoin;
 use crate::streaming_events_config::{BalanceEventConfig, EmptySubConfig};
-use crate::{tendermint::TendermintCommons, utxo::utxo_common::big_decimal_from_sat_unsigned, MarketCoinOps, MmCoin};
+use crate::{tendermint::TendermintCommons, utxo::utxo_common::big_decimal_from_sat_unsigned, MarketCoinOps};
 
 pub struct TendermintBalanceEventStreamer {
     /// Whether the event is enabled for this coin.
@@ -39,9 +38,9 @@ impl EventStreamer for TendermintBalanceEventStreamer {
 
     fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker()) }
 
-    async fn handle(self, tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
+    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
-        let streamer_id = self.streaemr_id();
+        let streamer_id = self.streamer_id();
         let coin = self.coin;
 
         fn generate_subscription_query(query_filter: String) -> String {
@@ -62,7 +61,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
             Some(ctx) => ctx,
             None => {
                 let msg = "MM context must have been initialized already.";
-                tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
+                ready_tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
                 panic!("{}", msg);
             },
         };
@@ -76,7 +75,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
         let spender_q = generate_subscription_query(format!("coin_spent.spender = '{}'", account_id));
         let spender_q = tokio_tungstenite_wasm::Message::Text(spender_q);
 
-        tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
+        ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
         loop {
             let node_uri = match coin.rpc_client().await {

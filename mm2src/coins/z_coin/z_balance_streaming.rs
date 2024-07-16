@@ -1,17 +1,16 @@
 use crate::common::Future01CompatExt;
 use crate::streaming_events_config::{BalanceEventConfig, EmptySubConfig};
 use crate::z_coin::ZCoin;
-use crate::{MarketCoinOps, MmCoin};
+use crate::MarketCoinOps;
 
 use async_trait::async_trait;
-use common::executor::{AbortSettings, SpawnAbortable};
-use common::log::{error, info};
+use common::log::error;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, StreamerHandleInput};
+use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput};
 use serde_json::Value as Json;
 use std::sync::Arc;
 
@@ -42,7 +41,7 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
 
     fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker()) }
 
-    async fn handle(self, tx: oneshot::Sender<Result<(), String>>, data_rx: impl StreamerHandleInput<()>) {
+    async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, data_rx: impl StreamHandlerInput<()>) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let streamer_id = self.streamer_id();
         let coin = self.coin;
@@ -61,16 +60,16 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
 
         let ctx = send_status_on_err!(
             MmArc::from_weak(&coin.as_ref().ctx),
-            tx,
+            ready_tx,
             "MM context must have been initialized already."
         );
         let z_balance_change_handler = send_status_on_err!(
             coin.z_fields.z_balance_event_handler.as_ref(),
-            tx,
+            ready_tx,
             "Z balance change receiver can not be empty."
         );
 
-        tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
+        ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
         // Locks the balance change handler, iterates through received events, and updates balance changes accordingly.
         let mut bal = z_balance_change_handler.lock().await;

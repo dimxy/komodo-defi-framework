@@ -1,7 +1,7 @@
 #[cfg(feature = "track-ctx-pointer")]
 use common::executor::Timer;
 use common::executor::{abortable_queue::{AbortableQueue, WeakSpawner},
-                       graceful_shutdown, AbortSettings, AbortableSystem, SpawnAbortable, SpawnFuture};
+                       graceful_shutdown, AbortableSystem};
 use common::log::{self, LogLevel, LogOnError, LogState};
 use common::{cfg_native, cfg_wasm32, small_rng};
 use gstuff::{try_s, Constructible, ERR, ERRL};
@@ -16,7 +16,6 @@ use std::any::Any;
 use std::collections::hash_map::{Entry, HashMap};
 use std::collections::HashSet;
 use std::fmt;
-use std::future::Future;
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 

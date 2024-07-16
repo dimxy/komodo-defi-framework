@@ -37,7 +37,7 @@ impl EventStreamer for HeartbeatEvent {
     fn streamer_id(&self) -> String { "HEARTBEAT".to_string() }
 
     async fn handle(self, ready_tx: oneshot::Sender<Result<(), String>>, _: impl StreamHandlerInput<NoDataIn>) {
-        tx.send(Ok(())).unwrap();
+        ready_tx.send(Ok(())).unwrap();
 
         loop {
             self.ctx
