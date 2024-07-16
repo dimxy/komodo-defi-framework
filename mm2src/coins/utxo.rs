@@ -147,8 +147,7 @@ pub enum ScripthashNotification {
     RefreshSubscriptions,
 }
 
-pub type ScripthashNotificationSender = Option<UnboundedSender<ScripthashNotification>>;
-type ScripthashNotificationHandler = Option<Arc<AsyncMutex<UnboundedReceiver<ScripthashNotification>>>>;
+type ScripthashNotificationSender = Option<UnboundedSender<ScripthashNotification>>;
 
 #[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
@@ -619,10 +618,6 @@ pub struct UtxoCoinFields {
     /// and on [`MmArc::stop`].
     pub abortable_system: AbortableQueue,
     pub(crate) ctx: MmWeak,
-    /// This is used for balance event streaming implementation for UTXOs.
-    /// If balance event streaming isn't enabled, this value will always be `None`; otherwise,
-    /// it will be used for receiving scripthash notifications to re-fetch balances.
-    scripthash_notification_handler: ScripthashNotificationHandler,
 }
 
 #[derive(Debug, Display)]

@@ -9,6 +9,7 @@ use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 
 /// The errors that could originate from the streaming manager.
+#[derive(Debug)]
 pub enum StreamingSendError {
     /// There is no streamer with the given ID.
     StreamerNotFound,
@@ -18,7 +19,7 @@ pub enum StreamingSendError {
     NoDataIn,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct StreamingManager {
     /// A map from streamer IDs to their communication channels (if present) and shutdown handles.
     streamers: Arc<RwLock<HashMap<String, (oneshot::Sender<()>, Option<UnboundedSender<Box<dyn Any + Send>>>)>>>,

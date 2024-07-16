@@ -304,7 +304,6 @@ where
         block_headers_status_notifier,
         block_headers_status_watcher,
         abortable_system,
-        scripthash_notification_handler,
         ctx: builder.ctx().weak(),
     };
 
@@ -390,7 +389,6 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             block_headers_status_notifier,
             block_headers_status_watcher,
             abortable_system,
-            scripthash_notification_handler,
             ctx: self.ctx().weak(),
         };
         Ok(coin)
@@ -596,7 +594,7 @@ pub trait UtxoCoinBuilderCommonOps {
             block_headers_storage,
             abortable_system,
             args.negotiate_version,
-            scripthash_notification_sender,
+            ctx.event_stream_manager.clone(),
         );
         for server in servers.iter() {
             match client.add_server(server).await {

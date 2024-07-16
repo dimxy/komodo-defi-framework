@@ -8,4 +8,5 @@ pub mod streamer;
 pub use configuration::EventStreamConfiguration;
 pub use controller::Controller;
 pub use event::{Event, EventName, Filter};
+pub use manager::{StreamingManager, StreamingSendError};
 pub use streamer::{EventStreamer, NoDataIn, StreamHandlerInput};
