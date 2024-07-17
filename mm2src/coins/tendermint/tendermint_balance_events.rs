@@ -4,7 +4,6 @@ use futures::channel::oneshot;
 use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::MethodCall;
 use jsonrpc_core::{Id as RpcId, Params as RpcParams, Value as RpcValue, Version as RpcVersion};
-use mm2_core::mm_ctx::MmArc;
 use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
@@ -61,15 +60,6 @@ impl EventStreamer for TendermintBalanceEventStreamer {
 
             serde_json::to_string(&q).expect("This should never happen")
         }
-
-        let ctx = match MmArc::from_weak(&coin.ctx) {
-            Some(ctx) => ctx,
-            None => {
-                let msg = "MM context must have been initialized already.";
-                ready_tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
-                panic!("{}", msg);
-            },
-        };
 
         let account_id = coin.account_id.to_string();
         let mut current_balances: HashMap<String, BigDecimal> = HashMap::new();

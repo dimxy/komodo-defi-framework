@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use common::executor::Timer;
 use futures::channel::oneshot;
-use mm2_core::mm_ctx::MmArc;
 use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use serde::Deserialize;
 use serde_json::Value as Json;

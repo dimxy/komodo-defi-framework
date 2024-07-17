@@ -9,7 +9,6 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
-use mm2_core::mm_ctx::MmArc;
 use mm2_event_stream::{Controller, Event, EventStreamer, StreamHandlerInput};
 use serde_json::Value as Json;
 use std::sync::Arc;
@@ -62,12 +61,6 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
                 }
             };
         }
-
-        let ctx = send_status_on_err!(
-            MmArc::from_weak(&coin.as_ref().ctx),
-            ready_tx,
-            "MM context must have been initialized already."
-        );
 
         ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 

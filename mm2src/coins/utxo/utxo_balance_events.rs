@@ -3,7 +3,6 @@ use common::{executor::Timer, log, Future01CompatExt};
 use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
-use mm2_core::mm_ctx::MmArc;
 use mm2_event_stream::{Controller, Event, EventStreamer, Filter, StreamHandlerInput};
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
@@ -112,15 +111,6 @@ impl EventStreamer for UtxoBalanceEventStreamer {
             ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
             panic!("Native RPC client is not supported for UtxoBalanceEventStreamer.");
         }
-
-        let ctx = match MmArc::from_weak(&coin.as_ref().ctx) {
-            Some(ctx) => ctx,
-            None => {
-                let msg = "MM context must have been initialized already.";
-                ready_tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
-                panic!("{}", msg);
-            },
-        };
 
         ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 

@@ -3,7 +3,6 @@ use common::{executor::Timer, log, Future01CompatExt};
 use ethereum_types::Address;
 use futures::{channel::oneshot, stream::FuturesUnordered, StreamExt};
 use instant::Instant;
-use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MmError;
 use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_number::BigDecimal;
@@ -159,13 +158,7 @@ impl EventStreamer for EthBalanceEventStreamer {
     ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
 
-        async fn start_polling(
-            streamer_id: String,
-            broadcaster: Controller<Event>,
-            coin: EthCoin,
-            ctx: MmArc,
-            interval: f64,
-        ) {
+        async fn start_polling(streamer_id: String, broadcaster: Controller<Event>, coin: EthCoin, interval: f64) {
             async fn sleep_remaining_time(interval: f64, now: Instant) {
                 // If the interval is x seconds,
                 // our goal is to broadcast changed balances every x seconds.
@@ -237,17 +230,8 @@ impl EventStreamer for EthBalanceEventStreamer {
             }
         }
 
-        let ctx = match MmArc::from_weak(&self.coin.ctx) {
-            Some(ctx) => ctx,
-            None => {
-                let msg = "MM context must have been initialized already.";
-                ready_tx.send(Err(msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
-                panic!("{}", msg);
-            },
-        };
-
         ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
-        start_polling(self.streamer_id(), broadcaster, self.coin, ctx, self.interval).await
+        start_polling(self.streamer_id(), broadcaster, self.coin, self.interval).await
     }
 }
