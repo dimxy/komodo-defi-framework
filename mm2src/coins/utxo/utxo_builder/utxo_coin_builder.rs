@@ -305,7 +305,6 @@ where
         block_headers_status_watcher,
         abortable_system,
         scripthash_notification_handler,
-        ctx: builder.ctx().weak(),
     };
 
     Ok(coin)
@@ -391,7 +390,6 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             block_headers_status_watcher,
             abortable_system,
             scripthash_notification_handler,
-            ctx: self.ctx().weak(),
         };
         Ok(coin)
     }

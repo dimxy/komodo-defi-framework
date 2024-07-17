@@ -67,7 +67,7 @@ pub use keys::{Address, AddressBuilder, AddressFormat as UtxoAddressFormat, Addr
                AddressScriptType, KeyPair, LegacyAddress, Private, Public, Secret};
 #[cfg(not(target_arch = "wasm32"))]
 use lightning_invoice::Currency as LightningCurrency;
-use mm2_core::mm_ctx::{MmArc, MmWeak};
+use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
@@ -618,7 +618,6 @@ pub struct UtxoCoinFields {
     /// This abortable system is used to spawn coin's related futures that should be aborted on coin deactivation
     /// and on [`MmArc::stop`].
     pub abortable_system: AbortableQueue,
-    pub(crate) ctx: MmWeak,
     /// This is used for balance event streaming implementation for UTXOs.
     /// If balance event streaming isn't enabled, this value will always be `None`; otherwise,
     /// it will be used for receiving scripthash notifications to re-fetch balances.
