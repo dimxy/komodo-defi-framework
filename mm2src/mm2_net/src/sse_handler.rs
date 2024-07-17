@@ -18,7 +18,8 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
     let filtered_events = HashSet::new();
 
     let channel_controller = ctx.event_stream_manager.controller();
-    let mut rx = channel_controller.create_channel(config.total_active_events());
+    // Note that the channel's buffer carries `Arc`s, which have a small memory footprint.
+    let mut rx = channel_controller.create_channel(1024);
     let body = Body::wrap_stream(async_stream::stream! {
         while let Some(event) = rx.recv().await {
             if let Some((event_type, message)) = event.get_data(&filtered_events) {

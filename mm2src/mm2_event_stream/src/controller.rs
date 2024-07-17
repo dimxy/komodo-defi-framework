@@ -56,10 +56,9 @@ impl<M: Send + Sync> Controller<M> {
     pub async fn broadcast(&self, message: M) {
         let msg = Arc::new(message);
         for tx in self.all_channels() {
-            // FIXME: We are `awaiting` a back-pressured channel here. If one channel is slow for
-            // whatever reason, it will block the broadcast to all other channels.
-            // either `try_send`, `send` with a short timeout, or make the channels unbounded (security risk?).
-            tx.send(Arc::clone(&msg)).await.ok();
+            // Only `try_send` here. If the receiver's channel is full (receiver is slow), it will
+            // not receive the message. This avoids blocking the broadcast to other receivers.
+            tx.try_send(msg.clone()).ok();
         }
     }
 
