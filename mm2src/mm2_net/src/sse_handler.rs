@@ -15,19 +15,7 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
     };
 
     let config = &ctx.event_stream_configuration;
-
-    let filtered_events = request
-        .uri()
-        .query()
-        .and_then(|query| {
-            query
-                .split('&')
-                .find(|param| param.starts_with("filter="))
-                .map(|param| param.trim_start_matches("filter="))
-        })
-        .map_or(HashSet::new(), |events_param| {
-            events_param.split(',').map(|event| event.to_string()).collect()
-        });
+    let filtered_events = HashSet::new();
 
     let channel_controller = ctx.event_stream_manager.controller();
     let mut rx = channel_controller.create_channel(config.total_active_events());
