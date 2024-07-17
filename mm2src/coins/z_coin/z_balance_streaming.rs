@@ -45,7 +45,7 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
         self,
         broadcaster: Controller<Event>,
         ready_tx: oneshot::Sender<Result<(), String>>,
-        data_rx: impl StreamHandlerInput<()>,
+        mut data_rx: impl StreamHandlerInput<()>,
     ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let streamer_id = self.streamer_id();
@@ -68,17 +68,11 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
             ready_tx,
             "MM context must have been initialized already."
         );
-        let z_balance_change_handler = send_status_on_err!(
-            coin.z_fields.z_balance_event_handler.as_ref(),
-            ready_tx,
-            "Z balance change receiver can not be empty."
-        );
 
         ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
 
-        // Locks the balance change handler, iterates through received events, and updates balance changes accordingly.
-        let mut bal = z_balance_change_handler.lock().await;
-        while (bal.next().await).is_some() {
+        // Iterates through received events, and updates balance changes accordingly.
+        while (data_rx.next().await).is_some() {
             match coin.my_balance().compat().await {
                 Ok(balance) => {
                     let payload = json!({
