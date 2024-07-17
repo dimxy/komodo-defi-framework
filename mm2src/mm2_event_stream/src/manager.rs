@@ -18,8 +18,10 @@ pub enum StreamingManagerError {
     SendError,
     /// The streamer doesn't accept an input.
     NoDataIn,
-    /// Couldn't spawn/add the streamer.
+    /// Couldn't spawn the streamer.
     SpawnError(String),
+    /// Couldn't add the streamer, because it already exists.
+    AddError(String),
 }
 
 #[derive(Clone, Default)]
@@ -44,7 +46,7 @@ impl StreamingManager {
         let mut streamers = self.streamers.write().unwrap();
         // If that streamer already exists, refuse to add it.
         if streamers.contains_key(&streamer_id) {
-            return Err(StreamingManagerError::SpawnError(format!(
+            return Err(StreamingManagerError::AddError(format!(
                 "A streamer with the same id ({streamer_id}) exists, it must be shutdown before re-using the same id."
             )));
         }
