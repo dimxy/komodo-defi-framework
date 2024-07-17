@@ -391,7 +391,7 @@ impl PlatformCoinWithTokensActivationOps for TendermintCoin {
             .map_to_mm(|e| TendermintInitError {
                 ticker: self.ticker().to_owned(),
                 kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
-                    "Failed to spawn tendermint balance streaming handler: {e}"
+                    "Failed to spawn tendermint balance streaming handler: {e:?}"
                 )),
             })
     }

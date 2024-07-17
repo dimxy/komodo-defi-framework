@@ -5287,7 +5287,7 @@ impl EthCoin {
         ctx.event_stream_manager
             .add(balance_streamer, self.spawner())
             .await
-            .map_err(|e| ERRL!("Failed to spawn eth balance streaming: {}", e))
+            .map_err(|e| ERRL!("Failed to spawn eth balance streaming: {:?}", e))
     }
 
     /// Requests the nonce from all available nodes and returns the highest nonce available with the list of nodes that returned the highest nonce.

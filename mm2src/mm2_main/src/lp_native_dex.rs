@@ -431,7 +431,7 @@ async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
         ctx.event_stream_manager
             .add(network_steamer, ctx.spawner())
             .await
-            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn network event: {e}")))?;
+            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn network event: {e:?}")))?;
     }
 
     if let Some(config) = ctx.event_stream_configuration.get_event("HEARTBEAT") {
@@ -441,7 +441,7 @@ async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
         ctx.event_stream_manager
             .add(heartbeat_streamer, ctx.spawner())
             .await
-            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn heartbeat event: {e}")))?;
+            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn heartbeat event: {e:?}")))?;
     }
 
     Ok(())
