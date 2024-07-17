@@ -46,23 +46,12 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
         ready_tx: oneshot::Sender<Result<(), String>>,
         mut data_rx: impl StreamHandlerInput<()>,
     ) {
-        const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let streamer_id = self.streamer_id();
         let coin = self.coin;
 
-        macro_rules! send_status_on_err {
-            ($match: expr, $sender: tt, $msg: literal) => {
-                match $match {
-                    Some(t) => t,
-                    None => {
-                        $sender.send(Err($msg.to_owned())).expect(RECEIVER_DROPPED_MSG);
-                        panic!("{}", $msg);
-                    },
-                }
-            };
-        }
-
-        ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
+        ready_tx
+            .send(Ok(()))
+            .expect("Receiver is dropped, which should never happen.");
 
         // Iterates through received events, and updates balance changes accordingly.
         while (data_rx.next().await).is_some() {
