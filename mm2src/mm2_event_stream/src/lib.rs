@@ -7,6 +7,6 @@ pub mod streamer;
 // Re-export important types.
 pub use configuration::EventStreamConfiguration;
 pub use controller::Controller;
-pub use event::{Event, Filter};
+pub use event::Event;
 pub use manager::{StreamingManager, StreamingManagerError};
 pub use streamer::{EventStreamer, NoDataIn, StreamHandlerInput};

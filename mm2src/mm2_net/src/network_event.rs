@@ -70,7 +70,7 @@ impl EventStreamer for NetworkEvent {
             });
 
             if previously_sent != event_data || self.config.always_send {
-                broadcaster.broadcast(Event::new(self.streamer_id(), event_data.clone(), None));
+                broadcaster.broadcast(Event::new(self.streamer_id(), event_data.clone()));
 
                 previously_sent = event_data;
             }

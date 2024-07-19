@@ -69,7 +69,7 @@ impl MmCtx {
         });
 
         self.event_stream_manager
-            .broadcast(Event::new(format!("{EVENT_NAME}:{data_type}"), input, None));
+            .broadcast(Event::new(format!("{EVENT_NAME}:{data_type}"), input));
 
         match receiver.await {
             Ok(response) => match serde_json::from_value::<Output>(response) {
