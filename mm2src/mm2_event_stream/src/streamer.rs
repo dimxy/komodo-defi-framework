@@ -33,6 +33,8 @@ where
     /// `data_rx` is a receiver that the streamer *could* use to receive data from the outside world.
     async fn handle(
         self,
+        // FIXME: Consider creating a new wrapper type around `StreamingManager`
+        // that won't expose any other method except `broadcast`.
         broadcaster: StreamingManager,
         ready_tx: oneshot::Sender<Result<(), String>>,
         data_rx: impl StreamHandlerInput<Self::DataInType>,
