@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use common::executor::Timer;
 use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
+use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
 use mm2_libp2p::behaviours::atomicdex;
 use serde::Deserialize;
 use serde_json::{json, Value as Json};
@@ -43,7 +43,7 @@ impl EventStreamer for NetworkEvent {
 
     async fn handle(
         self,
-        broadcaster: Controller<Event>,
+        broadcaster: StreamingManager,
         ready_tx: oneshot::Sender<Result<(), String>>,
         _: impl StreamHandlerInput<NoDataIn>,
     ) {
@@ -70,9 +70,7 @@ impl EventStreamer for NetworkEvent {
             });
 
             if previously_sent != event_data || self.config.always_send {
-                broadcaster
-                    .broadcast(Event::new(self.streamer_id(), event_data.clone(), None))
-                    .await;
+                broadcaster.broadcast(Event::new(self.streamer_id(), event_data.clone(), None));
 
                 previously_sent = event_data;
             }

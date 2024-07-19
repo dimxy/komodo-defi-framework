@@ -1,7 +1,7 @@
 use hyper::{body::Bytes, Body, Request, Response};
 use mm2_core::mm_ctx::MmArc;
 use serde_json::json;
-use std::{collections::HashSet, convert::Infallible};
+use std::convert::Infallible;
 
 pub const SSE_ENDPOINT: &str = "/event-stream";
 
@@ -15,22 +15,38 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
     };
 
     let config = &ctx.event_stream_configuration;
-    let filtered_events = HashSet::new();
+    let Some(Ok(client_id)) = request.uri().query().and_then(|query| {
+        query
+            .split('&')
+            .find(|param| param.starts_with("id="))
+            .map(|id_param| id_param.trim_start_matches("id="))
+            .map(|id| id.parse::<u64>())
+    }) else {
+        return handle_internal_error("Query parameter `id` (64-bit unsigned number) must be present.".to_string()).await;
+    };
 
-    let channel_controller = ctx.event_stream_manager.controller();
-    // Note that the channel's buffer carries `Arc`s, which have a small memory footprint.
-    let mut rx = channel_controller.create_channel(1024);
+    let event_stream_manager = ctx.event_stream_manager.clone();
+    let Ok(mut rx) = event_stream_manager.new_client(client_id) else {
+        // FIXME: Such an error means that one client generated an id that is already in use
+        // but another (or it might be the same client all along). This is dangerous since
+        // that client now knows this id is in use and can open up and shut down streamers
+        // on the original id owner's behalf.
+        return handle_internal_error(format!("Bad id")).await
+    };
     let body = Body::wrap_stream(async_stream::stream! {
         while let Some(event) = rx.recv().await {
-            if let Some((event_type, message)) = event.get_data(&filtered_events) {
-                let data = json!({
-                    "_type": event_type,
-                    "message": message,
-                });
+            // The event's filter will decide whether to expose the event data to this client or not.
+            // This happens based on the events that this client has subscribed to.
+            let (event_type, message) = event.get();
+            let data = json!({
+                "_type": event_type,
+                "message": message,
+            });
 
-                yield Ok::<_, hyper::Error>(Bytes::from(format!("data: {data} \n\n")));
-            }
+            yield Ok::<_, hyper::Error>(Bytes::from(format!("data: {data} \n\n")));
         }
+        // Inform the event stream manager that the client has disconnected.
+        event_stream_manager.remove_client(client_id).ok();
     });
 
     let response = Response::builder()
