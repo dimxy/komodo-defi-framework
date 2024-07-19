@@ -1,5 +1,6 @@
 use parking_lot::Mutex;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::{HashMap, HashSet},
+          sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 type ChannelId = u64;
@@ -53,9 +54,9 @@ impl<M: Send + Sync> Controller<M> {
     pub fn num_connections(&self) -> usize { self.0.lock().channels.len() }
 
     /// Broadcast message to all channels
-    pub async fn broadcast(&self, message: M) {
+    pub async fn broadcast(&self, message: M, client_ids: Option<Arc<HashSet<u64>>>) {
         let msg = Arc::new(message);
-        for tx in self.all_channels() {
+        for tx in self.channels(client_ids) {
             // Only `try_send` here. If the receiver's channel is full (receiver is slow), it will
             // not receive the message. This avoids blocking the broadcast to other receivers.
             tx.try_send(msg.clone()).ok();
@@ -68,8 +69,21 @@ impl<M: Send + Sync> Controller<M> {
         inner.channels.remove(channel_id);
     }
 
-    /// Returns all the active channel senders
-    fn all_channels(&self) -> Vec<Sender<Arc<M>>> { self.0.lock().channels.values().cloned().collect() }
+    /// Returns the channels that are associated with the specified client ids.
+    ///
+    /// If no client ids are specified, all the channels are returned.
+    fn channels(&self, client_ids: Option<Arc<HashSet<u64>>>) -> Vec<Sender<Arc<M>>> {
+        if let Some(client_ids) = client_ids {
+            self.0
+                .lock()
+                .channels
+                .iter()
+                .filter_map(|(id, sender)| client_ids.contains(value).then(sender.clone()));
+        } else {
+            // Returns all the channels if no client ids where specifically requested.
+            self.0.lock().channels.values().cloned().collect()
+        }
+    }
 }
 
 impl<M> Default for Controller<M> {
