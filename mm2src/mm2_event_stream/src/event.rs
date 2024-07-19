@@ -5,6 +5,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::Value as Json;
 
+#[derive(Default)]
 /// Multi-purpose/generic event type that can easily be used over the event streaming
 pub struct Event {
     /// The type of the event (balance, network, swap, etc...).

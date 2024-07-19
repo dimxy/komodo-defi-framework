@@ -2,13 +2,12 @@ use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use crate::controller::ChannelReceiver;
 use crate::{Controller, Event, EventStreamer};
-
 use common::executor::abortable_queue::WeakSpawner;
 
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
+use tokio::sync::mpsc::Receiver;
 
 /// The errors that could originate from the streaming manager.
 #[derive(Debug)]
@@ -53,7 +52,7 @@ pub struct StreamingManager {
     /// A map from streamer IDs to their communication channels (if present) and shutdown handles.
     streamers: Arc<RwLock<HashMap<String, StreamerInfo>>>,
     /// The stream-out controller/broadcaster that all streamers use to stream data to the clients (using SSE).
-    controller: Controller<Event>,
+    controller: Arc<RwLock<Controller<Event>>>,
     /// An inverse map from clients to the streamers they are listening to.
     clients: Arc<RwLock<HashMap<u64, HashSet<String>>>>,
 }
@@ -125,12 +124,17 @@ impl StreamingManager {
 
     /// Stops streaming from the streamer with `streamer_id` to the client with `client_id`.
     pub fn stop(&self, client_id: u64, streamer_id: &str) {
-        self.streamers.write().unwrap().get_mut(streamer_id).map(|info| {
-            info.clients.remove(&client_id);
-        });
         self.clients.write().unwrap().get_mut(&client_id).map(|streamer_ids| {
             streamer_ids.remove(streamer_id);
         });
+        let mut streamers = self.streamers.write().unwrap();
+        streamers.get_mut(streamer_id).map(|info| {
+            info.clients.remove(&client_id);
+        });
+        // If there are no more listening clients, terminate the streamer.
+        if streamers.get(streamer_id).map(|info| info.clients.len()) == Some(0) {
+            streamers.remove(streamer_id);
+        }
     }
 
     /// Broadcasts some event directly to listening clients.
@@ -146,20 +150,22 @@ impl StreamingManager {
             .get(event.origin())
             .map(|info| &info.clients)
         {
-            self.controller.broadcast(event, Some(client_ids))
+            self.controller.read().unwrap().broadcast(event, Some(client_ids))
         }
     }
 
     /// Forcefully broadcasts an event to all clients even if they are not listening for such an event.
-    pub fn broadcast_all(&self, event: Event) { self.controller.broadcast(event, None) }
+    pub fn broadcast_all(&self, event: Event) { self.controller.read().unwrap().broadcast(event, None) }
 
-    pub fn new_client(&self, client_id: u64) -> Result<ChannelReceiver<Event>, StreamingManagerError> {
+    pub fn new_client(&self, client_id: u64) -> Result<Receiver<Arc<Event>>, StreamingManagerError> {
         let mut clients = self.clients.write().unwrap();
         if clients.contains_key(&client_id) {
             return Err(StreamingManagerError::ClientExists(client_id));
         }
         clients.insert(client_id, HashSet::new());
-        Ok(self.controller.create_channel(client_id, 1024))
+        // Note that events queued in the channel are `Arc` shared.
+        // So 1024 long buffer won't be heavy on memory.
+        Ok(self.controller.write().unwrap().create_channel(client_id, 1024))
     }
 
     pub fn remove_client(&self, client_id: u64) -> Result<(), StreamingManagerError> {
@@ -169,6 +175,8 @@ impl StreamingManager {
             .unwrap()
             .remove(&client_id)
             .ok_or(StreamingManagerError::UnknownClient(client_id))?;
+        self.controller.write().unwrap().remove_channel(&client_id);
+
         let mut streamers = self.streamers.write().unwrap();
         for streamer_id in streamer_ids {
             if let Some(streamer_info) = streamers.get_mut(&streamer_id) {

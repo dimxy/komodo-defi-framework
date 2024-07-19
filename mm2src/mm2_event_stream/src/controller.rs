@@ -3,52 +3,32 @@ use std::{collections::{HashMap, HashSet},
           sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
-type ChannelId = u64;
-
+#[derive(Clone, Default)]
 /// Root controller of streaming channels
-pub struct Controller<M>(Arc<Mutex<ChannelsInner<M>>>);
-
-impl<M> Clone for Controller<M> {
-    fn clone(&self) -> Self { Self(Arc::clone(&self.0)) }
-}
-
-/// Inner part of the controller
-pub struct ChannelsInner<M> {
-    channels: HashMap<ChannelId, Sender<Arc<M>>>,
-}
-
-/// A smart channel receiver that will run a hook when it's dropped to remove itself from the controller.
-pub struct ChannelReceiver<M: Send + Sync + 'static> {
-    /// The receiver end of the channel.
-    rx: Receiver<Arc<M>>,
-    /// A hook that's ran when the receiver channel receiver is dropped.
-    channel_drop_hook: Box<dyn Fn() + Send>,
+pub struct Controller<M> {
+    channels: HashMap<u64, Sender<Arc<M>>>,
 }
 
 impl<M: Send + Sync> Controller<M> {
     /// Creates a new channels controller
-    pub fn new() -> Self { Default::default() }
-
-    /// Creates a new channel and returns it's events receiver
-    pub fn create_channel(&self, channel_id: ChannelId, concurrency: usize) -> ChannelReceiver<M> {
-        let (tx, rx) = mpsc::channel::<Arc<M>>(concurrency);
-
-        let mut inner = self.0.lock();
-        inner.channels.insert(channel_id, tx);
-
-        let channel_drop_hook = {
-            let controller = self.clone();
-            // Remove the channel from the controller when the receiver is dropped.
-            Box::new(move || {
-                common::log::debug!("Dropping event receiver");
-                controller.remove_channel(&channel_id)
-            })
-        };
-        ChannelReceiver { rx, channel_drop_hook }
+    pub fn new() -> Self {
+        Self {
+            channels: HashMap::new(),
+        }
     }
 
+    /// Creates a new channel and returns it's events receiver
+    pub fn create_channel(&mut self, channel_id: u64, concurrency: usize) -> Receiver<Arc<M>> {
+        let (tx, rx) = mpsc::channel(concurrency);
+        self.channels.insert(channel_id, tx);
+        rx
+    }
+
+    /// Removes the channel from the controller
+    pub fn remove_channel(&mut self, channel_id: &u64) { self.channels.remove(channel_id); }
+
     /// Returns number of active channels
-    pub fn num_connections(&self) -> usize { self.0.lock().channels.len() }
+    pub fn num_connections(&self) -> usize { self.channels.len() }
 
     /// Broadcast message to all channels
     pub fn broadcast(&self, message: M, client_ids: Option<&HashSet<u64>>) {
@@ -60,47 +40,21 @@ impl<M: Send + Sync> Controller<M> {
         }
     }
 
-    /// Removes the channel from the controller
-    fn remove_channel(&self, channel_id: &ChannelId) {
-        let mut inner = self.0.lock();
-        inner.channels.remove(channel_id);
-    }
-
     /// Returns the channels that are associated with the specified client ids.
     ///
     /// If no client ids are specified, all the channels are returned.
     fn channels(&self, client_ids: Option<&HashSet<u64>>) -> Vec<Sender<Arc<M>>> {
         if let Some(client_ids) = client_ids {
-            self.0
-                .lock()
-                .channels
+            self.channels
                 .iter()
                 .filter_map(|(id, sender)| client_ids.contains(id).then_some(sender))
                 .cloned()
                 .collect()
         } else {
             // Returns all the channels if no client ids where specifically requested.
-            self.0.lock().channels.values().cloned().collect()
+            self.channels.values().cloned().collect()
         }
     }
-}
-
-impl<M> Default for Controller<M> {
-    fn default() -> Self {
-        let inner = ChannelsInner {
-            channels: HashMap::new(),
-        };
-        Self(Arc::new(Mutex::new(inner)))
-    }
-}
-
-impl<M: Send + Sync> ChannelReceiver<M> {
-    /// Receives the next event from the channel
-    pub async fn recv(&mut self) -> Option<Arc<M>> { self.rx.recv().await }
-}
-
-impl<M: Send + Sync> Drop for ChannelReceiver<M> {
-    fn drop(&mut self) { (self.channel_drop_hook)(); }
 }
 
 #[cfg(any(test, target_arch = "wasm32"))]
