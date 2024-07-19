@@ -71,24 +71,3 @@ pub trait Filter: Send + Sync {
     /// `requested_events` is a set of the events that the client asked to subscribe to (e.g. `BALANCE:BTC`)
     fn filter(&self, message: &Json, requested_events: &HashSet<String>) -> Option<Json>;
 }
-
-/// Event types streamed to clients through channels like Server-Sent Events (SSE).
-#[derive(Deserialize, Eq, Hash, PartialEq)]
-pub enum EventName {
-    /// Indicates a change in the balance of a coin.
-    BALANCE,
-    /// Event triggered at regular intervals to indicate that the system is operational.
-    HEARTBEAT,
-    /// Returns p2p network information at a regular interval.
-    NETWORK,
-}
-
-impl fmt::Display for EventName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BALANCE => write!(f, "COIN_BALANCE"),
-            Self::HEARTBEAT => write!(f, "HEARTBEAT"),
-            Self::NETWORK => write!(f, "NETWORK"),
-        }
-    }
-}
