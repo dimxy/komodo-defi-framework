@@ -2583,7 +2583,11 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
     } else {
         Create
     };
-    let data = hex::decode(args.data.as_ref().unwrap_or(&String::from("")))?;
+    let data = hex::decode(
+        args.data
+            .as_ref()
+            .map(|s| s.strip_prefix("0x").unwrap_or(s))
+            .unwrap_or(&String::from("")))?;
     match coin.priv_key_policy {
         // TODO: use zeroise for privkey
         EthPrivKeyPolicy::Iguana(ref key_pair)
