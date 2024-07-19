@@ -1,7 +1,6 @@
 use std::any::{self, Any};
 
 use crate::manager::StreamingManager;
-use crate::{Controller, Event};
 use common::executor::{abortable_queue::WeakSpawner, AbortSettings, SpawnAbortable};
 use common::log::{error, info};
 

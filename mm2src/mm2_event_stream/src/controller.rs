@@ -1,4 +1,3 @@
-use parking_lot::Mutex;
 use std::{collections::{HashMap, HashSet},
           sync::Arc};
 use tokio::sync::mpsc::{self, Receiver, Sender};
