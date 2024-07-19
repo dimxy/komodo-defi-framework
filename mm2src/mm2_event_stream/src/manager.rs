@@ -1,6 +1,6 @@
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::{Controller, Event, EventStreamer};
 use common::executor::abortable_queue::WeakSpawner;
@@ -50,11 +50,13 @@ impl StreamerInfo {
 #[derive(Clone, Default)]
 pub struct StreamingManager {
     /// A map from streamer IDs to their communication channels (if present) and shutdown handles.
+    // Using an RwLock assuming `StreamingManager::send` will be heavily used.
     streamers: Arc<RwLock<HashMap<String, StreamerInfo>>>,
     /// The stream-out controller/broadcaster that all streamers use to stream data to the clients (using SSE).
+    // Using an RwLock assuming `StreamingManager::broadcast` will be heavily used.
     controller: Arc<RwLock<Controller<Event>>>,
     /// An inverse map from clients to the streamers they are listening to.
-    clients: Arc<RwLock<HashMap<u64, HashSet<String>>>>,
+    clients: Arc<Mutex<HashMap<u64, HashSet<String>>>>,
 }
 
 impl StreamingManager {
@@ -66,7 +68,7 @@ impl StreamingManager {
         spawner: WeakSpawner,
     ) -> Result<(), StreamingManagerError> {
         // Make sure we know this client.
-        if !self.clients.read().unwrap().contains_key(&client_id) {
+        if !self.clients.lock().unwrap().contains_key(&client_id) {
             return Err(StreamingManagerError::UnknownClient(client_id));
         }
         let streamer_id = streamer.streamer_id();
@@ -102,7 +104,7 @@ impl StreamingManager {
             .clients
             .insert(client_id);
         self.clients
-            .write()
+            .lock()
             .unwrap()
             .entry(client_id)
             .or_insert(HashSet::new())
@@ -124,7 +126,7 @@ impl StreamingManager {
 
     /// Stops streaming from the streamer with `streamer_id` to the client with `client_id`.
     pub fn stop(&self, client_id: u64, streamer_id: &str) {
-        self.clients.write().unwrap().get_mut(&client_id).map(|streamer_ids| {
+        self.clients.lock().unwrap().get_mut(&client_id).map(|streamer_ids| {
             streamer_ids.remove(streamer_id);
         });
         let mut streamers = self.streamers.write().unwrap();
@@ -158,7 +160,7 @@ impl StreamingManager {
     pub fn broadcast_all(&self, event: Event) { self.controller.read().unwrap().broadcast(event, None) }
 
     pub fn new_client(&self, client_id: u64) -> Result<Receiver<Arc<Event>>, StreamingManagerError> {
-        let mut clients = self.clients.write().unwrap();
+        let mut clients = self.clients.lock().unwrap();
         if clients.contains_key(&client_id) {
             return Err(StreamingManagerError::ClientExists(client_id));
         }
@@ -171,7 +173,7 @@ impl StreamingManager {
     pub fn remove_client(&self, client_id: u64) -> Result<(), StreamingManagerError> {
         let streamer_ids = self
             .clients
-            .write()
+            .lock()
             .unwrap()
             .remove(&client_id)
             .ok_or(StreamingManagerError::UnknownClient(client_id))?;
