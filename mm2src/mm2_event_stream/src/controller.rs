@@ -14,7 +14,6 @@ impl<M> Clone for Controller<M> {
 
 /// Inner part of the controller
 pub struct ChannelsInner<M> {
-    last_id: u64,
     channels: HashMap<ChannelId, Sender<Arc<M>>>,
 }
 
@@ -31,13 +30,11 @@ impl<M: Send + Sync> Controller<M> {
     pub fn new() -> Self { Default::default() }
 
     /// Creates a new channel and returns it's events receiver
-    pub fn create_channel(&self, concurrency: usize) -> ChannelReceiver<M> {
+    pub fn create_channel(&self, channel_id: ChannelId, concurrency: usize) -> ChannelReceiver<M> {
         let (tx, rx) = mpsc::channel::<Arc<M>>(concurrency);
 
         let mut inner = self.0.lock();
-        let channel_id = inner.last_id.overflowing_add(1).0;
         inner.channels.insert(channel_id, tx);
-        inner.last_id = channel_id;
 
         let channel_drop_hook = {
             let controller = self.clone();
@@ -54,7 +51,7 @@ impl<M: Send + Sync> Controller<M> {
     pub fn num_connections(&self) -> usize { self.0.lock().channels.len() }
 
     /// Broadcast message to all channels
-    pub async fn broadcast(&self, message: M, client_ids: Option<Arc<HashSet<u64>>>) {
+    pub fn broadcast(&self, message: M, client_ids: Option<&HashSet<u64>>) {
         let msg = Arc::new(message);
         for tx in self.channels(client_ids) {
             // Only `try_send` here. If the receiver's channel is full (receiver is slow), it will
@@ -72,13 +69,15 @@ impl<M: Send + Sync> Controller<M> {
     /// Returns the channels that are associated with the specified client ids.
     ///
     /// If no client ids are specified, all the channels are returned.
-    fn channels(&self, client_ids: Option<Arc<HashSet<u64>>>) -> Vec<Sender<Arc<M>>> {
+    fn channels(&self, client_ids: Option<&HashSet<u64>>) -> Vec<Sender<Arc<M>>> {
         if let Some(client_ids) = client_ids {
             self.0
                 .lock()
                 .channels
                 .iter()
-                .filter_map(|(id, sender)| client_ids.contains(value).then(sender.clone()));
+                .filter_map(|(id, sender)| client_ids.contains(id).then_some(sender))
+                .cloned()
+                .collect()
         } else {
             // Returns all the channels if no client ids where specifically requested.
             self.0.lock().channels.values().cloned().collect()
@@ -89,7 +88,6 @@ impl<M: Send + Sync> Controller<M> {
 impl<M> Default for Controller<M> {
     fn default() -> Self {
         let inner = ChannelsInner {
-            last_id: 0,
             channels: HashMap::new(),
         };
         Self(Arc::new(Mutex::new(inner)))

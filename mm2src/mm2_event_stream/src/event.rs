@@ -44,13 +44,11 @@ impl Event {
         }
     }
 
-    pub fn origin(&self) -> &str {
-        &self.streamer_id
-    }
+    pub fn origin(&self) -> &str { &self.streamer_id }
 
     pub fn get(&self) -> (String, Json) {
         let prefix = if self.error { "ERROR:" } else { "" };
-        (format!("{prefix}{streamer_id}"), self.message.clone())
+        (format!("{prefix}{}", self.streamer_id), self.message.clone())
     }
 
     /// Returns the event type and message to be sent or `None` if the event should not be sent.
