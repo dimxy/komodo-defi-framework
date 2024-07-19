@@ -8,7 +8,7 @@ use serde_json::Value as Json;
 /// Multi-purpose/generic event type that can easily be used over the event streaming
 pub struct Event {
     /// The type of the event (balance, network, swap, etc...).
-    event_type: String,
+    streamer_id: String,
     /// The message to be sent to the client.
     message: Json,
     /// The filter object to be used to determine whether the event should be sent or not.
@@ -17,27 +17,40 @@ pub struct Event {
     /// The filter is wrapped in an `Arc` since the event producer should use it as a singleton
     /// by using the same filter over and over again with multiple events.
     filter: Option<Arc<dyn Filter>>,
+    /// Indicating whether this event is an error event or a normal one.
+    error: bool,
 }
 
 impl Event {
     /// Creates a new `Event` instance with the specified event type and message.
     #[inline]
-    pub fn new(event_type: String, message: Json, filter: Option<Arc<dyn Filter>>) -> Self {
+    pub fn new(streamer_id: String, message: Json, filter: Option<Arc<dyn Filter>>) -> Self {
         Self {
-            event_type,
+            streamer_id,
             message,
             filter,
+            error: false,
         }
     }
 
     /// Create a new error `Event` instance with the specified error event type and message.
     #[inline]
-    pub fn err(event_type: String, message: Json, filter: Option<Arc<dyn Filter>>) -> Self {
+    pub fn err(streamer_id: String, message: Json, filter: Option<Arc<dyn Filter>>) -> Self {
         Self {
-            event_type: format!("ERROR_{event_type}"),
+            streamer_id,
             message,
             filter,
+            error: true,
         }
+    }
+
+    pub fn origin(&self) -> &str {
+        &self.streamer_id
+    }
+
+    pub fn get(&self) -> (String, Json) {
+        let prefix = if self.error { "ERROR:" } else { "" };
+        (format!("{prefix}{streamer_id}"), self.message.clone())
     }
 
     /// Returns the event type and message to be sent or `None` if the event should not be sent.
@@ -50,11 +63,11 @@ impl Event {
     pub fn get_data(&self, requested_events: &HashSet<String>) -> Option<(String, Json)> {
         self.filter.as_ref().map_or_else(
             // If no filter is set, send the event as is.
-            || Some((self.event_type.clone(), self.message.clone())),
+            || Some((self.streamer_id.clone(), self.message.clone())),
             |filter| {
                 filter
                     .filter(&self.message, requested_events)
-                    .map(|message| (self.event_type.clone(), message))
+                    .map(|message| (self.streamer_id.clone(), message))
             },
         )
     }
