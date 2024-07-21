@@ -2485,6 +2485,7 @@ async fn sign_transaction_with_keypair<'a>(
 
 /// Sign and send eth transaction with provided keypair,
 /// This fn is primarily for swap transactions so it uses swap tx fee policy
+#[allow(clippy::too_many_arguments)]
 async fn sign_and_send_transaction_with_keypair(
     coin: &EthCoin,
     key_pair: &KeyPair,
@@ -2502,8 +2503,18 @@ async fn sign_and_send_transaction_with_keypair(
     );
     let address_lock = coin.get_address_lock(address.to_string()).await;
     let _nonce_lock = address_lock.lock().await;
-    let (signed, web3_instances_with_latest_nonce) =
-        sign_transaction_with_keypair(coin, key_pair, value, action, data, gas, &pay_for_gas_option, address, access_list).await?;
+    let (signed, web3_instances_with_latest_nonce) = sign_transaction_with_keypair(
+        coin,
+        key_pair,
+        value,
+        action,
+        data,
+        gas,
+        &pay_for_gas_option,
+        address,
+        access_list,
+    )
+    .await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
     info!(target: "sign-and-send", "send_raw_transaction…");
 
@@ -2527,6 +2538,7 @@ async fn sign_and_send_transaction_with_metamask(
     action: Action,
     data: Vec<u8>,
     gas: U256,
+    access_list: Option<ethcore_transaction::AccessList>,
 ) -> Result<SignedEthTx, TransactionErr> {
     let to = match action {
         Action::Create => None,
@@ -2550,6 +2562,7 @@ async fn sign_and_send_transaction_with_metamask(
         value: Some(value),
         data: Some(data.clone().into()),
         nonce: None,
+        access_list: access_list.map(|eth_list| map_eth_access_list(&eth_list)),
         ..TransactionRequest::default()
     };
 
@@ -2587,7 +2600,8 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
         args.data
             .as_ref()
             .map(|s| s.strip_prefix("0x").unwrap_or(s))
-            .unwrap_or(&String::from("")))?;
+            .unwrap_or(""),
+    )?;
     match coin.priv_key_policy {
         // TODO: use zeroise for privkey
         EthPrivKeyPolicy::Iguana(ref key_pair)
@@ -2610,6 +2624,31 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
                 let gas_price = coin.get_gas_price().await?;
                 PayForGasOption::Legacy(LegacyGasPrice { gas_price })
             };
+
+            let access_list = if let Some(access_list_str) = &args.access_list {
+                let eth_access_list = ethcore_transaction::AccessList(
+                    access_list_str
+                        .iter()
+                        .map(|item_str| {
+                            Ok(ethcore_transaction::AccessListItem {
+                                address: Address::from_str(item_str.address.as_str())
+                                    .map_err(|err| RawTransactionError::InvalidParam(err.to_string()))?,
+                                storage_keys: item_str
+                                    .storage_keys
+                                    .iter()
+                                    .map(|key_str| {
+                                        H256::from_str(key_str.as_str())
+                                            .map_err(|err| RawTransactionError::InvalidParam(err.to_string()))
+                                    })
+                                    .collect::<Result<Vec<H256>, RawTransactionError>>()?,
+                            })
+                        })
+                        .collect::<Result<Vec<ethcore_transaction::AccessListItem>, RawTransactionError>>()?,
+                );
+                Some(eth_access_list)
+            } else {
+                None
+            };
             sign_transaction_with_keypair(
                 coin,
                 key_pair,
@@ -2619,7 +2658,7 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
                 args.gas_limit,
                 &pay_for_gas_option,
                 my_address,
-                None,
+                access_list,
             )
             .await
             .map(|(signed_tx, _)| RawTransactionRes {
