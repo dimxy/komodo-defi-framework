@@ -16,6 +16,7 @@ use ethereum_types::U256;
 use futures01::Future;
 use mm2_number::{BigDecimal, BigUint};
 use mm2_test_helpers::for_tests::{erc20_dev_conf, eth_dev_conf, nft_dev_conf};
+use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use web3::contract::{Contract, Options};
@@ -683,6 +684,22 @@ fn send_and_spend_erc20_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
     };
     taker_erc20_coin.wait_for_confirmations(confirm_input).wait().unwrap();
 
+    // This code was added to study gas consumption when the access list is used or not. To use access list set 'use_access_list' to true on coin conf
+    if let Some(receipt) =
+        block_on(maker_erc20_coin.transaction_receipt(
+            H256::from_str(&hex::encode(eth_maker_payment.tx_hash_as_bytes().into_vec())).unwrap(),
+        ))
+        .unwrap()
+    {
+        log!(
+            "eth_maker_payment tx {:02x} gasUsed={:?}",
+            receipt.transaction_hash,
+            receipt.gas_used
+        );
+    } else {
+        log!("eth_maker_payment tx no receipt received");
+    }
+
     let spend_args = SpendPaymentArgs {
         other_payment_tx: &eth_maker_payment.tx_hex(),
         time_lock,
@@ -704,6 +721,22 @@ fn send_and_spend_erc20_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
         check_every: 1,
     };
     taker_erc20_coin.wait_for_confirmations(confirm_input).wait().unwrap();
+
+    // This code was added to study gas consumption when the access list is used or not. To use access list set 'use_access_list' to true on coin conf
+    if let Some(receipt) = block_on(
+        taker_erc20_coin
+            .transaction_receipt(H256::from_str(&hex::encode(payment_spend.tx_hash_as_bytes().into_vec())).unwrap()),
+    )
+    .unwrap()
+    {
+        log!(
+            "payment_spend tx {:02x} gasUsed={:?}",
+            receipt.transaction_hash,
+            receipt.gas_used
+        );
+    } else {
+        log!("payment_spend tx no receipt received");
+    }
 
     let search_input = SearchForSwapTxSpendInput {
         time_lock,
