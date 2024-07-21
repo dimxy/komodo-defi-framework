@@ -7,9 +7,9 @@ use super::{web3_transport::Web3Transport, EthCoin};
 use common::{custom_futures::timeout::FutureTimerExt, log::debug};
 use instant::Duration;
 use serde_json::Value;
-use web3::types::{AccessList, Address, Block, BlockId, BlockNumber, Bytes, CallRequest, FeeHistory, Filter, Log, Proof, SyncState,
-                  Trace, TraceFilter, Transaction, TransactionId, TransactionReceipt, TransactionRequest, Work, H256,
-                  H520, H64, U256, U64};
+use web3::types::{AccessList, Address, Block, BlockId, BlockNumber, Bytes, CallRequest, FeeHistory, Filter, Log,
+                  Proof, SyncState, Trace, TraceFilter, Transaction, TransactionId, TransactionReceipt,
+                  TransactionRequest, Work, H256, H520, H64, U256, U64};
 use web3::{helpers, Transport};
 
 pub(crate) const ETH_RPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -319,7 +319,7 @@ impl EthCoin {
     }
 
     /// Get transaction receipt
-    pub(crate) async fn transaction_receipt(&self, hash: H256) -> Result<Option<TransactionReceipt>, web3::Error> {
+    pub async fn transaction_receipt(&self, hash: H256) -> Result<Option<TransactionReceipt>, web3::Error> {
         let hash = helpers::serialize(&hash);
 
         self.try_rpc_send("eth_getTransactionReceipt", vec![hash])
@@ -463,15 +463,15 @@ impl EthCoin {
     }
 
     /// Call eth_createAccessList for a transaction
-    pub(crate) async fn eth_create_accesslist(&self, tx: TransactionRequest, block: Option<BlockNumber>) -> Result<CreateAccessListResult, web3::Error> {
+    pub(crate) async fn eth_create_access_list(
+        &self,
+        tx: TransactionRequest,
+        block: Option<BlockNumber>,
+    ) -> Result<CreateAccessListResult, web3::Error> {
         let req = helpers::serialize(&tx);
-        let block = helpers::serialize(&block.unwrap_or_else(|| BlockNumber::Pending));
-
+        let block = helpers::serialize(&block.unwrap_or(BlockNumber::Pending));
         self.try_rpc_send("eth_createAccessList", vec![req, block])
             .await
-            .and_then(|t| {
-                println!("eth_createAccessList result={:?}", t);
-                serde_json::from_value(t).map_err(Into::into)
-            })
+            .and_then(|t| serde_json::from_value(t).map_err(Into::into))
     }
 }
