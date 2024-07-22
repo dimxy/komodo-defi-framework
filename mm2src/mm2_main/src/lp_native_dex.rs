@@ -429,7 +429,7 @@ async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
         let network_steamer = NetworkEvent::try_new(config, ctx.clone())
             .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to initialize network event: {e}")))?;
         ctx.event_stream_manager
-            .add(network_steamer, ctx.spawner())
+            .add(0, network_steamer, ctx.spawner())
             .await
             .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn network event: {e:?}")))?;
     }
@@ -439,7 +439,7 @@ async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
             MmInitError::EventStreamerInitFailed(format!("Failed to initialize heartbeat event: {e}"))
         })?;
         ctx.event_stream_manager
-            .add(heartbeat_streamer, ctx.spawner())
+            .add(0, heartbeat_streamer, ctx.spawner())
             .await
             .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn heartbeat event: {e:?}")))?;
     }

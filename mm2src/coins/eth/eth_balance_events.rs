@@ -4,7 +4,7 @@ use ethereum_types::Address;
 use futures::{channel::oneshot, stream::FuturesUnordered, StreamExt};
 use instant::Instant;
 use mm2_err_handle::prelude::MmError;
-use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
+use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
 use mm2_number::BigDecimal;
 use serde::Deserialize;
 use serde_json::Value as Json;
@@ -152,13 +152,13 @@ impl EventStreamer for EthBalanceEventStreamer {
 
     async fn handle(
         self,
-        broadcaster: Controller<Event>,
+        broadcaster: StreamingManager,
         ready_tx: oneshot::Sender<Result<(), String>>,
         _: impl StreamHandlerInput<NoDataIn>,
     ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
 
-        async fn start_polling(streamer_id: String, broadcaster: Controller<Event>, coin: EthCoin, interval: f64) {
+        async fn start_polling(streamer_id: String, broadcaster: StreamingManager, coin: EthCoin, interval: f64) {
             async fn sleep_remaining_time(interval: f64, now: Instant) {
                 // If the interval is x seconds,
                 // our goal is to broadcast changed balances every x seconds.
@@ -182,7 +182,7 @@ impl EventStreamer for EthBalanceEventStreamer {
                     Err(e) => {
                         log::error!("Failed getting addresses for {}. Error: {}", coin.ticker, e);
                         let e = serde_json::to_value(e).expect("Serialization shouldn't fail.");
-                        broadcaster.broadcast(Event::err(streamer_id.clone(), e, None)).await;
+                        broadcaster.broadcast(Event::err(streamer_id.clone(), e));
                         sleep_remaining_time(interval, now).await;
                         continue;
                     },
@@ -215,15 +215,13 @@ impl EventStreamer for EthBalanceEventStreamer {
                             );
                             let e = serde_json::to_value(err.error).expect("Serialization shouldn't fail.");
                             // FIXME: We should add the address in the error message.
-                            broadcaster.broadcast(Event::err(streamer_id.clone(), e, None)).await;
+                            broadcaster.broadcast(Event::err(streamer_id.clone(), e));
                         },
                     };
                 }
 
                 if !balance_updates.is_empty() {
-                    broadcaster
-                        .broadcast(Event::new(streamer_id.clone(), json!(balance_updates), None))
-                        .await;
+                    broadcaster.broadcast(Event::new(streamer_id.clone(), json!(balance_updates)));
                 }
 
                 sleep_remaining_time(interval, now).await;

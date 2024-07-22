@@ -9,7 +9,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
-use mm2_event_stream::{Controller, Event, EventStreamer, StreamHandlerInput};
+use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
 use serde_json::Value as Json;
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
 
     async fn handle(
         self,
-        broadcaster: Controller<Event>,
+        broadcaster: StreamingManager,
         ready_tx: oneshot::Sender<Result<(), String>>,
         mut data_rx: impl StreamHandlerInput<()>,
     ) {
@@ -63,15 +63,13 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
                         "balance": { "spendable": balance.spendable, "unspendable": balance.unspendable }
                     });
 
-                    broadcaster
-                        .broadcast(Event::new(streamer_id.clone(), payload, None))
-                        .await;
+                    broadcaster.broadcast(Event::new(streamer_id.clone(), payload));
                 },
                 Err(err) => {
                     let ticker = coin.ticker();
                     error!("Failed getting balance for '{ticker}'. Error: {err}");
                     let e = serde_json::to_value(err).expect("Serialization should't fail.");
-                    return broadcaster.broadcast(Event::err(streamer_id.clone(), e, None)).await;
+                    return broadcaster.broadcast(Event::err(streamer_id.clone(), e));
                 },
             };
         }

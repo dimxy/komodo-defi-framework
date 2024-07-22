@@ -3,10 +3,9 @@ use common::{executor::Timer, log, Future01CompatExt};
 use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
-use mm2_event_stream::{Controller, Event, EventStreamer, Filter, StreamHandlerInput};
+use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
 
 use super::{utxo_standard::UtxoStandardCoin, UtxoArc};
 use crate::streaming_events_config::{BalanceEventConfig, EmptySubConfig};
@@ -59,14 +58,13 @@ impl EventStreamer for UtxoBalanceEventStreamer {
 
     async fn handle(
         self,
-        broadcaster: Controller<Event>,
+        broadcaster: StreamingManager,
         ready_tx: oneshot::Sender<Result<(), String>>,
         mut data_rx: impl StreamHandlerInput<ScripthashNotification>,
     ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let streamer_id = self.streamer_id();
         let coin = self.coin;
-        let filter = Arc::new(UtxoBalanceEventFilter::new(coin.ticker()));
 
         async fn subscribe_to_addresses(
             utxo: &UtxoCoinFields,
@@ -124,13 +122,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                         Err(e) => {
                             log::error!("{e}");
 
-                            broadcaster
-                                .broadcast(Event::err(
-                                    streamer_id.clone(),
-                                    json!({ "error": e }),
-                                    Some(filter.clone()),
-                                ))
-                                .await;
+                            broadcaster.broadcast(Event::err(streamer_id.clone(), json!({ "error": e })));
                         },
                     };
 
@@ -143,13 +135,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                         Err(e) => {
                             log::error!("{e}");
 
-                            broadcaster
-                                .broadcast(Event::err(
-                                    streamer_id.clone(),
-                                    json!({ "error": e }),
-                                    Some(filter.clone()),
-                                ))
-                                .await;
+                            broadcaster.broadcast(Event::err(streamer_id.clone(), json!({ "error": e })));
                         },
                     };
 
@@ -199,9 +185,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
 
-                    broadcaster
-                        .broadcast(Event::err(streamer_id.clone(), e, Some(filter.clone())))
-                        .await;
+                    broadcaster.broadcast(Event::err(streamer_id.clone(), e));
 
                     continue;
                 },
@@ -213,37 +197,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
                 "balance": { "spendable": balance.spendable, "unspendable": balance.unspendable }
             });
 
-            broadcaster
-                .broadcast(Event::new(
-                    streamer_id.clone(),
-                    json!(vec![payload]),
-                    Some(filter.clone()),
-                ))
-                .await;
+            broadcaster.broadcast(Event::new(streamer_id.clone(), json!(vec![payload])));
         }
-    }
-}
-
-struct UtxoBalanceEventFilter {
-    /// The event name we are looking for to let this event pass.
-    event_name_match: String,
-}
-
-impl UtxoBalanceEventFilter {
-    pub fn new(ticker: &str) -> Self {
-        Self {
-            // The client requested event must have our ticker in that format to pass through.
-            // fixme: Abandon this filter matching
-            event_name_match: String::new(), //format!("BALANCE_{}", UtxoBalanceEventStreamer::event_name(), ticker),
-        }
-    }
-}
-
-impl Filter for UtxoBalanceEventFilter {
-    fn filter(&self, message: &Json, requested_events: &HashSet<String>) -> Option<Json> {
-        if requested_events.is_empty() || requested_events.contains(&self.event_name_match) {
-            return Some(message.clone());
-        }
-        None
     }
 }

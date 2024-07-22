@@ -4,7 +4,7 @@ use futures::channel::oneshot;
 use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::MethodCall;
 use jsonrpc_core::{Id as RpcId, Params as RpcParams, Value as RpcValue, Version as RpcVersion};
-use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
+use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -39,7 +39,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
 
     async fn handle(
         self,
-        broadcaster: Controller<Event>,
+        broadcaster: StreamingManager,
         ready_tx: oneshot::Sender<Result<(), String>>,
         _: impl StreamHandlerInput<NoDataIn>,
     ) {
@@ -139,7 +139,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
                                 Err(e) => {
                                     log::error!("Failed getting balance for '{ticker}'. Error: {e}");
                                     let e = serde_json::to_value(e).expect("Serialization should't fail.");
-                                    broadcaster.broadcast(Event::err(streamer_id.clone(), e, None)).await;
+                                    broadcaster.broadcast(Event::err(streamer_id.clone(), e));
 
                                     continue;
                                 },
@@ -169,9 +169,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
                     }
 
                     if !balance_updates.is_empty() {
-                        broadcaster
-                            .broadcast(Event::new(streamer_id.clone(), json!(balance_updates), None))
-                            .await;
+                        broadcaster.broadcast(Event::new(streamer_id.clone(), json!(balance_updates)));
                     }
                 }
             }

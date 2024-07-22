@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use common::executor::Timer;
 use futures::channel::oneshot;
-use mm2_event_stream::{Controller, Event, EventStreamer, NoDataIn, StreamHandlerInput};
+use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
 use serde::Deserialize;
 use serde_json::Value as Json;
 
@@ -35,16 +35,14 @@ impl EventStreamer for HeartbeatEvent {
 
     async fn handle(
         self,
-        broadcaster: Controller<Event>,
+        broadcaster: StreamingManager,
         ready_tx: oneshot::Sender<Result<(), String>>,
         _: impl StreamHandlerInput<NoDataIn>,
     ) {
         ready_tx.send(Ok(())).unwrap();
 
         loop {
-            broadcaster
-                .broadcast(Event::new(self.streamer_id(), json!({}), None))
-                .await;
+            broadcaster.broadcast(Event::new(self.streamer_id(), json!({})));
 
             Timer::sleep(self.config.stream_interval_seconds).await;
         }

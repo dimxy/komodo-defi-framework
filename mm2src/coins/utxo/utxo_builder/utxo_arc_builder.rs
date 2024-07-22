@@ -124,7 +124,7 @@ where
         })?;
         self.ctx
             .event_stream_manager
-            .add(utxo_streamer, utxo_arc.abortable_system.weak_spawner())
+            .add(0, utxo_streamer, utxo_arc.abortable_system.weak_spawner())
             .await
             .map_to_mm(|e| {
                 UtxoCoinBuildError::FailedSpawningBalanceEvents(format!("Failed to spawn utxo event streaming: {e:?}"))
