@@ -16,7 +16,7 @@ pub enum StreamingManagerError {
     /// There is no streamer with the given ID.
     StreamerNotFound,
     /// Couldn't send the data to the streamer.
-    SendError,
+    SendError(String),
     /// The streamer doesn't accept an input.
     NoDataIn,
     /// Couldn't spawn the streamer.
@@ -143,7 +143,7 @@ impl StreamingManager {
         let data_in = streamer_info.data_in.as_ref().ok_or(StreamingManagerError::NoDataIn)?;
         data_in
             .unbounded_send(Box::new(data))
-            .map_err(|_| StreamingManagerError::SendError)
+            .map_err(|e| StreamingManagerError::SendError(e.to_string()))
     }
 
     /// Stops streaming from the streamer with `streamer_id` to the client with `client_id`.

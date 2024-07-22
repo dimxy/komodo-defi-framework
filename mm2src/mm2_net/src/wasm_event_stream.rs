@@ -1,6 +1,5 @@
 use mm2_core::mm_ctx::MmArc;
 use serde_json::json;
-use std::collections::HashSet;
 use web_sys::SharedWorker;
 
 struct SendableSharedWorker(SharedWorker);
@@ -13,12 +12,8 @@ unsafe impl Send for SendableMessagePort {}
 
 /// Handles broadcasted messages from `mm2_event_stream` continuously for WASM.
 pub async fn handle_worker_stream(ctx: MmArc) {
-    let config = &ctx.event_stream_configuration;
-
-    let channel_controller = ctx.event_stream_manager.controller();
-    let mut rx = channel_controller.create_channel(config.total_active_events());
-
-    let worker_path = config
+    let worker_path = ctx
+        .event_stream_configuration
         .worker_path
         .to_str()
         .expect("worker_path contains invalid UTF-8 characters");
@@ -35,21 +30,24 @@ pub async fn handle_worker_stream(ctx: MmArc) {
 
     let port = SendableMessagePort(worker.0.port());
     port.0.start();
-    let filtered_events = HashSet::new();
+
+    let event_stream_manager = ctx.event_stream_manager.clone();
+    let mut rx = event_stream_manager
+        .new_client(0)
+        .expect("A different wasm client is already listening. Only one client is allowed at a time.");
 
     while let Some(event) = rx.recv().await {
-        if let Some((event_type, message)) = event.get_data(&filtered_events) {
-            let data = json!({
-                "_type": event_type,
-                "message": message,
-            });
-
-            let message_js = wasm_bindgen::JsValue::from_str(&data.to_string());
-
-            port.0.post_message(&message_js)
+        let (event_type, message) = event.get();
+        let data = json!({
+            "_type": event_type,
+            "message": message,
+        });
+        let message_js = wasm_bindgen::JsValue::from_str(&data.to_string());
+        port.0.post_message(&message_js)
             .expect("Failed to post a message to the SharedWorker.\n\
             This could be due to the browser being incompatible.\n\
             For more details, please refer to https://developer.mozilla.org/en-US/docs/Web/API/MessagePort/postMessage#browser_compatibility");
-        }
     }
+
+    event_stream_manager.remove_client(0).ok();
 }
