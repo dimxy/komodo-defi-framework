@@ -2,6 +2,8 @@ use mm2_core::mm_ctx::MmArc;
 use serde_json::json;
 use web_sys::SharedWorker;
 
+const DEFAULT_WORKER_PATH: &str = "event_streaming_worker.js";
+
 struct SendableSharedWorker(SharedWorker);
 
 unsafe impl Send for SendableSharedWorker {}
@@ -12,11 +14,9 @@ unsafe impl Send for SendableMessagePort {}
 
 /// Handles broadcasted messages from `mm2_event_stream` continuously for WASM.
 pub async fn handle_worker_stream(ctx: MmArc) {
-    let worker_path = ctx
-        .event_stream_configuration
-        .worker_path
-        .to_str()
-        .expect("worker_path contains invalid UTF-8 characters");
+    let worker_path = ctx.conf["event_stream_worker_path"]
+        .as_str()
+        .unwrap_or(DEFAULT_WORKER_PATH);
     let worker = SendableSharedWorker(
         SharedWorker::new(worker_path).unwrap_or_else(|_| {
             panic!(
