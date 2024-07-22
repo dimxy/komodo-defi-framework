@@ -2,7 +2,7 @@ use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::{Controller, Event, EventStreamer};
+use crate::{controller::Controller, Event, EventStreamer};
 use common::executor::abortable_queue::WeakSpawner;
 use common::log;
 

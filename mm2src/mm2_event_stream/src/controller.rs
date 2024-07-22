@@ -9,28 +9,18 @@ pub struct Controller<M> {
 }
 
 impl<M: Send + Sync> Controller<M> {
-    /// Creates a new channels controller
-    pub fn new() -> Self {
-        Self {
-            channels: HashMap::new(),
-        }
-    }
-
     /// Creates a new channel and returns it's events receiver
-    pub fn create_channel(&mut self, channel_id: u64, concurrency: usize) -> Receiver<Arc<M>> {
+    pub(crate) fn create_channel(&mut self, channel_id: u64, concurrency: usize) -> Receiver<Arc<M>> {
         let (tx, rx) = mpsc::channel(concurrency);
         self.channels.insert(channel_id, tx);
         rx
     }
 
     /// Removes the channel from the controller
-    pub fn remove_channel(&mut self, channel_id: &u64) { self.channels.remove(channel_id); }
-
-    /// Returns number of active channels
-    pub fn num_connections(&self) -> usize { self.channels.len() }
+    pub(crate) fn remove_channel(&mut self, channel_id: &u64) { self.channels.remove(channel_id); }
 
     /// Broadcast message to all channels
-    pub fn broadcast(&self, message: M, client_ids: Option<&HashSet<u64>>) {
+    pub(crate) fn broadcast(&self, message: M, client_ids: Option<&HashSet<u64>>) {
         let msg = Arc::new(message);
         for tx in self.channels(client_ids) {
             // Only `try_send` here. If the receiver's channel is full (receiver is slow), it will
@@ -60,6 +50,7 @@ impl<M: Send + Sync> Controller<M> {
 mod tests {
     use super::*;
     use common::cross_test;
+    use tokio::sync::mpsc::error::TryRecvError;
 
     common::cfg_wasm32! {
         use wasm_bindgen_test::*;
@@ -67,51 +58,40 @@ mod tests {
     }
 
     cross_test!(test_create_channel_and_broadcast, {
-        let controller = Controller::new();
-        let mut channel_receiver = controller.create_channel(1);
+        let mut controller = Controller::default();
+        let mut channel_receiver = controller.create_channel(0, 1);
 
-        controller.broadcast("Message".to_string()).await;
+        controller.broadcast("Message".to_string(), None);
 
         let received_msg = channel_receiver.recv().await.unwrap();
         assert_eq!(*received_msg, "Message".to_string());
     });
 
     cross_test!(test_multiple_channels_and_broadcast, {
-        let controller = Controller::new();
+        let mut controller = Controller::default();
 
         let mut receivers = Vec::new();
-        for _ in 0..3 {
-            receivers.push(controller.create_channel(1));
+        for channel_id in 0..3 {
+            receivers.push(controller.create_channel(channel_id, 1));
         }
 
-        controller.broadcast("Message".to_string()).await;
+        controller.broadcast("Message".to_string(), None);
 
         for receiver in &mut receivers {
             let received_msg = receiver.recv().await.unwrap();
             assert_eq!(*received_msg, "Message".to_string());
         }
-    });
-
-    cross_test!(test_channel_cleanup_on_drop, {
-        let controller: Controller<()> = Controller::new();
-        let channel_receiver = controller.create_channel(1);
-
-        assert_eq!(controller.num_connections(), 1);
-
-        drop(channel_receiver);
-
-        assert_eq!(controller.num_connections(), 0);
     });
 
     cross_test!(test_broadcast_across_channels, {
-        let controller = Controller::new();
+        let mut controller = Controller::default();
 
         let mut receivers = Vec::new();
-        for _ in 0..3 {
-            receivers.push(controller.create_channel(1));
+        for channel_id in 0..3 {
+            receivers.push(controller.create_channel(channel_id, 1));
         }
 
-        controller.broadcast("Message".to_string()).await;
+        controller.broadcast("Message".to_string(), None);
 
         for receiver in &mut receivers {
             let received_msg = receiver.recv().await.unwrap();
@@ -119,16 +99,18 @@ mod tests {
         }
     });
 
-    cross_test!(test_multiple_messages_and_drop, {
-        let controller = Controller::new();
-        let mut channel_receiver = controller.create_channel(6);
+    cross_test!(test_msgs_drop_past_capacity, {
+        let mut controller = Controller::default();
+        let mut channel_receiver = controller.create_channel(0, 6);
 
-        controller.broadcast("Message 1".to_string()).await;
-        controller.broadcast("Message 2".to_string()).await;
-        controller.broadcast("Message 3".to_string()).await;
-        controller.broadcast("Message 4".to_string()).await;
-        controller.broadcast("Message 5".to_string()).await;
-        controller.broadcast("Message 6".to_string()).await;
+        controller.broadcast("Message 1".to_string(), None);
+        controller.broadcast("Message 2".to_string(), None);
+        controller.broadcast("Message 3".to_string(), None);
+        controller.broadcast("Message 4".to_string(), None);
+        controller.broadcast("Message 5".to_string(), None);
+        controller.broadcast("Message 6".to_string(), None);
+        // This message should be dropped.
+        controller.broadcast("Message 7".to_string(), None);
 
         let mut received_msgs = Vec::new();
         for _ in 0..6 {
@@ -143,9 +125,6 @@ mod tests {
         assert_eq!(*received_msgs[4], "Message 5".to_string());
         assert_eq!(*received_msgs[5], "Message 6".to_string());
 
-        // Drop the channel receiver to trigger the drop hook (remove itself from the controller).
-        drop(channel_receiver);
-
-        assert_eq!(controller.num_connections(), 0);
+        assert!(matches!(channel_receiver.try_recv(), Err(TryRecvError::Empty)));
     });
 }
