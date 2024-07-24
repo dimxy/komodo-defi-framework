@@ -56,7 +56,7 @@ use common::{now_sec, now_sec_u32};
 use crypto::{Bip32Error, DerivationPath, HDPathToCoin, Secp256k1ExtendedPublicKey, StandardHDPathError};
 use derive_more::Display;
 #[cfg(not(target_arch = "wasm32"))] use dirs::home_dir;
-use futures::channel::mpsc::{Receiver as AsyncReceiver, Sender as AsyncSender, UnboundedReceiver, UnboundedSender};
+use futures::channel::mpsc::{Receiver as AsyncReceiver, Sender as AsyncSender, UnboundedSender};
 use futures::compat::Future01CompatExt;
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use futures01::Future;
@@ -148,7 +148,6 @@ pub enum ScripthashNotification {
 }
 
 pub type ScripthashNotificationSender = Option<UnboundedSender<ScripthashNotification>>;
-type ScripthashNotificationHandler = Option<Arc<AsyncMutex<UnboundedReceiver<ScripthashNotification>>>>;
 
 #[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
@@ -618,10 +617,6 @@ pub struct UtxoCoinFields {
     /// This abortable system is used to spawn coin's related futures that should be aborted on coin deactivation
     /// and on [`MmArc::stop`].
     pub abortable_system: AbortableQueue,
-    /// This is used for balance event streaming implementation for UTXOs.
-    /// If balance event streaming isn't enabled, this value will always be `None`; otherwise,
-    /// it will be used for receiving scripthash notifications to re-fetch balances.
-    scripthash_notification_handler: ScripthashNotificationHandler,
 }
 
 #[derive(Debug, Display)]

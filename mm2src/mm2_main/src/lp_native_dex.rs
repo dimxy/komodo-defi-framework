@@ -32,7 +32,6 @@ use mm2_libp2p::behaviours::atomicdex::{GossipsubConfig, DEPRECATED_NETID_LIST};
 use mm2_libp2p::{spawn_gossipsub, AdexBehaviourError, NodeType, RelayAddress, RelayAddressError, SeedNodeInfo,
                  SwarmRuntime, WssCerts};
 use mm2_metrics::mm_gauge;
-use mm2_net::network_event::NetworkEvent;
 use mm2_net::p2p::P2PContext;
 use rpc_task::RpcTaskError;
 use serde_json::{self as json};
@@ -45,7 +44,6 @@ use std::{fs, usize};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::mm2::database::init_and_migrate_sql_db;
-use crate::mm2::heartbeat_event::HeartbeatEvent;
 use crate::mm2::lp_message_service::{init_message_service, InitMessageServiceError};
 use crate::mm2::lp_network::{lp_network_ports, p2p_event_process_loop, NetIdError};
 use crate::mm2::lp_ordermatch::{broadcast_maker_orders_keep_alive_loop, clean_memory_loop, init_ordermatch_context,
@@ -424,29 +422,6 @@ fn migrate_db(ctx: &MmArc) -> MmInitResult<()> {
 #[cfg(not(target_arch = "wasm32"))]
 fn migration_1(_ctx: &MmArc) {}
 
-async fn init_event_streaming(ctx: &MmArc) -> MmInitResult<()> {
-    if let Some(config) = ctx.event_stream_configuration.get_event("NETWORK") {
-        let network_steamer = NetworkEvent::try_new(config, ctx.clone())
-            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to initialize network event: {e}")))?;
-        ctx.event_stream_manager
-            .add(0, network_steamer, ctx.spawner())
-            .await
-            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn network event: {e:?}")))?;
-    }
-
-    if let Some(config) = ctx.event_stream_configuration.get_event("HEARTBEAT") {
-        let heartbeat_streamer = HeartbeatEvent::try_new(config).map_to_mm(|e| {
-            MmInitError::EventStreamerInitFailed(format!("Failed to initialize heartbeat event: {e}"))
-        })?;
-        ctx.event_stream_manager
-            .add(0, heartbeat_streamer, ctx.spawner())
-            .await
-            .map_to_mm(|e| MmInitError::EventStreamerInitFailed(format!("Failed to spawn heartbeat event: {e:?}")))?;
-    }
-
-    Ok(())
-}
-
 #[cfg(target_arch = "wasm32")]
 fn init_wasm_event_streaming(ctx: &MmArc) {
     if ctx.event_stream_configuration.total_active_events() != 0 {
@@ -486,8 +461,6 @@ pub async fn lp_init_continue(ctx: MmArc) -> MmInitResult<()> {
     // launch kickstart threads before RPC is available, this will prevent the API user to place
     // an order and start new swap that might get started 2 times because of kick-start
     kick_start(ctx.clone()).await?;
-
-    init_event_streaming(&ctx).await?;
 
     ctx.spawner().spawn(lp_ordermatch_loop(ctx.clone()));
 

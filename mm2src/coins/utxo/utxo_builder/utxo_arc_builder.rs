@@ -1,5 +1,5 @@
 use crate::utxo::rpc_clients::{ElectrumClient, ElectrumClientImpl, UtxoJsonRpcClientInfo, UtxoRpcClientEnum};
-use crate::utxo::utxo_balance_events::UtxoBalanceEventStreamer;
+
 use crate::utxo::utxo_block_header_storage::BlockHeaderStorage;
 use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps,
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
@@ -118,17 +118,6 @@ where
             spv_conf.validate(self.ticker).map_to_mm(UtxoCoinBuildError::SPVError)?;
             spawn_block_header_utxo_loop(self.ticker, &utxo_arc, sync_handle, spv_conf);
         }
-
-        let utxo_streamer = UtxoBalanceEventStreamer::try_new(json!({}), utxo_arc.clone()).map_to_mm(|e| {
-            UtxoCoinBuildError::FailedSpawningBalanceEvents(format!("Failed to initialize utxo event streaming: {e}"))
-        })?;
-        self.ctx
-            .event_stream_manager
-            .add(0, utxo_streamer, utxo_arc.abortable_system.weak_spawner())
-            .await
-            .map_to_mm(|e| {
-                UtxoCoinBuildError::FailedSpawningBalanceEvents(format!("Failed to spawn utxo event streaming: {e:?}"))
-            })?;
 
         Ok(result_coin)
     }

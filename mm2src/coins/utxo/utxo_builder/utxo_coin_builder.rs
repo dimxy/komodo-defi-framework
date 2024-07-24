@@ -265,7 +265,7 @@ where
 
     let my_script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
 
-    let (scripthash_notification_sender, scripthash_notification_handler) = {
+    let (scripthash_notification_sender, _) = {
         let (sender, receiver) = futures::channel::mpsc::unbounded();
         (Some(sender), Some(Arc::new(AsyncMutex::new(receiver))))
     };
@@ -304,7 +304,6 @@ where
         block_headers_status_notifier,
         block_headers_status_watcher,
         abortable_system,
-        scripthash_notification_handler,
     };
 
     Ok(coin)
@@ -350,7 +349,7 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             address_format,
         };
 
-        let (scripthash_notification_sender, scripthash_notification_handler) = {
+        let (scripthash_notification_sender, _) = {
             let (sender, receiver) = futures::channel::mpsc::unbounded();
             (Some(sender), Some(Arc::new(AsyncMutex::new(receiver))))
         };
@@ -389,7 +388,6 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             block_headers_status_notifier,
             block_headers_status_watcher,
             abortable_system,
-            scripthash_notification_handler,
         };
         Ok(coin)
     }

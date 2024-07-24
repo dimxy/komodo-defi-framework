@@ -1,3 +1,4 @@
+use super::streaming_activations;
 use super::{DispatcherError, DispatcherResult, PUBLIC_METHODS};
 use crate::mm2::lp_native_dex::init_hw::{cancel_init_trezor, init_trezor, init_trezor_status, init_trezor_user_action};
 #[cfg(target_arch = "wasm32")]
@@ -145,6 +146,10 @@ async fn auth(request: &MmRpcRequest, ctx: &MmArc, client: &SocketAddr) -> Dispa
 }
 
 async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Response<Vec<u8>>> {
+    if let Some(streaming_request) = request.method.strip_prefix("stream::") {
+        let streaming_request = streaming_request.to_string();
+        return rpc_streaming_dispatcher(request, ctx, streaming_request).await;
+    }
     if let Some(task_method) = request.method.strip_prefix("task::") {
         let task_method = task_method.to_string();
         return rpc_task_dispatcher(request, ctx, task_method).await;
@@ -316,6 +321,28 @@ async fn rpc_task_dispatcher(
             "connect_metamask::status" => handle_mmrpc(ctx, request, connect_metamask_status).await,
             _ => MmError::err(DispatcherError::NoSuchMethod),
         },
+    }
+}
+
+async fn rpc_streaming_dispatcher(
+    request: MmRpcRequest,
+    ctx: MmArc,
+    streaming_request: String,
+) -> DispatcherResult<Response<Vec<u8>>> {
+    match streaming_request.as_str() {
+        "balance::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_balance_streaming).await,
+        "balance::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_balance_streaming).await,
+        "network::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_network_streaming).await,
+        "network::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_network_streaming).await,
+        "heartbeat::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_heartbeat_streaming).await,
+        "heartbeat::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_heartbeat_streaming).await,
+        // "eth_fee_estimator::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_eth_fee_estimation_streaming).await,
+        // "eth_fee_estimator::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_eth_fee_estimation_streaming).await,
+        // "swap_status::enable" => handle_mmrpc(ctx, request, enable_swap_status_streaming).await,
+        // "swap_status::disable" => handle_mmrpc(ctx, request, disable_swap_status_streaming).await,
+        // "order_status::enable" => handle_mmrpc(ctx, request, enable_order_status_streaming).await,
+        // "order_status::disable" => handle_mmrpc(ctx, request, disable_order_status_streaming).await,
+        _ => MmError::err(DispatcherError::NoSuchMethod),
     }
 }
 

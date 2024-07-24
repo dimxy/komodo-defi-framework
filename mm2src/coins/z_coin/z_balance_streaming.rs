@@ -1,5 +1,4 @@
 use crate::common::Future01CompatExt;
-use crate::streaming_events_config::{BalanceEventConfig, EmptySubConfig};
 use crate::z_coin::ZCoin;
 use crate::MarketCoinOps;
 
@@ -10,28 +9,17 @@ use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
 use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
-use serde_json::Value as Json;
 use std::sync::Arc;
 
 pub type ZBalanceEventSender = UnboundedSender<()>;
 pub type ZBalanceEventHandler = Arc<AsyncMutex<UnboundedReceiver<()>>>;
 
 pub struct ZCoinBalanceEventStreamer {
-    /// Whether the event is enabled for this coin.
-    enabled: bool,
     coin: ZCoin,
 }
 
 impl ZCoinBalanceEventStreamer {
-    pub fn try_new(config: Json, coin: ZCoin) -> serde_json::Result<Self> {
-        let config: BalanceEventConfig = serde_json::from_value(config)?;
-        let enabled = match config.find_coin(coin.ticker()) {
-            // This is just an extra check to make sure the config is correct (no config)
-            Some(c) => serde_json::from_value::<EmptySubConfig>(c).map(|_| true)?,
-            None => false,
-        };
-        Ok(Self { enabled, coin })
-    }
+    pub fn new(coin: ZCoin) -> Self { Self { coin } }
 }
 
 #[async_trait]

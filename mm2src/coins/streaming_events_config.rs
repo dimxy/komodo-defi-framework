@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 // FIXME: Get rid of this.
 
 use serde::Deserialize;

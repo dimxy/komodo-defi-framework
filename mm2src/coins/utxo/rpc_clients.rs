@@ -2607,6 +2607,7 @@ async fn electrum_process_json(
 
                     if let Some(sender) = scripthash_notification_sender {
                         debug!("Sending scripthash message");
+                        // FIXME: Nobody is listening to this channel. Use the streaming manager.
                         if let Err(e) = sender.unbounded_send(ScripthashNotification::Triggered(scripthash.to_string()))
                         {
                             error!("Failed sending scripthash message. {e}");

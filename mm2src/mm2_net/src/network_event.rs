@@ -8,18 +8,23 @@ use mm2_libp2p::behaviours::atomicdex;
 use serde::Deserialize;
 use serde_json::{json, Value as Json};
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, default)]
 struct NetworkEventConfig {
     /// The time in seconds to wait after sending network info before sending another one.
-    #[serde(default = "default_stream_interval")]
     pub stream_interval_seconds: f64,
     /// Always (force) send network info data, even if it's the same as the previous one sent.
-    #[serde(default)]
     pub always_send: bool,
 }
 
-const fn default_stream_interval() -> f64 { 5. }
+impl Default for NetworkEventConfig {
+    fn default() -> Self {
+        Self {
+            stream_interval_seconds: 5.0,
+            always_send: false,
+        }
+    }
+}
 
 pub struct NetworkEvent {
     config: NetworkEventConfig,
@@ -27,9 +32,11 @@ pub struct NetworkEvent {
 }
 
 impl NetworkEvent {
-    pub fn try_new(config: Json, ctx: MmArc) -> Result<Self, String> {
+    pub fn try_new(config: Option<Json>, ctx: MmArc) -> serde_json::Result<Self> {
         Ok(Self {
-            config: serde_json::from_value(config).map_err(|e| e.to_string())?,
+            config: config
+                .map(|c| serde_json::from_value(c))
+                .unwrap_or(Ok(Default::default()))?,
             ctx,
         })
     }

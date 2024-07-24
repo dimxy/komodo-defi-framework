@@ -1,5 +1,5 @@
 pub mod storage;
-mod z_balance_streaming;
+pub mod z_balance_streaming;
 mod z_coin_errors;
 #[cfg(all(test, feature = "zhtlc-native-tests"))]
 mod z_coin_native_tests;
@@ -25,7 +25,7 @@ use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxDa
 use crate::utxo::{UnsupportedAddr, UtxoFeeDetails};
 use crate::z_coin::storage::{BlockDbImpl, WalletDbShared};
 use crate::z_coin::z_balance_streaming::ZBalanceEventHandler;
-use crate::z_coin::z_balance_streaming::ZCoinBalanceEventStreamer;
+
 use crate::z_coin::z_tx_history::{fetch_tx_history_from_db, ZCoinTxHistoryItem};
 use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, ConfirmPaymentInput, DexFee,
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin, MmCoinEnum,
@@ -659,15 +659,6 @@ impl ZCoin {
             paging_options: request.paging_options,
         })
     }
-
-    async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
-        let balance_streamer = ZCoinBalanceEventStreamer::try_new(json!({}), self.clone())
-            .map_err(|e| ERRL!("Failed to initialize zcoin balance streaming: {}", e))?;
-        ctx.event_stream_manager
-            .add(0, balance_streamer, self.spawner())
-            .await
-            .map_err(|e| ERRL!("Failed to spawn zcoin balance streaming: {:?}", e))
-    }
 }
 
 impl AsRef<UtxoCoinFields> for ZCoin {
@@ -938,13 +929,7 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
             z_balance_event_handler,
         });
 
-        let zcoin = ZCoin { utxo_arc, z_fields };
-        zcoin
-            .spawn_balance_stream_if_enabled(self.ctx)
-            .await
-            .map_to_mm(ZCoinBuildError::FailedSpawningBalanceEvents)?;
-
-        Ok(zcoin)
+        Ok(ZCoin { utxo_arc, z_fields })
     }
 }
 

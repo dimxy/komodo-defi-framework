@@ -10,7 +10,7 @@ use crate::prelude::*;
 use async_trait::async_trait;
 use coins::hd_wallet::HDPathAccountToAddressId;
 use coins::my_tx_history_v2::TxHistoryStorage;
-use coins::tendermint::tendermint_balance_events::TendermintBalanceEventStreamer;
+
 use coins::tendermint::tendermint_tx_history_v2::tendermint_history_loop;
 use coins::tendermint::{tendermint_priv_key_policy, TendermintActivationPolicy, TendermintCoin, TendermintCommons,
                         TendermintConf, TendermintInitError, TendermintInitErrorKind, TendermintProtocolInfo,
@@ -25,7 +25,7 @@ use mm2_event_stream::EventStreamConfiguration;
 use mm2_number::BigDecimal;
 use rpc_task::RpcTaskHandleShared;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{json, Value as Json};
+use serde_json::{Value as Json};
 use std::collections::{HashMap, HashSet};
 
 impl TokenOf for TendermintToken {
@@ -370,30 +370,9 @@ impl PlatformCoinWithTokensActivationOps for TendermintCoin {
 
     async fn handle_balance_streaming(
         &self,
-        config: &EventStreamConfiguration,
+        _config: &EventStreamConfiguration,
     ) -> Result<(), MmError<Self::ActivationError>> {
-        let balance_streamer =
-            TendermintBalanceEventStreamer::try_new(json!({}), self.clone()).map_to_mm(|e| TendermintInitError {
-                ticker: self.ticker().to_owned(),
-                kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
-                    "Failed to initialize tendermint balance streaming: {e}"
-                )),
-            })?;
-        let ctx = MmArc::from_weak(&self.ctx)
-            .ok_or_else(|| TendermintInitError {
-                ticker: self.ticker().to_owned(),
-                kind: TendermintInitErrorKind::Internal("MM context must have been initialized already.".to_owned()),
-            })
-            .map_to_mm(|e| e)?;
-        ctx.event_stream_manager
-            .add(0, balance_streamer, self.spawner())
-            .await
-            .map_to_mm(|e| TendermintInitError {
-                ticker: self.ticker().to_owned(),
-                kind: TendermintInitErrorKind::BalanceStreamInitError(format!(
-                    "Failed to spawn tendermint balance streaming handler: {e:?}"
-                )),
-            })
+        Ok(())
     }
 
     fn rpc_task_manager(

@@ -72,7 +72,7 @@ impl StreamingManager {
         client_id: u64,
         streamer: impl EventStreamer,
         spawner: WeakSpawner,
-    ) -> Result<(), StreamingManagerError> {
+    ) -> Result<String, StreamingManagerError> {
         let streamer_id = streamer.streamer_id();
         // Remove the streamer if it died for some reason.
         self.remove_streamer_if_down(&streamer_id);
@@ -99,7 +99,7 @@ impl StreamingManager {
                 // Register the streamer as listened-to by the client.
                 clients
                     .get_mut(&client_id)
-                    .map(|listening_to| listening_to.insert(streamer_id));
+                    .map(|listening_to| listening_to.insert(streamer_id.clone()));
                 // FIXME: The streamer running is probably running with different configuration.
                 // We might want to inform the client that the configuration they asked for wasn't
                 // applied and return the active configuration instead?
@@ -109,7 +109,7 @@ impl StreamingManager {
                 //
                 // Another restricted solution is to not let clients set the streamer configuration
                 // and only allow it through MM2 configuration file.
-                return Ok(());
+                return Ok(streamer_id);
             }
         }
 
@@ -138,7 +138,7 @@ impl StreamingManager {
             // We no longer have a connection for it.
             return Err(StreamingManagerError::UnknownClient);
         }
-        Ok(())
+        Ok(streamer_id)
     }
 
     /// Sends data to a streamer with `streamer_id`.

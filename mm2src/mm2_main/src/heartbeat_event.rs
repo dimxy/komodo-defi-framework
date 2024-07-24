@@ -5,24 +5,31 @@ use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, Strea
 use serde::Deserialize;
 use serde_json::Value as Json;
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, default)]
 struct HeartbeatEventConfig {
     /// The time in seconds to wait before sending another ping event.
-    #[serde(default = "default_stream_interval")]
     pub stream_interval_seconds: f64,
 }
 
-const fn default_stream_interval() -> f64 { 5. }
+impl Default for HeartbeatEventConfig {
+    fn default() -> Self {
+        Self {
+            stream_interval_seconds: 5.0,
+        }
+    }
+}
 
 pub struct HeartbeatEvent {
     config: HeartbeatEventConfig,
 }
 
 impl HeartbeatEvent {
-    pub fn try_new(config: Json) -> Result<Self, String> {
+    pub fn try_new(config: Option<Json>) -> serde_json::Result<Self> {
         Ok(Self {
-            config: serde_json::from_value(config).map_err(|e| e.to_string())?,
+            config: config
+                .map(|c| serde_json::from_value(c))
+                .unwrap_or(Ok(Default::default()))?,
         })
     }
 }

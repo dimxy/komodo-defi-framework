@@ -11,39 +11,38 @@ use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 
 use super::EthCoin;
-use crate::streaming_events_config::BalanceEventConfig;
 use crate::{eth::{u256_to_big_decimal, Erc20TokenInfo},
             BalanceError, CoinWithDerivationMethod};
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SingleEthCoinConfig {
+#[serde(deny_unknown_fields, default)]
+struct EthBalanceStreamingConfig {
     /// The time in seconds to wait before re-polling the balance and streaming.
-    #[serde(default = "default_stream_interval")]
     pub stream_interval_seconds: f64,
 }
 
-const fn default_stream_interval() -> f64 { 10. }
+impl Default for EthBalanceStreamingConfig {
+    fn default() -> Self {
+        Self {
+            stream_interval_seconds: 10.0,
+        }
+    }
+}
 
 pub struct EthBalanceEventStreamer {
-    /// Whether the event is enabled for this coin.
-    enabled: bool,
     /// The period in seconds between each balance check.
     interval: f64,
     coin: EthCoin,
 }
 
 impl EthBalanceEventStreamer {
-    pub fn try_new(config: Json, coin: EthCoin) -> serde_json::Result<Self> {
-        let config: BalanceEventConfig = serde_json::from_value(config)?;
-        let coin_config: Option<SingleEthCoinConfig> = match config.find_coin(&coin.ticker) {
-            // Try to parse the coin config.
-            Some(c) => Some(serde_json::from_value(c)?),
-            None => None,
-        };
+    pub fn try_new(config: Option<Json>, coin: EthCoin) -> serde_json::Result<Self> {
+        let config: EthBalanceStreamingConfig = config
+            .map(|c| serde_json::from_value(c))
+            .unwrap_or(Ok(Default::default()))?;
+
         Ok(Self {
-            enabled: coin_config.is_some(),
-            interval: coin_config.map(|c| c.stream_interval_seconds).unwrap_or(0.0),
+            interval: config.stream_interval_seconds,
             coin,
         })
     }

@@ -63,7 +63,7 @@ use crypto::privkey::key_pair_from_secret;
 use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
 use derive_more::Display;
 use enum_derives::EnumFromStringify;
-use eth_balance_events::EthBalanceEventStreamer;
+
 use ethabi::{Contract, Function, Token};
 use ethcore_transaction::tx_builders::TxBuilderError;
 use ethcore_transaction::{Action, TransactionWrapper, TransactionWrapperBuilder as UnSignedEthTxBuilder,
@@ -134,7 +134,7 @@ cfg_native! {
     use std::path::PathBuf;
 }
 
-mod eth_balance_events;
+pub mod eth_balance_events;
 mod eth_rpc;
 #[cfg(test)] mod eth_tests;
 #[cfg(target_arch = "wasm32")] mod eth_wasm_tests;
@@ -5281,15 +5281,6 @@ impl EthCoin {
         Box::new(fut.boxed().compat())
     }
 
-    async fn spawn_balance_stream_if_enabled(&self, ctx: &MmArc) -> Result<(), String> {
-        let balance_streamer = EthBalanceEventStreamer::try_new(json!({}), self.clone())
-            .map_err(|e| ERRL!("Failed to initialize eth balance streaming: {}", e))?;
-        ctx.event_stream_manager
-            .add(0, balance_streamer, self.spawner())
-            .await
-            .map_err(|e| ERRL!("Failed to spawn eth balance streaming: {:?}", e))
-    }
-
     /// Requests the nonce from all available nodes and returns the highest nonce available with the list of nodes that returned the highest nonce.
     /// Transactions will be sent using the nodes that returned the highest nonce.
     pub fn get_addr_nonce(
@@ -6372,10 +6363,7 @@ pub async fn eth_coin_from_conf_and_request(
         abortable_system,
     };
 
-    let coin = EthCoin(Arc::new(coin));
-    coin.spawn_balance_stream_if_enabled(ctx).await?;
-
-    Ok(coin)
+    Ok(EthCoin(Arc::new(coin)))
 }
 
 /// Displays the address in mixed-case checksum form

@@ -620,12 +620,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         abortable_system,
     };
 
-    let coin = EthCoin(Arc::new(coin));
-    coin.spawn_balance_stream_if_enabled(ctx)
-        .await
-        .map_err(EthActivationV2Error::FailedSpawningBalanceEvents)?;
-
-    Ok(coin)
+    Ok(EthCoin(Arc::new(coin)))
 }
 
 /// Processes the given `priv_key_policy` and generates corresponding `KeyPair`.

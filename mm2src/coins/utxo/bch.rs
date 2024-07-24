@@ -83,6 +83,10 @@ pub struct BchCoin {
     slp_tokens_infos: Arc<Mutex<HashMap<String, SlpTokenInfo>>>,
 }
 
+impl From<BchCoin> for UtxoArc {
+    fn from(coin: BchCoin) -> Self { coin.utxo_arc }
+}
+
 #[allow(clippy::large_enum_variant)]
 pub enum IsSlpUtxoError {
     Rpc(UtxoRpcError),

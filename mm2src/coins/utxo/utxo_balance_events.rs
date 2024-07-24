@@ -4,11 +4,9 @@ use futures::channel::oneshot;
 use futures_util::StreamExt;
 use keys::Address;
 use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
-use serde_json::Value as Json;
 use std::collections::{BTreeMap, HashSet};
 
 use super::{utxo_standard::UtxoStandardCoin, UtxoArc};
-use crate::streaming_events_config::{BalanceEventConfig, EmptySubConfig};
 use crate::{utxo::{output_script,
                    rpc_clients::electrum_script_hash,
                    utxo_common::{address_balance, address_to_scripthash},
@@ -28,25 +26,16 @@ macro_rules! try_or_continue {
 }
 
 pub struct UtxoBalanceEventStreamer {
-    /// Whether the event is enabled for this coin.
-    enabled: bool,
     coin: UtxoStandardCoin,
 }
 
 impl UtxoBalanceEventStreamer {
-    pub fn try_new(config: Json, utxo_arc: UtxoArc) -> serde_json::Result<Self> {
-        let config: BalanceEventConfig = serde_json::from_value(config)?;
-        let enabled = match config.find_coin(&utxo_arc.conf.ticker) {
-            // This is just an extra check to make sure the config is correct (no config)
-            Some(c) => serde_json::from_value::<EmptySubConfig>(c).map(|_| true)?,
-            None => false,
-        };
-        Ok(Self {
-            enabled,
+    pub fn new(utxo_arc: UtxoArc) -> Self {
+        Self {
             // We wrap the UtxoArc in a UtxoStandardCoin for easier method accessibility.
             // The UtxoArc might belong to a different coin type though.
             coin: UtxoStandardCoin::from(utxo_arc),
-        })
+        }
     }
 }
 
