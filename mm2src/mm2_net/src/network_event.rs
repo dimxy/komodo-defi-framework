@@ -1,10 +1,11 @@
 use crate::p2p::P2PContext;
-use async_trait::async_trait;
 use common::executor::Timer;
-use futures::channel::oneshot;
 use mm2_core::mm_ctx::MmArc;
 use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
 use mm2_libp2p::behaviours::atomicdex;
+
+use async_trait::async_trait;
+use futures::channel::oneshot;
 use serde::Deserialize;
 use serde_json::{json, Value as Json};
 
@@ -34,9 +35,7 @@ pub struct NetworkEvent {
 impl NetworkEvent {
     pub fn try_new(config: Option<Json>, ctx: MmArc) -> serde_json::Result<Self> {
         Ok(Self {
-            config: config
-                .map(|c| serde_json::from_value(c))
-                .unwrap_or(Ok(Default::default()))?,
+            config: config.map(serde_json::from_value).unwrap_or(Ok(Default::default()))?,
             ctx,
         })
     }

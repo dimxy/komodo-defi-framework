@@ -28,7 +28,7 @@ impl HeartbeatEvent {
     pub fn try_new(config: Option<Json>) -> serde_json::Result<Self> {
         Ok(Self {
             config: config
-                .map(|c| serde_json::from_value(c))
+                .map(serde_json::from_value)
                 .unwrap_or(Ok(Default::default()))?,
         })
     }

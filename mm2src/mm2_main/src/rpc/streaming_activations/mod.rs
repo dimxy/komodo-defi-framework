@@ -1,30 +1,28 @@
 mod balance;
-mod network;
+mod fee_estimation;
 mod heartbeat;
-mod eth_fee_estimator;
+mod network;
 
 // Re-exports
 pub use balance::*;
-pub use network::*;
+pub use fee_estimation::*;
 pub use heartbeat::*;
-pub use eth_fee_estimator::*;
+pub use network::*;
 
 #[derive(Serialize)]
-/// The success response for any event streaming activation endpoint.
+/// The success/ok response for any event streaming activation request.
 pub struct EnableStreamingResponse {
     pub streamer_id: String,
+    // FIXME: Consider returning the applied config here (might be different from the one the client requested).
+    // pub config: Json,
 }
 
 impl EnableStreamingResponse {
-    fn new(streamer_id: String) -> Self {
-        Self {
-            streamer_id
-        }
-    }
+    fn new(streamer_id: String) -> Self { Self { streamer_id } }
 }
 
 #[derive(Deserialize)]
-/// The request used for any event streaming deactivation endpoint.
+/// The request used for any event streaming deactivation.
 pub struct DisableStreamingRequest {
     pub client_id: u64,
     pub streamer_id: String,

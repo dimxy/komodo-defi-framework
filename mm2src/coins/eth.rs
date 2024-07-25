@@ -54,8 +54,8 @@ use async_trait::async_trait;
 use bitcrypto::{dhash160, keccak256, ripemd160, sha256};
 use common::custom_futures::repeatable::{Ready, Retry, RetryOnError};
 use common::custom_futures::timeout::FutureTimerExt;
-use common::executor::{abortable_queue::AbortableQueue, AbortOnDropHandle, AbortSettings, AbortableSystem,
-                       AbortedError, SpawnAbortable, Timer};
+use common::executor::{abortable_queue::AbortableQueue, AbortSettings, AbortableSystem, AbortedError, SpawnAbortable,
+                       Timer};
 use common::log::{debug, error, info, warn};
 use common::number_type_casting::SafeTypeCastingNumbers;
 use common::{get_utc_timestamp, now_sec, small_rng, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -155,10 +155,10 @@ use eth_withdraw::{EthWithdraw, InitEthWithdraw, StandardEthWithdraw};
 mod nonce;
 use nonce::ParityNonce;
 
-mod eip1559_gas_fee;
-pub(crate) use eip1559_gas_fee::FeePerGasEstimated;
-use eip1559_gas_fee::{BlocknativeGasApiCaller, FeePerGasSimpleEstimator, GasApiConfig, GasApiProvider,
-                      InfuraGasApiCaller};
+pub mod fee_estimation;
+use fee_estimation::eip1559::{block_native::BlocknativeGasApiCaller, infura::InfuraGasApiCaller,
+                              simple::FeePerGasSimpleEstimator, FeeEstimatorState, FeePerGasEstimated, GasApiConfig,
+                              GasApiProvider};
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
@@ -338,7 +338,8 @@ impl TryFrom<PayForGasParams> for PayForGasOption {
 
 type GasDetails = (U256, PayForGasOption);
 
-#[derive(Debug, Display, EnumFromStringify)]
+#[derive(Debug, Display, EnumFromStringify, Serialize, SerializeErrorType)]
+#[serde(tag = "error_type", content = "error_data")]
 pub enum Web3RpcError {
     #[display(fmt = "Transport: {}", _0)]
     Transport(String),
@@ -570,29 +571,6 @@ impl From<PrivKeyBuildPolicy> for EthPrivKeyBuildPolicy {
             PrivKeyBuildPolicy::Trezor => EthPrivKeyBuildPolicy::Trezor,
         }
     }
-}
-
-/// Gas fee estimator loop context, runs a loop to estimate max fee and max priority fee per gas according to EIP-1559 for the next block
-///
-/// This FeeEstimatorContext handles rpc requests which start and stop gas fee estimation loop and handles the loop itself.
-/// FeeEstimatorContext keeps the latest estimated gas fees to return them on rpc request
-pub(crate) struct FeeEstimatorContext {
-    /// Latest estimated gas fee values
-    pub(crate) estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>,
-    /// Handler for estimator loop graceful shutdown
-    pub(crate) abort_handler: AsyncMutex<Option<AbortOnDropHandle>>,
-}
-
-/// Gas fee estimator creation state
-pub(crate) enum FeeEstimatorState {
-    /// Gas fee estimation not supported for this coin
-    CoinNotSupported,
-    /// Platform coin required to be enabled for gas fee estimation for this coin
-    PlatformCoinRequired,
-    /// Fee estimator created, use simple internal estimator
-    Simple(AsyncMutex<FeeEstimatorContext>),
-    /// Fee estimator created, use provider or simple internal estimator (if provider fails)
-    Provider(AsyncMutex<FeeEstimatorContext>),
 }
 
 /// pImpl idiom.
@@ -5081,20 +5059,25 @@ impl EthCoin {
     }
 
     /// Get gas base fee and suggest priority tip fees for the next block (see EIP-1559)
-    pub async fn get_eip1559_gas_fee(&self) -> Web3RpcResult<FeePerGasEstimated> {
+    pub async fn get_eip1559_gas_fee(&self, gas_api_conf: Option<GasApiConfig>) -> Web3RpcResult<FeePerGasEstimated> {
         let coin = self.clone();
         let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(&coin);
         let ctx =
             MmArc::from_weak(&coin.ctx).ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
-        let gas_api_conf = ctx.conf["gas_api"].clone();
-        if gas_api_conf.is_null() {
-            debug!("No eth gas api provider config, using only history estimator");
-            return history_estimator_fut
-                .await
-                .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
-        }
-        let gas_api_conf: GasApiConfig = json::from_value(gas_api_conf)
-            .map_err(|e| MmError::new(Web3RpcError::InvalidGasApiConfig(e.to_string())))?;
+        // If a `gas_api_conf` was provided, use that.
+        let gas_api_conf = if let Some(gas_api_config) = gas_api_conf {
+            gas_api_config
+        } else {
+            let gas_api_conf = ctx.conf["gas_api"].clone();
+            if gas_api_conf.is_null() {
+                debug!("No eth gas api provider config, using only history estimator");
+                return history_estimator_fut
+                    .await
+                    .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
+            }
+            json::from_value(gas_api_conf)
+                .map_err(|e| MmError::new(Web3RpcError::InvalidGasApiConfig(e.to_string())))?
+        };
         let provider_estimator_fut = match gas_api_conf.provider {
             GasApiProvider::Infura => InfuraGasApiCaller::fetch_infura_fee_estimation(&gas_api_conf.url).boxed(),
             GasApiProvider::Blocknative => {
@@ -5125,7 +5108,7 @@ impl EthCoin {
                 Ok(PayForGasOption::Legacy(LegacyGasPrice { gas_price }))
             },
             SwapTxFeePolicy::Low | SwapTxFeePolicy::Medium | SwapTxFeePolicy::High => {
-                let fee_per_gas = coin.get_eip1559_gas_fee().await?;
+                let fee_per_gas = coin.get_eip1559_gas_fee(None).await?;
                 let pay_result = match swap_fee_policy {
                     SwapTxFeePolicy::Low => PayForGasOption::Eip1559(Eip1559FeePerGas {
                         max_fee_per_gas: fee_per_gas.low.max_fee_per_gas,

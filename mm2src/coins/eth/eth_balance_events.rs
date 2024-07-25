@@ -1,18 +1,18 @@
-use async_trait::async_trait;
-use common::{executor::Timer, log, Future01CompatExt};
-use ethereum_types::Address;
-use futures::{channel::oneshot, stream::FuturesUnordered, StreamExt};
-use instant::Instant;
-use mm2_err_handle::prelude::MmError;
-use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
-use mm2_number::BigDecimal;
-use serde::Deserialize;
-use serde_json::Value as Json;
-use std::collections::{HashMap, HashSet};
-
 use super::EthCoin;
 use crate::{eth::{u256_to_big_decimal, Erc20TokenInfo},
             BalanceError, CoinWithDerivationMethod};
+use common::{executor::Timer, log, Future01CompatExt};
+use mm2_err_handle::prelude::MmError;
+use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
+use mm2_number::BigDecimal;
+
+use async_trait::async_trait;
+use ethereum_types::Address;
+use futures::{channel::oneshot, stream::FuturesUnordered, StreamExt};
+use instant::Instant;
+use serde::Deserialize;
+use serde_json::Value as Json;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -37,9 +37,7 @@ pub struct EthBalanceEventStreamer {
 
 impl EthBalanceEventStreamer {
     pub fn try_new(config: Option<Json>, coin: EthCoin) -> serde_json::Result<Self> {
-        let config: EthBalanceStreamingConfig = config
-            .map(|c| serde_json::from_value(c))
-            .unwrap_or(Ok(Default::default()))?;
+        let config: EthBalanceStreamingConfig = config.map(serde_json::from_value).unwrap_or(Ok(Default::default()))?;
 
         Ok(Self {
             interval: config.stream_interval_seconds,
