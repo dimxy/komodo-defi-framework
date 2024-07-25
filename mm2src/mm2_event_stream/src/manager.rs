@@ -35,7 +35,7 @@ struct StreamerInfo {
     /// Clients the streamer is serving for.
     clients: HashSet<u64>,
     /// The shutdown handle of the streamer.
-    _shutdown: oneshot::Sender<()>,
+    shutdown: oneshot::Sender<()>,
 }
 
 impl StreamerInfo {
@@ -43,9 +43,11 @@ impl StreamerInfo {
         Self {
             data_in,
             clients: HashSet::new(),
-            _shutdown: shutdown,
+            shutdown,
         }
     }
+
+    fn is_down(&self) -> bool { self.shutdown.is_canceled() }
 }
 
 #[derive(Clone, Default)]
@@ -72,10 +74,14 @@ impl StreamingManager {
         spawner: WeakSpawner,
     ) -> Result<(), StreamingManagerError> {
         let streamer_id = streamer.streamer_id();
+        // Remove the streamer if it died for some reason.
+        self.remove_streamer_if_down(&streamer_id);
 
         // Pre-checks before spawning the streamer. Inside another scope to drop the locks early.
         {
             let mut clients = self.clients.lock().unwrap();
+            let mut streamers = self.streamers.write().unwrap();
+
             match clients.get(&client_id) {
                 // We don't know that client. We don't have a connection to it.
                 None => return Err(StreamingManagerError::UnknownClient),
@@ -85,8 +91,9 @@ impl StreamingManager {
                 },
                 _ => (),
             }
+
             // If a streamer is already up and running, we won't spawn another one.
-            if let Some(streamer_info) = self.streamers.write().unwrap().get_mut(&streamer_id) {
+            if let Some(streamer_info) = streamers.get_mut(&streamer_id) {
                 // Register the client as a listener to the streamer.
                 streamer_info.clients.insert(client_id);
                 // Register the streamer as listened-to by the client.
@@ -222,5 +229,27 @@ impl StreamingManager {
         // Remove our channel with this client.
         self.controller.write().unwrap().remove_channel(&client_id);
         Ok(())
+    }
+
+    /// Removes a streamer if it is no longer running.
+    ///
+    /// Aside from us shutting down a streamer when all its clients are disconnected,
+    /// the streamer might die by itself (e.g. the spawner it was spawned with aborted).
+    /// In this case, we need to remove the streamer and de-list it from all clients.
+    fn remove_streamer_if_down(&self, streamer_id: &str) {
+        let mut clients = self.clients.lock().unwrap();
+        let mut streamers = self.streamers.write().unwrap();
+        if let Some(streamer_info) = streamers.get(streamer_id) {
+            // Remove the streamer from all clients listening to it.
+            if streamer_info.is_down() {
+                for client_id in &streamer_info.clients {
+                    clients
+                        .get_mut(client_id)
+                        .map(|listening_to| listening_to.remove(streamer_id));
+                }
+                // And remove the streamer from our registry.
+                streamers.remove(streamer_id);
+            }
+        }
     }
 }
