@@ -31,7 +31,7 @@ impl HttpStatusCode for HeartbeatRequestError {
     }
 }
 
-pub async fn enable_heartbeat_streaming(
+pub async fn enable_heartbeat(
     ctx: MmArc,
     req: EnableHeartbeatRequest,
 ) -> MmResult<EnableStreamingResponse, HeartbeatRequestError> {
@@ -44,7 +44,7 @@ pub async fn enable_heartbeat_streaming(
         .map_to_mm(|e| HeartbeatRequestError::EnableError(format!("{e:?}")))
 }
 
-pub async fn disable_heartbeat_streaming(
+pub async fn disable_heartbeat(
     ctx: MmArc,
     req: DisableStreamingRequest,
 ) -> MmResult<(), HeartbeatRequestError> {

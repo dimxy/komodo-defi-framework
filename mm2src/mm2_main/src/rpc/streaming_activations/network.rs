@@ -31,7 +31,7 @@ impl HttpStatusCode for NetworkStreamingRequestError {
     }
 }
 
-pub async fn enable_network_streaming(
+pub async fn enable_network(
     ctx: MmArc,
     req: EnableNetworkStreamingRequest,
 ) -> MmResult<EnableStreamingResponse, NetworkStreamingRequestError> {
@@ -44,7 +44,7 @@ pub async fn enable_network_streaming(
         .map_to_mm(|e| NetworkStreamingRequestError::EnableError(format!("{e:?}")))
 }
 
-pub async fn disable_network_streaming(
+pub async fn disable_network(
     ctx: MmArc,
     req: DisableStreamingRequest,
 ) -> MmResult<(), NetworkStreamingRequestError> {

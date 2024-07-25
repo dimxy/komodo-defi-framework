@@ -39,7 +39,7 @@ impl HttpStatusCode for FeeStreamingRequestError {
     }
 }
 
-pub async fn enable_fee_estimation_streaming(
+pub async fn enable_fee_estimation(
     ctx: MmArc,
     req: EnableFeeStreamingRequest,
 ) -> MmResult<EnableStreamingResponse, FeeStreamingRequestError> {
@@ -62,7 +62,7 @@ pub async fn enable_fee_estimation_streaming(
     }
 }
 
-pub async fn disable_fee_estimation_streaming(
+pub async fn disable_fee_estimation(
     ctx: MmArc,
     req: DisableStreamingRequest,
 ) -> MmResult<(), FeeStreamingRequestError> {

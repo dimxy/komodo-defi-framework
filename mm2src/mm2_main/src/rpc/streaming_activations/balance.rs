@@ -42,7 +42,7 @@ impl HttpStatusCode for BalanceStreamingRequestError {
     }
 }
 
-pub async fn enable_balance_streaming(
+pub async fn enable_balance(
     ctx: MmArc,
     req: EnableBalanceStreamingRequest,
 ) -> MmResult<EnableStreamingResponse, BalanceStreamingRequestError> {
@@ -123,7 +123,7 @@ pub async fn enable_balance_streaming(
         .map_to_mm(|e| BalanceStreamingRequestError::EnableError(format!("{e:?}")))
 }
 
-pub async fn disable_balance_streaming(
+pub async fn disable_balance(
     ctx: MmArc,
     req: DisableStreamingRequest,
 ) -> MmResult<(), BalanceStreamingRequestError> {
