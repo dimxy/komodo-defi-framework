@@ -330,6 +330,7 @@ async fn rpc_streaming_dispatcher(
     ctx: MmArc,
     streaming_request: String,
 ) -> DispatcherResult<Response<Vec<u8>>> {
+    // FIXME: Unify disable requests (they all run the same code based on streamer id, the routes make no sense).
     match streaming_request.as_str() {
         "balance::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_balance).await,
         "balance::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_balance).await,
@@ -339,8 +340,8 @@ async fn rpc_streaming_dispatcher(
         "heartbeat::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_heartbeat).await,
         "fee_estimator::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_fee_estimation).await,
         "fee_estimator::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_fee_estimation).await,
-        // "swap_status::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_swap_status).await,
-        // "swap_status::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_swap_status).await,
+        "swap_status::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_swap_status).await,
+        "swap_status::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_swap_status).await,
         // "order_status::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_order_status).await,
         // "order_status::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_order_status).await,
         _ => MmError::err(DispatcherError::NoSuchMethod),

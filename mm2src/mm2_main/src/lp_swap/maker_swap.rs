@@ -13,6 +13,7 @@ use super::{broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_e
 use crate::mm2::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::MakerOrderBuilder;
+use crate::mm2::lp_swap::swap_events::{SwapStatusEvent, SwapStatusStreamer};
 use crate::mm2::lp_swap::swap_v2_common::mark_swap_as_finished;
 use crate::mm2::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF};
 use coins::lp_price::fetch_swap_coins_price;
@@ -29,6 +30,7 @@ use futures::{compat::Future01CompatExt, select, FutureExt};
 use keys::KeyPair;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::EventStreamer;
 use mm2_number::{BigDecimal, MmNumber};
 use mm2_rpc::data::legacy::OrderConfirmationsSettings;
 use parking_lot::Mutex as PaMutex;
@@ -2113,10 +2115,16 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                         .dispatch_async(ctx.clone(), LpEvents::MakerSwapStatusChanged(event_to_send))
                         .await;
                     drop(dispatcher);
-                    save_my_maker_swap_event(&ctx, &running_swap, to_save)
+                    save_my_maker_swap_event(&ctx, &running_swap, to_save.clone())
                         .await
                         .expect("!save_my_maker_swap_event");
-                    // FIXME: send SSE here
+                    // Send a notification to the swap status streamer about a new event.
+                    ctx.event_stream_manager
+                        .send(&SwapStatusStreamer.streamer_id(), SwapStatusEvent::MakerV1 {
+                            uuid: running_swap.uuid,
+                            event: to_save,
+                        })
+                        .ok();
                     if event.should_ban_taker() {
                         ban_pubkey_on_failed_swap(
                             &ctx,

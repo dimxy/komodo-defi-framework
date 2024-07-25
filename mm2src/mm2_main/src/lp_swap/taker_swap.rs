@@ -12,6 +12,7 @@ use super::{broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg
             SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, WAIT_CONFIRM_INTERVAL_SEC};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::TakerOrderBuilder;
+use crate::mm2::lp_swap::swap_events::{SwapStatusEvent, SwapStatusStreamer};
 use crate::mm2::lp_swap::swap_v2_common::mark_swap_as_finished;
 use crate::mm2::lp_swap::taker_restart::get_command_based_on_maker_or_watcher_activity;
 use crate::mm2::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, tx_helper_topic,
@@ -30,6 +31,7 @@ use http::Response;
 use keys::KeyPair;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::EventStreamer;
 use mm2_number::{BigDecimal, MmNumber};
 use mm2_rpc::data::legacy::{MatchBy, OrderConfirmationsSettings, TakerAction};
 use parking_lot::Mutex as PaMutex;
@@ -149,7 +151,7 @@ async fn save_my_taker_swap_event(ctx: &MmArc, swap: &TakerSwap, event: TakerSav
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct TakerSavedEvent {
     pub timestamp: u64,
     pub event: TakerSwapEvent,
@@ -459,9 +461,16 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                         event: event.clone(),
                     };
 
-                    save_my_taker_swap_event(&ctx, &running_swap, to_save)
+                    save_my_taker_swap_event(&ctx, &running_swap, to_save.clone())
                         .await
                         .expect("!save_my_taker_swap_event");
+                    // Send a notification to the swap status streamer about a new event.
+                    ctx.event_stream_manager
+                        .send(&SwapStatusStreamer.streamer_id(), SwapStatusEvent::TakerV1 {
+                            uuid: running_swap.uuid,
+                            event: to_save,
+                        })
+                        .ok();
                     if event.should_ban_maker() {
                         ban_pubkey_on_failed_swap(
                             &ctx,

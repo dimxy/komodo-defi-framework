@@ -35,8 +35,8 @@ pub async fn enable_heartbeat(
     ctx: MmArc,
     req: EnableHeartbeatRequest,
 ) -> MmResult<EnableStreamingResponse, HeartbeatRequestError> {
-    let heartbeat_streamer = HeartbeatEvent::try_new(req.config)
-        .map_to_mm(|e| HeartbeatRequestError::EnableError(format!("{e:?}")))?;
+    let heartbeat_streamer =
+        HeartbeatEvent::try_new(req.config).map_to_mm(|e| HeartbeatRequestError::EnableError(format!("{e:?}")))?;
     ctx.event_stream_manager
         .add(req.client_id, heartbeat_streamer, ctx.spawner())
         .await

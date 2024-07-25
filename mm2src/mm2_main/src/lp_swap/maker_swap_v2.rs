@@ -1,3 +1,4 @@
+use super::swap_events::{SwapStatusEvent, SwapStatusStreamer};
 use super::swap_v2_common::*;
 use super::{swap_v2_topic, LockedAmount, LockedAmountInfo, SavedTradeFee, SwapsContext, NEGOTIATE_SEND_INTERVAL,
             NEGOTIATION_TIMEOUT_SEC};
@@ -20,6 +21,7 @@ use crypto::privkey::SerializableSecp256k1Keypair;
 use keys::KeyPair;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::EventStreamer;
 use mm2_libp2p::Secp256k1PubkeySerialize;
 use mm2_number::MmNumber;
 use mm2_state_machine::prelude::*;
@@ -46,7 +48,7 @@ cfg_wasm32!(
 #[allow(unused_imports)] use prost::Message;
 
 /// Negotiation data representation to be stored in DB.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct StoredNegotiationData {
     taker_payment_locktime: u64,
     taker_funding_locktime: u64,
@@ -58,7 +60,7 @@ pub struct StoredNegotiationData {
 }
 
 /// Represents events produced by maker swap states.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "event_type", content = "event_data")]
 pub enum MakerSwapEvent {
     /// Swap has been successfully initialized.
@@ -716,12 +718,17 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             | MakerSwapEvent::Aborted { .. }
             | MakerSwapEvent::Completed => (),
         }
+        // Send a notification to the swap status streamer about a new event.
+        self.ctx
+            .event_stream_manager
+            .send(&SwapStatusStreamer.streamer_id(), SwapStatusEvent::MakerV2 {
+                uuid: self.uuid,
+                event: event.clone(),
+            })
+            .ok();
     }
 
-    fn on_kickstart_event(
-        &mut self,
-        event: <<Self::Storage as StateMachineStorage>::DbRepr as StateMachineDbRepr>::Event,
-    ) {
+    fn on_kickstart_event(&mut self, event: MakerSwapEvent) {
         match event {
             MakerSwapEvent::Initialized {
                 maker_payment_trade_fee,

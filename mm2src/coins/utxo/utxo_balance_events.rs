@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use common::{executor::Timer, log, Future01CompatExt};
 use futures::channel::oneshot;
-use futures_util::StreamExt;
+use futures::StreamExt;
 use keys::Address;
 use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
 use std::collections::{BTreeMap, HashSet};

@@ -25,7 +25,7 @@ use mm2_event_stream::EventStreamConfiguration;
 use mm2_number::BigDecimal;
 use rpc_task::RpcTaskHandleShared;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{Value as Json};
+use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 
 impl TokenOf for TendermintToken {

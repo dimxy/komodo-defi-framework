@@ -3,7 +3,7 @@ mod fee_estimation;
 mod heartbeat;
 mod network;
 // mod orders;
-// mod swaps;
+mod swaps;
 
 // Re-exports
 pub use balance::*;
@@ -11,7 +11,7 @@ pub use fee_estimation::*;
 pub use heartbeat::*;
 pub use network::*;
 // pub use orders::*;
-// pub use swaps::*;
+pub use swaps::*;
 
 #[derive(Serialize)]
 /// The success/ok response for any event streaming activation request.

@@ -142,6 +142,8 @@ impl StreamingManager {
     }
 
     /// Sends data to a streamer with `streamer_id`.
+    // FIXME: Consider receiving `data` as a `Clone`able &T and only clone it if streamer is found.
+    //        This is to reduce the memory overhead when streamers are inactive.
     pub fn send<T: Send + 'static>(&self, streamer_id: &str, data: T) -> Result<(), StreamingManagerError> {
         let streamers = self.streamers.read().unwrap();
         let streamer_info = streamers
