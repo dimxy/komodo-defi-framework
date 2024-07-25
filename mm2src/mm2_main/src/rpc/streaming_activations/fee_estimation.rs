@@ -1,8 +1,8 @@
 //! RPC activation and deactivation for different fee estimation streamers.
-use super::{DisableStreamingRequest, EnableStreamingResponse};
+use super::{DisableStreamingRequest, DisableStreamingResponse, EnableStreamingResponse};
 
 use coins::eth::fee_estimation::eth_fee_events::EthFeeEventStreamer;
-use coins::{lp_coinfind, MmCoinEnum};
+use coins::{lp_coinfind, MmCoin, MmCoinEnum};
 use common::HttpStatusCode;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
@@ -50,10 +50,10 @@ pub async fn enable_fee_estimation(
 
     match coin {
         MmCoinEnum::EthCoin(coin) => {
-            let eth_fee_estimator_streamer = EthFeeEventStreamer::try_new(req.config, coin)
+            let eth_fee_estimator_streamer = EthFeeEventStreamer::try_new(req.config, coin.clone())
                 .map_to_mm(|e| FeeStreamingRequestError::EnableError(format!("{e:?}")))?;
             ctx.event_stream_manager
-                .add(req.client_id, eth_fee_estimator_streamer, ctx.spawner())
+                .add(req.client_id, eth_fee_estimator_streamer, coin.spawner())
                 .await
                 .map(EnableStreamingResponse::new)
                 .map_to_mm(|e| FeeStreamingRequestError::EnableError(format!("{e:?}")))
@@ -65,8 +65,9 @@ pub async fn enable_fee_estimation(
 pub async fn disable_fee_estimation(
     ctx: MmArc,
     req: DisableStreamingRequest,
-) -> MmResult<(), FeeStreamingRequestError> {
+) -> MmResult<DisableStreamingResponse, FeeStreamingRequestError> {
     ctx.event_stream_manager
         .stop(req.client_id, &req.streamer_id)
-        .map_to_mm(|e| FeeStreamingRequestError::DisableError(format!("{e:?}")))
+        .map_to_mm(|e| FeeStreamingRequestError::DisableError(format!("{e:?}")))?;
+    Ok(DisableStreamingResponse::new())
 }

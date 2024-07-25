@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for the heartbeats.
-use super::{DisableStreamingRequest, EnableStreamingResponse};
+use super::{DisableStreamingRequest, DisableStreamingResponse, EnableStreamingResponse};
 
 use crate::mm2::heartbeat_event::HeartbeatEvent;
 use common::HttpStatusCode;
@@ -47,8 +47,9 @@ pub async fn enable_heartbeat(
 pub async fn disable_heartbeat(
     ctx: MmArc,
     req: DisableStreamingRequest,
-) -> MmResult<(), HeartbeatRequestError> {
+) -> MmResult<DisableStreamingResponse, HeartbeatRequestError> {
     ctx.event_stream_manager
         .stop(req.client_id, &req.streamer_id)
-        .map_to_mm(|e| HeartbeatRequestError::DisableError(format!("{e:?}")))
+        .map_to_mm(|e| HeartbeatRequestError::DisableError(format!("{e:?}")))?;
+    Ok(DisableStreamingResponse::new())
 }

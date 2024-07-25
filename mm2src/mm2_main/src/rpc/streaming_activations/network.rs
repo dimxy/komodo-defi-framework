@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for the network event streamer.
-use super::{DisableStreamingRequest, EnableStreamingResponse};
+use super::{DisableStreamingRequest, DisableStreamingResponse, EnableStreamingResponse};
 
 use common::HttpStatusCode;
 use http::StatusCode;
@@ -47,8 +47,9 @@ pub async fn enable_network(
 pub async fn disable_network(
     ctx: MmArc,
     req: DisableStreamingRequest,
-) -> MmResult<(), NetworkStreamingRequestError> {
+) -> MmResult<DisableStreamingResponse, NetworkStreamingRequestError> {
     ctx.event_stream_manager
         .stop(req.client_id, &req.streamer_id)
-        .map_to_mm(|e| NetworkStreamingRequestError::DisableError(format!("{e:?}")))
+        .map_to_mm(|e| NetworkStreamingRequestError::DisableError(format!("{e:?}")))?;
+    Ok(DisableStreamingResponse::new())
 }

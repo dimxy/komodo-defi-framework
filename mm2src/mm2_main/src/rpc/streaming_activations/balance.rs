@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for different balance event streamers.
-use super::{DisableStreamingRequest, EnableStreamingResponse};
+use super::{DisableStreamingRequest, DisableStreamingResponse, EnableStreamingResponse};
 
 use coins::eth::eth_balance_events::EthBalanceEventStreamer;
 use coins::tendermint::tendermint_balance_events::TendermintBalanceEventStreamer;
@@ -126,8 +126,9 @@ pub async fn enable_balance(
 pub async fn disable_balance(
     ctx: MmArc,
     req: DisableStreamingRequest,
-) -> MmResult<(), BalanceStreamingRequestError> {
+) -> MmResult<DisableStreamingResponse, BalanceStreamingRequestError> {
     ctx.event_stream_manager
         .stop(req.client_id, &req.streamer_id)
-        .map_to_mm(|e| BalanceStreamingRequestError::DisableError(format!("{e:?}")))
+        .map_to_mm(|e| BalanceStreamingRequestError::DisableError(format!("{e:?}")))?;
+    Ok(DisableStreamingResponse::new())
 }
