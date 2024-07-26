@@ -42,6 +42,7 @@ use http::Response;
 use keys::{AddressFormat, KeyPair};
 use mm2_core::mm_ctx::{from_ctx, MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::EventStreamer;
 use mm2_libp2p::{decode_signed, encode_and_sign, encode_message, pub_sub_topic, PublicKey, TopicHash, TopicPrefix,
                  TOPIC_SEPARATOR};
 use mm2_metrics::mm_gauge;
@@ -54,6 +55,7 @@ use my_orders_storage::{delete_my_maker_order, delete_my_taker_order, save_maker
                         save_my_new_maker_order, save_my_new_taker_order, MyActiveOrders, MyOrdersFilteringHistory,
                         MyOrdersHistory, MyOrdersStorage};
 use num_traits::identities::Zero;
+use order_events::{OrderStatusEvent, OrderStatusStreamer};
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::H256 as H256Json;
 use serde_json::{self as json, Value as Json};
@@ -103,6 +105,8 @@ pub use lp_bot::{start_simple_market_maker_bot, stop_simple_market_maker_bot, St
 #[path = "lp_ordermatch/my_orders_storage.rs"]
 mod my_orders_storage;
 #[path = "lp_ordermatch/new_protocol.rs"] mod new_protocol;
+#[path = "lp_ordermatch/order_events.rs"]
+pub(crate) mod order_events;
 #[path = "lp_ordermatch/order_requests_tracker.rs"]
 mod order_requests_tracker;
 #[path = "lp_ordermatch/orderbook_depth.rs"] mod orderbook_depth;
@@ -3561,6 +3565,14 @@ async fn process_maker_reserved(ctx: MmArc, from_pubkey: H256Json, reserved_msg:
                     connected: None,
                     last_updated: now_ms(),
                 };
+
+                ctx.event_stream_manager
+                    .send(
+                        &OrderStatusStreamer.streamer_id(),
+                        OrderStatusEvent::TakerMatch(taker_match.clone()),
+                    )
+                    .ok();
+
                 my_order
                     .matches
                     .insert(taker_match.reserved.maker_order_uuid, taker_match);
@@ -3609,6 +3621,14 @@ async fn process_maker_connected(ctx: MmArc, from_pubkey: PublicKey, connected: 
         error!("Connected message sender pubkey != reserved message sender pubkey");
         return;
     }
+
+    ctx.event_stream_manager
+        .send(
+            &OrderStatusStreamer.streamer_id(),
+            OrderStatusEvent::TakerConnected(order_match.clone()),
+        )
+        .ok();
+
     // alice
     lp_connected_alice(
         ctx.clone(),
@@ -3715,6 +3735,14 @@ async fn process_taker_request(ctx: MmArc, from_pubkey: H256Json, taker_request:
                     connected: None,
                     last_updated: now_ms(),
                 };
+
+                ctx.event_stream_manager
+                    .send(
+                        &OrderStatusStreamer.streamer_id(),
+                        OrderStatusEvent::MakerMatch(maker_match.clone()),
+                    )
+                    .ok();
+
                 order.matches.insert(maker_match.request.uuid, maker_match);
                 storage
                     .update_active_maker_order(&order)
@@ -3779,6 +3807,14 @@ async fn process_taker_connect(ctx: MmArc, sender_pubkey: PublicKey, connect_msg
         order_match.connect = Some(connect_msg);
         order_match.connected = Some(connected.clone());
         let order_match = order_match.clone();
+
+        ctx.event_stream_manager
+            .send(
+                &OrderStatusStreamer.streamer_id(),
+                OrderStatusEvent::MakerConnected(order_match.clone()),
+            )
+            .ok();
+
         my_order.started_swaps.push(order_match.request.uuid);
         lp_connect_start_bob(ctx.clone(), order_match, my_order.clone(), sender_pubkey);
         let topic = my_order.orderbook_topic();

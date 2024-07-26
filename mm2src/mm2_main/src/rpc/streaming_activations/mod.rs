@@ -2,7 +2,7 @@ mod balance;
 mod fee_estimation;
 mod heartbeat;
 mod network;
-// mod orders;
+mod orders;
 mod swaps;
 
 // Re-exports
@@ -10,7 +10,7 @@ pub use balance::*;
 pub use fee_estimation::*;
 pub use heartbeat::*;
 pub use network::*;
-// pub use orders::*;
+pub use orders::*;
 pub use swaps::*;
 
 #[derive(Serialize)]

@@ -342,8 +342,8 @@ async fn rpc_streaming_dispatcher(
         "fee_estimator::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_fee_estimation).await,
         "swap_status::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_swap_status).await,
         "swap_status::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_swap_status).await,
-        // "order_status::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_order_status).await,
-        // "order_status::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_order_status).await,
+        "order_status::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_order_status).await,
+        "order_status::disable" => handle_mmrpc(ctx, request, streaming_activations::disable_order_status).await,
         _ => MmError::err(DispatcherError::NoSuchMethod),
     }
 }
