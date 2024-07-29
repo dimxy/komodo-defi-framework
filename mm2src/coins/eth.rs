@@ -157,8 +157,7 @@ use nonce::ParityNonce;
 
 pub mod fee_estimation;
 use fee_estimation::eip1559::{block_native::BlocknativeGasApiCaller, infura::InfuraGasApiCaller,
-                              simple::FeePerGasSimpleEstimator, FeeEstimatorState, FeePerGasEstimated, GasApiConfig,
-                              GasApiProvider};
+                              simple::FeePerGasSimpleEstimator, FeePerGasEstimated, GasApiConfig, GasApiProvider};
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
@@ -612,8 +611,6 @@ pub struct EthCoinImpl {
     /// consisting of the token address and token ID, separated by a comma. This field is essential for tracking the NFT assets
     /// information (chain & contract type, amount etc.), where ownership and amount, in ERC1155 case, might change over time.
     pub nfts_infos: Arc<AsyncMutex<HashMap<String, NftInfo>>>,
-    /// Context for eth fee per gas estimator loop. Created if coin supports fee per gas estimation
-    pub(crate) platform_fee_estimator_state: Arc<FeeEstimatorState>,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// and on [`MmArc::stop`].
     pub abortable_system: AbortableQueue,
@@ -5059,25 +5056,20 @@ impl EthCoin {
     }
 
     /// Get gas base fee and suggest priority tip fees for the next block (see EIP-1559)
-    pub async fn get_eip1559_gas_fee(&self, gas_api_conf: Option<GasApiConfig>) -> Web3RpcResult<FeePerGasEstimated> {
+    pub async fn get_eip1559_gas_fee(&self, use_simple: bool) -> Web3RpcResult<FeePerGasEstimated> {
         let coin = self.clone();
         let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(&coin);
         let ctx =
             MmArc::from_weak(&coin.ctx).ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
-        // If a `gas_api_conf` was provided, use that.
-        let gas_api_conf = if let Some(gas_api_config) = gas_api_conf {
-            gas_api_config
-        } else {
-            let gas_api_conf = ctx.conf["gas_api"].clone();
-            if gas_api_conf.is_null() {
-                debug!("No eth gas api provider config, using only history estimator");
-                return history_estimator_fut
-                    .await
-                    .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
-            }
-            json::from_value(gas_api_conf)
-                .map_err(|e| MmError::new(Web3RpcError::InvalidGasApiConfig(e.to_string())))?
-        };
+
+        let gas_api_conf = ctx.conf["gas_api"].clone();
+        if gas_api_conf.is_null() || use_simple {
+            return history_estimator_fut
+                .await
+                .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
+        }
+        let gas_api_conf: GasApiConfig = json::from_value(gas_api_conf)
+            .map_err(|e| MmError::new(Web3RpcError::InvalidGasApiConfig(e.to_string())))?;
         let provider_estimator_fut = match gas_api_conf.provider {
             GasApiProvider::Infura => InfuraGasApiCaller::fetch_infura_fee_estimation(&gas_api_conf.url).boxed(),
             GasApiProvider::Blocknative => {
@@ -5108,7 +5100,7 @@ impl EthCoin {
                 Ok(PayForGasOption::Legacy(LegacyGasPrice { gas_price }))
             },
             SwapTxFeePolicy::Low | SwapTxFeePolicy::Medium | SwapTxFeePolicy::High => {
-                let fee_per_gas = coin.get_eip1559_gas_fee(None).await?;
+                let fee_per_gas = coin.get_eip1559_gas_fee(false).await?;
                 let pay_result = match swap_fee_policy {
                     SwapTxFeePolicy::Low => PayForGasOption::Eip1559(Eip1559FeePerGas {
                         max_fee_per_gas: fee_per_gas.low.max_fee_per_gas,
@@ -6317,7 +6309,6 @@ pub async fn eth_coin_from_conf_and_request(
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = try_s!(ctx.abortable_system.create_subsystem());
 
-    let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(ctx, conf, &coin_type).await?;
     let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
 
     let coin = EthCoinImpl {
@@ -6342,7 +6333,6 @@ pub async fn eth_coin_from_conf_and_request(
         address_nonce_locks,
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
-        platform_fee_estimator_state,
         abortable_system,
     };
 

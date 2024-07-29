@@ -1,4 +1,3 @@
-use super::eip1559::GasApiConfig;
 use crate::eth::EthCoin;
 use common::executor::Timer;
 use mm2_event_stream::{Broadcaster, Event, EventStreamer, NoDataIn, StreamHandlerInput};
@@ -11,24 +10,29 @@ use serde_json::Value as Json;
 use std::convert::TryFrom;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+/// Types of estimators available.
+/// Simple - simple internal gas price estimator based on historical data.
+/// Provider - gas price estimator using external provider (using gas api).
+enum EstimatorType {
+    Simple,
+    Provider,
+}
+
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields, default)]
 struct EthFeeStreamingConfig {
     /// The time in seconds to wait before re-estimating the gas fees.
     pub estimate_every: f64,
-    /// Optional Gas API provider to be used to fetch gas prices.
-    /// If not provided, the "simple" (history based) provider will be used.
-    // FIXME: There is a similar field in MM2.json config, that one is the one used for swaps.
-    // Should we allow setting the one in the streamer like this? More flexible but will end
-    // up confusing users. What about setting `gas_api` with another end point and always use
-    // the one set.
-    pub gas_api_provider: Option<GasApiConfig>,
+    /// The type of the estimator to use.
+    pub estimator_type: EstimatorType,
 }
 
 impl Default for EthFeeStreamingConfig {
     fn default() -> Self {
         Self {
             estimate_every: 15.0,
-            gas_api_provider: None,
+            estimator_type: EstimatorType::Simple,
         }
     }
 }
@@ -62,11 +66,12 @@ impl EventStreamer for EthFeeEventStreamer {
             .send(Ok(()))
             .expect("Receiver is dropped, which should never happen.");
 
+        let use_simple = matches!(self.config.estimator_type, EstimatorType::Simple);
         loop {
             let now = Instant::now();
             match self
                 .coin
-                .get_eip1559_gas_fee(self.config.gas_api_provider.clone())
+                .get_eip1559_gas_fee(use_simple)
                 .await
                 .map(serialized::FeePerGasEstimated::try_from)
             {

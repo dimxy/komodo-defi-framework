@@ -392,7 +392,6 @@ impl EthCoin {
             platform: protocol.platform,
             token_addr: protocol.token_addr,
         };
-        let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(&ctx, &conf, &coin_type).await?;
         let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type).await?;
 
         let token = EthCoinImpl {
@@ -420,7 +419,6 @@ impl EthCoin {
             address_nonce_locks: self.address_nonce_locks.clone(),
             erc20_tokens_infos: Default::default(),
             nfts_infos: Default::default(),
-            platform_fee_estimator_state,
             abortable_system,
         };
 
@@ -455,7 +453,6 @@ impl EthCoin {
         let coin_type = EthCoinType::Nft {
             platform: self.ticker.clone(),
         };
-        let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(&ctx, &conf, &coin_type).await?;
         let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type).await?;
 
         let global_nft = EthCoinImpl {
@@ -480,7 +477,6 @@ impl EthCoin {
             address_nonce_locks: self.address_nonce_locks.clone(),
             erc20_tokens_infos: Default::default(),
             nfts_infos: Arc::new(AsyncMutex::new(nft_infos)),
-            platform_fee_estimator_state,
             abortable_system,
         };
         Ok(EthCoin(Arc::new(global_nft)))
@@ -591,7 +587,6 @@ pub async fn eth_coin_from_conf_and_request_v2(
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = ctx.abortable_system.create_subsystem()?;
     let coin_type = EthCoinType::Eth;
-    let platform_fee_estimator_state = FeeEstimatorState::init_fee_estimator(ctx, conf, &coin_type).await?;
     let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
 
     let coin = EthCoinImpl {
@@ -616,7 +611,6 @@ pub async fn eth_coin_from_conf_and_request_v2(
         address_nonce_locks,
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
-        platform_fee_estimator_state,
         abortable_system,
     };
 

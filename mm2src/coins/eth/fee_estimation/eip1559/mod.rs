@@ -3,11 +3,7 @@ pub mod block_native;
 pub mod infura;
 pub mod simple;
 
-use crate::AsyncMutex;
-use common::executor::AbortOnDropHandle;
-
 use ethereum_types::U256;
-use std::sync::Arc;
 use url::Url;
 
 const FEE_PER_GAS_LEVELS: usize = 3;
@@ -90,27 +86,4 @@ pub struct FeePerGasEstimated {
     pub base_fee_trend: String,
     /// priority trend (up or down)
     pub priority_fee_trend: String,
-}
-
-/// Gas fee estimator loop context, runs a loop to estimate max fee and max priority fee per gas according to EIP-1559 for the next block
-///
-/// This FeeEstimatorContext handles rpc requests which start and stop gas fee estimation loop and handles the loop itself.
-/// FeeEstimatorContext keeps the latest estimated gas fees to return them on rpc request
-pub(crate) struct FeeEstimatorContext {
-    /// Latest estimated gas fee values
-    pub(crate) estimated_fees: Arc<AsyncMutex<FeePerGasEstimated>>,
-    /// Handler for estimator loop graceful shutdown
-    pub(crate) abort_handler: AsyncMutex<Option<AbortOnDropHandle>>,
-}
-
-/// Gas fee estimator creation state
-pub(crate) enum FeeEstimatorState {
-    /// Gas fee estimation not supported for this coin
-    CoinNotSupported,
-    /// Platform coin required to be enabled for gas fee estimation for this coin
-    PlatformCoinRequired,
-    /// Fee estimator created, use simple internal estimator
-    Simple(AsyncMutex<FeeEstimatorContext>),
-    /// Fee estimator created, use provider or simple internal estimator (if provider fails)
-    Provider(AsyncMutex<FeeEstimatorContext>),
 }
