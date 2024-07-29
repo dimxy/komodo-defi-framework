@@ -13,7 +13,6 @@ use crypto::CryptoCtxError;
 use derive_more::Display;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::EventStreamConfiguration;
 use mm2_number::BigDecimal;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError, RpcTaskUserActionRequest};
@@ -213,11 +212,6 @@ pub trait PlatformCoinWithTokensActivationOps: Into<MmCoinEnum> + Clone + Send +
         storage: impl TxHistoryStorage,
         initial_balance: Option<BigDecimal>,
     );
-
-    async fn handle_balance_streaming(
-        &self,
-        config: &EventStreamConfiguration,
-    ) -> Result<(), MmError<Self::ActivationError>>;
 
     fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &InitPlatformCoinWithTokensTaskManagerShared<Self>
     where
@@ -480,10 +474,6 @@ where
             activation_result.get_platform_balance(),
         );
     }
-
-    platform_coin
-        .handle_balance_streaming(&ctx.event_stream_configuration)
-        .await?;
 
     let coins_ctx = CoinsContext::from_ctx(&ctx).unwrap();
     coins_ctx

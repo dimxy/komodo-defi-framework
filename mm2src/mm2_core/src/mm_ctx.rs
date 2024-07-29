@@ -6,7 +6,7 @@ use common::log::{self, LogLevel, LogOnError, LogState};
 use common::{cfg_native, cfg_wasm32, small_rng};
 use gstuff::{try_s, Constructible, ERR, ERRL};
 use lazy_static::lazy_static;
-use mm2_event_stream::{EventStreamConfiguration, StreamingManager};
+use mm2_event_stream::StreamingManager;
 use mm2_metrics::{MetricsArc, MetricsOps};
 use primitives::hash::H160;
 use rand::Rng;
@@ -77,8 +77,6 @@ pub struct MmCtx {
     pub rpc_started: Constructible<bool>,
     /// Data transfer bridge between server and client where server (which is the mm2 runtime) initiates the request.
     pub(crate) data_asker: DataAsker,
-    /// Configuration of event streaming used for SSE.
-    pub event_stream_configuration: EventStreamConfiguration,
     /// A manager for the event streaming system. To be used to start/stop/communicate with event streamers.
     pub event_stream_manager: StreamingManager,
     /// True if the MarketMaker instance needs to stop.
@@ -153,7 +151,6 @@ impl MmCtx {
             initialized: Constructible::default(),
             rpc_started: Constructible::default(),
             data_asker: DataAsker::default(),
-            event_stream_configuration: Default::default(),
             event_stream_manager: Default::default(),
             stop: Constructible::default(),
             ffi_handle: Constructible::default(),
@@ -715,13 +712,6 @@ impl MmCtxBuilder {
 
         if let Some(conf) = self.conf {
             ctx.conf = conf;
-
-            let event_stream_configuration = &ctx.conf["event_stream_configuration"];
-            if !event_stream_configuration.is_null() {
-                // FIXME: Consider validating all the fields in the event streaming configuration here.
-                ctx.event_stream_configuration = json::from_value(event_stream_configuration.clone())
-                    .expect("Invalid json value in 'event_stream_configuration'.");
-            }
         }
 
         #[cfg(target_arch = "wasm32")]

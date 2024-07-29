@@ -14,7 +14,10 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
         Err(err) => return handle_internal_error(err).await,
     };
 
-    let config = &ctx.event_stream_configuration;
+    let access_control = ctx.conf["access_control_allow_origin"]
+        .as_str()
+        .unwrap_or("*")
+        .to_string();
     let Some(Ok(client_id)) = request.uri().query().and_then(|query| {
         query
             .split('&')
@@ -53,7 +56,7 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
         .status(200)
         .header("Content-Type", "text/event-stream")
         .header("Cache-Control", "no-cache")
-        .header("Access-Control-Allow-Origin", &config.access_control_allow_origin)
+        .header("Access-Control-Allow-Origin", access_control)
         .body(body);
 
     match response {

@@ -423,11 +423,7 @@ fn migrate_db(ctx: &MmArc) -> MmInitResult<()> {
 fn migration_1(_ctx: &MmArc) {}
 
 #[cfg(target_arch = "wasm32")]
-fn init_wasm_event_streaming(ctx: &MmArc) {
-    if ctx.event_stream_configuration.total_active_events() != 0 {
-        ctx.spawner().spawn(handle_worker_stream(ctx.clone()));
-    }
-}
+fn init_wasm_event_streaming(ctx: &MmArc) { ctx.spawner().spawn(handle_worker_stream(ctx.clone())); }
 
 pub async fn lp_init_continue(ctx: MmArc) -> MmInitResult<()> {
     init_ordermatch_context(&ctx)?;

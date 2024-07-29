@@ -21,7 +21,6 @@ use common::executor::{AbortSettings, SpawnAbortable};
 use common::{true_f, Future01CompatExt};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::EventStreamConfiguration;
 use mm2_number::BigDecimal;
 use rpc_task::RpcTaskHandleShared;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -366,13 +365,6 @@ impl PlatformCoinWithTokensActivationOps for TendermintCoin {
 
         let settings = AbortSettings::info_on_abort(format!("tendermint_history_loop stopped for {}", self.ticker()));
         self.spawner().spawn_with_settings(fut, settings);
-    }
-
-    async fn handle_balance_streaming(
-        &self,
-        _config: &EventStreamConfiguration,
-    ) -> Result<(), MmError<Self::ActivationError>> {
-        Ok(())
     }
 
     fn rpc_task_manager(
