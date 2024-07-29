@@ -1,6 +1,6 @@
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 use crate::streamer::Broadcaster;
 use crate::{controller::Controller, Event, EventStreamer};
@@ -9,6 +9,7 @@ use common::log;
 
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
+use parking_lot::RwLock;
 use tokio::sync::mpsc::Receiver;
 
 /// The errors that could originate from the streaming manager.
@@ -81,7 +82,6 @@ impl StreamingManager {
         // Pre-checks before spawning the streamer. Inside another scope to drop the locks early.
         {
             let mut clients = self.clients.lock().unwrap();
-            let mut streamers = self.streamers.write().unwrap();
 
             match clients.get(&client_id) {
                 // We don't know that client. We don't have a connection to it.
@@ -94,22 +94,13 @@ impl StreamingManager {
             }
 
             // If a streamer is already up and running, we won't spawn another one.
-            if let Some(streamer_info) = streamers.get_mut(&streamer_id) {
+            if let Some(streamer_info) = self.streamers.write().get_mut(&streamer_id) {
                 // Register the client as a listener to the streamer.
                 streamer_info.clients.insert(client_id);
                 // Register the streamer as listened-to by the client.
                 clients
                     .get_mut(&client_id)
                     .map(|listening_to| listening_to.insert(streamer_id.clone()));
-                // FIXME: The streamer running is probably running with different configuration.
-                // We might want to inform the client that the configuration they asked for wasn't
-                // applied and return the active configuration instead?
-                //
-                // Note that there is no way to (re)spawn a streamer with a different configuration
-                // unless then we want to have different streamer for each and every client!
-                //
-                // Another restricted solution is to not let clients set the streamer configuration
-                // and only allow it through MM2 configuration file.
                 return Ok(streamer_id);
             }
         }
@@ -129,7 +120,6 @@ impl StreamingManager {
             listening_to.insert(streamer_id.clone());
             self.streamers
                 .write()
-                .unwrap()
                 .entry(streamer_id.clone())
                 .or_insert(streamer_info)
                 .clients
@@ -144,7 +134,7 @@ impl StreamingManager {
 
     /// Sends data to a streamer with `streamer_id`.
     pub fn send<T: Send + 'static>(&self, streamer_id: &str, data: T) -> Result<(), StreamingManagerError> {
-        let streamers = self.streamers.read().unwrap();
+        let streamers = self.streamers.read();
         let streamer_info = streamers
             .get(streamer_id)
             .ok_or(StreamingManagerError::StreamerNotFound)?;
@@ -160,7 +150,7 @@ impl StreamingManager {
         if let Some(listening_to) = clients.get_mut(&client_id) {
             listening_to.remove(streamer_id);
 
-            let mut streamers = self.streamers.write().unwrap();
+            let mut streamers = self.streamers.write();
             streamers
                 .get_mut(streamer_id)
                 .ok_or(StreamingManagerError::StreamerNotFound)?
@@ -183,19 +173,13 @@ impl StreamingManager {
     /// this method broadcasts an event to the listening *clients* directly, independently
     /// of any streamer (i.e. bypassing any streamer).
     pub fn broadcast(&self, event: Event) {
-        if let Some(client_ids) = self
-            .streamers
-            .read()
-            .unwrap()
-            .get(event.origin())
-            .map(|info| &info.clients)
-        {
-            self.controller.read().unwrap().broadcast(event, Some(client_ids))
+        if let Some(client_ids) = self.streamers.read().get(event.origin()).map(|info| &info.clients) {
+            self.controller.read().broadcast(event, Some(client_ids))
         }
     }
 
     /// Forcefully broadcasts an event to all known clients even if they are not listening for such an event.
-    pub fn broadcast_all(&self, event: Event) { self.controller.read().unwrap().broadcast(event, None) }
+    pub fn broadcast_all(&self, event: Event) { self.controller.read().broadcast(event, None) }
 
     pub fn new_client(&self, client_id: u64) -> Result<Receiver<Arc<Event>>, StreamingManagerError> {
         let mut clients = self.clients.lock().unwrap();
@@ -205,7 +189,7 @@ impl StreamingManager {
         clients.insert(client_id, HashSet::new());
         // Note that events queued in the channel are `Arc<` shared.
         // So a 1024 long buffer isn't actually heavy on memory.
-        Ok(self.controller.write().unwrap().create_channel(client_id, 1024))
+        Ok(self.controller.write().create_channel(client_id, 1024))
     }
 
     pub fn remove_client(&self, client_id: u64) -> Result<(), StreamingManagerError> {
@@ -213,7 +197,7 @@ impl StreamingManager {
         // Remove the client from our known-clients map.
         let listening_to = clients.remove(&client_id).ok_or(StreamingManagerError::UnknownClient)?;
         // Remove the client from all the streamers it was listening to.
-        let mut streamers = self.streamers.write().unwrap();
+        let mut streamers = self.streamers.write();
         for streamer_id in listening_to {
             if let Some(streamer_info) = streamers.get_mut(&streamer_id) {
                 streamer_info.clients.remove(&client_id);
@@ -228,7 +212,7 @@ impl StreamingManager {
             }
         }
         // Remove our channel with this client.
-        self.controller.write().unwrap().remove_channel(&client_id);
+        self.controller.write().remove_channel(&client_id);
         Ok(())
     }
 
@@ -239,10 +223,10 @@ impl StreamingManager {
     /// In this case, we need to remove the streamer and de-list it from all clients.
     fn remove_streamer_if_down(&self, streamer_id: &str) {
         let mut clients = self.clients.lock().unwrap();
-        let mut streamers = self.streamers.write().unwrap();
+        let mut streamers = self.streamers.write();
         if let Some(streamer_info) = streamers.get(streamer_id) {
-            // Remove the streamer from all clients listening to it.
             if streamer_info.is_down() {
+                // Remove the streamer from all clients listening to it.
                 for client_id in &streamer_info.clients {
                     clients
                         .get_mut(client_id)

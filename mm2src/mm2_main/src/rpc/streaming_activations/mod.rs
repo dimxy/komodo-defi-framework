@@ -20,7 +20,9 @@ pub use swaps::*;
 /// Note that we don't have a unified request. It is rather defined per event streaming activation.
 pub struct EnableStreamingResponse {
     pub streamer_id: String,
-    // FIXME: Consider returning the applied config here (might be different from the one the client requested).
+    // FIXME: If the the streamer was already running, it is probably running with different configuration.
+    // We might want to inform the client that the configuration they asked for wasn't applied and return
+    // the active configuration instead?
     // pub config: Json,
 }
 
