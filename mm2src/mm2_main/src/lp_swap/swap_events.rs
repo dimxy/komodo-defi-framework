@@ -15,8 +15,6 @@ impl SwapStatusStreamer {
     pub fn new() -> Self { Self }
 }
 
-// FIXME: This is sending only the individual events as they come in and not the full swap status.
-//        swap_v2_rpcs::SwapRpcData has much more information than this stream. Consider sending that instead?
 #[derive(Serialize)]
 #[serde(tag = "swap_type", content = "swap_data")]
 pub enum SwapStatusEvent {

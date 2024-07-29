@@ -48,9 +48,6 @@ where
     /// This method should not be overridden.
     async fn spawn(
         self,
-        // FIXME: Might be better to let the implementors store the spawner themselves and
-        // we can use `self.spawner()` here to get it.
-        // Also for AbortSettings, we can make this customizable with a default impl.
         spawner: WeakSpawner,
         broadcaster: StreamingManager,
     ) -> Result<(oneshot::Sender<()>, Option<mpsc::UnboundedSender<Box<dyn Any + Send>>>), String> {

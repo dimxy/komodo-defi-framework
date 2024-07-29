@@ -31,7 +31,7 @@ pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<B
     let event_stream_manager = ctx.event_stream_manager.clone();
     let Ok(mut rx) = event_stream_manager.new_client(client_id) else {
         // FIXME: Such an error means that one client generated an id that is already in use
-        // but another (or it might be the same client all along). This is dangerous since
+        // by another (or it might be the same client all along). This is dangerous since
         // that client now knows this id is in use and can open up and shut down streamers
         // on the original id owner's behalf.
         return handle_internal_error(format!("Bad id")).await
