@@ -1,5 +1,5 @@
-use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
 use super::{MakerMatch, TakerMatch};
+use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;

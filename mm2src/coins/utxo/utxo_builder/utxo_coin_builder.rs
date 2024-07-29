@@ -265,18 +265,11 @@ where
 
     let my_script_pubkey = output_script(&my_address).map(|script| script.to_bytes())?;
 
-    let (scripthash_notification_sender, _) = {
-        let (sender, receiver) = futures::channel::mpsc::unbounded();
-        (Some(sender), Some(Arc::new(AsyncMutex::new(receiver))))
-    };
-
     // Create an abortable system linked to the `MmCtx` so if the context is stopped via `MmArc::stop`,
     // all spawned futures related to this `UTXO` coin will be aborted as well.
     let abortable_system: AbortableQueue = builder.ctx().abortable_system.create_subsystem()?;
 
-    let rpc_client = builder
-        .rpc_client(scripthash_notification_sender, abortable_system.create_subsystem()?)
-        .await?;
+    let rpc_client = builder.rpc_client(None, abortable_system.create_subsystem()?).await?;
     let tx_fee = builder.tx_fee(&rpc_client).await?;
     let decimals = builder.decimals(&rpc_client).await?;
     let dust_amount = builder.dust_amount();
@@ -349,18 +342,11 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             address_format,
         };
 
-        let (scripthash_notification_sender, _) = {
-            let (sender, receiver) = futures::channel::mpsc::unbounded();
-            (Some(sender), Some(Arc::new(AsyncMutex::new(receiver))))
-        };
-
         // Create an abortable system linked to the `MmCtx` so if the context is stopped via `MmArc::stop`,
         // all spawned futures related to this `UTXO` coin will be aborted as well.
         let abortable_system: AbortableQueue = self.ctx().abortable_system.create_subsystem()?;
 
-        let rpc_client = self
-            .rpc_client(scripthash_notification_sender, abortable_system.create_subsystem()?)
-            .await?;
+        let rpc_client = self.rpc_client(None, abortable_system.create_subsystem()?).await?;
         let tx_fee = self.tx_fee(&rpc_client).await?;
         let decimals = self.decimals(&rpc_client).await?;
         let dust_amount = self.dust_amount();
