@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for the heartbeats.
-use super::{DisableStreamingRequest, DisableStreamingResponse, EnableStreamingResponse};
+use super::{EnableStreamingResponse};
 
 use crate::mm2::heartbeat_event::HeartbeatEvent;
 use common::HttpStatusCode;
@@ -19,15 +19,11 @@ pub struct EnableHeartbeatRequest {
 #[serde(tag = "error_type", content = "error_data")]
 pub enum HeartbeatRequestError {
     EnableError(String),
-    DisableError(String),
 }
 
 impl HttpStatusCode for HeartbeatRequestError {
     fn status_code(&self) -> StatusCode {
-        match self {
-            HeartbeatRequestError::EnableError(_) => StatusCode::BAD_REQUEST,
-            HeartbeatRequestError::DisableError(_) => StatusCode::BAD_REQUEST,
-        }
+        StatusCode::BAD_REQUEST
     }
 }
 
@@ -42,14 +38,4 @@ pub async fn enable_heartbeat(
         .await
         .map(EnableStreamingResponse::new)
         .map_to_mm(|e| HeartbeatRequestError::EnableError(format!("{e:?}")))
-}
-
-pub async fn disable_heartbeat(
-    ctx: MmArc,
-    req: DisableStreamingRequest,
-) -> MmResult<DisableStreamingResponse, HeartbeatRequestError> {
-    ctx.event_stream_manager
-        .stop(req.client_id, &req.streamer_id)
-        .map_to_mm(|e| HeartbeatRequestError::DisableError(format!("{e:?}")))?;
-    Ok(DisableStreamingResponse::new())
 }

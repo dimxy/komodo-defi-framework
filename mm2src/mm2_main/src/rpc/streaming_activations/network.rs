@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for the network event streamer.
-use super::{DisableStreamingRequest, DisableStreamingResponse, EnableStreamingResponse};
+use super::EnableStreamingResponse;
 
 use common::HttpStatusCode;
 use http::StatusCode;
@@ -19,16 +19,10 @@ pub struct EnableNetworkStreamingRequest {
 #[serde(tag = "error_type", content = "error_data")]
 pub enum NetworkStreamingRequestError {
     EnableError(String),
-    DisableError(String),
 }
 
 impl HttpStatusCode for NetworkStreamingRequestError {
-    fn status_code(&self) -> StatusCode {
-        match self {
-            NetworkStreamingRequestError::EnableError(_) => StatusCode::BAD_REQUEST,
-            NetworkStreamingRequestError::DisableError(_) => StatusCode::BAD_REQUEST,
-        }
-    }
+    fn status_code(&self) -> StatusCode { StatusCode::BAD_REQUEST }
 }
 
 pub async fn enable_network(
@@ -42,14 +36,4 @@ pub async fn enable_network(
         .await
         .map(EnableStreamingResponse::new)
         .map_to_mm(|e| NetworkStreamingRequestError::EnableError(format!("{e:?}")))
-}
-
-pub async fn disable_network(
-    ctx: MmArc,
-    req: DisableStreamingRequest,
-) -> MmResult<DisableStreamingResponse, NetworkStreamingRequestError> {
-    ctx.event_stream_manager
-        .stop(req.client_id, &req.streamer_id)
-        .map_to_mm(|e| NetworkStreamingRequestError::DisableError(format!("{e:?}")))?;
-    Ok(DisableStreamingResponse::new())
 }

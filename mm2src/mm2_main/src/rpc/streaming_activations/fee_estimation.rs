@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for different fee estimation streamers.
-use super::{DisableStreamingRequest, DisableStreamingResponse, EnableStreamingResponse};
+use super::{EnableStreamingResponse};
 
 use coins::eth::fee_estimation::eth_fee_events::EthFeeEventStreamer;
 use coins::{lp_coinfind, MmCoin, MmCoinEnum};
@@ -21,7 +21,6 @@ pub struct EnableFeeStreamingRequest {
 #[serde(tag = "error_type", content = "error_data")]
 pub enum FeeStreamingRequestError {
     EnableError(String),
-    DisableError(String),
     CoinNotFound,
     CoinNotSupported,
     Internal(String),
@@ -31,7 +30,6 @@ impl HttpStatusCode for FeeStreamingRequestError {
     fn status_code(&self) -> StatusCode {
         match self {
             FeeStreamingRequestError::EnableError(_) => StatusCode::BAD_REQUEST,
-            FeeStreamingRequestError::DisableError(_) => StatusCode::BAD_REQUEST,
             FeeStreamingRequestError::CoinNotFound => StatusCode::NOT_FOUND,
             FeeStreamingRequestError::CoinNotSupported => StatusCode::NOT_IMPLEMENTED,
             FeeStreamingRequestError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -60,14 +58,4 @@ pub async fn enable_fee_estimation(
         },
         _ => Err(FeeStreamingRequestError::CoinNotSupported)?,
     }
-}
-
-pub async fn disable_fee_estimation(
-    ctx: MmArc,
-    req: DisableStreamingRequest,
-) -> MmResult<DisableStreamingResponse, FeeStreamingRequestError> {
-    ctx.event_stream_manager
-        .stop(req.client_id, &req.streamer_id)
-        .map_to_mm(|e| FeeStreamingRequestError::DisableError(format!("{e:?}")))?;
-    Ok(DisableStreamingResponse::new())
 }

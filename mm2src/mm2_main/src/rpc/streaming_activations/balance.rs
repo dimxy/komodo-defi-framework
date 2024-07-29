@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for different balance event streamers.
-use super::{DisableStreamingRequest, DisableStreamingResponse, EnableStreamingResponse};
+use super::{EnableStreamingResponse};
 
 use coins::eth::eth_balance_events::EthBalanceEventStreamer;
 use coins::tendermint::tendermint_balance_events::TendermintBalanceEventStreamer;
@@ -24,7 +24,6 @@ pub struct EnableBalanceStreamingRequest {
 #[serde(tag = "error_type", content = "error_data")]
 pub enum BalanceStreamingRequestError {
     EnableError(String),
-    DisableError(String),
     CoinNotFound,
     CoinNotSupported,
     Internal(String),
@@ -34,7 +33,6 @@ impl HttpStatusCode for BalanceStreamingRequestError {
     fn status_code(&self) -> StatusCode {
         match self {
             BalanceStreamingRequestError::EnableError(_) => StatusCode::BAD_REQUEST,
-            BalanceStreamingRequestError::DisableError(_) => StatusCode::BAD_REQUEST,
             BalanceStreamingRequestError::CoinNotFound => StatusCode::NOT_FOUND,
             BalanceStreamingRequestError::CoinNotSupported => StatusCode::NOT_IMPLEMENTED,
             BalanceStreamingRequestError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -121,14 +119,4 @@ pub async fn enable_balance(
     enable_result
         .map(EnableStreamingResponse::new)
         .map_to_mm(|e| BalanceStreamingRequestError::EnableError(format!("{e:?}")))
-}
-
-pub async fn disable_balance(
-    ctx: MmArc,
-    req: DisableStreamingRequest,
-) -> MmResult<DisableStreamingResponse, BalanceStreamingRequestError> {
-    ctx.event_stream_manager
-        .stop(req.client_id, &req.streamer_id)
-        .map_to_mm(|e| BalanceStreamingRequestError::DisableError(format!("{e:?}")))?;
-    Ok(DisableStreamingResponse::new())
 }
