@@ -2,7 +2,6 @@ use super::EthCoin;
 use crate::{eth::{u256_to_big_decimal, Erc20TokenInfo},
             BalanceError, CoinWithDerivationMethod};
 use common::{executor::Timer, log, Future01CompatExt};
-use mm2_err_handle::prelude::MmError;
 use mm2_event_stream::{Broadcaster, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_number::BigDecimal;
 
@@ -52,10 +51,11 @@ struct BalanceData {
     balance: BigDecimal,
 }
 
+#[derive(Serialize)]
 struct BalanceFetchError {
     ticker: String,
     address: String,
-    error: MmError<BalanceError>,
+    error: BalanceError,
 }
 
 type BalanceResult = Result<BalanceData, BalanceFetchError>;
@@ -111,7 +111,7 @@ async fn fetch_balance(
                 .map_err(|error| BalanceFetchError {
                     ticker: token_ticker.clone(),
                     address: address.to_string(),
-                    error,
+                    error: error.into_inner(),
                 })?,
             coin.decimals,
         )
@@ -122,7 +122,7 @@ async fn fetch_balance(
                 .map_err(|error| BalanceFetchError {
                     ticker: token_ticker.clone(),
                     address: address.to_string(),
-                    error,
+                    error: error.into_inner(),
                 })?,
             info.decimals,
         )
@@ -131,7 +131,7 @@ async fn fetch_balance(
     let balance_as_big_decimal = u256_to_big_decimal(balance_as_u256, decimals).map_err(|e| BalanceFetchError {
         ticker: token_ticker.clone(),
         address: address.to_string(),
-        error: e.into(),
+        error: e.into_inner().into(),
     })?;
 
     Ok(BalanceData {
@@ -153,8 +153,6 @@ impl EventStreamer for EthBalanceEventStreamer {
         ready_tx: oneshot::Sender<Result<(), String>>,
         _: impl StreamHandlerInput<NoDataIn>,
     ) {
-        const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
-
         async fn start_polling(streamer_id: String, broadcaster: Broadcaster, coin: EthCoin, interval: f64) {
             async fn sleep_remaining_time(interval: f64, now: Instant) {
                 // If the interval is x seconds,
@@ -210,8 +208,7 @@ impl EventStreamer for EthBalanceEventStreamer {
                                 err.address,
                                 err.error
                             );
-                            let e = serde_json::to_value(err.error).expect("Serialization shouldn't fail.");
-                            // FIXME: We should add the address in the error message.
+                            let e = serde_json::to_value(err).expect("Serialization shouldn't fail.");
                             broadcaster.broadcast(Event::err(streamer_id.clone(), e));
                         },
                     };
@@ -225,7 +222,9 @@ impl EventStreamer for EthBalanceEventStreamer {
             }
         }
 
-        ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
+        ready_tx
+            .send(Ok(()))
+            .expect("Receiver is dropped, which should never happen.");
 
         start_polling(self.streamer_id(), broadcaster, self.coin, self.interval).await
     }
