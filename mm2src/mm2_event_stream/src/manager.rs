@@ -143,14 +143,14 @@ impl StreamingManager {
     }
 
     /// Sends data to a streamer with `streamer_id`.
-    pub fn send<T: Clone + Send + 'static>(&self, streamer_id: &str, data: &T) -> Result<(), StreamingManagerError> {
+    pub fn send<T: Send + 'static>(&self, streamer_id: &str, data: T) -> Result<(), StreamingManagerError> {
         let streamers = self.streamers.read().unwrap();
         let streamer_info = streamers
             .get(streamer_id)
             .ok_or(StreamingManagerError::StreamerNotFound)?;
         let data_in = streamer_info.data_in.as_ref().ok_or(StreamingManagerError::NoDataIn)?;
         data_in
-            .unbounded_send(Box::new(data.clone()))
+            .unbounded_send(Box::new(data))
             .map_err(|e| StreamingManagerError::SendError(e.to_string()))
     }
 

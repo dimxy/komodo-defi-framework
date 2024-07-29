@@ -11,7 +11,7 @@ impl OrderStatusStreamer {
     pub fn new() -> Self { Self }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Serialize)]
 #[serde(tag = "order_type", content = "order_data")]
 pub(super) enum OrderStatusEvent {
     MakerMatch(MakerMatch),

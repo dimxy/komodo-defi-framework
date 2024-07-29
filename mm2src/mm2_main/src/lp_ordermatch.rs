@@ -3569,7 +3569,7 @@ async fn process_maker_reserved(ctx: MmArc, from_pubkey: H256Json, reserved_msg:
                 ctx.event_stream_manager
                     .send(
                         &OrderStatusStreamer.streamer_id(),
-                        &OrderStatusEvent::TakerMatch(taker_match.clone()),
+                        OrderStatusEvent::TakerMatch(taker_match.clone()),
                     )
                     .ok();
 
@@ -3625,7 +3625,7 @@ async fn process_maker_connected(ctx: MmArc, from_pubkey: PublicKey, connected: 
     ctx.event_stream_manager
         .send(
             &OrderStatusStreamer.streamer_id(),
-            &OrderStatusEvent::TakerConnected(order_match.clone()),
+            OrderStatusEvent::TakerConnected(order_match.clone()),
         )
         .ok();
 
@@ -3739,7 +3739,7 @@ async fn process_taker_request(ctx: MmArc, from_pubkey: H256Json, taker_request:
                 ctx.event_stream_manager
                     .send(
                         &OrderStatusStreamer.streamer_id(),
-                        &OrderStatusEvent::MakerMatch(maker_match.clone()),
+                        OrderStatusEvent::MakerMatch(maker_match.clone()),
                     )
                     .ok();
 
@@ -3811,7 +3811,7 @@ async fn process_taker_connect(ctx: MmArc, sender_pubkey: PublicKey, connect_msg
         ctx.event_stream_manager
             .send(
                 &OrderStatusStreamer.streamer_id(),
-                &OrderStatusEvent::MakerConnected(order_match.clone()),
+                OrderStatusEvent::MakerConnected(order_match.clone()),
             )
             .ok();
 
