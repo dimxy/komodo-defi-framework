@@ -195,7 +195,7 @@ impl StreamingManager {
         }
     }
 
-    /// Forcefully broadcasts an event to all clients even if they are not listening for such an event.
+    /// Forcefully broadcasts an event to all known clients even if they are not listening for such an event.
     pub fn broadcast_all(&self, event: Event) { self.controller.read().unwrap().broadcast(event, None) }
 
     pub fn new_client(&self, client_id: u64) -> Result<Receiver<Arc<Event>>, StreamingManagerError> {
