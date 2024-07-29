@@ -1,5 +1,5 @@
 //! RPC activation and deactivation of the order status streamer.
-use super::{EnableStreamingResponse};
+use super::EnableStreamingResponse;
 use crate::mm2::lp_ordermatch::order_events::OrderStatusStreamer;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_to_mm::MapToMmResult, mm_error::MmResult};
@@ -19,9 +19,7 @@ pub enum OrderStatusStreamingRequestError {
 }
 
 impl HttpStatusCode for OrderStatusStreamingRequestError {
-    fn status_code(&self) -> StatusCode {
-        StatusCode::BAD_REQUEST
-    }
+    fn status_code(&self) -> StatusCode { StatusCode::BAD_REQUEST }
 }
 
 pub async fn enable_order_status(

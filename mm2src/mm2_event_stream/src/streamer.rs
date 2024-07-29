@@ -1,6 +1,6 @@
 use std::any::{self, Any};
 
-use crate::StreamingManager;
+use crate::{Event, StreamingManager};
 use common::executor::{abortable_queue::WeakSpawner, AbortSettings, SpawnAbortable};
 use common::log::{error, info};
 
@@ -33,9 +33,7 @@ where
     /// `data_rx` is a receiver that the streamer *could* use to receive data from the outside world.
     async fn handle(
         self,
-        // FIXME: Consider creating a new wrapper type around `StreamingManager`
-        // that won't expose any other method except `broadcast`.
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
         data_rx: impl StreamHandlerInput<Self::DataInType>,
     );
@@ -49,7 +47,7 @@ where
     async fn spawn(
         self,
         spawner: WeakSpawner,
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
     ) -> Result<(oneshot::Sender<()>, Option<mpsc::UnboundedSender<Box<dyn Any + Send>>>), String> {
         let streamer_id = self.streamer_id();
         info!("Spawning event streamer: {streamer_id}");
@@ -103,4 +101,13 @@ where
             Ok((tx_shutdown, Some(any_data_sender)))
         }
     }
+}
+
+/// A wrapper around `StreamingManager` to only expose the `broadcast` method.
+pub struct Broadcaster(StreamingManager);
+
+impl Broadcaster {
+    pub fn new(inner: StreamingManager) -> Self { Self(inner) }
+
+    pub fn broadcast(&self, event: Event) { self.0.broadcast(event); }
 }

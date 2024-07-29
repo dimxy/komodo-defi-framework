@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for different fee estimation streamers.
-use super::{EnableStreamingResponse};
+use super::EnableStreamingResponse;
 
 use coins::eth::fee_estimation::eth_fee_events::EthFeeEventStreamer;
 use coins::{lp_coinfind, MmCoin, MmCoinEnum};

@@ -8,7 +8,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::oneshot;
 use futures::lock::Mutex as AsyncMutex;
 use futures_util::StreamExt;
-use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
+use mm2_event_stream::{Broadcaster, Event, EventStreamer, StreamHandlerInput};
 use std::sync::Arc;
 
 pub type ZBalanceEventSender = UnboundedSender<()>;
@@ -30,7 +30,7 @@ impl EventStreamer for ZCoinBalanceEventStreamer {
 
     async fn handle(
         self,
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
         mut data_rx: impl StreamHandlerInput<()>,
     ) {

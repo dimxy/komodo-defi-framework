@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for the heartbeats.
-use super::{EnableStreamingResponse};
+use super::EnableStreamingResponse;
 
 use crate::mm2::heartbeat_event::HeartbeatEvent;
 use common::HttpStatusCode;
@@ -22,9 +22,7 @@ pub enum HeartbeatRequestError {
 }
 
 impl HttpStatusCode for HeartbeatRequestError {
-    fn status_code(&self) -> StatusCode {
-        StatusCode::BAD_REQUEST
-    }
+    fn status_code(&self) -> StatusCode { StatusCode::BAD_REQUEST }
 }
 
 pub async fn enable_heartbeat(

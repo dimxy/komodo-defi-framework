@@ -4,7 +4,7 @@ use futures::channel::oneshot;
 use futures_util::{SinkExt, StreamExt};
 use jsonrpc_core::MethodCall;
 use jsonrpc_core::{Id as RpcId, Params as RpcParams, Value as RpcValue, Version as RpcVersion};
-use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
+use mm2_event_stream::{Broadcaster, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_number::BigDecimal;
 use std::collections::{HashMap, HashSet};
 
@@ -27,7 +27,7 @@ impl EventStreamer for TendermintBalanceEventStreamer {
 
     async fn handle(
         self,
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
         _: impl StreamHandlerInput<NoDataIn>,
     ) {

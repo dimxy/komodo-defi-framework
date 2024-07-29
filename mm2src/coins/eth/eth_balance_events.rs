@@ -3,7 +3,7 @@ use crate::{eth::{u256_to_big_decimal, Erc20TokenInfo},
             BalanceError, CoinWithDerivationMethod};
 use common::{executor::Timer, log, Future01CompatExt};
 use mm2_err_handle::prelude::MmError;
-use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
+use mm2_event_stream::{Broadcaster, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_number::BigDecimal;
 
 use async_trait::async_trait;
@@ -149,13 +149,13 @@ impl EventStreamer for EthBalanceEventStreamer {
 
     async fn handle(
         self,
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
         _: impl StreamHandlerInput<NoDataIn>,
     ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
 
-        async fn start_polling(streamer_id: String, broadcaster: StreamingManager, coin: EthCoin, interval: f64) {
+        async fn start_polling(streamer_id: String, broadcaster: Broadcaster, coin: EthCoin, interval: f64) {
             async fn sleep_remaining_time(interval: f64, now: Instant) {
                 // If the interval is x seconds,
                 // our goal is to broadcast changed balances every x seconds.

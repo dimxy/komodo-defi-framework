@@ -1,7 +1,7 @@
 use crate::p2p::P2PContext;
 use common::executor::Timer;
 use mm2_core::mm_ctx::MmArc;
-use mm2_event_stream::{Event, EventStreamer, NoDataIn, StreamHandlerInput, StreamingManager};
+use mm2_event_stream::{Broadcaster, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_libp2p::behaviours::atomicdex;
 
 use async_trait::async_trait;
@@ -49,7 +49,7 @@ impl EventStreamer for NetworkEvent {
 
     async fn handle(
         self,
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
         _: impl StreamHandlerInput<NoDataIn>,
     ) {

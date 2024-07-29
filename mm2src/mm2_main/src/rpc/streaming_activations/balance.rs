@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for different balance event streamers.
-use super::{EnableStreamingResponse};
+use super::EnableStreamingResponse;
 
 use coins::eth::eth_balance_events::EthBalanceEventStreamer;
 use coins::tendermint::tendermint_balance_events::TendermintBalanceEventStreamer;

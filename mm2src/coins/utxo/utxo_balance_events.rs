@@ -3,7 +3,7 @@ use common::{executor::Timer, log, Future01CompatExt};
 use futures::channel::oneshot;
 use futures::StreamExt;
 use keys::Address;
-use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
+use mm2_event_stream::{Broadcaster, Event, EventStreamer, StreamHandlerInput};
 use std::collections::{BTreeMap, HashSet};
 
 use super::{utxo_standard::UtxoStandardCoin, UtxoArc};
@@ -47,7 +47,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
 
     async fn handle(
         self,
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
         mut data_rx: impl StreamHandlerInput<ScripthashNotification>,
     ) {

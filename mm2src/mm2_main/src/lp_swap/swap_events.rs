@@ -2,7 +2,7 @@ use super::maker_swap::MakerSavedEvent;
 use super::maker_swap_v2::MakerSwapEvent;
 use super::taker_swap::TakerSavedEvent;
 use super::taker_swap_v2::TakerSwapEvent;
-use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
+use mm2_event_stream::{Broadcaster, Event, EventStreamer, StreamHandlerInput};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -32,7 +32,7 @@ impl EventStreamer for SwapStatusStreamer {
 
     async fn handle(
         self,
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
         mut data_rx: impl StreamHandlerInput<Self::DataInType>,
     ) {

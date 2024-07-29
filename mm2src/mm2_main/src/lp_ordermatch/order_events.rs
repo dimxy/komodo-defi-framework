@@ -1,5 +1,5 @@
 use super::{MakerMatch, TakerMatch};
-use mm2_event_stream::{Event, EventStreamer, StreamHandlerInput, StreamingManager};
+use mm2_event_stream::{Broadcaster, Event, EventStreamer, StreamHandlerInput};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -28,7 +28,7 @@ impl EventStreamer for OrderStatusStreamer {
 
     async fn handle(
         self,
-        broadcaster: StreamingManager,
+        broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
         mut data_rx: impl StreamHandlerInput<Self::DataInType>,
     ) {
