@@ -841,7 +841,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
         // Send a notification to the swap status streamer about a new event.
         self.ctx
             .event_stream_manager
-            .send(&SwapStatusStreamer.streamer_id(), SwapStatusEvent::TakerV2 {
+            .send(&SwapStatusStreamer.streamer_id(), &SwapStatusEvent::TakerV2 {
                 uuid: self.uuid,
                 event: event.clone(),
             })

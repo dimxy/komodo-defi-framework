@@ -15,7 +15,7 @@ impl SwapStatusStreamer {
     pub fn new() -> Self { Self }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(tag = "swap_type", content = "swap_data")]
 pub enum SwapStatusEvent {
     MakerV1 { uuid: Uuid, event: MakerSavedEvent },

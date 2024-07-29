@@ -2120,7 +2120,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                         .expect("!save_my_maker_swap_event");
                     // Send a notification to the swap status streamer about a new event.
                     ctx.event_stream_manager
-                        .send(&SwapStatusStreamer.streamer_id(), SwapStatusEvent::MakerV1 {
+                        .send(&SwapStatusStreamer.streamer_id(), &SwapStatusEvent::MakerV1 {
                             uuid: running_swap.uuid,
                             event: to_save,
                         })
