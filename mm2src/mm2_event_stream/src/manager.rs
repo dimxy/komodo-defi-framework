@@ -2,8 +2,7 @@ use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use crate::streamer::Broadcaster;
-use crate::{controller::Controller, Event, EventStreamer};
+use crate::{controller::Controller, Broadcaster, Event, EventStreamer};
 use common::executor::abortable_queue::WeakSpawner;
 use common::log;
 
@@ -236,5 +235,197 @@ impl StreamingManager {
                 streamers.remove(streamer_id);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::streamer::test_utils::{InitErrorStreamer, PeriodicStreamer, ReactiveStreamer};
+
+    use common::executor::{abortable_queue::AbortableQueue, AbortableSystem, Timer};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn test_add_remove_client() {
+        let manager = StreamingManager::default();
+        let client_id1 = 1;
+        let client_id2 = 2;
+        let client_id3 = 3;
+
+        assert!(matches!(manager.new_client(client_id1), Ok(..)));
+        // Adding the same client again should fail.
+        assert!(matches!(
+            manager.new_client(client_id1),
+            Err(StreamingManagerError::ClientExists)
+        ));
+        // Adding a different new client should be OK.
+        assert!(matches!(manager.new_client(client_id2), Ok(..)));
+
+        assert!(matches!(manager.remove_client(client_id1), Ok(())));
+        // Removing a removed client should fail.
+        assert!(matches!(
+            manager.remove_client(client_id1),
+            Err(StreamingManagerError::UnknownClient)
+        ));
+        // Same as removing a non-existent client.
+        assert!(matches!(
+            manager.remove_client(client_id3),
+            Err(StreamingManagerError::UnknownClient)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_all() {
+        // Create a manager and add register two clients with it.
+        let manager = StreamingManager::default();
+        let mut client1 = manager.new_client(1).unwrap();
+        let mut client2 = manager.new_client(2).unwrap();
+        let event = Event::new("test".to_string(), json!("test"));
+
+        // Broadcast the event to all clients.
+        manager.broadcast_all(event.clone());
+
+        // The clients should receive the events.
+        assert_eq!(*client1.try_recv().unwrap(), event);
+        assert_eq!(*client2.try_recv().unwrap(), event);
+
+        // Remove the clients.
+        manager.remove_client(1).unwrap();
+        manager.remove_client(2).unwrap();
+
+        // `recv` shouldn't work at this point since the client is removed.
+        assert!(client1.try_recv().is_err());
+        assert!(client2.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_periodic_streamer() {
+        let manager = StreamingManager::default();
+        let system = AbortableQueue::default();
+        let (client_id1, client_id2) = (1, 2);
+        // Register a new client with the manager.
+        let mut client1 = manager.new_client(client_id1).unwrap();
+        // Another client whom we won't have it subscribe to the streamer.
+        let mut client2 = manager.new_client(client_id2).unwrap();
+        // Subscribe the new client to PeriodicStreamer.
+        let streamer_id = manager
+            .add(client_id1, PeriodicStreamer, system.weak_spawner())
+            .await
+            .unwrap();
+
+        // We should be hooked now. try to receive some events from the streamer.
+        for _ in 0..3 {
+            // The streamer should send an event every 0.1s. Wait for 0.2s for safety.
+            Timer::sleep(0.15).await;
+            let event = client1.try_recv().unwrap();
+            assert_eq!(event.origin(), streamer_id);
+        }
+
+        // The other client shouldn't have received any events.
+        assert!(client2.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_reactive_streamer() {
+        let manager = StreamingManager::default();
+        let system = AbortableQueue::default();
+        let (client_id1, client_id2) = (1, 2);
+        // Register a new client with the manager.
+        let mut client1 = manager.new_client(client_id1).unwrap();
+        // Another client whom we won't have it subscribe to the streamer.
+        let mut client2 = manager.new_client(client_id2).unwrap();
+        // Subscribe the new client to ReactiveStreamer.
+        let streamer_id = manager
+            .add(client_id1, ReactiveStreamer, system.weak_spawner())
+            .await
+            .unwrap();
+
+        // We should be hooked now. try to receive some events from the streamer.
+        for i in 1..=3 {
+            let msg = format!("send{}", i);
+            manager.send(&streamer_id, msg.clone()).unwrap();
+            // Wait for a little bit to make sure the streamer received the data we sent.
+            Timer::sleep(0.1).await;
+            // The streamer should broadcast some event to the subscribed clients.
+            let event = client1.try_recv().unwrap();
+            assert_eq!(event.origin(), streamer_id);
+            // It's an echo streamer, so the message should be the same.
+            assert_eq!(event.get().1, json!(msg));
+        }
+
+        // If we send the wrong datatype (void here instead of String), the streamer should ignore it.
+        manager.send(&streamer_id, ()).unwrap();
+        Timer::sleep(0.1).await;
+        assert!(client1.try_recv().is_err());
+
+        // The other client shouldn't have received any events.
+        assert!(client2.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_erroring_streamer() {
+        let manager = StreamingManager::default();
+        let system = AbortableQueue::default();
+        let client_id = 1;
+        // Register a new client with the manager.
+        let _client = manager.new_client(client_id).unwrap();
+        // Subscribe the new client to InitErrorStreamer.
+        let error = manager
+            .add(client_id, InitErrorStreamer, system.weak_spawner())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, StreamingManagerError::SpawnError(..)));
+    }
+
+    #[tokio::test]
+    async fn test_remove_streamer_if_down() {
+        let manager = StreamingManager::default();
+        let system = AbortableQueue::default();
+        let client_id = 1;
+        // Register a new client with the manager.
+        let _client = manager.new_client(client_id).unwrap();
+        // Subscribe the new client to PeriodicStreamer.
+        let streamer_id = manager
+            .add(client_id, PeriodicStreamer, system.weak_spawner())
+            .await
+            .unwrap();
+
+        // The streamer is up and streaming to `client_id`.
+        assert!(manager
+            .streamers
+            .read()
+            .get(&streamer_id)
+            .unwrap()
+            .clients
+            .contains(&client_id));
+
+        // The client should be registered and listening to `streamer_id`.
+        assert!(manager
+            .clients
+            .lock()
+            .unwrap()
+            .get(&client_id)
+            .unwrap()
+            .contains(&streamer_id));
+
+        // Abort the system to kill the streamer.
+        system.abort_all().unwrap();
+        // Wait a little bit since the abortion doesn't take effect immediately (the aborted task needs to yield first).
+        Timer::sleep(0.1).await;
+
+        manager.remove_streamer_if_down(&streamer_id);
+
+        // The streamer should be removed.
+        assert!(manager.streamers.read().get(&streamer_id).is_none());
+        // And the client is no more listening to it.
+        assert!(!manager
+            .clients
+            .lock()
+            .unwrap()
+            .get(&client_id)
+            .unwrap()
+            .contains(&streamer_id));
     }
 }

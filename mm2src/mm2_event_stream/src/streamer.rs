@@ -111,3 +111,125 @@ impl Broadcaster {
 
     pub fn broadcast(&self, event: Event) { self.0.broadcast(event); }
 }
+
+#[cfg(test)]
+pub mod test_utils {
+    use super::*;
+
+    use common::executor::Timer;
+    use serde_json::json;
+
+    /// A test event streamer that broadcasts an event periodically.
+    /// Broadcasts `json!("hello")` every tenth of a second.
+    pub struct PeriodicStreamer;
+
+    #[async_trait]
+    impl EventStreamer for PeriodicStreamer {
+        type DataInType = NoDataIn;
+
+        fn streamer_id(&self) -> String { "periodic_streamer".to_string() }
+
+        async fn handle(
+            self,
+            broadcaster: Broadcaster,
+            ready_tx: oneshot::Sender<Result<(), String>>,
+            _: impl StreamHandlerInput<Self::DataInType>,
+        ) {
+            ready_tx.send(Ok(())).unwrap();
+            loop {
+                broadcaster.broadcast(Event::new(self.streamer_id(), json!("hello")));
+                Timer::sleep(0.1).await;
+            }
+        }
+    }
+
+    /// A test event streamer that broadcasts an event whenever it receives a new message through `data_rx`.
+    pub struct ReactiveStreamer;
+
+    #[async_trait]
+    impl EventStreamer for ReactiveStreamer {
+        type DataInType = String;
+
+        fn streamer_id(&self) -> String { "reactive_streamer".to_string() }
+
+        async fn handle(
+            self,
+            broadcaster: Broadcaster,
+            ready_tx: oneshot::Sender<Result<(), String>>,
+            mut data_rx: impl StreamHandlerInput<Self::DataInType>,
+        ) {
+            ready_tx.send(Ok(())).unwrap();
+            while let Some(msg) = data_rx.next().await {
+                // Just echo back whatever we receive.
+                broadcaster.broadcast(Event::new(self.streamer_id(), json!(msg)));
+            }
+        }
+    }
+
+    /// A test event streamer that fails upon initialization.
+    pub struct InitErrorStreamer;
+
+    #[async_trait]
+    impl EventStreamer for InitErrorStreamer {
+        type DataInType = NoDataIn;
+
+        fn streamer_id(&self) -> String { "init_error_streamer".to_string() }
+
+        async fn handle(
+            self,
+            _: Broadcaster,
+            ready_tx: oneshot::Sender<Result<(), String>>,
+            _: impl StreamHandlerInput<Self::DataInType>,
+        ) {
+            // Fail the initialization and stop.
+            ready_tx.send(Err("error".to_string())).unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_utils::{InitErrorStreamer, PeriodicStreamer, ReactiveStreamer};
+    use super::*;
+
+    use common::executor::abortable_queue::AbortableQueue;
+
+    #[tokio::test]
+    async fn test_spawn_periodic_streamer() {
+        let system = AbortableQueue::default();
+        let broadcaster = Broadcaster::new(StreamingManager::default());
+        // Spawn the periodic streamer.
+        let (_, data_in) = PeriodicStreamer
+            .spawn(system.weak_spawner(), broadcaster)
+            .await
+            .unwrap();
+        // Periodic streamer shouldn't be ingesting any input.
+        assert!(data_in.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_reactive_streamer() {
+        let system = AbortableQueue::default();
+        let broadcaster = Broadcaster::new(StreamingManager::default());
+        // Spawn the reactive streamer.
+        let (_, data_in) = ReactiveStreamer
+            .spawn(system.weak_spawner(), broadcaster)
+            .await
+            .unwrap();
+        // Reactive streamer should be ingesting some input.
+        assert!(data_in.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_erroring_streamer() {
+        let system = AbortableQueue::default();
+        let broadcaster = Broadcaster::new(StreamingManager::default());
+        // Try to spawn the erroring streamer.
+        let err = InitErrorStreamer
+            .spawn(system.weak_spawner(), broadcaster)
+            .await
+            .unwrap_err();
+        // The streamer should return an error.
+        assert_eq!(err, "error");
+    }
+}

@@ -1,5 +1,8 @@
 use serde_json::Value as Json;
 
+// Note `Event` shouldn't be `Clone`able, but rather Arc/Rc wrapped and then shared.
+// This is only for testing.
+#[cfg_attr(test, derive(Clone, Debug, PartialEq))]
 #[derive(Default)]
 /// Multi-purpose/generic event type that can easily be used over the event streaming
 pub struct Event {
