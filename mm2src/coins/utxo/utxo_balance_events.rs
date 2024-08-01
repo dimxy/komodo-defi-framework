@@ -49,7 +49,7 @@ impl EventStreamer for UtxoBalanceEventStreamer {
         self,
         broadcaster: Broadcaster,
         ready_tx: oneshot::Sender<Result<(), String>>,
-        mut data_rx: impl StreamHandlerInput<ScripthashNotification>,
+        mut data_rx: impl StreamHandlerInput<Self::DataInType>,
     ) {
         const RECEIVER_DROPPED_MSG: &str = "Receiver is dropped, which should never happen.";
         let streamer_id = self.streamer_id();
@@ -93,10 +93,9 @@ impl EventStreamer for UtxoBalanceEventStreamer {
         }
 
         if coin.as_ref().rpc_client.is_native() {
-            log::warn!("Native RPC client is not supported for {streamer_id} event. Skipping event initialization.");
-            // We won't consider this an error but just an unsupported scenario and continue running.
-            ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
-            panic!("Native RPC client is not supported for UtxoBalanceEventStreamer.");
+            let msg = "Native RPC client is not supported for UtxoBalanceEventStreamer.";
+            ready_tx.send(Err(msg.to_string())).expect(RECEIVER_DROPPED_MSG);
+            panic!("{}", msg);
         }
 
         ready_tx.send(Ok(())).expect(RECEIVER_DROPPED_MSG);
