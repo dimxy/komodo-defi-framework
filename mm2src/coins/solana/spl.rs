@@ -526,6 +526,8 @@ impl WatcherOps for SplToken {
 impl MmCoin for SplToken {
     fn is_asset_chain(&self) -> bool { false }
 
+    fn get_ctx(&self) -> Option<MmArc> { self.platform_coin.get_ctx() }
+
     fn spawner(&self) -> WeakSpawner { self.conf.abortable_system.weak_spawner() }
 
     fn withdraw(&self, req: WithdrawRequest) -> WithdrawFut {

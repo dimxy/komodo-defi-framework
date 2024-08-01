@@ -296,6 +296,7 @@ where
         check_utxo_maturity,
         block_headers_status_notifier,
         block_headers_status_watcher,
+        ctx: builder.ctx().clone().weak(),
         abortable_system,
     };
 
@@ -373,6 +374,7 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             check_utxo_maturity,
             block_headers_status_notifier,
             block_headers_status_watcher,
+            ctx: self.ctx().clone().weak(),
             abortable_system,
         };
         Ok(coin)

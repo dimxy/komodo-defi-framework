@@ -3220,6 +3220,12 @@ pub trait MmCoin:
         coin_conf["wallet_only"].as_bool().unwrap_or(false)
     }
 
+    /// Returns the MmArc context the coin is running on top of.
+    ///
+    /// This should really never fail (return `None`), but it's here since coins hold a weak
+    /// reference to the context (TODO: why?).
+    fn get_ctx(&self) -> Option<MmArc>;
+
     /// Returns a spawner pinned to the coin.
     ///
     /// # Note

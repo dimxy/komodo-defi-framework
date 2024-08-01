@@ -997,6 +997,8 @@ impl WatcherOps for SolanaCoin {
 impl MmCoin for SolanaCoin {
     fn is_asset_chain(&self) -> bool { false }
 
+    fn get_ctx(&self) -> Option<MmArc> { unimplemented!() }
+
     fn spawner(&self) -> WeakSpawner { self.abortable_system.weak_spawner() }
 
     fn withdraw(&self, req: WithdrawRequest) -> WithdrawFut {

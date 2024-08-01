@@ -213,6 +213,8 @@ pub struct SiaCoinProtocolInfo;
 impl MmCoin for SiaCoin {
     fn is_asset_chain(&self) -> bool { false }
 
+    fn get_ctx(&self) -> Option<MmArc> { unimplemented!() }
+
     fn spawner(&self) -> WeakSpawner { unimplemented!() }
 
     fn get_raw_transaction(&self, _req: RawTransactionRequest) -> RawTransactionFut { unimplemented!() }

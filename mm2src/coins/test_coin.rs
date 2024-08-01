@@ -339,6 +339,8 @@ impl WatcherOps for TestCoin {
 impl MmCoin for TestCoin {
     fn is_asset_chain(&self) -> bool { unimplemented!() }
 
+    fn get_ctx(&self) -> Option<MmArc> { unimplemented!() }
+
     fn spawner(&self) -> WeakSpawner { unimplemented!() }
 
     fn get_raw_transaction(&self, _req: RawTransactionRequest) -> RawTransactionFut { unimplemented!() }

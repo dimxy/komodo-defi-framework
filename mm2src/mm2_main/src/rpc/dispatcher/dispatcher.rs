@@ -197,6 +197,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "my_recent_swaps" => handle_mmrpc(ctx, request, my_recent_swaps_rpc).await,
         "my_swap_status" => handle_mmrpc(ctx, request, my_swap_status_rpc).await,
         "my_tx_history" => handle_mmrpc(ctx, request, my_tx_history_v2_rpc).await,
+        "z_coin_tx_history" => handle_mmrpc(ctx, request, coins::my_tx_history_v2::z_coin_tx_history_rpc).await,
         "orderbook" => handle_mmrpc(ctx, request, orderbook_rpc_v2).await,
         "recreate_swap_data" => handle_mmrpc(ctx, request, recreate_swap_data).await,
         "refresh_nft_metadata" => handle_mmrpc(ctx, request, refresh_nft_metadata).await,
@@ -220,7 +221,6 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "get_swap_transaction_fee_policy" => handle_mmrpc(ctx, request, get_swap_transaction_fee_policy).await,
         "set_swap_transaction_fee_policy" => handle_mmrpc(ctx, request, set_swap_transaction_fee_policy).await,
         "send_asked_data" => handle_mmrpc(ctx, request, send_asked_data_rpc).await,
-        "z_coin_tx_history" => handle_mmrpc(ctx, request, coins::my_tx_history_v2::z_coin_tx_history_rpc).await,
         #[cfg(not(target_arch = "wasm32"))]
         native_only_methods => match native_only_methods {
             #[cfg(all(feature = "enable-solana", not(target_os = "ios"), not(target_os = "android")))]
@@ -331,6 +331,7 @@ async fn rpc_streaming_dispatcher(
         "fee_estimator::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_fee_estimation).await,
         "swap_status::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_swap_status).await,
         "order_status::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_order_status).await,
+        "tx_history::enable" => handle_mmrpc(ctx, request, streaming_activations::enable_tx_history).await,
         "disable" => handle_mmrpc(ctx, request, streaming_activations::disable_streamer).await,
         _ => MmError::err(DispatcherError::NoSuchMethod),
     }

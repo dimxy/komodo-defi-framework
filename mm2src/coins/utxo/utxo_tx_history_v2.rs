@@ -4,10 +4,11 @@ use crate::my_tx_history_v2::{CoinWithTxHistoryV2, DisplayAddress, TxHistoryStor
 use crate::tx_history_storage::FilteringAddresses;
 use crate::utxo::bch::BchCoin;
 use crate::utxo::slp::ParseSlpScriptError;
+use crate::utxo::tx_history_events::TxHistoryEventStreamer;
 use crate::utxo::{utxo_common, AddrFromStrError, GetBlockHeaderError};
 use crate::{BalanceError, BalanceResult, BlockHeightAndTime, CoinWithDerivationMethod, HistorySyncState,
-            MarketCoinOps, NumConversError, ParseBigDecimalError, TransactionDetails, UnexpectedDerivationMethod,
-            UtxoRpcError, UtxoTx};
+            MarketCoinOps, MmCoin, NumConversError, ParseBigDecimalError, TransactionDetails,
+            UnexpectedDerivationMethod, UtxoRpcError, UtxoTx};
 use async_trait::async_trait;
 use common::executor::Timer;
 use common::log::{error, info};
@@ -104,7 +105,7 @@ pub struct UtxoTxDetailsParams<'a, Storage> {
 
 #[async_trait]
 pub trait UtxoTxHistoryOps:
-    CoinWithTxHistoryV2 + CoinWithDerivationMethod + MarketCoinOps + Send + Sync + 'static
+    CoinWithTxHistoryV2 + CoinWithDerivationMethod + MarketCoinOps + MmCoin + Send + Sync + 'static
 {
     /// Returns addresses for those we need to request Transaction history.
     async fn my_addresses(&self) -> MmResult<HashSet<Address>, UtxoMyAddressesHistoryError>;
@@ -619,6 +620,15 @@ where
                     return Self::change_state(OnIoErrorCooldown::new(self.requested_for_addresses));
                 },
             };
+
+            ctx.coin
+                .get_ctx()
+                .unwrap()
+                .event_stream_manager
+                .send_fn(&TxHistoryEventStreamer::derive_streamer_id(ctx.coin.ticker()), || {
+                    tx_details.clone()
+                })
+                .ok();
 
             if let Err(e) = ctx.storage.add_transactions_to_history(&wallet_id, tx_details).await {
                 return Self::change_state(Stopped::storage_error(e));

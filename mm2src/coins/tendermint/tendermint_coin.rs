@@ -2121,6 +2121,8 @@ pub async fn get_ibc_chain_list() -> IBCChainRegistriesResult {
 impl MmCoin for TendermintCoin {
     fn is_asset_chain(&self) -> bool { false }
 
+    fn get_ctx(&self) -> Option<MmArc> { MmArc::from_weak(&self.ctx) }
+
     fn wallet_only(&self, ctx: &MmArc) -> bool {
         let coin_conf = crate::coin_conf(ctx, self.ticker());
         let wallet_only_conf = coin_conf["wallet_only"].as_bool().unwrap_or(false);

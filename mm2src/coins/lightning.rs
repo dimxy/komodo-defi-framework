@@ -1275,6 +1275,8 @@ struct LightningProtocolInfo {
 impl MmCoin for LightningCoin {
     fn is_asset_chain(&self) -> bool { false }
 
+    fn get_ctx(&self) -> Option<MmArc> { self.platform.coin.get_ctx() }
+
     fn spawner(&self) -> WeakSpawner { self.platform.abortable_system.weak_spawner() }
 
     fn get_raw_transaction(&self, _req: RawTransactionRequest) -> RawTransactionFut {

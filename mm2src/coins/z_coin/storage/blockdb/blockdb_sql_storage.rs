@@ -230,6 +230,8 @@ impl BlockDbImpl {
                     // If there are transactions present in the current scanned block,
                     // we send a `Triggered` event to update the balance change.
                     if tx_size > 0 {
+                        // FIXME: WE want to convert this txs to tx details like other utxo coins
+                        // : ctx.event_streamer_manager.send_fn("zcoin_history", || vector_of_txs).ok();
                         if let Some(mut sender) = z_balance_change_sender.clone() {
                             sender.send(()).await.expect("No receiver is available/dropped");
                         };

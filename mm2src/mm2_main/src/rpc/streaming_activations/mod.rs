@@ -5,6 +5,7 @@ mod heartbeat;
 mod network;
 mod orders;
 mod swaps;
+mod tx_history;
 
 // Re-exports
 pub use balance::*;
@@ -14,6 +15,7 @@ pub use heartbeat::*;
 pub use network::*;
 pub use orders::*;
 pub use swaps::*;
+pub use tx_history::*;
 
 #[derive(Serialize)]
 /// The success/ok response for any event streaming activation request.
