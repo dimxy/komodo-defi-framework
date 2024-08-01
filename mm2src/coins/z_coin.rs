@@ -519,7 +519,7 @@ impl ZCoin {
     fn tx_details_from_db_item(
         &self,
         tx_item: ZCoinTxHistoryItem,
-        transactions: &mut HashMap<H256Json, ZTransaction>,
+        transactions: &HashMap<H256Json, ZTransaction>,
         prev_transactions: &HashMap<H256Json, ZTransaction>,
         current_block: u64,
     ) -> Result<ZcoinTxDetails, MmError<NoInfoAboutTx>> {
@@ -532,7 +532,7 @@ impl ZCoin {
 
         let mut transparent_input_amount = Amount::zero();
         let hash = H256Json::from(tx_item.tx_hash.as_slice());
-        let z_tx = transactions.remove(&hash).or_mm_err(|| NoInfoAboutTx(hash))?;
+        let z_tx = transactions.get(&hash).or_mm_err(|| NoInfoAboutTx(hash))?;
         for input in z_tx.vin.iter() {
             let mut hash = H256Json::from(*input.prevout.hash());
             hash.0.reverse();
@@ -623,7 +623,7 @@ impl ZCoin {
             .iter()
             .map(|item| H256Json::from(item.tx_hash.as_slice()))
             .collect();
-        let mut transactions = self.z_transactions_from_cache_or_rpc(hashes_for_verbose).await?;
+        let transactions = self.z_transactions_from_cache_or_rpc(hashes_for_verbose).await?;
 
         let prev_tx_hashes: HashSet<_> = transactions
             .iter()
@@ -641,7 +641,7 @@ impl ZCoin {
             .transactions
             .into_iter()
             .map(|sql_item| {
-                self.tx_details_from_db_item(sql_item, &mut transactions, &prev_transactions, current_block)
+                self.tx_details_from_db_item(sql_item, &transactions, &prev_transactions, current_block)
             })
             .collect::<Result<_, _>>()?;
 
