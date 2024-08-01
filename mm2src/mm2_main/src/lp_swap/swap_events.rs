@@ -13,6 +13,8 @@ pub struct SwapStatusStreamer;
 
 impl SwapStatusStreamer {
     pub fn new() -> Self { Self }
+
+    pub fn derive_streamer_id() -> &'static str { "SWAP_STATUS" }
 }
 
 #[derive(Serialize)]
@@ -28,7 +30,7 @@ pub enum SwapStatusEvent {
 impl EventStreamer for SwapStatusStreamer {
     type DataInType = SwapStatusEvent;
 
-    fn streamer_id(&self) -> String { "SWAP_STATUS".to_string() }
+    fn streamer_id(&self) -> String { Self::derive_streamer_id().to_string() }
 
     async fn handle(
         self,

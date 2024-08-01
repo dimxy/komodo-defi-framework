@@ -143,6 +143,26 @@ impl StreamingManager {
             .map_err(|e| StreamingManagerError::SendError(e.to_string()))
     }
 
+    /// Same as `StreamingManager::send`, but computes that data to send to a streamer using a closure,
+    /// thus avoiding computations & cloning if the intended streamer isn't running (more like the
+    /// laziness of `*_or_else()` functions).
+    ///
+    /// `data_fn` will only be evaluated if the streamer is found and accepts an input.
+    pub fn send_fn<T: Send + 'static>(
+        &self,
+        streamer_id: &str,
+        data_fn: impl FnOnce() -> T,
+    ) -> Result<(), StreamingManagerError> {
+        let streamers = self.streamers.read();
+        let streamer_info = streamers
+            .get(streamer_id)
+            .ok_or(StreamingManagerError::StreamerNotFound)?;
+        let data_in = streamer_info.data_in.as_ref().ok_or(StreamingManagerError::NoDataIn)?;
+        data_in
+            .unbounded_send(Box::new(data_fn()))
+            .map_err(|e| StreamingManagerError::SendError(e.to_string()))
+    }
+
     /// Stops streaming from the streamer with `streamer_id` to the client with `client_id`.
     pub fn stop(&self, client_id: u64, streamer_id: &str) -> Result<(), StreamingManagerError> {
         let mut clients = self.clients.lock().unwrap();

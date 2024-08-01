@@ -42,7 +42,6 @@ use http::Response;
 use keys::{AddressFormat, KeyPair};
 use mm2_core::mm_ctx::{from_ctx, MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
-use mm2_event_stream::EventStreamer;
 use mm2_libp2p::{decode_signed, encode_and_sign, encode_message, pub_sub_topic, PublicKey, TopicHash, TopicPrefix,
                  TOPIC_SEPARATOR};
 use mm2_metrics::mm_gauge;
@@ -3567,10 +3566,9 @@ async fn process_maker_reserved(ctx: MmArc, from_pubkey: H256Json, reserved_msg:
                 };
 
                 ctx.event_stream_manager
-                    .send(
-                        &OrderStatusStreamer.streamer_id(),
-                        OrderStatusEvent::TakerMatch(taker_match.clone()),
-                    )
+                    .send_fn(OrderStatusStreamer::derive_streamer_id(), || {
+                        OrderStatusEvent::TakerMatch(taker_match.clone())
+                    })
                     .ok();
 
                 my_order
@@ -3623,10 +3621,9 @@ async fn process_maker_connected(ctx: MmArc, from_pubkey: PublicKey, connected: 
     }
 
     ctx.event_stream_manager
-        .send(
-            &OrderStatusStreamer.streamer_id(),
-            OrderStatusEvent::TakerConnected(order_match.clone()),
-        )
+        .send_fn(OrderStatusStreamer::derive_streamer_id(), || {
+            OrderStatusEvent::TakerConnected(order_match.clone())
+        })
         .ok();
 
     // alice
@@ -3737,10 +3734,9 @@ async fn process_taker_request(ctx: MmArc, from_pubkey: H256Json, taker_request:
                 };
 
                 ctx.event_stream_manager
-                    .send(
-                        &OrderStatusStreamer.streamer_id(),
-                        OrderStatusEvent::MakerMatch(maker_match.clone()),
-                    )
+                    .send_fn(OrderStatusStreamer::derive_streamer_id(), || {
+                        OrderStatusEvent::MakerMatch(maker_match.clone())
+                    })
                     .ok();
 
                 order.matches.insert(maker_match.request.uuid, maker_match);
@@ -3809,10 +3805,9 @@ async fn process_taker_connect(ctx: MmArc, sender_pubkey: PublicKey, connect_msg
         let order_match = order_match.clone();
 
         ctx.event_stream_manager
-            .send(
-                &OrderStatusStreamer.streamer_id(),
-                OrderStatusEvent::MakerConnected(order_match.clone()),
-            )
+            .send_fn(OrderStatusStreamer::derive_streamer_id(), || {
+                OrderStatusEvent::MakerConnected(order_match.clone())
+            })
             .ok();
 
         my_order.started_swaps.push(order_match.request.uuid);

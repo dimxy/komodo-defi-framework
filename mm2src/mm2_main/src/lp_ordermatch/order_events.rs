@@ -9,6 +9,8 @@ pub struct OrderStatusStreamer;
 
 impl OrderStatusStreamer {
     pub fn new() -> Self { Self }
+
+    pub fn derive_streamer_id() -> &'static str { "ORDER_STATUS" }
 }
 
 #[derive(Serialize)]
@@ -24,7 +26,7 @@ pub(super) enum OrderStatusEvent {
 impl EventStreamer for OrderStatusStreamer {
     type DataInType = ();
 
-    fn streamer_id(&self) -> String { "ORDER_STATUS".to_string() }
+    fn streamer_id(&self) -> String { Self::derive_streamer_id().to_string() }
 
     async fn handle(
         self,
