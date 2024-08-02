@@ -1,6 +1,9 @@
+use std::collections::HashSet;
+
 use crate::z_coin::{ZCoin, ZTxHistoryError};
 use common::PagingOptionsEnum;
 use mm2_err_handle::prelude::MmError;
+use zcash_primitives::transaction::TxId;
 
 cfg_wasm32!(
     use crate::z_coin::storage::wasm::tables::{WalletDbBlocksTable, WalletDbReceivedNotesTable, WalletDbTransactionsTable};
@@ -219,4 +222,17 @@ pub(crate) async fn fetch_tx_history_from_db(
         })
     })
     .await
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) async fn fetch_txs_from_db(_z: &ZCoin, _tx_ids: HashSet<TxId>) -> Result<Vec<ZCoinTxHistoryItem>, String> {
+    unimplemented!()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) async fn fetch_txs_from_db(
+    _z: &ZCoin,
+    _tx_ids: HashSet<TxId>,
+) -> Result<Vec<ZCoinTxHistoryItem>, SqliteError> {
+    unimplemented!()
 }

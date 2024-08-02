@@ -2,12 +2,12 @@
 use super::EnableStreamingResponse;
 
 use coins::utxo::tx_history_events::TxHistoryEventStreamer;
+use coins::z_coin::tx_history_events::ZCoinTxHistoryEventStreamer;
 use coins::{lp_coinfind, MmCoin, MmCoinEnum};
 use common::HttpStatusCode;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_to_mm::MapToMmResult, mm_error::MmResult};
-
 
 #[derive(Deserialize)]
 pub struct EnableTxHistoryStreamingRequest {
@@ -71,12 +71,12 @@ pub async fn enable_tx_history(
                 .add(req.client_id, streamer, coin.spawner())
                 .await
         },
-        // MmCoinEnum::ZCoin(coin) => {
-        //     let streamer = ZCoinTxHistoryEventStreamer::new(req.coin);
-        //     ctx.event_stream_manager
-        //         .add(req.client_id, streamer, coin.spawner())
-        //         .await
-        // },
+        MmCoinEnum::ZCoin(coin) => {
+            let streamer = ZCoinTxHistoryEventStreamer::new(coin.clone());
+            ctx.event_stream_manager
+                .add(req.client_id, streamer, coin.spawner())
+                .await
+        },
         // FIXME: What about tokens?!
         _ => Err(TxHistoryStreamingRequestError::CoinNotSupported)?,
     };

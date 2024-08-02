@@ -1,4 +1,5 @@
 pub mod storage;
+pub mod tx_history_events;
 pub mod z_balance_streaming;
 mod z_coin_errors;
 #[cfg(all(test, feature = "zhtlc-native-tests"))]
@@ -24,7 +25,6 @@ use crate::utxo::{sat_from_big_decimal, utxo_common, ActualTxFee, AdditionalTxDa
                   UtxoCommonOps, UtxoRpcMode, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom};
 use crate::utxo::{UnsupportedAddr, UtxoFeeDetails};
 use crate::z_coin::storage::{BlockDbImpl, WalletDbShared};
-use crate::z_coin::z_balance_streaming::ZBalanceEventHandler;
 
 use crate::z_coin::z_tx_history::{fetch_tx_history_from_db, ZCoinTxHistoryItem};
 use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, ConfirmPaymentInput, DexFee,
@@ -208,7 +208,6 @@ pub struct ZCoinFields {
     light_wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
     sync_state_connector: AsyncMutex<SaplingSyncConnector>,
-    z_balance_event_handler: Option<ZBalanceEventHandler>,
 }
 
 impl Transaction for ZTransaction {
@@ -640,9 +639,7 @@ impl ZCoin {
         let transactions = req_result
             .transactions
             .into_iter()
-            .map(|sql_item| {
-                self.tx_details_from_db_item(sql_item, &transactions, &prev_transactions, current_block)
-            })
+            .map(|sql_item| self.tx_details_from_db_item(sql_item, &transactions, &prev_transactions, current_block))
             .collect::<Result<_, _>>()?;
 
         Ok(MyTxHistoryResponseV2 {
@@ -880,22 +877,11 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
         );
 
         let blocks_db = self.init_blocks_db().await?;
-        let (z_balance_event_sender, z_balance_event_handler) = {
-            let (sender, receiver) = futures::channel::mpsc::unbounded();
-            (Some(sender), Some(Arc::new(AsyncMutex::new(receiver))))
-        };
 
         let (sync_state_connector, light_wallet_db) = match &self.z_coin_params.mode {
             #[cfg(not(target_arch = "wasm32"))]
             ZcoinRpcMode::Native => {
-                init_native_client(
-                    &self,
-                    self.native_client()?,
-                    blocks_db,
-                    &z_spending_key,
-                    z_balance_event_sender,
-                )
-                .await?
+                init_native_client(&self, self.native_client()?, blocks_db, &z_spending_key).await?
             },
             ZcoinRpcMode::Light {
                 light_wallet_d_servers,
@@ -910,7 +896,6 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
                     sync_params,
                     skip_sync_params.unwrap_or_default(),
                     &z_spending_key,
-                    z_balance_event_sender,
                 )
                 .await?
             },
@@ -926,7 +911,6 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
             light_wallet_db,
             consensus_params: self.protocol_info.consensus_params,
             sync_state_connector,
-            z_balance_event_handler,
         });
 
         Ok(ZCoin { utxo_arc, z_fields })

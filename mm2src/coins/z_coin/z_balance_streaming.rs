@@ -20,13 +20,15 @@ pub struct ZCoinBalanceEventStreamer {
 
 impl ZCoinBalanceEventStreamer {
     pub fn new(coin: ZCoin) -> Self { Self { coin } }
+
+    pub fn derive_streamer_id(coin: &str) -> String { format!("BALANCE:{coin}") }
 }
 
 #[async_trait]
 impl EventStreamer for ZCoinBalanceEventStreamer {
     type DataInType = ();
 
-    fn streamer_id(&self) -> String { format!("BALANCE:{}", self.coin.ticker()) }
+    fn streamer_id(&self) -> String { Self::derive_streamer_id(self.coin.ticker()) }
 
     async fn handle(
         self,
