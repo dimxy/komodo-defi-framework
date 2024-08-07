@@ -6,10 +6,10 @@ use coins::utxo::qtum::{qtum_coin_with_priv_key, QtumCoin};
 use coins::utxo::rpc_clients::UtxoRpcClientEnum;
 use coins::utxo::utxo_common::big_decimal_from_sat;
 use coins::utxo::{UtxoActivationParams, UtxoCommonOps};
-use coins::{CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage, FoundSwapTxSpend, MarketCoinOps,
-            MmCoin, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapOps,
-            SwapTxTypeWithSecretHash, TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput,
-            WaitForHTLCTxSpendArgs};
+use coins::{CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, DexFeeBurnDestination, FeeApproxStage,
+            FoundSwapTxSpend, MarketCoinOps, MmCoin, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs,
+            SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, TradePreimageValue, TransactionEnum, ValidateFeeArgs,
+            ValidatePaymentInput, WaitForHTLCTxSpendArgs};
 use common::{temp_dir, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::Secp256k1Secret;
 use ethereum_types::H160;
@@ -1732,7 +1732,7 @@ fn test_trade_qrc20_utxo() { trade_base_rel(("QICK", "MYCOIN")); }
 fn test_trade_utxo_qrc20() { trade_base_rel(("MYCOIN", "QICK")); }
 
 #[test]
-fn test_send_taker_fee_qtum() {
+fn test_send_standard_taker_fee_qtum() {
     // generate QTUM coin with the dynamic fee and fill the wallet by 0.5 Qtums
     let (_ctx, coin, _priv_key) =
         generate_segwit_qtum_coin_with_random_privkey("QTUM", BigDecimal::try_from(0.5).unwrap(), Some(0));
@@ -1748,6 +1748,43 @@ fn test_send_taker_fee_qtum() {
         fee_tx: &tx,
         expected_sender: coin.my_public_key().unwrap(),
         dex_fee: &DexFee::Standard(amount.into()),
+        min_block_number: 0,
+        uuid: &[],
+    })
+    .wait()
+    .expect("!validate_fee");
+}
+
+#[test]
+fn test_send_taker_fee_with_burn_qtum() {
+    // generate QTUM coin with the dynamic fee and fill the wallet by 0.5 Qtums
+    let (_ctx, coin, _priv_key) =
+        generate_segwit_qtum_coin_with_random_privkey("QTUM", BigDecimal::try_from(0.5).unwrap(), Some(0));
+
+    let fee_amount = BigDecimal::from_str("0.0075").unwrap();
+    let burn_amount = BigDecimal::from_str("0.0025").unwrap();
+    let tx = coin
+        .send_taker_fee(
+            DexFee::WithBurn {
+                fee_amount: fee_amount.clone().into(),
+                burn_amount: burn_amount.clone().into(),
+                burn_destination: DexFeeBurnDestination::PreBurnAccount,
+            },
+            &[],
+            0,
+        )
+        .wait()
+        .expect("!send_taker_fee");
+    assert!(matches!(tx, TransactionEnum::UtxoTx(_)), "Expected UtxoTx");
+
+    coin.validate_fee(ValidateFeeArgs {
+        fee_tx: &tx,
+        expected_sender: coin.my_public_key().unwrap(),
+        dex_fee: &DexFee::WithBurn {
+            fee_amount: fee_amount.into(),
+            burn_amount: burn_amount.into(),
+            burn_destination: DexFeeBurnDestination::PreBurnAccount,
+        },
         min_block_number: 0,
         uuid: &[],
     })
