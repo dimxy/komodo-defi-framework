@@ -368,29 +368,6 @@ fn test_validate_fee() {
     }
     <Qrc20Coin as SwapOps>::dex_pubkey.clear_mock();
 
-    // TODO: test for wrong brun pubkey
-    // wrong burn address
-    /*<Qrc20Coin as SwapOps>::burn_pubkey.mock_safe(|_| {
-        MockResult::Return(Box::leak(Box::new(hex::decode("03bc2c7ba671bae4a6fc835244c9762b41647b9827d4780a89a949b984a8ddcc05").unwrap())))
-    });
-    let err = coin
-        .validate_fee(ValidateFeeArgs {
-            fee_tx: &tx,
-            expected_sender: &sender_pub,
-            dex_fee: &DexFee::Standard(amount.clone().into()),
-            min_block_number: 0,
-            uuid: &[],
-        })
-        .wait()
-        .expect_err("Expected an error")
-        .into_inner();
-    log!("error: {:?}", err);
-    match err {
-        ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("QRC20 Fee tx was sent to wrong address")),
-        _ => panic!("Expected `WrongPaymentTx` wrong receiver address, found {:?}", err),
-    }
-    <Qrc20Coin as SwapOps>::burn_pubkey.clear_mock();*/
-
     let err = coin
         .validate_fee(ValidateFeeArgs {
             fee_tx: &tx,
