@@ -1272,11 +1272,11 @@ impl TakerSwap {
             ]));
         }
 
-        let fee_amount =
+        let dex_fee =
             dex_fee_amount_from_taker_coin(self.taker_coin.deref(), &self.r().data.maker_coin, &self.taker_amount);
         let fee_tx = self
             .taker_coin
-            .send_taker_fee(fee_amount, self.uuid.as_bytes(), expire_at)
+            .send_taker_fee(dex_fee, self.uuid.as_bytes(), expire_at)
             .compat()
             .await;
         let transaction = match fee_tx {
@@ -2308,13 +2308,13 @@ impl AtomicSwap for TakerSwap {
         let mut result = Vec::new();
 
         // if taker fee is not sent yet it must be virtually locked
-        let taker_fee_amount =
+        let taker_fee =
             dex_fee_amount_from_taker_coin(self.taker_coin.deref(), &self.r().data.maker_coin, &self.taker_amount);
         let trade_fee = self.r().data.fee_to_send_taker_fee.clone().map(TradeFee::from);
         if self.r().taker_fee.is_none() {
             result.push(LockedAmount {
                 coin: self.taker_coin.ticker().to_owned(),
-                amount: taker_fee_amount.total_spend_amount(),
+                amount: taker_fee.total_spend_amount(),
                 trade_fee,
             });
         }
@@ -2465,15 +2465,15 @@ pub async fn taker_swap_trade_preimage(
         TakerAction::Buy => rel_amount.clone(),
     };
 
-    let dex_amount = dex_fee_amount_from_taker_coin(my_coin.deref(), other_coin_ticker, &my_coin_volume);
+    let dex_fee = dex_fee_amount_from_taker_coin(my_coin.deref(), other_coin_ticker, &my_coin_volume);
     let taker_fee = TradeFee {
         coin: my_coin_ticker.to_owned(),
-        amount: dex_amount.total_spend_amount(),
+        amount: dex_fee.total_spend_amount(),
         paid_from_trading_vol: false,
     };
 
     let fee_to_send_taker_fee = my_coin
-        .get_fee_to_send_taker_fee(dex_amount.clone(), stage)
+        .get_fee_to_send_taker_fee(dex_fee.clone(), stage)
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, my_coin_ticker))?;
 
@@ -2489,7 +2489,7 @@ pub async fn taker_swap_trade_preimage(
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, other_coin_ticker))?;
 
     let prepared_params = TakerSwapPreparedParams {
-        dex_fee: dex_amount.total_spend_amount(),
+        dex_fee: dex_fee.total_spend_amount(),
         fee_to_send_dex_fee: fee_to_send_taker_fee.clone(),
         taker_payment_trade_fee: my_coin_trade_fee.clone(),
         maker_payment_spend_trade_fee: other_coin_trade_fee.clone(),
