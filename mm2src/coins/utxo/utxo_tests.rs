@@ -2654,7 +2654,7 @@ fn test_validate_old_fee_tx() {
     let dex_fee = DexFee::WithBurn {
         fee_amount: amount.clone() / 777.into() * "0.75".into(),
         burn_amount: amount / 777.into() * "0.25".into(),
-        burn_destination: DexFeeBurnDestination::BurnAccount,
+        burn_destination: DexFeeBurnDestination::PreBurnAccount,
     };
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &taker_fee_tx,

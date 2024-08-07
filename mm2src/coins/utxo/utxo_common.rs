@@ -1507,7 +1507,7 @@ where
                     value: burn_amount_u64,
                     script_pubkey: Builder::default().push_opcode(Opcode::OP_RETURN).into_bytes(),
                 }),
-                DexFeeBurnDestination::BurnAccount => outputs.push(TransactionOutput {
+                DexFeeBurnDestination::PreBurnAccount => outputs.push(TransactionOutput {
                     value: burn_amount_u64,
                     script_pubkey: Builder::build_p2pkh(burn_address.hash()).to_bytes(),
                 }),
@@ -2292,7 +2292,7 @@ pub fn validate_fee<T: UtxoCommonOps + SwapOps>(
                         let burn_script_pubkey = Builder::default().push_opcode(Opcode::OP_RETURN).into_script();
                         validate_burn_output(&coin, &tx, output_index + 1, &burn_script_pubkey, &burn_amount)?;
                     },
-                    DexFeeBurnDestination::BurnAccount => {
+                    DexFeeBurnDestination::PreBurnAccount => {
                         let total_amount = &fee_amount + &burn_amount;
                         let burn_script_pubkey = Builder::build_p2pkh(burn_address.hash());
                         if let Some(out) = tx.outputs.get(output_index + 1) {

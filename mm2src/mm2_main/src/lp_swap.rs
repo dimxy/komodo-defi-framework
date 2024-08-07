@@ -1813,7 +1813,7 @@ mod lp_swap_tests {
         let expected_fee = DexFee::WithBurn {
             fee_amount: amount.clone() / 777u64.into() * "0.75".into(),
             burn_amount: amount / 777u64.into() * "0.25".into(),
-            burn_destination: DexFeeBurnDestination::BurnAccount,
+            burn_destination: DexFeeBurnDestination::PreBurnAccount,
         };
         assert_eq!(expected_fee, actual_fee);
         TestCoin::should_burn_dex_fee.clear_mock();
@@ -1865,7 +1865,7 @@ mod lp_swap_tests {
         let expected_fee = DexFee::WithBurn {
             fee_amount: amount.clone() * (9, 7770).into() * "0.75".into(),
             burn_amount: amount * (9, 7770).into() * "0.25".into(),
-            burn_destination: DexFeeBurnDestination::BurnAccount,
+            burn_destination: DexFeeBurnDestination::PreBurnAccount,
         };
         assert_eq!(expected_fee, actual_fee);
         TestCoin::should_burn_dex_fee.clear_mock();

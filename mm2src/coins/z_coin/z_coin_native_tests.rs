@@ -169,7 +169,7 @@ async fn zombie_coin_send_dex_fee() {
     let dex_fee = DexFee::WithBurn {
         fee_amount: "0.0075".into(),
         burn_amount: "0.0025".into(),
-        burn_destination: DexFeeBurnDestination::BurnAccount,
+        burn_destination: DexFeeBurnDestination::PreBurnAccount,
     };
     let tx = z_send_dex_fee(&coin, dex_fee, &[1; 16]).await.unwrap();
     log!("dex fee tx {}", tx.txid());
@@ -256,7 +256,7 @@ async fn zombie_coin_validate_dex_fee() {
     let expected_fee = DexFee::WithBurn {
         fee_amount: "0.0075".into(),
         burn_amount: "0.0025".into(),
-        burn_destination: DexFeeBurnDestination::BurnAccount,
+        burn_destination: DexFeeBurnDestination::PreBurnAccount,
     };
 
     let validate_fee_args = ValidateFeeArgs {

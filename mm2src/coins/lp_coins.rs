@@ -1968,8 +1968,7 @@ pub trait MarketCoinOps {
     /// Get the minimum amount to trade.
     fn min_trading_vol(&self) -> MmNumber;
 
-    /// Is privacy coin like zcash.
-    /// TODO: I cannot see if pirate is covered
+    /// Is privacy coin like zcash or pirate
     fn is_privacy(&self) -> bool { false }
 
     /// Is KMD coin
@@ -3620,8 +3619,8 @@ impl MmCoinStruct {
 pub enum DexFeeBurnDestination {
     /// Burn by sending to utxo opreturn output
     KmdOpReturn,
-    /// Send to the burn account
-    BurnAccount,
+    /// Send non-kmd coins to a dedicated account to exchange for kmd coins and burn them
+    PreBurnAccount,
 }
 
 /// Represents the different types of DEX fees.
@@ -3641,14 +3640,14 @@ pub enum DexFee {
 }
 
 impl DexFee {
-    const BURN_CUT: &str = "0.75";
+    const DEX_FEE_SHARE: &str = "0.75";
 
     /// Recreates a `DexFee` from separate fields (usually stored in db).
     pub fn create_from_fields(fee_amount: MmNumber, burn_amount: MmNumber, ticker: &str) -> DexFee {
         if burn_amount > MmNumber::default() {
             let burn_destination = match ticker {
                 "KMD" => DexFeeBurnDestination::KmdOpReturn,
-                _ => DexFeeBurnDestination::BurnAccount,
+                _ => DexFeeBurnDestination::PreBurnAccount,
             };
             DexFee::WithBurn {
                 fee_amount,
@@ -3687,7 +3686,7 @@ impl DexFee {
                     return DexFee::WithBurn {
                         fee_amount,
                         burn_amount,
-                        burn_destination: DexFeeBurnDestination::BurnAccount,
+                        burn_destination: DexFeeBurnDestination::PreBurnAccount,
                     };
                 }
             }
@@ -3713,8 +3712,8 @@ impl DexFee {
     ///
     /// Also the cut can be decreased if the new dex fee amount is less than the minimum transaction amount.
     fn calc_burn_amount_for_op_return(dex_fee: &MmNumber, min_tx_amount: &MmNumber) -> (MmNumber, MmNumber) {
-        // Dex fee with 25% cut
-        let new_fee = dex_fee * &MmNumber::from(Self::BURN_CUT);
+        // Dex fee with 25% burn amount cut
+        let new_fee = dex_fee * &MmNumber::from(Self::DEX_FEE_SHARE);
         if &new_fee >= min_tx_amount {
             // Use the max burn value, which is 25%.
             let burn_amount = dex_fee - &new_fee;
@@ -3734,8 +3733,8 @@ impl DexFee {
     ///
     /// The cut can be set to zero if any of resulting amounts is less than the minimum transaction amount.
     fn calc_burn_amount_for_burn_account(dex_fee: &MmNumber, min_tx_amount: &MmNumber) -> (MmNumber, MmNumber) {
-        // Dex fee with 25% cut
-        let new_fee = dex_fee * &MmNumber::from(Self::BURN_CUT);
+        // Dex fee with 25% burn amount cut
+        let new_fee = dex_fee * &MmNumber::from(Self::DEX_FEE_SHARE);
         let burn_amount = dex_fee - &new_fee;
         if &new_fee >= min_tx_amount && &burn_amount >= min_tx_amount {
             // Use the max burn value, which is 25%. Ensure burn_amount is not dust
