@@ -296,7 +296,7 @@ impl MarketCoinOps for SplToken {
 
     fn is_trezor(&self) -> bool { self.platform_coin.is_trezor() }
 
-    fn should_burn_dex_fee(&self) -> bool { false }
+    fn should_burn_dex_fee(&self) -> bool { unimplemented!() }
 }
 
 #[async_trait]

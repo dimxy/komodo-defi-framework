@@ -749,7 +749,7 @@ impl MarketCoinOps for SolanaCoin {
 
     fn min_trading_vol(&self) -> MmNumber { MmNumber::from("0.00777") }
 
-    fn should_burn_dex_fee(&self) -> bool { false }
+    fn should_burn_dex_fee(&self) -> bool { unimplemented!() }
 
     fn is_trezor(&self) -> bool { unimplemented!() }
 }
