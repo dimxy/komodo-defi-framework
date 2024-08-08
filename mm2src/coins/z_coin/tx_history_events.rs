@@ -1,5 +1,5 @@
 use super::z_tx_history::fetch_txs_from_db;
-use super::{NoInfoAboutTx, ZCoin, ZcoinTxDetails};
+use super::{NoInfoAboutTx, ZCoin, ZTxHistoryError, ZcoinTxDetails};
 use crate::utxo::rpc_clients::UtxoRpcError;
 use crate::MarketCoinOps;
 use common::log;
@@ -64,12 +64,8 @@ impl EventStreamer for ZCoinTxHistoryEventStreamer {
 enum GetTxDetailsError {
     #[display(fmt = "RPC Error: {_0:?}")]
     UtxoRpcError(UtxoRpcError),
-    #[cfg(not(target_arch = "wasm32"))]
-    #[display(fmt = "Sqlite DB Error: {_0:?}")]
-    SqliteDbError(db_common::sqlite::rusqlite::Error),
-    #[cfg(target_arch = "wasm32")]
-    #[display(fmt = "IndexedDB Error: {_0:?}")]
-    IndexedDbError(String),
+    #[display(fmt = "DB Error: {_0:?}")]
+    DbError(String),
     #[display(fmt = "Internal Error: {_0:?}")]
     Internal(NoInfoAboutTx),
 }
@@ -78,14 +74,8 @@ impl From<MmError<UtxoRpcError>> for GetTxDetailsError {
     fn from(e: MmError<UtxoRpcError>) -> Self { GetTxDetailsError::UtxoRpcError(e.into_inner()) }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-impl From<db_common::sqlite::rusqlite::Error> for GetTxDetailsError {
-    fn from(e: db_common::sqlite::rusqlite::Error) -> Self { GetTxDetailsError::SqliteDbError(e) }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl From<String> for GetTxDetailsError {
-    fn from(e: String) -> Self { GetTxDetailsError::IndexedDbError(e) }
+impl From<MmError<ZTxHistoryError>> for GetTxDetailsError {
+    fn from(e: MmError<ZTxHistoryError>) -> Self { GetTxDetailsError::DbError(e.to_string()) }
 }
 
 impl From<MmError<NoInfoAboutTx>> for GetTxDetailsError {
