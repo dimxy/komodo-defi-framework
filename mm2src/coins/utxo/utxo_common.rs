@@ -1494,7 +1494,7 @@ where
     }];
 
     match dex_fee {
-        DexFee::Standard(_) => {}, // do nothing
+        DexFee::Standard(_) => {}, // TODO: replace with error 'dex fee must contain burn amount' when nodes upgraded
         DexFee::WithBurn {
             fee_amount: _,
             burn_amount,
@@ -5258,6 +5258,40 @@ fn test_tx_v_size() {
 }
 
 #[test]
+fn test_generate_taker_fee_tx_outputs_with_standard_dex_fee() {
+    let client = UtxoRpcClientEnum::Native(NativeClient(Arc::new(NativeClientImpl::default())));
+    let mut fields = utxo_coin_fields_for_test(client, None, false);
+    fields.conf.ticker = "MYCOIN1".to_owned();
+    let coin = utxo_coin_from_fields(fields);
+
+    let fee_amount = BigDecimal::from(6150);
+    let fee_uamount = sat_from_big_decimal(&fee_amount, 8).unwrap();
+
+    // TODO: replace with error result ('dex fee must contain burn amount') when nodes are upgraded
+    let outputs = generate_taker_fee_tx_outputs(
+        &coin,
+        &DexFee::create_from_fields(fee_amount.into(), 0.into(), "MYCOIN1"),
+    )
+    .unwrap();
+
+    let dex_address = address_from_raw_pubkey(
+        coin.dex_pubkey(),
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.checksum_type,
+        coin.as_ref().conf.bech32_hrp.clone(),
+        coin.addr_format().clone(),
+    )
+    .unwrap();
+
+    assert_eq!(outputs.len(), 1);
+    assert_eq!(outputs[0].value, fee_uamount);
+    assert_eq!(
+        outputs[0].script_pubkey,
+        Builder::build_p2pkh(dex_address.hash()).to_bytes()
+    );
+}
+
+#[test]
 fn test_generate_taker_fee_tx_outputs_with_non_kmd_burn() {
     let client = UtxoRpcClientEnum::Native(NativeClient(Arc::new(NativeClientImpl::default())));
     let mut fields = utxo_coin_fields_for_test(client, None, false);
@@ -5271,7 +5305,7 @@ fn test_generate_taker_fee_tx_outputs_with_non_kmd_burn() {
 
     let outputs = generate_taker_fee_tx_outputs(
         &coin,
-        &DexFee::create_from_fields(fee_amount.into(), burn_amount.into(), "MYCOIN1"), // TODO: Add test for ETH and DexFee::Standard
+        &DexFee::create_from_fields(fee_amount.into(), burn_amount.into(), "MYCOIN1"),
     )
     .unwrap();
 
