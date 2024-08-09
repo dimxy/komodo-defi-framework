@@ -1010,10 +1010,11 @@ impl<'a> ZCoinBuilder<'a> {
     }
 
     async fn init_blocks_db(&self) -> Result<BlockDbImpl, MmError<ZcoinClientInitError>> {
+        let cache_db_path = self.db_dir_path.join(format!("{}_cache.db", self.ticker));
         let ctx = self.ctx.clone();
         let ticker = self.ticker.to_string();
 
-        BlockDbImpl::new(&ctx, ticker, PathBuf::new())
+        BlockDbImpl::new(&ctx, ticker, cache_db_path)
             .map_err(|err| MmError::new(ZcoinClientInitError::ZcoinStorageError(err.to_string())))
             .await
     }
