@@ -78,7 +78,6 @@ use serde_json::{self as json, Value as Json};
 use std::cmp::Ordering;
 use std::collections::hash_map::{HashMap, RawEntryMut};
 use std::collections::HashSet;
-use std::env::var;
 use std::future::Future as Future03;
 use std::num::{NonZeroUsize, TryFromIntError};
 use std::ops::{Add, AddAssign, Deref};
@@ -1974,9 +1973,6 @@ pub trait MarketCoinOps {
     /// Is KMD coin
     fn is_kmd(&self) -> bool { false }
 
-    /// Is eth-like coin
-    fn is_evm(&self) -> bool { false }
-
     /// Should burn part of dex fee coin
     fn should_burn_dex_fee(&self) -> bool;
 
@@ -3696,10 +3692,15 @@ impl DexFee {
 
     /// Returns dex fee discount if KMD is traded
     pub fn dex_fee_rate(base: &str, rel: &str) -> MmNumber {
-        let fee_discount_tickers: &[&str] = match var("MYCOIN_FEE_DISCOUNT") {
+        #[cfg(any(feature = "for-tests", test))]
+        let fee_discount_tickers: &[&str] = match std::env::var("MYCOIN_FEE_DISCOUNT") {
             Ok(_) => &["KMD", "MYCOIN"],
             Err(_) => &["KMD"],
         };
+        
+        #[cfg(not(any(feature = "for-tests", test)))]
+        let fee_discount_tickers: &[&str] = &["KMD"];
+
         if fee_discount_tickers.contains(&base) || fee_discount_tickers.contains(&rel) {
             // 1/777 - 10%
             BigRational::new(9.into(), 7770.into()).into()

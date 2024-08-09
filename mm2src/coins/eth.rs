@@ -2422,9 +2422,6 @@ impl MarketCoinOps for EthCoin {
     }
 
     #[inline]
-    fn is_evm(&self) -> bool { true }
-
-    #[inline]
     fn should_burn_dex_fee(&self) -> bool { false }
 
     fn is_trezor(&self) -> bool { self.priv_key_policy.is_trezor() }
