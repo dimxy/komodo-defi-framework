@@ -5,11 +5,12 @@ use super::swap_lock::{SwapLock, SwapLockOps};
 use super::swap_watcher::{watcher_topic, SwapWatcherMsg};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg_every,
-            check_other_coin_balance_for_swap, dex_fee_amount_from_taker_coin, get_locked_amount, recv_swap_msg,
-            swap_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
-            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
+            check_other_coin_balance_for_swap, dex_fee_from_taker_coin, get_locked_amount, recv_swap_msg, swap_topic,
+            wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
+            NegotiationDataV2, NegotiationDataV4, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
             SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext,
-            TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, WAIT_CONFIRM_INTERVAL_SEC};
+            TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, PRE_BURN_ACCOUNT_ACTIVE, SWAP_PROTOCOL_VERSION,
+            WAIT_CONFIRM_INTERVAL_SEC};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::TakerOrderBuilder;
 use crate::mm2::lp_swap::swap_v2_common::mark_swap_as_finished;
@@ -946,7 +947,8 @@ impl TakerSwap {
                 taker_coin_swap_contract,
             })
         } else {
-            NegotiationDataMsg::V3(NegotiationDataV3 {
+            NegotiationDataMsg::V4(NegotiationDataV4 {
+                version: SWAP_PROTOCOL_VERSION,
                 started_at: r.data.started_at,
                 payment_locktime: r.data.taker_payment_lock,
                 secret_hash,
@@ -1223,6 +1225,7 @@ impl TakerSwap {
             self.ctx.clone(),
             swap_topic(&self.uuid),
             taker_data,
+            None,
             NEGOTIATE_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -1317,6 +1320,7 @@ impl TakerSwap {
             self.ctx.clone(),
             swap_topic(&self.uuid),
             msg,
+            None,
             MAKER_PAYMENT_WAIT_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -1681,6 +1685,7 @@ impl TakerSwap {
             self.ctx.clone(),
             swap_topic(&self.uuid),
             msg,
+            None,
             BROADCAST_MSG_INTERVAL_SEC,
             self.p2p_privkey,
         );

@@ -106,6 +106,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[path = "lp_swap/komodefi.swap_v2.pb.rs"]
 #[rustfmt::skip]
 mod swap_v2_pb;
+#[path = "lp_swap/swap_features.rs"] mod swap_features;
 #[path = "lp_swap/swap_v2_common.rs"] mod swap_v2_common;
 #[path = "lp_swap/swap_v2_rpcs.rs"] pub(crate) mod swap_v2_rpcs;
 #[path = "lp_swap/swap_watcher.rs"] pub(crate) mod swap_watcher;
@@ -160,6 +161,12 @@ const NEGOTIATE_SEND_INTERVAL: f64 = 30.;
 
 /// If a certain P2P message is not received, swap will be aborted after this time expires.
 const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
+
+/// Current swap protocol version
+pub(crate) const SWAP_PROTOCOL_VERSION: u16 = 4;
+
+/// Minimal supported swap protocol version implemented by remote peer
+pub(crate) const MIN_SWAP_PROTOCOL_VERSION: u16 = 1;
 
 cfg_wasm32! {
     use mm2_db::indexed_db::{ConstructibleDb, DbLocked};
@@ -260,18 +267,24 @@ pub fn p2p_private_and_peer_id_to_broadcast(ctx: &MmArc, p2p_privkey: Option<&Ke
     }
 }
 
-/// Spawns the loop that broadcasts message every `interval` seconds returning the AbortOnDropHandle
+/// Spawns the loop that broadcasts message (and optional alternate message) every `interval` seconds returning the AbortOnDropHandle
 /// to stop it
 pub fn broadcast_swap_msg_every<T: 'static + Serialize + Clone + Send>(
     ctx: MmArc,
     topic: String,
     msg: T,
+    alternate_msg: Option<T>,
     interval_sec: f64,
     p2p_privkey: Option<KeyPair>,
 ) -> AbortOnDropHandle {
     let fut = async move {
         loop {
             broadcast_swap_message(&ctx, topic.clone(), msg.clone(), &p2p_privkey);
+            println!("broadcast_swap_msg_every sent msg");
+            if let Some(alternate_msg) = alternate_msg.clone() {
+                broadcast_swap_message(&ctx, topic.clone(), alternate_msg, &p2p_privkey);
+                println!("broadcast_swap_msg_every sent alternate_msg");
+            }
             Timer::sleep(interval_sec).await;
         }
     };
@@ -827,19 +840,43 @@ pub struct NegotiationDataV3 {
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
+pub struct NegotiationDataV4 {
+    /// swap protocol version supported by taker or maker
+    version: u16,
+    started_at: u64,
+    payment_locktime: u64,
+    secret_hash: Vec<u8>,
+    maker_coin_swap_contract: Vec<u8>,
+    taker_coin_swap_contract: Vec<u8>,
+    maker_coin_htlc_pub: Vec<u8>,
+    taker_coin_htlc_pub: Vec<u8>,
+}
+
+#[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum NegotiationDataMsg {
     V1(NegotiationDataV1),
     V2(NegotiationDataV2),
     V3(NegotiationDataV3),
+    V4(NegotiationDataV4),
 }
 
 impl NegotiationDataMsg {
+    pub fn version(&self) -> u16 {
+        match self {
+            NegotiationDataMsg::V1(_) => 1,
+            NegotiationDataMsg::V2(_) => 2,
+            NegotiationDataMsg::V3(_) => 3,
+            NegotiationDataMsg::V4(v4) => v4.version,
+        }
+    }
+
     pub fn started_at(&self) -> u64 {
         match self {
             NegotiationDataMsg::V1(v1) => v1.started_at,
             NegotiationDataMsg::V2(v2) => v2.started_at,
             NegotiationDataMsg::V3(v3) => v3.started_at,
+            NegotiationDataMsg::V4(v4) => v4.started_at,
         }
     }
 
@@ -848,6 +885,7 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(v1) => v1.payment_locktime,
             NegotiationDataMsg::V2(v2) => v2.payment_locktime,
             NegotiationDataMsg::V3(v3) => v3.payment_locktime,
+            NegotiationDataMsg::V4(v4) => v4.payment_locktime,
         }
     }
 
@@ -856,6 +894,7 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(v1) => &v1.secret_hash,
             NegotiationDataMsg::V2(v2) => &v2.secret_hash,
             NegotiationDataMsg::V3(v3) => &v3.secret_hash,
+            NegotiationDataMsg::V4(v4) => &v4.secret_hash,
         }
     }
 
@@ -864,6 +903,7 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
             NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
             NegotiationDataMsg::V3(v3) => &v3.maker_coin_htlc_pub,
+            NegotiationDataMsg::V4(v4) => &v4.maker_coin_htlc_pub,
         }
     }
 
@@ -872,6 +912,7 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
             NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
             NegotiationDataMsg::V3(v3) => &v3.taker_coin_htlc_pub,
+            NegotiationDataMsg::V4(v4) => &v4.taker_coin_htlc_pub,
         }
     }
 
@@ -880,6 +921,7 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(_) => None,
             NegotiationDataMsg::V2(v2) => Some(&v2.maker_coin_swap_contract),
             NegotiationDataMsg::V3(v3) => Some(&v3.maker_coin_swap_contract),
+            NegotiationDataMsg::V4(v4) => Some(&v4.maker_coin_swap_contract),
         }
     }
 
@@ -888,6 +930,7 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(_) => None,
             NegotiationDataMsg::V2(v2) => Some(&v2.taker_coin_swap_contract),
             NegotiationDataMsg::V3(v3) => Some(&v3.taker_coin_swap_contract),
+            NegotiationDataMsg::V4(v4) => Some(&v4.taker_coin_swap_contract),
         }
     }
 }

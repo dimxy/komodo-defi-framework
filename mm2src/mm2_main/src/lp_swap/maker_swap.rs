@@ -4,17 +4,20 @@ use super::pubkey_banning::ban_pubkey_on_failed_swap;
 use super::swap_lock::{SwapLock, SwapLockOps};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_every,
-            check_other_coin_balance_for_swap, detect_secret_hash_algo, dex_fee_amount_from_taker_coin,
-            get_locked_amount, recv_swap_msg, swap_topic, taker_payment_spend_deadline, tx_helper_topic,
+            check_other_coin_balance_for_swap, detect_secret_hash_algo, dex_fee_from_taker_coin, get_locked_amount,
+            recv_swap_msg, swap_topic, taker_payment_spend_deadline, tx_helper_topic,
             wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
-            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
-            SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
-            SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, WAIT_CONFIRM_INTERVAL_SEC};
+            NegotiationDataV2, NegotiationDataV3, NegotiationDataV4, RecoveredSwap, RecoveredSwapAction, SavedSwap,
+            SavedSwapIo, SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys,
+            SwapTxDataMsg, SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE,
+            SWAP_PROTOCOL_VERSION, WAIT_CONFIRM_INTERVAL_SEC};
 use crate::mm2::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::MakerOrderBuilder;
+use crate::mm2::lp_swap::swap_features::SwapFeature;
 use crate::mm2::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::mm2::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF};
+use crate::mm2::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF,
+                          MIN_SWAP_PROTOCOL_VERSION};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, MmCoin,
             MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
@@ -120,6 +123,9 @@ async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSav
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TakerNegotiationData {
+    /// Protocol version supported by taker. Optional because it was added in V4 of NegotiationDataMsg
+    /// so it could be read as None from a saved swap if the swap started before upgrade to V4
+    pub taker_version: Option<u16>,
     pub taker_payment_locktime: u64,
     pub taker_pubkey: H264Json,
     pub maker_coin_swap_contract_addr: Option<BytesJson>,
@@ -154,6 +160,8 @@ pub struct MakerSwapData {
     pub maker_payment_lock: u64,
     /// Allows to recognize one SWAP from the other in the logs. #274.
     pub uuid: Uuid,
+    /// Swap protocol version taker support. This field introduced with NegotiationDataV4 so may be optional for past messages
+    pub taker_version: Option<u16>,
     pub started_at: u64,
     pub maker_coin_start_block: u64,
     pub taker_coin_start_block: u64,
@@ -289,6 +297,7 @@ impl MakerSwap {
             },
             MakerSwapEvent::StartFailed(err) => self.errors.lock().push(err),
             MakerSwapEvent::Negotiated(data) => {
+                self.w().data.taker_version = Some(determine_taker_version(&data));
                 self.taker_payment_lock
                     .store(data.taker_payment_locktime, Ordering::Relaxed);
                 self.w().other_maker_coin_htlc_pub = data.other_maker_coin_htlc_pub();
@@ -406,7 +415,8 @@ impl MakerSwap {
         }
     }
 
-    fn get_my_negotiation_data(&self) -> NegotiationDataMsg {
+    /// Creates initial negotiation messages. Creates new and old messages to try both until all nodes are upgraded to V4
+    fn get_my_negotiation_data(&self) -> (NegotiationDataMsg, Option<NegotiationDataMsg>) {
         let r = self.r();
         let secret_hash = self.secret_hash();
         let maker_coin_swap_contract = self
@@ -422,24 +432,40 @@ impl MakerSwap {
         let same_as_persistent = r.data.maker_coin_htlc_pubkey == Some(r.data.my_persistent_pub);
 
         if equal && same_as_persistent {
-            NegotiationDataMsg::V2(NegotiationDataV2 {
-                started_at: r.data.started_at,
-                payment_locktime: r.data.maker_payment_lock,
-                persistent_pubkey: r.data.my_persistent_pub.0.to_vec(),
-                secret_hash,
-                maker_coin_swap_contract,
-                taker_coin_swap_contract,
-            })
+            (
+                NegotiationDataMsg::V2(NegotiationDataV2 {
+                    started_at: r.data.started_at,
+                    payment_locktime: r.data.maker_payment_lock,
+                    persistent_pubkey: r.data.my_persistent_pub.0.to_vec(),
+                    secret_hash,
+                    maker_coin_swap_contract,
+                    taker_coin_swap_contract,
+                }),
+                None,
+            )
         } else {
-            NegotiationDataMsg::V3(NegotiationDataV3 {
-                started_at: r.data.started_at,
-                payment_locktime: r.data.maker_payment_lock,
-                secret_hash,
-                maker_coin_swap_contract,
-                taker_coin_swap_contract,
-                maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
-                taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
-            })
+            // create both old V3 and new V4 messages
+            (
+                NegotiationDataMsg::V3(NegotiationDataV3 {
+                    started_at: r.data.started_at,
+                    payment_locktime: r.data.maker_payment_lock,
+                    secret_hash: secret_hash.clone(),
+                    maker_coin_swap_contract: maker_coin_swap_contract.clone(),
+                    taker_coin_swap_contract: taker_coin_swap_contract.clone(),
+                    maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
+                    taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
+                }),
+                Some(NegotiationDataMsg::V4(NegotiationDataV4 {
+                    version: SWAP_PROTOCOL_VERSION,
+                    started_at: r.data.started_at,
+                    payment_locktime: r.data.maker_payment_lock,
+                    secret_hash,
+                    maker_coin_swap_contract,
+                    taker_coin_swap_contract,
+                    maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
+                    taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
+                })),
+            )
         }
     }
 
@@ -550,6 +576,7 @@ impl MakerSwap {
             taker: self.taker.bytes.into(),
             secret: self.secret.into(),
             secret_hash: Some(self.secret_hash().into()),
+            taker_version: None, // not yet known before the negotiation stage
             started_at,
             lock_duration: self.payment_locktime,
             maker_amount: self.maker_amount.clone(),
@@ -580,16 +607,24 @@ impl MakerSwap {
     }
 
     async fn negotiate(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
-        let negotiation_data = self.get_my_negotiation_data();
+        let (old_negotiation_data, new_negotiation_data) = self.get_my_negotiation_data();
 
-        let maker_negotiation_data = SwapMsg::Negotiation(negotiation_data);
+        let maker_old_negotiation_data = SwapMsg::Negotiation(old_negotiation_data);
+        let maker_new_negotiation_data =
+            new_negotiation_data.map(|negotiation_data| SwapMsg::Negotiation(negotiation_data));
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
-        debug!("Sending maker negotiation data {:?}", maker_negotiation_data);
+        debug!(
+            "Sending maker negotiation data old: {:?} new: {:?}",
+            maker_old_negotiation_data, maker_new_negotiation_data
+        );
+        // Send both old and new negotiation data to determine whether the remote node is old (support only NegotiationDataV3) or new (supports NegotiationDataV4).
+        // Since all nodes upgrade to NegotiationDataV4 we won't need to send both messages and will be able to determine the node by the 'version' field in NegotiationDataV4
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
-            maker_negotiation_data,
+            maker_old_negotiation_data,
+            maker_new_negotiation_data,
             NEGOTIATION_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -903,6 +938,7 @@ impl MakerSwap {
             self.ctx.clone(),
             swap_topic(&self.uuid),
             msg,
+            None,
             PAYMENT_MSG_INTERVAL_SEC,
             self.p2p_privkey,
         );
@@ -1828,6 +1864,7 @@ impl MakerSavedSwap {
                     maker_payment_lock: 0,
                     uuid: Default::default(),
                     started_at: 0,
+                    taker_version: None,
                     maker_coin_start_block: 0,
                     taker_coin_start_block: 0,
                     maker_payment_trade_fee: None,
@@ -2346,6 +2383,23 @@ pub async fn calc_max_maker_vol(
         balance: MmNumber::from(balance.clone()),
         locked_by_swaps,
     })
+}
+
+/// Determine taker version from negotiation data
+/// (even if version was not stored in saved swap data if the swap started before the upgrade to NegotiationDataMsg V4 with the 'version' field)
+fn determine_taker_version(negotiation_data: &TakerNegotiationData) -> u16 {
+    match negotiation_data.taker_version {
+        Some(version) => version,
+        None => {
+            let equal = negotiation_data.maker_coin_htlc_pubkey == negotiation_data.taker_coin_htlc_pubkey;
+            let same_as_persistent = negotiation_data.maker_coin_htlc_pubkey == Some(negotiation_data.taker_pubkey);
+            if equal && same_as_persistent {
+                2
+            } else {
+                3
+            }
+        },
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
