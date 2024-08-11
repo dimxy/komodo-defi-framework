@@ -3656,7 +3656,12 @@ impl DexFee {
     }
 
     /// Creates a new `DexFee` for a taker coin to sell.
-    pub fn new_from_taker_coin(taker_coin: &dyn MmCoin, rel_ticker: &str, trade_amount: &MmNumber) -> DexFee {
+    pub fn new_from_taker_coin(
+        taker_coin: &dyn MmCoin,
+        rel_ticker: &str,
+        trade_amount: &MmNumber,
+        burn_active: bool,
+    ) -> DexFee {
         // calc dex fee
         let rate = Self::dex_fee_rate(taker_coin.ticker(), rel_ticker);
         let dex_fee = trade_amount * &rate;
@@ -3665,17 +3670,17 @@ impl DexFee {
             return DexFee::Standard(min_tx_amount);
         }
 
-        if taker_coin.should_burn_dex_fee() {
-            if taker_coin.is_kmd() {
-                // use a special dex fee option for kmd
-                let (fee_amount, burn_amount) = Self::calc_burn_amount_for_op_return(&dex_fee, &min_tx_amount);
-                return DexFee::WithBurn {
-                    fee_amount,
-                    burn_amount,
-                    burn_destination: DexFeeBurnDestination::KmdOpReturn,
-                };
-            } else {
-                // burn dex fee to the burn account
+        if taker_coin.is_kmd() {
+            // use a special dex fee option for kmd
+            let (fee_amount, burn_amount) = Self::calc_burn_amount_for_op_return(&dex_fee, &min_tx_amount);
+            return DexFee::WithBurn {
+                fee_amount,
+                burn_amount,
+                burn_destination: DexFeeBurnDestination::KmdOpReturn,
+            };
+        } else {
+            if taker_coin.should_burn_dex_fee() && burn_active {
+                // send part of dex fee to the 'pre-burn' account
                 let (fee_amount, burn_amount) = Self::calc_burn_amount_for_burn_account(&dex_fee, &min_tx_amount);
                 // burn_amount can be set to zero if it is dust
                 if burn_amount > MmNumber::from(0) {
@@ -3697,7 +3702,7 @@ impl DexFee {
             Ok(_) => &["KMD", "MYCOIN"],
             Err(_) => &["KMD"],
         };
-        
+
         #[cfg(not(any(feature = "for-tests", test)))]
         let fee_discount_tickers: &[&str] = &["KMD"];
 

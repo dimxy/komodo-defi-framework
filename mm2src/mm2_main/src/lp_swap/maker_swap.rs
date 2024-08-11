@@ -635,8 +635,9 @@ impl MakerSwap {
             NEGOTIATION_TIMEOUT_SEC,
         );
         let taker_data = match recv_fut.await {
-            Ok(d) => d,
+            Ok(d) => { println!("received okay from recv_fut"); d},
             Err(e) => {
+                println!("received error from recv_fut");
                 self.broadcast_negotiated_false();
                 return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
                     ERRL!("{:?}", e).into(),
@@ -644,6 +645,15 @@ impl MakerSwap {
             },
         };
         drop(send_abort_handle);
+
+        let remote_version = taker_data.version();
+        if remote_version < MIN_SWAP_PROTOCOL_VERSION {
+            self.broadcast_negotiated_false();
+            return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
+                ERRL!("Taker protocol version {} too old", remote_version).into(),
+            )]));
+        }
+
         let time_dif = self.r().data.started_at.abs_diff(taker_data.started_at());
         if time_dif > MAX_STARTED_AT_DIFF {
             self.broadcast_negotiated_false();
@@ -709,6 +719,7 @@ impl MakerSwap {
 
         Ok((Some(MakerSwapCommand::WaitForTakerFee), vec![
             MakerSwapEvent::Negotiated(TakerNegotiationData {
+                taker_version: Some(remote_version),
                 taker_payment_locktime: taker_data.payment_locktime(),
                 // using default to avoid misuse of this field
                 // maker_coin_htlc_pubkey and taker_coin_htlc_pubkey must be used instead
@@ -728,6 +739,7 @@ impl MakerSwap {
             self.ctx.clone(),
             swap_topic(&self.uuid),
             negotiated,
+            None,
             TAKER_FEE_RECV_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -786,7 +798,22 @@ impl MakerSwap {
         info!("Taker fee tx {:02x}", hash);
 
         let taker_amount = MmNumber::from(self.taker_amount.clone());
-        let dex_fee = dex_fee_amount_from_taker_coin(self.taker_coin.deref(), &self.r().data.maker_coin, &taker_amount);
+        let remote_version = self
+            .r()
+            .data
+            .taker_version
+            .ok_or("No swap protocol version".to_owned())?;
+        let is_burn_active = SwapFeature::is_active(SwapFeature::NonKmdToPreBurnAccount, remote_version);
+        let dex_fee = dex_fee_from_taker_coin(
+            self.taker_coin.deref(),
+            &self.r().data.maker_coin,
+            &taker_amount,
+            is_burn_active,
+        );
+        println!(
+            "wait_taker_fee remote_version={remote_version} is_burn_active={is_burn_active} dex_fee={:?}",
+            dex_fee
+        );
         let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
         let taker_coin_start_block = self.r().data.taker_coin_start_block;
 

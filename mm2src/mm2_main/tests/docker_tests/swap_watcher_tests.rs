@@ -17,8 +17,8 @@ use coins::{ConfirmPaymentInput, DexFee, FoundSwapTxSpend, MarketCoinOps, MmCoin
 use common::{block_on, now_sec, wait_until_sec};
 use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
 use futures01::Future;
-use mm2_main::mm2::lp_swap::{dex_fee_amount_from_taker_coin, generate_secret, get_payment_locktime,
-                             MAKER_PAYMENT_SENT_LOG, MAKER_PAYMENT_SPEND_FOUND_LOG, MAKER_PAYMENT_SPEND_SENT_LOG,
+use mm2_main::mm2::lp_swap::{dex_fee_from_taker_coin, generate_secret, get_payment_locktime, MAKER_PAYMENT_SENT_LOG,
+                             MAKER_PAYMENT_SPEND_FOUND_LOG, MAKER_PAYMENT_SPEND_SENT_LOG, PRE_BURN_ACCOUNT_ACTIVE,
                              REFUND_TEST_FAILURE_LOG, TAKER_PAYMENT_REFUND_SENT_LOG, WATCHER_MESSAGE_SENT_LOG};
 use mm2_number::BigDecimal;
 use mm2_number::MmNumber;
@@ -817,9 +817,14 @@ fn test_watcher_spends_maker_payment_eth_utxo() {
 
     let coin = TestCoin::new("MYCOIN");
     TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(min_tx_amount.clone()));
-    let dex_fee: BigDecimal = DexFee::new_from_taker_coin(&coin, "ETH", &MmNumber::from(mycoin_volume.clone()))
-        .fee_amount()
-        .into();
+    let dex_fee: BigDecimal = DexFee::new_from_taker_coin(
+        &coin,
+        "ETH",
+        &MmNumber::from(mycoin_volume.clone()),
+        PRE_BURN_ACCOUNT_ACTIVE,
+    )
+    .fee_amount()
+    .into();
     let alice_mycoin_reward_sent = balances.alice_acoin_balance_before
         - balances.alice_acoin_balance_after.clone()
         - mycoin_volume.clone()
@@ -957,9 +962,14 @@ fn test_watcher_spends_maker_payment_erc20_utxo() {
     let min_tx_amount = BigDecimal::from_str("0.00001").unwrap();
     let coin = TestCoin::new("MYCOIN");
     TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(min_tx_amount.clone()));
-    let dex_fee: BigDecimal = DexFee::new_from_taker_coin(&coin, "ERC20DEV", &MmNumber::from(mycoin_volume.clone()))
-        .fee_amount()
-        .into();
+    let dex_fee: BigDecimal = DexFee::new_from_taker_coin(
+        &coin,
+        "ERC20DEV",
+        &MmNumber::from(mycoin_volume.clone()),
+        PRE_BURN_ACCOUNT_ACTIVE,
+    )
+    .fee_amount()
+    .into();
     let alice_mycoin_reward_sent = balances.alice_acoin_balance_before
         - balances.alice_acoin_balance_after.clone()
         - mycoin_volume.clone()
@@ -1207,7 +1217,7 @@ fn test_watcher_validate_taker_fee_utxo() {
     let taker_pubkey = taker_coin.my_public_key().unwrap();
 
     let taker_amount = MmNumber::from((10, 1));
-    let fee_amount = dex_fee_amount_from_taker_coin(&taker_coin, maker_coin.ticker(), &taker_amount);
+    let fee_amount = dex_fee_from_taker_coin(&taker_coin, maker_coin.ticker(), &taker_amount, PRE_BURN_ACCOUNT_ACTIVE);
 
     let taker_fee = taker_coin
         .send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)
@@ -1328,7 +1338,7 @@ fn test_watcher_validate_taker_fee_eth() {
     let taker_pubkey = taker_keypair.public();
 
     let taker_amount = MmNumber::from((1, 1));
-    let fee_amount = dex_fee_amount_from_taker_coin(&taker_coin, "ETH", &taker_amount);
+    let fee_amount = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, PRE_BURN_ACCOUNT_ACTIVE);
     let taker_fee = taker_coin
         .send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)
         .wait()
@@ -1429,7 +1439,7 @@ fn test_watcher_validate_taker_fee_erc20() {
     let taker_pubkey = taker_keypair.public();
 
     let taker_amount = MmNumber::from((1, 1));
-    let fee_amount = dex_fee_amount_from_taker_coin(&taker_coin, "ETH", &taker_amount);
+    let fee_amount = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, PRE_BURN_ACCOUNT_ACTIVE);
     let taker_fee = taker_coin
         .send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)
         .wait()
