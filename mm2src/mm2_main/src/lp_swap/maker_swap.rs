@@ -15,7 +15,8 @@ use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_features::SwapFeature;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, NegotiationDataMsgVersion, MAX_STARTED_AT_DIFF, MIN_SWAP_PROTOCOL_VERSION, SWAP_PROTOCOL_VERSION};
+use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, NegotiationDataMsgVersion,
+                     MAX_STARTED_AT_DIFF, MIN_SWAP_PROTOCOL_VERSION, SWAP_PROTOCOL_VERSION};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, MmCoin,
             MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
@@ -592,8 +593,9 @@ impl MakerSwap {
         let negotiation_data = self.get_my_negotiation_data();
 
         let maker_old_negotiation_data = SwapMsg::Negotiation(negotiation_data.clone());
-        let maker_versioned_negotiation_data = SwapMsg::NegotiationVersioned(NegotiationDataMsgVersion { 
-            version: SWAP_PROTOCOL_VERSION, msg: negotiation_data
+        let maker_versioned_negotiation_data = SwapMsg::NegotiationVersioned(NegotiationDataMsgVersion {
+            version: SWAP_PROTOCOL_VERSION,
+            msg: negotiation_data,
         });
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
@@ -617,7 +619,10 @@ impl MakerSwap {
             NEGOTIATION_TIMEOUT_SEC,
         );
         let taker_data = match recv_fut.await {
-            Ok(d) => { println!("received okay from recv_fut"); d},
+            Ok(d) => {
+                println!("received okay from recv_fut");
+                d
+            },
             Err(e) => {
                 println!("received error from recv_fut");
                 self.broadcast_negotiated_false();

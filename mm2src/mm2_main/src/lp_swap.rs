@@ -106,6 +106,7 @@ mod swap_lock;
 #[path = "lp_swap/komodefi.swap_v2.pb.rs"]
 #[rustfmt::skip]
 mod swap_v2_pb;
+mod swap_features;
 mod swap_v2_common;
 pub(crate) mod swap_v2_rpcs;
 pub(crate) mod swap_watcher;
@@ -113,7 +114,6 @@ pub(crate) mod taker_restart;
 pub(crate) mod taker_swap;
 pub mod taker_swap_v2;
 mod trade_preimage;
-mod swap_features;
 
 #[cfg(target_arch = "wasm32")] mod swap_wasm_db;
 
@@ -376,10 +376,20 @@ pub async fn process_swap_msg(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequest
         if msg_store.accept_only_from.bytes == msg.2.unprefixed() {
             match msg.0 {
                 // build NegotiationDataMsgVersion from legacy NegotiationDataMsg with default version:
-                SwapMsg::Negotiation(data) => msg_store.negotiation = Some(NegotiationDataMsgVersion { version: LEGACY_PROTOCOL_VERSION, msg: data }),
+                SwapMsg::Negotiation(data) => {
+                    msg_store.negotiation = Some(NegotiationDataMsgVersion {
+                        version: LEGACY_PROTOCOL_VERSION,
+                        msg: data,
+                    })
+                },
                 SwapMsg::NegotiationVersioned(data) => msg_store.negotiation = Some(data),
                 // build NegotiationDataMsgVersion from legacy NegotiationDataMsg with default version:
-                SwapMsg::NegotiationReply(data) => msg_store.negotiation_reply = Some(NegotiationDataMsgVersion { version: LEGACY_PROTOCOL_VERSION, msg: data }),
+                SwapMsg::NegotiationReply(data) => {
+                    msg_store.negotiation_reply = Some(NegotiationDataMsgVersion {
+                        version: LEGACY_PROTOCOL_VERSION,
+                        msg: data,
+                    })
+                },
                 SwapMsg::NegotiationReplyVersioned(data) => msg_store.negotiation_reply = Some(data),
                 SwapMsg::Negotiated(negotiated) => msg_store.negotiated = Some(negotiated),
                 SwapMsg::TakerFee(data) => msg_store.taker_fee = Some(data),
@@ -920,37 +930,21 @@ pub struct NegotiationDataMsgVersion {
 }
 
 impl NegotiationDataMsgVersion {
-    pub fn version(&self) -> u16 {
-        self.version
-    }
+    pub fn version(&self) -> u16 { self.version }
 
-    pub fn started_at(&self) -> u64 {
-        self.msg.started_at()
-    }
+    pub fn started_at(&self) -> u64 { self.msg.started_at() }
 
-    pub fn payment_locktime(&self) -> u64 {
-        self.msg.payment_locktime()
-    }
+    pub fn payment_locktime(&self) -> u64 { self.msg.payment_locktime() }
 
-    pub fn secret_hash(&self) -> &[u8] {
-        self.msg.secret_hash()
-    }
+    pub fn secret_hash(&self) -> &[u8] { self.msg.secret_hash() }
 
-    pub fn maker_coin_htlc_pub(&self) -> &[u8] {
-        self.msg.maker_coin_htlc_pub()
-    }
+    pub fn maker_coin_htlc_pub(&self) -> &[u8] { self.msg.maker_coin_htlc_pub() }
 
-    pub fn taker_coin_htlc_pub(&self) -> &[u8] {
-        self.msg.taker_coin_htlc_pub()
-    }
+    pub fn taker_coin_htlc_pub(&self) -> &[u8] { self.msg.taker_coin_htlc_pub() }
 
-    pub fn maker_coin_swap_contract(&self) -> Option<&[u8]> {
-        self.msg.maker_coin_swap_contract()
-    }
+    pub fn maker_coin_swap_contract(&self) -> Option<&[u8]> { self.msg.maker_coin_swap_contract() }
 
-    pub fn taker_coin_swap_contract(&self) -> Option<&[u8]> {
-        self.msg.taker_coin_swap_contract()
-    }
+    pub fn taker_coin_swap_contract(&self) -> Option<&[u8]> { self.msg.taker_coin_swap_contract() }
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
