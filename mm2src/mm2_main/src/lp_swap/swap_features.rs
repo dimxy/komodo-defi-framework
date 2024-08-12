@@ -7,7 +7,7 @@ pub(crate) enum SwapFeature {
 
 impl SwapFeature {
     // add new features to activate
-    const SWAP_FEATURE_ACTIVATION: &[(u16, SwapFeature)] = &[(4, SwapFeature::NonKmdToPreBurnAccount)];
+    const SWAP_FEATURE_ACTIVATION: &[(u16, SwapFeature)] = &[(1, SwapFeature::NonKmdToPreBurnAccount)];
 
     pub(crate) fn is_active(feature: SwapFeature, version: u16) -> bool {
         if let Some(found) = Self::SWAP_FEATURE_ACTIVATION.iter().find(|fv| fv.1 == feature) {
