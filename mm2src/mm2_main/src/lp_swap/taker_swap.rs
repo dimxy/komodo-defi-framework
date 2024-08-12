@@ -7,9 +7,9 @@ use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePr
 use super::{broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg_every,
             check_other_coin_balance_for_swap, dex_fee_from_taker_coin, get_locked_amount, recv_swap_msg, swap_topic,
             wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
-            NegotiationDataV2, NegotiationDataV4, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
+            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
             SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext,
-            TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, PRE_BURN_ACCOUNT_ACTIVE, SWAP_PROTOCOL_VERSION,
+            TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, PRE_BURN_ACCOUNT_ACTIVE,
             WAIT_CONFIRM_INTERVAL_SEC};
 use crate::mm2::lp_network::subscribe_to_topic;
 use crate::mm2::lp_ordermatch::TakerOrderBuilder;
@@ -936,6 +936,10 @@ impl TakerSwap {
 
         let equal = r.data.maker_coin_htlc_pubkey == r.data.taker_coin_htlc_pubkey;
         let same_as_persistent = r.data.maker_coin_htlc_pubkey == Some(r.data.my_persistent_pub);
+        println!("TakerSwap::get_my_negotiation_data equal={equal} same_as_persistent={same_as_persistent} maker_coin_htlc_pubkey={:?} taker_coin_htlc_pubkey={:?} my_persistent_pub={:?}", 
+            r.data.maker_coin_htlc_pubkey,
+            r.data.taker_coin_htlc_pubkey,
+            r.data.my_persistent_pub);
 
         if equal && same_as_persistent {
             NegotiationDataMsg::V2(NegotiationDataV2 {
@@ -947,8 +951,7 @@ impl TakerSwap {
                 taker_coin_swap_contract,
             })
         } else {
-            NegotiationDataMsg::V4(NegotiationDataV4 {
-                version: SWAP_PROTOCOL_VERSION,
+            NegotiationDataMsg::V3(NegotiationDataV3 {
                 started_at: r.data.started_at,
                 payment_locktime: r.data.taker_payment_lock,
                 secret_hash,
@@ -1083,6 +1086,11 @@ impl TakerSwap {
         let unique_data = self.unique_swap_data();
         let maker_coin_htlc_pubkey = self.maker_coin.derive_htlc_pubkey(&unique_data);
         let taker_coin_htlc_pubkey = self.taker_coin.derive_htlc_pubkey(&unique_data);
+        println!("TakerSwap::start unique_data={} maker_coin_htlc_pubkey={:?} taker_coin_htlc_pubkey={:?} my_persistent_pub={:?}", 
+            hex::encode(unique_data),
+            maker_coin_htlc_pubkey,
+            taker_coin_htlc_pubkey,
+            self.my_persistent_pub);
 
         let data = TakerSwapData {
             taker_coin: self.taker_coin.ticker().to_owned(),
@@ -1228,8 +1236,7 @@ impl TakerSwap {
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
-            taker_data,
-            None,
+            vec![taker_data],
             NEGOTIATE_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -1327,8 +1334,7 @@ impl TakerSwap {
         let abort_send_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
-            msg,
-            None,
+            vec![msg],
             MAKER_PAYMENT_WAIT_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -1692,8 +1698,7 @@ impl TakerSwap {
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
-            msg,
-            None,
+            vec![msg],
             BROADCAST_MSG_INTERVAL_SEC,
             self.p2p_privkey,
         );

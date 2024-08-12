@@ -162,11 +162,14 @@ const NEGOTIATE_SEND_INTERVAL: f64 = 30.;
 /// If a certain P2P message is not received, swap will be aborted after this time expires.
 const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
+/// Deafult swap protocol version before version field added to NegotiationDataMsg
+pub(crate) const LEGACY_PROTOCOL_VERSION: u16 = 0;
+
 /// Current swap protocol version
-pub(crate) const SWAP_PROTOCOL_VERSION: u16 = 4;
+pub(crate) const SWAP_PROTOCOL_VERSION: u16 = 1;
 
 /// Minimal supported swap protocol version implemented by remote peer
-pub(crate) const MIN_SWAP_PROTOCOL_VERSION: u16 = 1;
+pub(crate) const MIN_SWAP_PROTOCOL_VERSION: u16 = LEGACY_PROTOCOL_VERSION;
 
 cfg_wasm32! {
     use mm2_db::indexed_db::{ConstructibleDb, DbLocked};
@@ -179,7 +182,9 @@ cfg_wasm32! {
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
 pub enum SwapMsg {
     Negotiation(NegotiationDataMsg),
+    NegotiationVersioned(NegotiationDataMsgVersion),
     NegotiationReply(NegotiationDataMsg),
+    NegotiationReplyVersioned(NegotiationDataMsgVersion),
     Negotiated(bool),
     TakerFee(SwapTxDataMsg),
     MakerPayment(SwapTxDataMsg),
@@ -188,8 +193,8 @@ pub enum SwapMsg {
 
 #[derive(Debug, Default)]
 pub struct SwapMsgStore {
-    negotiation: Option<NegotiationDataMsg>,
-    negotiation_reply: Option<NegotiationDataMsg>,
+    negotiation: Option<NegotiationDataMsgVersion>,
+    negotiation_reply: Option<NegotiationDataMsgVersion>,
     negotiated: Option<bool>,
     taker_fee: Option<SwapTxDataMsg>,
     maker_payment: Option<SwapTxDataMsg>,
@@ -267,23 +272,19 @@ pub fn p2p_private_and_peer_id_to_broadcast(ctx: &MmArc, p2p_privkey: Option<&Ke
     }
 }
 
-/// Spawns the loop that broadcasts message (and optional alternate message) every `interval` seconds returning the AbortOnDropHandle
+/// Spawns the loop that broadcasts group of messages every `interval` seconds returning the AbortOnDropHandle
 /// to stop it
 pub fn broadcast_swap_msg_every<T: 'static + Serialize + Clone + Send>(
     ctx: MmArc,
     topic: String,
-    msg: T,
-    alternate_msg: Option<T>,
+    msgs: Vec<T>,
     interval_sec: f64,
     p2p_privkey: Option<KeyPair>,
 ) -> AbortOnDropHandle {
     let fut = async move {
         loop {
-            broadcast_swap_message(&ctx, topic.clone(), msg.clone(), &p2p_privkey);
-            println!("broadcast_swap_msg_every sent msg");
-            if let Some(alternate_msg) = alternate_msg.clone() {
-                broadcast_swap_message(&ctx, topic.clone(), alternate_msg, &p2p_privkey);
-                println!("broadcast_swap_msg_every sent alternate_msg");
+            for msg in msgs.iter() {
+                broadcast_swap_message(&ctx, topic.clone(), msg.clone(), &p2p_privkey);
             }
             Timer::sleep(interval_sec).await;
         }
@@ -377,8 +378,12 @@ pub async fn process_swap_msg(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequest
     if let Some(msg_store) = msgs.get_mut(&uuid) {
         if msg_store.accept_only_from.bytes == msg.2.unprefixed() {
             match msg.0 {
-                SwapMsg::Negotiation(data) => msg_store.negotiation = Some(data),
-                SwapMsg::NegotiationReply(data) => msg_store.negotiation_reply = Some(data),
+                // build NegotiationDataMsgVersion from legacy NegotiationDataMsg with default version:
+                SwapMsg::Negotiation(data) => msg_store.negotiation = Some(NegotiationDataMsgVersion { version: LEGACY_PROTOCOL_VERSION, msg: data }),
+                SwapMsg::NegotiationVersioned(data) => msg_store.negotiation = Some(data),
+                // build NegotiationDataMsgVersion from legacy NegotiationDataMsg with default version:
+                SwapMsg::NegotiationReply(data) => msg_store.negotiation_reply = Some(NegotiationDataMsgVersion { version: LEGACY_PROTOCOL_VERSION, msg: data }),
+                SwapMsg::NegotiationReplyVersioned(data) => msg_store.negotiation_reply = Some(data),
                 SwapMsg::Negotiated(negotiated) => msg_store.negotiated = Some(negotiated),
                 SwapMsg::TakerFee(data) => msg_store.taker_fee = Some(data),
                 SwapMsg::MakerPayment(data) => msg_store.maker_payment = Some(data),
@@ -845,43 +850,19 @@ pub struct NegotiationDataV3 {
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
-pub struct NegotiationDataV4 {
-    /// swap protocol version supported by taker or maker
-    version: u16,
-    started_at: u64,
-    payment_locktime: u64,
-    secret_hash: Vec<u8>,
-    maker_coin_swap_contract: Vec<u8>,
-    taker_coin_swap_contract: Vec<u8>,
-    maker_coin_htlc_pub: Vec<u8>,
-    taker_coin_htlc_pub: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum NegotiationDataMsg {
     V1(NegotiationDataV1),
     V2(NegotiationDataV2),
     V3(NegotiationDataV3),
-    V4(NegotiationDataV4),
 }
 
 impl NegotiationDataMsg {
-    pub fn version(&self) -> u16 {
-        match self {
-            NegotiationDataMsg::V1(_) => 1,
-            NegotiationDataMsg::V2(_) => 2,
-            NegotiationDataMsg::V3(_) => 3,
-            NegotiationDataMsg::V4(v4) => v4.version,
-        }
-    }
-
     pub fn started_at(&self) -> u64 {
         match self {
             NegotiationDataMsg::V1(v1) => v1.started_at,
             NegotiationDataMsg::V2(v2) => v2.started_at,
             NegotiationDataMsg::V3(v3) => v3.started_at,
-            NegotiationDataMsg::V4(v4) => v4.started_at,
         }
     }
 
@@ -890,7 +871,6 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(v1) => v1.payment_locktime,
             NegotiationDataMsg::V2(v2) => v2.payment_locktime,
             NegotiationDataMsg::V3(v3) => v3.payment_locktime,
-            NegotiationDataMsg::V4(v4) => v4.payment_locktime,
         }
     }
 
@@ -899,7 +879,6 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(v1) => &v1.secret_hash,
             NegotiationDataMsg::V2(v2) => &v2.secret_hash,
             NegotiationDataMsg::V3(v3) => &v3.secret_hash,
-            NegotiationDataMsg::V4(v4) => &v4.secret_hash,
         }
     }
 
@@ -908,7 +887,6 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
             NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
             NegotiationDataMsg::V3(v3) => &v3.maker_coin_htlc_pub,
-            NegotiationDataMsg::V4(v4) => &v4.maker_coin_htlc_pub,
         }
     }
 
@@ -917,7 +895,6 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
             NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
             NegotiationDataMsg::V3(v3) => &v3.taker_coin_htlc_pub,
-            NegotiationDataMsg::V4(v4) => &v4.taker_coin_htlc_pub,
         }
     }
 
@@ -926,7 +903,6 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(_) => None,
             NegotiationDataMsg::V2(v2) => Some(&v2.maker_coin_swap_contract),
             NegotiationDataMsg::V3(v3) => Some(&v3.maker_coin_swap_contract),
-            NegotiationDataMsg::V4(v4) => Some(&v4.maker_coin_swap_contract),
         }
     }
 
@@ -935,8 +911,48 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V1(_) => None,
             NegotiationDataMsg::V2(v2) => Some(&v2.taker_coin_swap_contract),
             NegotiationDataMsg::V3(v3) => Some(&v3.taker_coin_swap_contract),
-            NegotiationDataMsg::V4(v4) => Some(&v4.taker_coin_swap_contract),
         }
+    }
+}
+
+/// NegotiationDataMsg with version
+#[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
+pub struct NegotiationDataMsgVersion {
+    version: u16,
+    msg: NegotiationDataMsg,
+}
+
+impl NegotiationDataMsgVersion {
+    pub fn version(&self) -> u16 {
+        self.version
+    }
+
+    pub fn started_at(&self) -> u64 {
+        self.msg.started_at()
+    }
+
+    pub fn payment_locktime(&self) -> u64 {
+        self.msg.payment_locktime()
+    }
+
+    pub fn secret_hash(&self) -> &[u8] {
+        self.msg.secret_hash()
+    }
+
+    pub fn maker_coin_htlc_pub(&self) -> &[u8] {
+        self.msg.maker_coin_htlc_pub()
+    }
+
+    pub fn taker_coin_htlc_pub(&self) -> &[u8] {
+        self.msg.taker_coin_htlc_pub()
+    }
+
+    pub fn maker_coin_swap_contract(&self) -> Option<&[u8]> {
+        self.msg.maker_coin_swap_contract()
+    }
+
+    pub fn taker_coin_swap_contract(&self) -> Option<&[u8]> {
+        self.msg.taker_coin_swap_contract()
     }
 }
 
