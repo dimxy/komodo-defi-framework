@@ -7,16 +7,15 @@ use super::{broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_e
             check_other_coin_balance_for_swap, detect_secret_hash_algo, dex_fee_from_taker_coin, get_locked_amount,
             recv_swap_msg, swap_topic, taker_payment_spend_deadline, tx_helper_topic,
             wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
-            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap,
-            SavedSwapIo, SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys,
-            SwapTxDataMsg, SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE,
-            SWAP_PROTOCOL_VERSION, WAIT_CONFIRM_INTERVAL_SEC};
-use crate::mm2::lp_dispatcher::{DispatcherContext, LpEvents};
-use crate::mm2::lp_network::subscribe_to_topic;
-use crate::mm2::lp_ordermatch::MakerOrderBuilder;
-use crate::mm2::lp_swap::swap_features::SwapFeature;
-use crate::mm2::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::mm2::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, NegotiationDataMsgVersion, MAX_STARTED_AT_DIFF, MIN_SWAP_PROTOCOL_VERSION};
+            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
+            SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
+            SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, WAIT_CONFIRM_INTERVAL_SEC};
+use crate::lp_dispatcher::{DispatcherContext, LpEvents};
+use crate::lp_network::subscribe_to_topic;
+use crate::lp_ordermatch::MakerOrderBuilder;
+use crate::lp_swap::swap_features::SwapFeature;
+use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
+use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, NegotiationDataMsgVersion, MAX_STARTED_AT_DIFF, MIN_SWAP_PROTOCOL_VERSION, SWAP_PROTOCOL_VERSION};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, MmCoin,
             MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
@@ -2785,7 +2784,7 @@ mod maker_swap_tests {
 
     #[test]
     fn swap_must_not_lock_funds_by_default() {
-        use crate::mm2::lp_swap::get_locked_amount;
+        use crate::lp_swap::get_locked_amount;
 
         let ctx = mm_ctx_with_iguana(PASSPHRASE);
 
