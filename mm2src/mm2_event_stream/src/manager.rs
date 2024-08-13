@@ -1,16 +1,15 @@
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::{controller::Controller, Broadcaster, Event, EventStreamer};
+use crate::{Event, EventStreamer};
 use common::executor::abortable_queue::WeakSpawner;
 use common::log;
 
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
 use parking_lot::RwLock;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc;
 
 /// The errors that could originate from the streaming manager.
 #[derive(Debug)]
@@ -49,18 +48,48 @@ impl StreamerInfo {
         }
     }
 
+    fn add_client(&mut self, client_id: u64) { self.clients.insert(client_id); }
+
+    fn remove_client(&mut self, client_id: &u64) { self.clients.remove(client_id); }
+
     fn is_down(&self) -> bool { self.shutdown.is_canceled() }
+}
+
+struct ClientInfo {
+    /// The streamers the client is listening to.
+    listening_to: HashSet<String>,
+    /// The communication/stream-out channel to the client.
+    channel: mpsc::Sender<Arc<Event>>,
+}
+
+impl ClientInfo {
+    fn new(channel: mpsc::Sender<Arc<Event>>) -> Self {
+        Self {
+            listening_to: HashSet::new(),
+            channel,
+        }
+    }
+
+    fn add_streamer(&mut self, streamer_id: String) { self.listening_to.insert(streamer_id); }
+
+    fn remove_streamer(&mut self, streamer_id: &str) { self.listening_to.remove(streamer_id); }
+
+    fn listens_to(&self, streamer_id: &str) -> bool { self.listening_to.contains(streamer_id) }
+
+    fn send_event(&self, event: Arc<Event>) {
+        // Only `try_send` here. If the channel is full (client is slow), the message
+        // will be dropped and the client won't receive it.
+        // This avoids blocking the broadcast to other receivers.
+        self.channel.try_send(event).ok();
+    }
 }
 
 #[derive(Default)]
 struct StreamingManagerInner {
     /// A map from streamer IDs to their communication channels (if present) and shutdown handles.
     streamers: HashMap<String, StreamerInfo>,
-    /// The stream-out controller/broadcaster that all streamers use to stream data to the clients (using SSE).
-    controller: Controller<Event>,
-    /// An inverse map from clients to the streamers they are listening to.
-    /// Lists known clients and is always kept in sync with `streamers`.
-    clients: HashMap<u64, HashSet<String>>,
+    /// An inverse map from client IDs to the streamers they are listening to and the communication channel with the client.
+    clients: HashMap<u64, ClientInfo>,
 }
 
 #[derive(Clone, Default)]
@@ -85,7 +114,7 @@ impl StreamingManager {
                 // We don't know that client. We don't have a connection to it.
                 None => return Err(StreamingManagerError::UnknownClient),
                 // The client is already listening to that streamer.
-                Some(listening_to) if listening_to.contains(&streamer_id) => {
+                Some(client_info) if client_info.listens_to(&streamer_id) => {
                     return Err(StreamingManagerError::ClientAlreadyListening);
                 },
                 _ => (),
@@ -94,18 +123,18 @@ impl StreamingManager {
             // If a streamer is already up and running, we won't spawn another one.
             if let Some(streamer_info) = this.streamers.get_mut(&streamer_id) {
                 // Register the client as a listener to the streamer.
-                streamer_info.clients.insert(client_id);
+                streamer_info.add_client(client_id);
                 // Register the streamer as listened-to by the client.
                 this.clients
                     .get_mut(&client_id)
-                    .map(|listening_to| listening_to.insert(streamer_id.clone()));
+                    .map(|info| info.add_streamer(streamer_id.clone()));
                 return Ok(streamer_id);
             }
         }
 
         // Spawn a new streamer.
         let (shutdown, data_in) = streamer
-            .spawn(spawner, Broadcaster::new(self.clone()))
+            .spawn(spawner, self.clone())
             .await
             .map_err(StreamingManagerError::SpawnError)?;
         let streamer_info = StreamerInfo::new(data_in, shutdown);
@@ -114,13 +143,12 @@ impl StreamingManager {
         // This means we can't assume either that the client still exists at this point or
         // that the streamer still doesn't exist.
         let mut this = self.0.write();
-        if let Some(listening_to) = this.clients.get_mut(&client_id) {
-            listening_to.insert(streamer_id.clone());
+        if let Some(client_info) = this.clients.get_mut(&client_id) {
+            client_info.add_streamer(streamer_id.clone());
             this.streamers
                 .entry(streamer_id.clone())
                 .or_insert(streamer_info)
-                .clients
-                .insert(client_id);
+                .add_client(client_id);
         } else {
             // The client was removed while we were spawning the streamer.
             // We no longer have a connection for it.
@@ -166,14 +194,13 @@ impl StreamingManager {
     /// Stops streaming from the streamer with `streamer_id` to the client with `client_id`.
     pub fn stop(&self, client_id: u64, streamer_id: &str) -> Result<(), StreamingManagerError> {
         let mut this = self.0.write();
-        if let Some(listening_to) = this.clients.get_mut(&client_id) {
-            listening_to.remove(streamer_id);
+        if let Some(client_info) = this.clients.get_mut(&client_id) {
+            client_info.remove_streamer(streamer_id);
 
             this.streamers
                 .get_mut(streamer_id)
                 .ok_or(StreamingManagerError::StreamerNotFound)?
-                .clients
-                .remove(&client_id);
+                .remove_client(&client_id);
 
             // If there are no more listening clients, terminate the streamer.
             if this.streamers.get(streamer_id).map(|info| info.clients.len()) == Some(0) {
@@ -191,37 +218,49 @@ impl StreamingManager {
     /// this method broadcasts an event to the listening *clients* directly, independently
     /// of any streamer (i.e. bypassing any streamer).
     pub fn broadcast(&self, event: Event) {
+        let event = Arc::new(event);
         let this = self.0.read();
         if let Some(client_ids) = this.streamers.get(event.origin()).map(|info| &info.clients) {
-            this.controller.broadcast(event, Some(client_ids))
-        }
+            client_ids.iter().for_each(|client_id| {
+                this.clients.get(client_id).map(|info| info.send_event(event.clone()));
+            });
+        };
     }
 
     /// Forcefully broadcasts an event to all known clients even if they are not listening for such an event.
-    pub fn broadcast_all(&self, event: Event) { self.0.read().controller.broadcast(event, None) }
+    pub fn broadcast_all(&self, event: Event) {
+        let event = Arc::new(event);
+        self.0.read().clients.values().for_each(|info| {
+            info.send_event(event.clone());
+        });
+    }
 
-    pub fn new_client(&self, client_id: u64) -> Result<Receiver<Arc<Event>>, StreamingManagerError> {
+    /// Creates a new client and returns the event receiver for this client.
+    pub fn new_client(&self, client_id: u64) -> Result<mpsc::Receiver<Arc<Event>>, StreamingManagerError> {
         let mut this = self.0.write();
         if this.clients.contains_key(&client_id) {
             return Err(StreamingManagerError::ClientExists);
         }
-        this.clients.insert(client_id, HashSet::new());
         // Note that events queued in the channel are `Arc<` shared.
         // So a 1024 long buffer isn't actually heavy on memory.
-        Ok(this.controller.create_channel(client_id, 1024))
+        let (tx, rx) = mpsc::channel(1024);
+        let client_info = ClientInfo::new(tx);
+        this.clients.insert(client_id, client_info);
+        Ok(rx)
     }
 
+    /// Removes a client from the manager.
     pub fn remove_client(&self, client_id: u64) -> Result<(), StreamingManagerError> {
         let mut this = self.0.write();
         // Remove the client from our known-clients map.
-        let listening_to = this
+        let client_info = this
             .clients
             .remove(&client_id)
             .ok_or(StreamingManagerError::UnknownClient)?;
         // Remove the client from all the streamers it was listening to.
-        for streamer_id in listening_to {
+        for streamer_id in client_info.listening_to {
             if let Some(streamer_info) = this.streamers.get_mut(&streamer_id) {
-                streamer_info.clients.remove(&client_id);
+                streamer_info.remove_client(&client_id);
             } else {
                 log::error!(
                     "Client {client_id} was listening to a non-existent streamer {streamer_id}. This is a bug!"
@@ -232,8 +271,6 @@ impl StreamingManager {
                 this.streamers.remove(&streamer_id);
             }
         }
-        // Remove our channel with this client.
-        this.controller.remove_channel(&client_id);
         Ok(())
     }
 
@@ -246,14 +283,15 @@ impl StreamingManager {
         let mut this = self.0.write();
         if let Some(streamer_info) = this.streamers.get_mut(streamer_id) {
             if streamer_info.is_down() {
-                // Remove the streamer from all clients listening to it.
-                for client_id in std::mem::take(&mut streamer_info.clients) {
-                    this.clients
-                        .get_mut(&client_id)
-                        .map(|listening_to| listening_to.remove(streamer_id));
+                // Remove the streamer from our registry.
+                if let Some(streamer_info) = this.streamers.remove(streamer_id) {
+                    // And remove the streamer from all clients listening to it.
+                    for client_id in streamer_info.clients {
+                        this.clients
+                            .get_mut(&client_id)
+                            .map(|info| info.remove_streamer(streamer_id));
+                    }
                 }
-                // And remove the streamer from our registry.
-                this.streamers.remove(streamer_id);
             }
         }
     }
@@ -415,6 +453,7 @@ mod tests {
 
         // The streamer is up and streaming to `client_id`.
         assert!(manager
+            .0
             .read()
             .streamers
             .get(&streamer_id)
@@ -423,7 +462,13 @@ mod tests {
             .contains(&client_id));
 
         // The client should be registered and listening to `streamer_id`.
-        assert!(manager.read().clients.get(&client_id).unwrap().contains(&streamer_id));
+        assert!(manager
+            .0
+            .read()
+            .clients
+            .get(&client_id)
+            .unwrap()
+            .listens_to(&streamer_id));
 
         // Abort the system to kill the streamer.
         system.abort_all().unwrap();
@@ -433,8 +478,14 @@ mod tests {
         manager.remove_streamer_if_down(&streamer_id);
 
         // The streamer should be removed.
-        assert!(manager.read().streamers.get(&streamer_id).is_none());
+        assert!(manager.0.read().streamers.get(&streamer_id).is_none());
         // And the client is no more listening to it.
-        assert!(!manager.read().clients.get(&client_id).unwrap().contains(&streamer_id));
+        assert!(!manager
+            .0
+            .read()
+            .clients
+            .get(&client_id)
+            .unwrap()
+            .listens_to(&streamer_id));
     }
 }

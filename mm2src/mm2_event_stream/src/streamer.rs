@@ -47,7 +47,7 @@ where
     async fn spawn(
         self,
         spawner: WeakSpawner,
-        broadcaster: Broadcaster,
+        streaming_manager: StreamingManager,
     ) -> Result<(oneshot::Sender<()>, Option<mpsc::UnboundedSender<Box<dyn Any + Send>>>), String> {
         let streamer_id = self.streamer_id();
         info!("Spawning event streamer: {streamer_id}");
@@ -81,7 +81,7 @@ where
                     _ = rx_shutdown.fuse() => {
                         info!("Manually shutting down event streamer: {streamer_id}.")
                     }
-                    _ = self.handle(broadcaster, tx_ready, data_receiver).fuse() => {}
+                    _ = self.handle(Broadcaster::new(streaming_manager), tx_ready, data_receiver).fuse() => {}
                 }
             }
         };
@@ -197,10 +197,9 @@ mod tests {
     #[tokio::test]
     async fn test_spawn_periodic_streamer() {
         let system = AbortableQueue::default();
-        let broadcaster = Broadcaster::new(StreamingManager::default());
         // Spawn the periodic streamer.
         let (_, data_in) = PeriodicStreamer
-            .spawn(system.weak_spawner(), broadcaster)
+            .spawn(system.weak_spawner(), StreamingManager::default())
             .await
             .unwrap();
         // Periodic streamer shouldn't be ingesting any input.
@@ -210,10 +209,9 @@ mod tests {
     #[tokio::test]
     async fn test_spawn_reactive_streamer() {
         let system = AbortableQueue::default();
-        let broadcaster = Broadcaster::new(StreamingManager::default());
         // Spawn the reactive streamer.
         let (_, data_in) = ReactiveStreamer
-            .spawn(system.weak_spawner(), broadcaster)
+            .spawn(system.weak_spawner(), StreamingManager::default())
             .await
             .unwrap();
         // Reactive streamer should be ingesting some input.
@@ -223,10 +221,9 @@ mod tests {
     #[tokio::test]
     async fn test_spawn_erroring_streamer() {
         let system = AbortableQueue::default();
-        let broadcaster = Broadcaster::new(StreamingManager::default());
         // Try to spawn the erroring streamer.
         let err = InitErrorStreamer
-            .spawn(system.weak_spawner(), broadcaster)
+            .spawn(system.weak_spawner(), StreamingManager::default())
             .await
             .unwrap_err();
         // The streamer should return an error.
