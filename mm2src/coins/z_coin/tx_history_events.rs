@@ -57,13 +57,20 @@ impl EventStreamer for ZCoinTxHistoryEventStreamer {
     }
 }
 
-#[derive(Debug)]
+/// Errors that can occur while getting transaction details for some tx hashes.
+///
+/// The error implements `Display` trait, so it can be easily converted `.to_string`.
+#[derive(Debug, derive_more::Display)]
 enum GetTxDetailsError {
+    #[display(fmt = "RPC Error: {_0:?}")]
     UtxoRpcError(UtxoRpcError),
     #[cfg(not(target_arch = "wasm32"))]
+    #[display(fmt = "Sqlite DB Error: {_0:?}")]
     SqliteDbError(db_common::sqlite::rusqlite::Error),
     #[cfg(target_arch = "wasm32")]
+    #[display(fmt = "IndexedDB Error: {_0:?}")]
     IndexedDbError(String),
+    #[display(fmt = "Internal Error: {_0:?}")]
     Internal(NoInfoAboutTx),
 }
 
@@ -85,24 +92,12 @@ impl From<MmError<NoInfoAboutTx>> for GetTxDetailsError {
     fn from(e: MmError<NoInfoAboutTx>) -> Self { GetTxDetailsError::Internal(e.into_inner()) }
 }
 
-// This is how the error is stringified before sending it to the client.
-impl ToString for GetTxDetailsError {
-    fn to_string(&self) -> String {
-        match self {
-            GetTxDetailsError::UtxoRpcError(e) => format!("RPC Error: {e:?}"),
-            #[cfg(not(target_arch = "wasm32"))]
-            GetTxDetailsError::SqliteDbError(e) => format!("Sqlite DB Error: {e:?}"),
-            #[cfg(target_arch = "wasm32")]
-            GetTxDetailsError::IndexedDbError(e) => format!("IndexedDB Error: {e:?}"),
-            GetTxDetailsError::Internal(e) => format!("Internal Error: {e:?}"),
-        }
-    }
-}
-
 async fn get_tx_details(coin: &ZCoin, txs: Vec<WalletTx<Nullifier>>) -> Result<Vec<ZcoinTxDetails>, GetTxDetailsError> {
     let current_block = coin.utxo_rpc_client().get_block_count().compat().await?;
-    let tx_ids = txs.iter().map(|tx| tx.txid).collect();
-    let txs_from_db = fetch_txs_from_db(coin, tx_ids).await?;
+    let txs_from_db = {
+        let tx_ids = txs.iter().map(|tx| tx.txid).collect();
+        fetch_txs_from_db(coin, tx_ids).await?
+    };
 
     let hashes_for_verbose = txs_from_db
         .iter()
@@ -124,7 +119,7 @@ async fn get_tx_details(coin: &ZCoin, txs: Vec<WalletTx<Nullifier>>) -> Result<V
 
     let txs_details = txs_from_db
         .into_iter()
-        .map(|sql_item| coin.tx_details_from_db_item(sql_item, &transactions, &prev_transactions, current_block))
+        .map(|tx_item| coin.tx_details_from_db_item(tx_item, &transactions, &prev_transactions, current_block))
         .collect::<Result<_, _>>()?;
 
     Ok(txs_details)

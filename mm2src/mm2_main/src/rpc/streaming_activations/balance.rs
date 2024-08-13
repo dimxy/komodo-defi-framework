@@ -51,33 +51,21 @@ pub async fn enable_balance(
 
     let enable_result = match coin {
         MmCoinEnum::UtxoCoin(coin) => {
-            if req.config.is_some() {
-                Err(BalanceStreamingRequestError::EnableError(
-                    "Invalid config provided. No config needed".to_string(),
-                ))?
-            }
+            check_empty_config(&req.config)?;
             let streamer = UtxoBalanceEventStreamer::new(coin.clone().into());
             ctx.event_stream_manager
                 .add(req.client_id, streamer, coin.spawner())
                 .await
         },
         MmCoinEnum::Bch(coin) => {
-            if req.config.is_some() {
-                Err(BalanceStreamingRequestError::EnableError(
-                    "Invalid config provided. No config needed".to_string(),
-                ))?
-            }
+            check_empty_config(&req.config)?;
             let streamer = UtxoBalanceEventStreamer::new(coin.clone().into());
             ctx.event_stream_manager
                 .add(req.client_id, streamer, coin.spawner())
                 .await
         },
         MmCoinEnum::QtumCoin(coin) => {
-            if req.config.is_some() {
-                Err(BalanceStreamingRequestError::EnableError(
-                    "Invalid config provided. No config needed".to_string(),
-                ))?
-            }
+            check_empty_config(&req.config)?;
             let streamer = UtxoBalanceEventStreamer::new(coin.clone().into());
             ctx.event_stream_manager
                 .add(req.client_id, streamer, coin.spawner())
@@ -91,22 +79,14 @@ pub async fn enable_balance(
                 .await
         },
         MmCoinEnum::ZCoin(coin) => {
-            if req.config.is_some() {
-                Err(BalanceStreamingRequestError::EnableError(
-                    "Invalid config provided. No config needed".to_string(),
-                ))?
-            }
+            check_empty_config(&req.config)?;
             let streamer = ZCoinBalanceEventStreamer::new(coin.clone());
             ctx.event_stream_manager
                 .add(req.client_id, streamer, coin.spawner())
                 .await
         },
         MmCoinEnum::Tendermint(coin) => {
-            if req.config.is_some() {
-                Err(BalanceStreamingRequestError::EnableError(
-                    "Invalid config provided. No config needed".to_string(),
-                ))?
-            }
+            check_empty_config(&req.config)?;
             let streamer = TendermintBalanceEventStreamer::new(coin.clone());
             ctx.event_stream_manager
                 .add(req.client_id, streamer, coin.spawner())
@@ -119,4 +99,13 @@ pub async fn enable_balance(
     enable_result
         .map(EnableStreamingResponse::new)
         .map_to_mm(|e| BalanceStreamingRequestError::EnableError(format!("{e:?}")))
+}
+
+fn check_empty_config(config: &Option<Json>) -> MmResult<(), BalanceStreamingRequestError> {
+    if config.is_some() {
+        Err(BalanceStreamingRequestError::EnableError(
+            "Invalid config provided. No config needed".to_string(),
+        ))?
+    }
+    Ok(())
 }
