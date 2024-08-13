@@ -2293,14 +2293,7 @@ pub fn validate_fee<T: UtxoCommonOps + SwapOps>(
                         validate_burn_output(&coin, &tx, output_index + 1, &burn_script_pubkey, &burn_amount)?;
                     },
                     DexFeeBurnDestination::PreBurnAccount => {
-                        let total_amount = &fee_amount + &burn_amount;
                         let burn_script_pubkey = Builder::build_p2pkh(burn_address.hash());
-                        if let Some(out) = tx.outputs.get(output_index + 1) {
-                            if out.script_pubkey != burn_script_pubkey.to_bytes() {
-                                // allow tx with no burn output while taker nodes are upgrading:
-                                return validate_dex_output(&coin, &tx, output_index, &dex_address, &total_amount);
-                            }
-                        }
                         validate_dex_output(&coin, &tx, output_index, &dex_address, &fee_amount)?;
                         validate_burn_output(&coin, &tx, output_index + 1, &burn_script_pubkey, &burn_amount)?;
                     },
