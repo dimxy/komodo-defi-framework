@@ -11,10 +11,10 @@ futures = { version = "0.3", default-features = false }
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
-tokio = { version = "1", features = ["sync"] }
+tokio = "1.20"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["sync", "macros", "time", "rt"] }
+tokio = { version = "1.20", features = ["macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-test = { version = "0.3.2" }

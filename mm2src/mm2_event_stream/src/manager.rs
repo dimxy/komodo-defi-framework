@@ -59,6 +59,11 @@ struct ClientInfo {
     /// The streamers the client is listening to.
     listening_to: HashSet<String>,
     /// The communication/stream-out channel to the client.
+    // NOTE: Here we are using `tokio`'s `mpsc` because the one in `futures` have some extra feature
+    // (ref: https://users.rust-lang.org/t/why-does-try-send-from-crate-futures-require-mut-self/100389).
+    // This feature is aimed towards the multi-producer case (which we don't use) and requires a mutable
+    // reference on `try_send` calls. This will require us to put the channel in a mutex and degrade the
+    // broadcasting performance.
     channel: mpsc::Sender<Arc<Event>>,
 }
 
