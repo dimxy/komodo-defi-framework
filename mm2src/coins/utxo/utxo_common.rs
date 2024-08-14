@@ -2285,19 +2285,17 @@ pub fn validate_fee<T: UtxoCommonOps + SwapOps>(
                 fee_amount,
                 burn_amount,
                 burn_destination,
-            } => {
-                match burn_destination {
-                    DexFeeBurnDestination::KmdOpReturn => {
-                        validate_dex_output(&coin, &tx, output_index, &dex_address, &fee_amount)?;
-                        let burn_script_pubkey = Builder::default().push_opcode(Opcode::OP_RETURN).into_script();
-                        validate_burn_output(&coin, &tx, output_index + 1, &burn_script_pubkey, &burn_amount)?;
-                    },
-                    DexFeeBurnDestination::PreBurnAccount => {
-                        let burn_script_pubkey = Builder::build_p2pkh(burn_address.hash());
-                        validate_dex_output(&coin, &tx, output_index, &dex_address, &fee_amount)?;
-                        validate_burn_output(&coin, &tx, output_index + 1, &burn_script_pubkey, &burn_amount)?;
-                    },
-                }
+            } => match burn_destination {
+                DexFeeBurnDestination::KmdOpReturn => {
+                    validate_dex_output(&coin, &tx, output_index, &dex_address, &fee_amount)?;
+                    let burn_script_pubkey = Builder::default().push_opcode(Opcode::OP_RETURN).into_script();
+                    validate_burn_output(&coin, &tx, output_index + 1, &burn_script_pubkey, &burn_amount)?;
+                },
+                DexFeeBurnDestination::PreBurnAccount => {
+                    let burn_script_pubkey = Builder::build_p2pkh(burn_address.hash());
+                    validate_dex_output(&coin, &tx, output_index, &dex_address, &fee_amount)?;
+                    validate_burn_output(&coin, &tx, output_index + 1, &burn_script_pubkey, &burn_amount)?;
+                },
             },
         };
         Ok(())

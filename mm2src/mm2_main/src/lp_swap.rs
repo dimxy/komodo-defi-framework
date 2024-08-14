@@ -144,9 +144,6 @@ pub use taker_swap::{calc_max_taker_vol, check_balance_for_taker_swap, max_taker
                      REFUND_TEST_FAILURE_LOG, WATCHER_MESSAGE_SENT_LOG};
 pub use trade_preimage::trade_preimage_rpc;
 
-#[cfg(feature="run-docker-tests")] pub use maker_swap::maker_use_old_negotiation_msg;
-#[cfg(feature="run-docker-tests")] pub use taker_swap::taker_use_old_negotiation_msg;
-
 pub const SWAP_PREFIX: TopicPrefix = "swap";
 pub const SWAP_V2_PREFIX: TopicPrefix = "swapv2";
 pub const SWAP_FINISHED_LOG: &str = "Swap finished: ";

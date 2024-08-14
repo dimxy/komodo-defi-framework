@@ -15,8 +15,10 @@ use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_features::SwapFeature;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, NegotiationDataMsgVersion,
-                     MAX_STARTED_AT_DIFF, MIN_SWAP_PROTOCOL_VERSION, SWAP_PROTOCOL_VERSION};
+use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF,
+                     MIN_SWAP_PROTOCOL_VERSION};
+#[cfg(not(feature = "test-use-old-maker"))]
+use crate::lp_swap::{NegotiationDataMsgVersion, SWAP_PROTOCOL_VERSION};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, MmCoin,
             MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
@@ -42,7 +44,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
-#[cfg(any(test, feature = "mocktopus"))] use mocktopus::macros::*;
 
 pub const MAKER_SUCCESS_EVENTS: [&str; 12] = [
     "Started",
@@ -444,9 +445,9 @@ impl MakerSwap {
             NegotiationDataMsg::V3(NegotiationDataV3 {
                 started_at: r.data.started_at,
                 payment_locktime: r.data.maker_payment_lock,
-                secret_hash: secret_hash.clone(),
-                maker_coin_swap_contract: maker_coin_swap_contract.clone(),
-                taker_coin_swap_contract: taker_coin_swap_contract.clone(),
+                secret_hash,
+                maker_coin_swap_contract,
+                taker_coin_swap_contract,
                 maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
                 taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
             })
@@ -592,37 +593,25 @@ impl MakerSwap {
 
     async fn negotiate(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         let negotiation_data = self.get_my_negotiation_data();
-
         let mut msgs = vec![];
-        let maker_versioned_negotiation_msg = SwapMsg::NegotiationVersioned(NegotiationDataMsgVersion {
-            version: SWAP_PROTOCOL_VERSION,
-            msg: negotiation_data.clone(),
-        });
 
-        // emulate old node (not supporting version in negotiation msg)
-        #[cfg(feature="run-docker-tests")]
-        if !maker_use_old_negotiation_msg() {
-            println!("MakerSwap::negotiate sending maker_versioned_negotiation_msg (test)");
-            msgs.push(maker_versioned_negotiation_msg);
-        } else {
-            println!("MakerSwap::negotiate not sending maker_versioned_negotiation_msg (test)");
-        }
-        // important to send new negotiation message first
-        #[cfg(not(feature="run-docker-tests"))]
+        // Important to try the new versioned negotiation message first
+        // (Run swap tests with "test-use-old-maker" feature to emulate old maker, sending non-versioned message only)
+        #[cfg(not(feature = "test-use-old-maker"))]
         {
+            let maker_versioned_negotiation_msg = SwapMsg::NegotiationVersioned(NegotiationDataMsgVersion {
+                version: SWAP_PROTOCOL_VERSION,
+                msg: negotiation_data.clone(),
+            });
             msgs.push(maker_versioned_negotiation_msg);
-            println!("MakerSwap::negotiate sending maker_versioned_negotiation_msg (non-test)");
         }
-        
+
         let maker_old_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
         msgs.push(maker_old_negotiation_msg);
 
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
-        debug!(
-            "Sending maker negotiation data: {:?}",
-            msgs
-        );
+        debug!("Sending maker negotiation data: {:?}", msgs);
         // Send both old and new negotiation data to determine whether the remote node is old (supports NegotiationDataMsg) or new (supports NegotiationDataMsgVersion).
         // When all nodes upgrade to NegotiationDataMsgVersion we won't need to send both messages and will use 'version' field in NegotiationDataMsgVersion
         let send_abort_handle = broadcast_swap_msg_every(
@@ -639,12 +628,8 @@ impl MakerSwap {
             NEGOTIATION_TIMEOUT_SEC,
         );
         let taker_data = match recv_fut.await {
-            Ok(d) => {
-                println!("received okay from recv_fut");
-                d
-            },
+            Ok(d) => d,
             Err(e) => {
-                println!("received error from recv_fut");
                 self.broadcast_negotiated_false();
                 return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
                     ERRL!("{:?}", e).into(),
@@ -654,6 +639,8 @@ impl MakerSwap {
         drop(send_abort_handle);
 
         let remote_version = taker_data.version();
+        // this check will work when we raise minimal swap protocol version
+        #[allow(clippy::absurd_extreme_comparisons)]
         if remote_version < MIN_SWAP_PROTOCOL_VERSION {
             self.broadcast_negotiated_false();
             return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
@@ -816,8 +803,8 @@ impl MakerSwap {
             &taker_amount,
             is_burn_active,
         );
-        println!(
-            "wait_taker_fee remote_version={remote_version} is_burn_active={is_burn_active} dex_fee={:?}",
+        debug!(
+            "MakerSwap::wait_taker_fee remote_version={remote_version} is_burn_active={is_burn_active} dex_fee={:?}",
             dex_fee
         );
         let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
@@ -2419,19 +2406,12 @@ pub async fn calc_max_maker_vol(
     })
 }
 
-/// Determine version from negotiation data if saved swap data does not store version 
+/// Determine version from negotiation data if saved swap data does not store version
 /// (if the swap started before the upgrade to versioned negotiation message)
 /// In any case it is very undesirable to upgrade mm2 when any swaps are active
 fn fix_taker_version(negotiation_data: &TakerNegotiationData) -> u16 {
-    match negotiation_data.taker_version {
-        Some(version) => version,
-        None => 0,
-    }
+    negotiation_data.taker_version.unwrap_or(0)
 }
-
-/// Force old negotiation message (no version). Used in tests
-#[cfg_attr(feature="mocktopus", mockable)]
-pub fn maker_use_old_negotiation_msg() -> bool { return false; }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod maker_swap_tests {

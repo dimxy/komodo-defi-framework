@@ -3714,18 +3714,16 @@ impl DexFee {
                 burn_amount,
                 burn_destination: DexFeeBurnDestination::KmdOpReturn,
             };
-        } else {
-            if taker_coin.should_burn_dex_fee() && burn_active {
-                // send part of dex fee to the 'pre-burn' account
-                let (fee_amount, burn_amount) = Self::calc_burn_amount_for_burn_account(&dex_fee, &min_tx_amount);
-                // burn_amount can be set to zero if it is dust
-                if burn_amount > MmNumber::from(0) {
-                    return DexFee::WithBurn {
-                        fee_amount,
-                        burn_amount,
-                        burn_destination: DexFeeBurnDestination::PreBurnAccount,
-                    };
-                }
+        } else if taker_coin.should_burn_dex_fee() && burn_active {
+            // send part of dex fee to the 'pre-burn' account
+            let (fee_amount, burn_amount) = Self::calc_burn_amount_for_burn_account(&dex_fee, &min_tx_amount);
+            // burn_amount can be set to zero if it is dust
+            if burn_amount > MmNumber::from(0) {
+                return DexFee::WithBurn {
+                    fee_amount,
+                    burn_amount,
+                    burn_destination: DexFeeBurnDestination::PreBurnAccount,
+                };
             }
         }
         DexFee::Standard(dex_fee)

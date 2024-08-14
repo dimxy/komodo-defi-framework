@@ -17,7 +17,6 @@ use crypto::privkey::key_pair_from_seed;
 use crypto::{CryptoCtx, DerivationPath, KeyPairPolicy};
 use futures01::Future;
 use http::StatusCode;
-#[cfg(feature="run-docker-tests")] use mm2_main::lp_swap::{maker_use_old_negotiation_msg, taker_use_old_negotiation_msg};
 use mm2_number::{BigDecimal, BigRational, MmNumber};
 use mm2_test_helpers::for_tests::{check_my_swap_status_amounts, disable_coin, disable_coin_err, enable_eth_coin,
                                   enable_eth_with_tokens_v2, erc20_dev_conf, eth_dev_conf, get_locked_amount,
@@ -32,7 +31,6 @@ use std::iter::FromIterator;
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-use mocktopus::mocking::Mockable;
 
 #[test]
 fn test_search_for_swap_tx_spend_native_was_refunded_taker() {
@@ -3892,20 +3890,9 @@ fn test_eth_swap_negotiation_fails_maker_no_fallback() {
 #[test]
 fn test_trade_base_rel_eth_erc20_coins() { trade_base_rel(("ETH", "ERC20DEV")); }
 
+// run this test also with features "test-use-old-maker" or "test-use-old-taker" to emulate non-versioned nodes
 #[test]
 fn test_trade_base_rel_mycoin_mycoin1_coins() { trade_base_rel(("MYCOIN", "MYCOIN1")); }
-
-#[test]
-fn test_trade_base_rel_mycoin_mycoin1_coins_old_taker() { 
-    taker_use_old_negotiation_msg.mock_safe(|| mocktopus::mocking::MockResult::Return(true));
-    trade_base_rel(("MYCOIN", "MYCOIN1")); 
-}
-
-#[test]
-fn test_trade_base_rel_mycoin_mycoin1_coins_old_maker() { 
-    maker_use_old_negotiation_msg.mock_safe(|| mocktopus::mocking::MockResult::Return(true));
-    trade_base_rel(("MYCOIN", "MYCOIN1")); 
-}
 
 fn withdraw_and_send(
     mm: &MarketMakerIt,

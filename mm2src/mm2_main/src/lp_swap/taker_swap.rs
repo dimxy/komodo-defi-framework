@@ -15,7 +15,11 @@ use crate::lp_ordermatch::TakerOrderBuilder;
 use crate::lp_swap::swap_features::SwapFeature;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
 use crate::lp_swap::taker_restart::get_command_based_on_maker_or_watcher_activity;
-use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, tx_helper_topic, wait_for_maker_payment_conf_duration, NegotiationDataMsgVersion, TakerSwapWatcherData, MAX_STARTED_AT_DIFF, MIN_SWAP_PROTOCOL_VERSION, PRE_BURN_ACCOUNT_ACTIVE, SWAP_PROTOCOL_VERSION};
+use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, tx_helper_topic,
+                     wait_for_maker_payment_conf_duration, TakerSwapWatcherData, MAX_STARTED_AT_DIFF,
+                     MIN_SWAP_PROTOCOL_VERSION, PRE_BURN_ACCOUNT_ACTIVE};
+#[cfg(not(feature = "test-use-old-taker"))]
+use crate::lp_swap::{NegotiationDataMsgVersion, SWAP_PROTOCOL_VERSION};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::{lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage,
             FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
@@ -41,7 +45,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use uuid::Uuid;
-#[cfg(any(test, feature = "mocktopus"))] use mocktopus::macros::*;
 
 const TAKER_PAYMENT_SPEND_SEARCH_INTERVAL: f64 = 10.;
 
@@ -939,11 +942,6 @@ impl TakerSwap {
 
         let equal = r.data.maker_coin_htlc_pubkey == r.data.taker_coin_htlc_pubkey;
         let same_as_persistent = r.data.maker_coin_htlc_pubkey == Some(r.data.my_persistent_pub);
-        println!("TakerSwap::get_my_negotiation_data equal={equal} same_as_persistent={same_as_persistent} maker_coin_htlc_pubkey={:?} taker_coin_htlc_pubkey={:?} my_persistent_pub={:?}", 
-            r.data.maker_coin_htlc_pubkey,
-            r.data.taker_coin_htlc_pubkey,
-            r.data.my_persistent_pub);
-
         if equal && same_as_persistent {
             NegotiationDataMsg::V2(NegotiationDataV2 {
                 started_at: r.data.started_at,
@@ -1004,7 +1002,7 @@ impl TakerSwap {
     async fn start(&self) -> Result<(Option<TakerSwapCommand>, Vec<TakerSwapEvent>), String> {
         // do not use self.r().data here as it is not initialized at this step yet
         let stage = FeeApproxStage::StartSwap;
-        // here we can use default dex_fee although for old maker nodes it may be Standard. 
+        // here we can use default dex_fee although for old maker nodes it may be Standard.
         // No problem with this as we use only dex fee total amount (same for Standard and new WithBurn dex fee)
         let dex_fee = dex_fee_from_taker_coin(
             self.taker_coin.deref(),
@@ -1091,11 +1089,6 @@ impl TakerSwap {
         let unique_data = self.unique_swap_data();
         let maker_coin_htlc_pubkey = self.maker_coin.derive_htlc_pubkey(&unique_data);
         let taker_coin_htlc_pubkey = self.taker_coin.derive_htlc_pubkey(&unique_data);
-        println!("TakerSwap::start unique_data={} maker_coin_htlc_pubkey={:?} taker_coin_htlc_pubkey={:?} my_persistent_pub={:?}", 
-            hex::encode(unique_data),
-            maker_coin_htlc_pubkey,
-            taker_coin_htlc_pubkey,
-            self.my_persistent_pub);
 
         let data = TakerSwapData {
             taker_coin: self.taker_coin.ticker().to_owned(),
@@ -1159,6 +1152,8 @@ impl TakerSwap {
         }
 
         let remote_version = maker_data.version();
+        // this check will work when we raise minimal swap protocol version
+        #[allow(clippy::absurd_extreme_comparisons)]
         if remote_version < MIN_SWAP_PROTOCOL_VERSION {
             return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
                 ERRL!("Maker protocol version {} too old", remote_version).into(),
@@ -1244,33 +1239,19 @@ impl TakerSwap {
             taker_coin_swap_contract_bytes,
         );
 
-        // emulate old node (not supporting version in negotiation msg)
-        #[cfg(feature="run-docker-tests")]
-        let taker_data = match taker_use_old_negotiation_msg() {
-            false => {
-                println!("TakerSwap::negotiate sending NegotiationReplyVersioned (test)");
-                SwapMsg::NegotiationReplyVersioned(NegotiationDataMsgVersion {
-                version: SWAP_PROTOCOL_VERSION,
-                msg: my_negotiation_data 
-            }) },
-            true => {
-                println!("TakerSwap::negotiate sending NegotiationReply (non-versioned) (test)");
-                SwapMsg::NegotiationReply(my_negotiation_data)
-            },
-        };
+        // Emulate old node (not supporting version in negotiation msg)
+        // (Run swap tests with "test-use-old-taker" feature to emulate old taker, sending non-versioned message)
+        #[cfg(feature = "test-use-old-taker")]
+        let taker_data = SwapMsg::NegotiationReply(my_negotiation_data);
 
-        // normal path
-        #[cfg(not(feature="run-docker-tests"))]
+        // Normal path
+        #[cfg(not(feature = "test-use-old-taker"))]
         let taker_data = match remote_version >= SWAP_PROTOCOL_VERSION {
-            true => {
-                println!("TakerSwap::negotiate sending NegotiationReplyVersioned (non-test)");
-                SwapMsg::NegotiationReplyVersioned(NegotiationDataMsgVersion {
+            true => SwapMsg::NegotiationReplyVersioned(NegotiationDataMsgVersion {
                 version: SWAP_PROTOCOL_VERSION,
-                msg: my_negotiation_data 
-            })},
-            false => {
-                println!("TakerSwap::negotiate sending NegotiationReply (non-versioned) (non-test)");
-                SwapMsg::NegotiationReply(my_negotiation_data) }, // remote node is old
+                msg: my_negotiation_data,
+            }),
+            false => SwapMsg::NegotiationReply(my_negotiation_data), // remote node is old
         };
 
         debug!("Sending taker negotiation data {:?}", taker_data);
@@ -2446,7 +2427,7 @@ pub async fn check_balance_for_taker_swap(
     let params = match prepared_params {
         Some(params) => params,
         None => {
-            // Here we can use dex_fee that may be different from actual dex_fee (may be still Standard for old nodes) 
+            // Here we can use dex_fee that may be different from actual dex_fee (may be still Standard for old nodes)
             // because all we need is its total amount and which does not change
             let dex_fee = dex_fee_from_taker_coin(my_coin, other_coin.ticker(), &volume, PRE_BURN_ACCOUNT_ACTIVE);
             let fee_to_send_dex_fee = my_coin
@@ -2749,20 +2730,12 @@ pub fn max_taker_vol_from_available(
     Ok(max_vol)
 }
 
-/// Determine version from negotiation data if saved swap data does not store version 
+/// Determine version from negotiation data if saved swap data does not store version
 /// (if the swap started before the upgrade to versioned negotiation message)
 /// In any case it is very undesirable to upgrade mm2 when any swaps are active
 fn fix_maker_version(negotiation_data: &MakerNegotiationData) -> u16 {
-    match negotiation_data.maker_version {
-        Some(version) => version,
-        None => 0,
-    }
+    negotiation_data.maker_version.unwrap_or(0)
 }
-
-
-/// Force old negotiation message (no version). Used in tests
-#[cfg_attr(feature="mocktopus", mockable)]
-pub fn taker_use_old_negotiation_msg() -> bool { return false; }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod taker_swap_tests {
