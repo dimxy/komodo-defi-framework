@@ -2733,9 +2733,7 @@ pub fn max_taker_vol_from_available(
 /// Determine version from negotiation data if saved swap data does not store version
 /// (if the swap started before the upgrade to versioned negotiation message)
 /// In any case it is very undesirable to upgrade mm2 when any swaps are active
-fn fix_maker_version(negotiation_data: &MakerNegotiationData) -> u16 {
-    negotiation_data.maker_version.unwrap_or(0)
-}
+fn fix_maker_version(negotiation_data: &MakerNegotiationData) -> u16 { negotiation_data.maker_version.unwrap_or(0) }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod taker_swap_tests {
