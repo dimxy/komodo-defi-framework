@@ -72,7 +72,7 @@ use utxo_signer::UtxoSignerOps;
 pub mod utxo_tx_history_v2_common;
 
 pub const DEFAULT_FEE_VOUT: usize = 0;
-pub const DEFAULT_SWAP_TX_SPEND_SIZE: u64 = 305; // TODO: check maybe need to change because of the new burn account output
+pub const DEFAULT_SWAP_TX_SPEND_SIZE: u64 = 496; // TODO: checking with komodo-like tx size, included the burn output
 pub const DEFAULT_SWAP_VOUT: usize = 0;
 pub const DEFAULT_SWAP_VIN: usize = 0;
 const MIN_BTC_TRADING_VOL: &str = "0.00777";
