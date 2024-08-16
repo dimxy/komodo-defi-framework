@@ -6440,6 +6440,9 @@ async fn get_max_eth_tx_type_conf(ctx: &MmArc, conf: &Json, coin_type: &EthCoinT
             if let Some(coin_max_eth_tx_type) = coin_max_eth_tx_type {
                 Ok(Some(coin_max_eth_tx_type))
             } else {
+                // Note that platform_coin is not available when the token is enabled via "enable_eth_with_tokens" 
+                // (but we access platform coin directly - see initialise_erc20_token fn).
+                // So this code works only for the legacy "enable" rpc, called first for the platform coin then for a token 
                 let platform_coin = lp_coinfind_or_err(ctx, platform).await;
                 match platform_coin {
                     Ok(MmCoinEnum::EthCoin(eth_coin)) => Ok(eth_coin.max_eth_tx_type),
