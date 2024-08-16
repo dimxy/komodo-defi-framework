@@ -775,8 +775,7 @@ pub trait UtxoCoinBuilderCommonOps {
         };
 
         let secs_since_date = current_time_sec - date_s;
-        // FIXME: This panics subtract with overflow.
-        let days_since_date = (secs_since_date / DAY_IN_SECONDS) - 1;
+        let days_since_date = (secs_since_date / DAY_IN_SECONDS).min(1) - 1;
         let blocks_to_sync = (days_since_date * blocks_per_day) + blocks_per_day;
 
         if current_block_height < blocks_to_sync {

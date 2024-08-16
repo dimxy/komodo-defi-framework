@@ -2,7 +2,7 @@ use bitcrypto::dhash160;
 use common::custom_futures::timeout::FutureTimerExt;
 use common::{block_on, now_sec};
 use mm2_core::mm_ctx::MmCtxBuilder;
-use mm2_test_helpers::for_tests::{zombie_conf, ZOMBIE_TICKER};
+use mm2_test_helpers::for_tests::{zombie_conf, ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS, ZOMBIE_TICKER};
 use std::path::PathBuf;
 use std::time::Duration;
 use zcash_client_backend::encoding::decode_extended_spending_key;
@@ -33,7 +33,7 @@ fn native_zcoin_activation_params() -> ZcoinActivationParams {
 fn light_zcoin_activation_params() -> ZcoinActivationParams {
     ZcoinActivationParams {
         mode: ZcoinRpcMode::Light {
-            electrum_servers: ["zombie.dragonhound.info:10033", "zombie.dragonhound.info:10133"]
+            electrum_servers: ZOMBIE_ELECTRUMS
                 .iter()
                 .map(|s| ElectrumRpcRequest {
                     url: s.to_string(),
@@ -41,13 +41,7 @@ fn light_zcoin_activation_params() -> ZcoinActivationParams {
                     disable_cert_verification: Default::default(),
                 })
                 .collect(),
-            light_wallet_d_servers: [
-                "https://zombie.dragonhound.info:443",
-                "https://zombie.dragonhound.info:1443",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
+            light_wallet_d_servers: ZOMBIE_LIGHTWALLETD_URLS.iter().map(|s| s.to_string()).collect(),
             sync_params: Some(crate::z_coin::SyncStartPoint::Date(now_sec() - 24 * 60 * 60)),
             skip_sync_params: None,
         },

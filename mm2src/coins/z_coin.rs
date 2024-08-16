@@ -46,9 +46,8 @@ use async_trait::async_trait;
 use bitcrypto::dhash256;
 use chain::constants::SEQUENCE_FINAL;
 use chain::{Transaction as UtxoTx, TransactionOutput};
-use common::calc_total_pages;
 use common::executor::{AbortableSystem, AbortedError};
-use common::{log, one_thousand_u32};
+use common::{calc_total_pages, log};
 use crypto::privkey::{key_pair_from_secret, secp_privkey_from_hash};
 use crypto::HDPathToCoin;
 use crypto::{Bip32DerPathOps, GlobalHDAccountArc};
@@ -70,6 +69,7 @@ use serialization::CoinVariant;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::iter;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 pub use z_coin_errors::*;
@@ -748,17 +748,29 @@ pub enum ZcoinRpcMode {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(default)]
 pub struct ZcoinActivationParams {
     pub mode: ZcoinRpcMode,
     pub required_confirmations: Option<u64>,
     pub requires_notarization: Option<bool>,
     pub zcash_params_path: Option<String>,
-    #[serde(default = "one_thousand_u32")]
-    pub scan_blocks_per_iteration: u32,
-    #[serde(default)]
+    pub scan_blocks_per_iteration: NonZeroU32,
     pub scan_interval_ms: u64,
-    #[serde(default)]
     pub account: u32,
+}
+
+impl Default for ZcoinActivationParams {
+    fn default() -> Self {
+        Self {
+            mode: ZcoinRpcMode::Native,
+            required_confirmations: None,
+            requires_notarization: None,
+            zcash_params_path: None,
+            scan_blocks_per_iteration: NonZeroU32::new(1000).expect("1000 is a valid value"),
+            scan_interval_ms: 0,
+            account: 0,
+        }
+    }
 }
 
 pub async fn z_coin_from_conf_and_params(
