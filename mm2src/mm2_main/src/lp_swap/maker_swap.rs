@@ -14,12 +14,17 @@ use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
+#[cfg(not(feature = "test-use-old-maker"))]
+use crate::lp_swap::NegotiationDataMsgVersion;
 use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF};
 use coins::lp_price::fetch_swap_coins_price;
+#[cfg(not(feature = "test-use-old-maker"))]
+use coins::SWAP_PROTOCOL_VERSION;
 use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, MmCoin,
             MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
             SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash, TradeFee,
-            TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput};
+            TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput, LEGACY_PROTOCOL_VERSION,
+            MIN_SWAP_PROTOCOL_VERSION};
 use common::log::{debug, error, info, warn};
 use common::{bits256, executor::Timer, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
 use common::{now_sec, wait_until_sec};
@@ -120,6 +125,9 @@ async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSav
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TakerNegotiationData {
+    /// Protocol version supported by taker. Optional because it was added in V4 of NegotiationDataMsg
+    /// so it could be read as None from a saved swap if the swap started before upgrade to V4
+    pub taker_version: Option<u16>,
     pub taker_payment_locktime: u64,
     pub taker_pubkey: H264Json,
     pub maker_coin_swap_contract_addr: Option<BytesJson>,
@@ -154,6 +162,8 @@ pub struct MakerSwapData {
     pub maker_payment_lock: u64,
     /// Allows to recognize one SWAP from the other in the logs. #274.
     pub uuid: Uuid,
+    /// Swap protocol version that taker supports. This field introduced with NegotiationDataMsgVersion so may be optional for past messages
+    pub taker_version: Option<u16>,
     pub started_at: u64,
     pub maker_coin_start_block: u64,
     pub taker_coin_start_block: u64,
@@ -289,6 +299,7 @@ impl MakerSwap {
             },
             MakerSwapEvent::StartFailed(err) => self.errors.lock().push(err),
             MakerSwapEvent::Negotiated(data) => {
+                self.w().data.taker_version = Some(fix_taker_version(&data));
                 self.taker_payment_lock
                     .store(data.taker_payment_locktime, Ordering::Relaxed);
                 self.w().other_maker_coin_htlc_pub = data.other_maker_coin_htlc_pub();
@@ -550,6 +561,7 @@ impl MakerSwap {
             taker: self.taker.bytes.into(),
             secret: self.secret.into(),
             secret_hash: Some(self.secret_hash().into()),
+            taker_version: None, // not yet known before the negotiation stage
             started_at,
             lock_duration: self.payment_locktime,
             maker_amount: self.maker_amount.clone(),
@@ -581,15 +593,31 @@ impl MakerSwap {
 
     async fn negotiate(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         let negotiation_data = self.get_my_negotiation_data();
+        let mut msgs = vec![];
 
-        let maker_negotiation_data = SwapMsg::Negotiation(negotiation_data);
+        // Important to try the new versioned negotiation message first
+        // (Run swap tests with "test-use-old-maker" feature to emulate old maker, sending non-versioned message only)
+        #[cfg(not(feature = "test-use-old-maker"))]
+        {
+            let maker_versioned_negotiation_msg = SwapMsg::NegotiationVersioned(NegotiationDataMsgVersion {
+                version: SWAP_PROTOCOL_VERSION,
+                msg: negotiation_data.clone(),
+            });
+            msgs.push(maker_versioned_negotiation_msg);
+        }
+
+        let maker_old_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
+        msgs.push(maker_old_negotiation_msg);
+
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
-        debug!("Sending maker negotiation data {:?}", maker_negotiation_data);
+        debug!("Sending maker negotiation data {:?}", msgs);
+        // Send both old and new negotiation data to determine whether the remote node is old (supports NegotiationDataMsg) or new (supports NegotiationDataMsgVersion).
+        // When all nodes upgrade to NegotiationDataMsgVersion we won't need to send both messages and will use 'version' field in NegotiationDataMsgVersion
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
-            maker_negotiation_data,
+            msgs,
             NEGOTIATION_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -609,6 +637,17 @@ impl MakerSwap {
             },
         };
         drop(send_abort_handle);
+
+        let remote_version = taker_data.version();
+        // this check will work when we raise minimal swap protocol version
+        #[allow(clippy::absurd_extreme_comparisons)]
+        if remote_version < MIN_SWAP_PROTOCOL_VERSION {
+            self.broadcast_negotiated_false();
+            return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
+                ERRL!("Taker protocol version {} too old", remote_version).into(),
+            )]));
+        }
+
         let time_dif = self.r().data.started_at.abs_diff(taker_data.started_at());
         if time_dif > MAX_STARTED_AT_DIFF {
             self.broadcast_negotiated_false();
@@ -674,6 +713,7 @@ impl MakerSwap {
 
         Ok((Some(MakerSwapCommand::WaitForTakerFee), vec![
             MakerSwapEvent::Negotiated(TakerNegotiationData {
+                taker_version: Some(remote_version),
                 taker_payment_locktime: taker_data.payment_locktime(),
                 // using default to avoid misuse of this field
                 // maker_coin_htlc_pubkey and taker_coin_htlc_pubkey must be used instead
@@ -692,7 +732,7 @@ impl MakerSwap {
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
-            negotiated,
+            vec![negotiated],
             TAKER_FEE_RECV_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -842,6 +882,7 @@ impl MakerSwap {
                 Some(tx) => tx,
                 None => {
                     let payment_fut = self.maker_coin.send_maker_payment(SendPaymentArgs {
+                        other_version: self.r().data.taker_version.unwrap_or(LEGACY_PROTOCOL_VERSION), // normally taker_version should unwrap okay
                         time_lock_duration: self.r().data.lock_duration,
                         time_lock: self.r().data.maker_payment_lock,
                         other_pubkey: &*self.r().other_maker_coin_htlc_pub,
@@ -903,7 +944,7 @@ impl MakerSwap {
         let abort_send_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
-            msg,
+            vec![msg],
             PAYMENT_MSG_INTERVAL_SEC,
             self.p2p_privkey,
         );
@@ -1831,6 +1872,7 @@ impl MakerSavedSwap {
                     maker_payment_lock: 0,
                     uuid: Default::default(),
                     started_at: 0,
+                    taker_version: None,
                     maker_coin_start_block: 0,
                     taker_coin_start_block: 0,
                     maker_payment_trade_fee: None,
@@ -2350,6 +2392,11 @@ pub async fn calc_max_maker_vol(
         locked_by_swaps,
     })
 }
+
+/// Determine version from negotiation data if saved swap data does not store version
+/// (if the swap started before the upgrade to versioned negotiation message)
+/// In any case it is very undesirable to upgrade mm2 when any swaps are active
+fn fix_taker_version(negotiation_data: &TakerNegotiationData) -> u16 { negotiation_data.taker_version.unwrap_or(0) }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod maker_swap_tests {

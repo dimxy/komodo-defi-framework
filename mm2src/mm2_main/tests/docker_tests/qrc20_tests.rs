@@ -9,7 +9,7 @@ use coins::utxo::{UtxoActivationParams, UtxoCommonOps};
 use coins::{CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage, FoundSwapTxSpend, MarketCoinOps,
             MmCoin, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapOps,
             SwapTxTypeWithSecretHash, TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput,
-            WaitForHTLCTxSpendArgs};
+            WaitForHTLCTxSpendArgs, SWAP_PROTOCOL_VERSION};
 use common::log::debug;
 use common::{temp_dir, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::Secp256k1Secret;
@@ -183,6 +183,7 @@ fn test_taker_spends_maker_payment() {
     let secret_hash = dhash160(secret).to_vec();
     let amount = BigDecimal::try_from(0.2).unwrap();
     let maker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: &taker_pub,
@@ -285,6 +286,7 @@ fn test_maker_spends_taker_payment() {
     let secret_hash = dhash160(secret).to_vec();
     let amount = BigDecimal::try_from(0.2).unwrap();
     let taker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: &maker_pub,
@@ -376,6 +378,7 @@ fn test_maker_refunds_payment() {
     let secret_hash = &[1; 20];
     let amount = BigDecimal::from_str("0.2").unwrap();
     let maker_payment = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: &taker_pub,
@@ -448,6 +451,7 @@ fn test_taker_refunds_payment() {
     let secret_hash = &[1; 20];
     let amount = BigDecimal::from_str("0.2").unwrap();
     let taker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: &maker_pub,
@@ -517,6 +521,7 @@ fn test_check_if_my_payment_sent() {
     let secret_hash = &[1; 20];
     let amount = BigDecimal::from_str("0.2").unwrap();
     let maker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: &taker_pub,
@@ -574,6 +579,7 @@ fn test_search_for_swap_tx_spend_taker_spent() {
     let secret_hash = dhash160(secret);
     let amount = BigDecimal::try_from(0.2).unwrap();
     let maker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: taker_pub,
@@ -653,6 +659,7 @@ fn test_search_for_swap_tx_spend_maker_refunded() {
     let secret_hash = &*dhash160(secret);
     let amount = BigDecimal::try_from(0.2).unwrap();
     let maker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: &taker_pub,
@@ -733,6 +740,7 @@ fn test_search_for_swap_tx_spend_not_spent() {
     let secret_hash = &*dhash160(secret);
     let amount = BigDecimal::try_from(0.2).unwrap();
     let maker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: &taker_pub,
@@ -790,6 +798,7 @@ fn test_wait_for_tx_spend() {
     let secret_hash = dhash160(secret);
     let amount = BigDecimal::try_from(0.2).unwrap();
     let maker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: taker_pub,
@@ -1108,6 +1117,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
         .wait()
         .expect("!send_taker_fee");
     let taker_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock: timelock,
         other_pubkey: &DEX_FEE_ADDR_RAW_PUBKEY,
@@ -1508,6 +1518,7 @@ fn test_search_for_segwit_swap_tx_spend_native_was_refunded_maker() {
 
     let time_lock = now_sec() - 3600;
     let maker_payment = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock,
         other_pubkey: my_public_key,
@@ -1576,6 +1587,7 @@ fn test_search_for_segwit_swap_tx_spend_native_was_refunded_taker() {
 
     let time_lock = now_sec() - 3600;
     let taker_payment = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 0,
         time_lock,
         other_pubkey: my_public_key,

@@ -60,6 +60,7 @@ impl EthCoin {
                     // TODO need new consts and params for v2 calls. now it uses v1
                     U256::from(self.gas_limit.eth_payment),
                     None,
+                    true,
                 )
                 .compat()
                 .await
@@ -94,6 +95,7 @@ impl EthCoin {
                     // TODO need new consts and params for v2 calls. now it uses v1
                     U256::from(self.gas_limit.erc20_payment),
                     None,
+                    true,
                 )
                 .compat()
                 .await

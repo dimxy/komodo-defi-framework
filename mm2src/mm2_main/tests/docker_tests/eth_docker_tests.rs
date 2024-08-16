@@ -14,7 +14,7 @@ use coins::{lp_coinfind, CoinProtocol, CoinWithDerivationMethod, CoinsContext, C
             MmCoinStruct, NftSwapInfo, ParseCoinAssocTypes, ParseNftAssocTypes, PrivKeyBuildPolicy,
             RefundNftMakerPaymentArgs, RefundPaymentArgs, SearchForSwapTxSpendInput, SendNftMakerPaymentArgs,
             SendPaymentArgs, SpendNftMakerPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxFeePolicy,
-            SwapTxTypeWithSecretHash, ToBytes, Transaction, ValidateNftMakerPaymentArgs};
+            SwapTxTypeWithSecretHash, ToBytes, Transaction, ValidateNftMakerPaymentArgs, SWAP_PROTOCOL_VERSION};
 use common::{block_on, now_sec};
 use crypto::Secp256k1Secret;
 use ethcore_transaction::Action;
@@ -505,6 +505,7 @@ fn send_safe_transfer_from(
                 data,
                 U256::from(ETH_MAX_TRADE_GAS),
                 None,
+                true,
             )
             .compat(),
     )
@@ -574,6 +575,7 @@ fn send_and_refund_eth_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
     ];
 
     let send_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 100,
         time_lock,
         other_pubkey,
@@ -660,6 +662,7 @@ fn send_and_spend_eth_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
     let secret_hash = secret_hash_owned.as_slice();
 
     let send_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 1000,
         time_lock,
         other_pubkey: &taker_pubkey,
@@ -743,6 +746,7 @@ fn send_and_refund_erc20_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) 
     let secret_hash = &[1; 20];
 
     let send_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 100,
         time_lock,
         other_pubkey,
@@ -832,6 +836,7 @@ fn send_and_spend_erc20_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
     let secret_hash = secret_hash_owned.as_slice();
 
     let send_payment_args = SendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         time_lock_duration: 1000,
         time_lock,
         other_pubkey: &taker_pubkey,

@@ -42,6 +42,7 @@ impl EthCoin {
                     data,
                     U256::from(self.gas_limit.eth_max_trade_gas), // TODO: fix to a more accurate const or estimated value
                     None,
+                    true,
                 )
                 .compat()
                 .await
@@ -161,6 +162,7 @@ impl EthCoin {
                     data,
                     U256::from(self.gas_limit.eth_max_trade_gas), // TODO: fix to a more accurate const or estimated value
                     None,
+                    true,
                 )
                 .compat()
                 .await
@@ -201,6 +203,7 @@ impl EthCoin {
                     data,
                     U256::from(self.gas_limit.eth_max_trade_gas), // TODO: fix to a more accurate const or estimated value
                     None,
+                    true,
                 )
                 .compat()
                 .await
@@ -242,6 +245,7 @@ impl EthCoin {
                     data,
                     U256::from(self.gas_limit.eth_max_trade_gas), // TODO: fix to a more accurate const or estimated value
                     None,
+                    true,
                 )
                 .compat()
                 .await

@@ -97,6 +97,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use swap_features::SwapFeature;
 use web3::types::{Action as TraceAction, BlockId, BlockNumber, Bytes, CallRequest, FilterBuilder, Log, Trace,
                   TraceFilterBuilder, Transaction as Web3Transaction, TransactionId, TransactionRequest, U64};
 use web3::{self, Web3};
@@ -2529,13 +2530,23 @@ async fn sign_transaction_with_keypair<'a>(
     pay_for_gas_option: &PayForGasOption,
     from_address: Address,
     access_list: Option<ethcore_transaction::AccessList>,
+    can_use_tx_type: bool, // normally true, set to false if remote taker or maker is not upgraded to support typed tx
 ) -> Result<(SignedEthTx, Vec<Web3Instance>), TransactionErr> {
     info!(target: "sign", "get_addr_nonce…");
     let (nonce, web3_instances_with_latest_nonce) = try_tx_s!(coin.clone().get_addr_nonce(from_address).compat().await);
     let mut tx_type = TxType::Legacy;
-    set_tx_type_from_access_list!(tx_type, access_list);
-    set_tx_type_from_pay_for_gas_option!(tx_type, pay_for_gas_option);
+    if can_use_tx_type {
+        set_tx_type_from_access_list!(tx_type, access_list);
+        set_tx_type_from_pay_for_gas_option!(tx_type, pay_for_gas_option);
+    }
     drop_mutability!(tx_type);
+    let tx_type_as_num = match tx_type {
+        TxType::Legacy => 0_u64,
+        TxType::Type1 => 1_u64,
+        TxType::Type2 => 2_u64,
+        TxType::Invalid => 99_u64,
+    };
+    debug!("sign_transaction_with_keypair tx_type={tx_type_as_num} can_use_tx_type={can_use_tx_type}");
     if !coin.is_tx_type_supported(&tx_type) {
         return Err(TransactionErr::Plain("Eth transaction type not supported".into()));
     }
@@ -2569,6 +2580,7 @@ async fn sign_and_send_transaction_with_keypair(
     data: Vec<u8>,
     gas: U256,
     access_list: Option<ethcore_transaction::AccessList>,
+    can_use_tx_type: bool,
 ) -> Result<SignedEthTx, TransactionErr> {
     info!(target: "sign-and-send", "get_gas_price…");
     let pay_for_gas_option = try_tx_s!(
@@ -2587,6 +2599,7 @@ async fn sign_and_send_transaction_with_keypair(
         &pay_for_gas_option,
         address,
         access_list,
+        can_use_tx_type,
     )
     .await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
@@ -2733,6 +2746,7 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
                 &pay_for_gas_option,
                 my_address,
                 access_list,
+                true,
             )
             .await
             .map(|(signed_tx, _)| RawTransactionRes {
@@ -3682,6 +3696,7 @@ impl EthCoin {
         data: Vec<u8>,
         gas: U256,
         access_list: Option<ethcore_transaction::AccessList>,
+        can_use_tx_type: bool,
     ) -> EthTxFut {
         let coin = self.clone();
         let fut = async move {
@@ -3705,6 +3720,7 @@ impl EthCoin {
                         data,
                         gas,
                         access_list,
+                        can_use_tx_type,
                     )
                     .await
                 },
@@ -3726,6 +3742,7 @@ impl EthCoin {
                 vec![],
                 U256::from(self.gas_limit.eth_send_coins),
                 None,
+                true,
             ),
             EthCoinType::Erc20 {
                 platform: _,
@@ -3740,6 +3757,7 @@ impl EthCoin {
                     data,
                     U256::from(self.gas_limit.eth_send_erc20),
                     None,
+                    true,
                 )
             },
             EthCoinType::Nft { .. } => Box::new(futures01::future::err(TransactionErr::ProtocolNotSupported(ERRL!(
@@ -3761,6 +3779,12 @@ impl EthCoin {
         } else {
             args.secret_hash.to_vec()
         };
+        let can_use_tx_type = SwapFeature::is_active(SwapFeature::EthTypeTx, args.other_version);
+        debug!(
+            "send_hash_time_locked_payment coin={} can_use_tx_type={can_use_tx_type} args.other_version={}",
+            self.ticker(),
+            args.other_version
+        );
 
         match &self.coin_type {
             EthCoinType::Eth => {
@@ -3806,7 +3830,14 @@ impl EthCoin {
                         .map(Some)
                         .or_else(|_err| futures01::future::ok(None::<ethcore_transaction::AccessList>)) // ignore create_access_list_if_configured errors and use None value
                         .and_then(move |list| {
-                            coin.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, gas, list)
+                            coin.sign_and_send_transaction(
+                                value,
+                                Action::Call(swap_contract_address),
+                                data,
+                                gas,
+                                list,
+                                can_use_tx_type,
+                            )
                         }),
                 )
             },
@@ -3913,6 +3944,7 @@ impl EthCoin {
                                                     data,
                                                     gas,
                                                     list,
+                                                    can_use_tx_type,
                                                 )
                                             })
                                     })
@@ -3925,7 +3957,7 @@ impl EthCoin {
                                 .map(move |list| remove_from_access_list(&list, &[swap_contract_address]))
                                 .map(Some)
                                 .or_else(|_err| futures01::future::ok(None::<ethcore_transaction::AccessList>))
-                                .and_then(move |list| arc.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, gas, list))
+                                .and_then(move |list| arc.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, gas, list, can_use_tx_type))
                         )
                     }
                 }))
@@ -3998,6 +4030,7 @@ impl EthCoin {
                                 data,
                                 U256::from(clone.gas_limit.eth_receiver_spend),
                                 None,
+                                true,
                             )
                         }),
                 )
@@ -4047,6 +4080,7 @@ impl EthCoin {
                                 data,
                                 U256::from(clone.gas_limit.erc20_receiver_spend),
                                 None,
+                                true,
                             )
                         }),
                 )
@@ -4120,6 +4154,7 @@ impl EthCoin {
                                 data,
                                 U256::from(clone.gas_limit.eth_sender_refund),
                                 None,
+                                true,
                             )
                         }),
                 )
@@ -4172,6 +4207,7 @@ impl EthCoin {
                                 data,
                                 U256::from(clone.gas_limit.erc20_sender_refund),
                                 None,
+                                true,
                             )
                         }),
                 )
@@ -4250,7 +4286,7 @@ impl EthCoin {
                     .await
                     .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
                     .ok();
-                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list)
+                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list, true)
                     .compat()
                     .await
             },
@@ -4309,7 +4345,7 @@ impl EthCoin {
                     .await
                     .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
                     .ok();
-                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list)
+                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list, true)
                     .compat()
                     .await
             },
@@ -4382,7 +4418,7 @@ impl EthCoin {
                     .await
                     .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
                     .ok();
-                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list)
+                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list, true)
                     .compat()
                     .await
             },
@@ -4441,7 +4477,7 @@ impl EthCoin {
                     .await
                     .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
                     .ok(); // ignore errors
-                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list)
+                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list, true)
                     .compat()
                     .await
             },
@@ -4758,7 +4794,7 @@ impl EthCoin {
                     .await
             );
 
-            coin.sign_and_send_transaction(0.into(), Call(token_addr), data, gas_limit, None)
+            coin.sign_and_send_transaction(0.into(), Call(token_addr), data, gas_limit, None, true)
                 .compat()
                 .await
         };
