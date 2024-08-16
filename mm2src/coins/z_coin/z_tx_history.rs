@@ -340,7 +340,15 @@ pub(crate) async fn fetch_txs_from_db(
             .field("blocks.time")
             .field("COALESCE(rn.received_amount, 0)")
             .field("COALESCE(sn.sent_amount, 0)")
-            .and_where_in("tx_hash", &tx_hashes.into_iter().collect::<Vec<_>>())
+            .and_where_in_quoted(
+                // Make sure the tx hash from the DB is lowercase,
+                "lower(hex(tx_hash))",
+                &tx_hashes
+                    .iter()
+                    // as well as the tx hashes we are looking for.
+                    .map(|tx_hash| hex::encode(tx_hash.0).to_lowercase())
+                    .collect::<Vec<_>>(),
+            )
             .left()
             .join("(SELECT tx, SUM(value) as received_amount FROM received_notes GROUP BY tx) as rn")
             .on("txes.id_tx = rn.tx")
