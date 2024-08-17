@@ -233,6 +233,7 @@ pub mod coin_balance;
 use coin_balance::{AddressBalanceStatus, HDAddressBalance, HDWalletBalanceOps};
 
 pub mod lp_price;
+pub mod swap_features;
 pub mod watcher_common;
 
 pub mod coin_errors;
