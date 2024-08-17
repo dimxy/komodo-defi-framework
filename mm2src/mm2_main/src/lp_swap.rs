@@ -279,8 +279,10 @@ pub fn broadcast_swap_msg_every<T: 'static + Serialize + Clone + Send>(
 ) -> AbortOnDropHandle {
     let fut = async move {
         loop {
-            for msg in msgs.iter() {
-                broadcast_swap_message(&ctx, topic.clone(), msg.clone(), &p2p_privkey);
+            let msgs_cloned = msgs.clone();
+            for msg in msgs_cloned {
+                broadcast_swap_message(&ctx, topic.clone(), msg, &p2p_privkey);
+                Timer::sleep(5.0).await; // this a delay between tries of new and old requests (to ensure the receiver processes the new message first)
             }
             Timer::sleep(interval_sec).await;
         }
