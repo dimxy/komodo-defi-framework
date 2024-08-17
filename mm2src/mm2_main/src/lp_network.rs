@@ -39,6 +39,7 @@ use serde::de;
 use std::net::ToSocketAddrs;
 
 use crate::lp_ordermatch;
+use crate::lp_swap::{SwapMsg, SwapMsgExt};
 use crate::{lp_stats, lp_swap};
 
 pub type P2PRequestResult<T> = Result<T, MmError<P2PRequestError>>;
@@ -169,7 +170,18 @@ async fn process_p2p_message(
         },
         Some(lp_swap::SWAP_PREFIX) => {
             if let Err(e) =
-                lp_swap::process_swap_msg(ctx.clone(), split.next().unwrap_or_default(), &message.data).await
+                lp_swap::process_swap_msg::<SwapMsg>(ctx.clone(), split.next().unwrap_or_default(), &message.data).await
+            {
+                log::error!("{}", e);
+                return;
+            }
+
+            to_propagate = true;
+        },
+        Some(lp_swap::SWAP_PREFIX_EXT) => {
+            if let Err(e) =
+                lp_swap::process_swap_msg::<SwapMsgExt>(ctx.clone(), split.next().unwrap_or_default(), &message.data)
+                    .await
             {
                 log::error!("{}", e);
                 return;

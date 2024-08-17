@@ -14,9 +14,9 @@ use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
-#[cfg(not(feature = "test-use-old-maker"))]
-use crate::lp_swap::NegotiationDataMsgVersion;
 use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF};
+#[cfg(not(feature = "test-use-old-maker"))]
+use crate::lp_swap::{swap_ext_topic, NegotiationDataMsgVersion};
 use coins::lp_price::fetch_swap_coins_price;
 #[cfg(not(feature = "test-use-old-maker"))]
 use coins::SWAP_PROTOCOL_VERSION;
@@ -603,11 +603,11 @@ impl MakerSwap {
                 version: SWAP_PROTOCOL_VERSION,
                 msg: negotiation_data.clone(),
             });
-            msgs.push(maker_versioned_negotiation_msg);
+            msgs.push((swap_ext_topic(&self.uuid), maker_versioned_negotiation_msg));
         }
 
         let maker_old_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
-        msgs.push(maker_old_negotiation_msg);
+        msgs.push((swap_topic(&self.uuid), maker_old_negotiation_msg));
 
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
@@ -616,7 +616,6 @@ impl MakerSwap {
         // When all nodes upgrade to NegotiationDataMsgVersion we won't need to send both messages and will use 'version' field in NegotiationDataMsgVersion
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            swap_topic(&self.uuid),
             msgs,
             NEGOTIATION_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
@@ -731,8 +730,7 @@ impl MakerSwap {
         let negotiated = SwapMsg::Negotiated(true);
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            swap_topic(&self.uuid),
-            vec![negotiated],
+            vec![(swap_topic(&self.uuid), negotiated)],
             TAKER_FEE_RECV_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -943,8 +941,7 @@ impl MakerSwap {
         let msg = SwapMsg::MakerPayment(payment_data_msg);
         let abort_send_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            swap_topic(&self.uuid),
-            vec![msg],
+            vec![(swap_topic(&self.uuid), msg)],
             PAYMENT_MSG_INTERVAL_SEC,
             self.p2p_privkey,
         );
