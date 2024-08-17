@@ -383,7 +383,12 @@ pub async fn process_swap_msg(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequest
                         msg: data,
                     })
                 },
-                SwapMsg::NegotiationVersioned(data) => msg_store.negotiation = Some(data),
+                SwapMsg::NegotiationVersioned(data) => {
+                    // ignore versioned msg for old taker emulation
+                    if cfg!(not(feature = "test-use-old-taker")) {
+                        msg_store.negotiation = Some(data);
+                    }
+                },
                 // build NegotiationDataMsgVersion from legacy NegotiationDataMsg with default version:
                 SwapMsg::NegotiationReply(data) => {
                     msg_store.negotiation_reply = Some(NegotiationDataMsgVersion {
@@ -391,7 +396,12 @@ pub async fn process_swap_msg(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequest
                         msg: data,
                     })
                 },
-                SwapMsg::NegotiationReplyVersioned(data) => msg_store.negotiation_reply = Some(data),
+                SwapMsg::NegotiationReplyVersioned(data) => {
+                    // ignore versioned msg for old maker emulation
+                    if cfg!(not(feature = "test-use-old-maker")) {
+                        msg_store.negotiation_reply = Some(data);
+                    }
+                },
                 SwapMsg::Negotiated(negotiated) => msg_store.negotiated = Some(negotiated),
                 SwapMsg::TakerFee(data) => msg_store.taker_fee = Some(data),
                 SwapMsg::MakerPayment(data) => msg_store.maker_payment = Some(data),
