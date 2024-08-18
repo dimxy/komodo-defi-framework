@@ -192,7 +192,7 @@ pub enum SwapMsgWrapper {
     Ext(SwapMsgExt),
 }
 
-// Do not use deived serilizer to provider compatibility with old nodes supporting only SwapMsg
+// We use own Serializer instead of derived one to preserve compatibility with old nodes supporting only SwapMsg
 impl Serialize for SwapMsgWrapper {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
