@@ -14,9 +14,10 @@ use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, SwapMsgWrapper, MAX_STARTED_AT_DIFF};
+use crate::lp_swap::{broadcast_swap_message, swap_ext_topic, taker_payment_spend_duration, SwapMsgWrapper,
+                     MAX_STARTED_AT_DIFF};
 #[cfg(not(feature = "test-use-old-maker"))]
-use crate::lp_swap::{swap_ext_topic, NegotiationDataMsgVersion, SwapMsgExt};
+use crate::lp_swap::{NegotiationDataMsgVersion, SwapMsgExt};
 use coins::lp_price::fetch_swap_coins_price;
 #[cfg(not(feature = "test-use-old-maker"))]
 use coins::SWAP_PROTOCOL_VERSION;
