@@ -145,7 +145,7 @@ pub use taker_swap::{calc_max_taker_vol, check_balance_for_taker_swap, max_taker
 pub use trade_preimage::trade_preimage_rpc;
 
 pub const SWAP_PREFIX: TopicPrefix = "swap";
-pub const SWAP_PREFIX_EXT: TopicPrefix = "swapv1ext";
+pub const SWAP_PREFIX_EXT: TopicPrefix = "swapext";
 pub const SWAP_V2_PREFIX: TopicPrefix = "swapv2";
 pub const SWAP_FINISHED_LOG: &str = "Swap finished: ";
 pub const TX_HELPER_PREFIX: TopicPrefix = "txhlp";
@@ -171,9 +171,7 @@ cfg_wasm32! {
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
 pub enum SwapMsg {
     Negotiation(NegotiationDataMsg),
-    NegotiationVersioned(NegotiationDataMsgVersion),
     NegotiationReply(NegotiationDataMsg),
-    NegotiationReplyVersioned(NegotiationDataMsgVersion),
     Negotiated(bool),
     TakerFee(SwapTxDataMsg),
     MakerPayment(SwapTxDataMsg),
@@ -185,6 +183,26 @@ pub enum SwapMsg {
 pub enum SwapMsgExt {
     NegotiationVersioned(NegotiationDataMsgVersion),
     NegotiationReplyVersioned(NegotiationDataMsgVersion),
+}
+
+/// Utility wrapper to allow manage both SwapMsg and SwapMsgExt as one entity
+#[derive(Clone, Debug)]
+pub enum SwapMsgWrapper {
+    Legacy(SwapMsg),
+    Ext(SwapMsgExt),
+}
+
+// Do not use deived serilizer to provider compatibility with old nodes supporting only SwapMsg
+impl Serialize for SwapMsgWrapper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            SwapMsgWrapper::Legacy(swap_msg) => swap_msg.serialize(serializer),
+            SwapMsgWrapper::Ext(swap_msg_ext) => swap_msg_ext.serialize(serializer),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -352,24 +370,12 @@ impl ProcessSwapMsg for SwapMsg {
                     msg: data,
                 })
             },
-            SwapMsg::NegotiationVersioned(data) => {
-                if cfg!(not(feature = "test-use-old-taker")) {
-                    // ignore versioned msg for old taker emulation
-                    msg_store.negotiation = Some(data);
-                }
-            },
             // build NegotiationDataMsgVersion from legacy NegotiationDataMsg with default version:
             SwapMsg::NegotiationReply(data) => {
                 msg_store.negotiation_reply = Some(NegotiationDataMsgVersion {
                     version: LEGACY_PROTOCOL_VERSION,
                     msg: data,
                 })
-            },
-            SwapMsg::NegotiationReplyVersioned(data) => {
-                if cfg!(not(feature = "test-use-old-maker")) {
-                    // ignore versioned msg for old maker emulation
-                    msg_store.negotiation_reply = Some(data);
-                }
             },
             SwapMsg::Negotiated(negotiated) => msg_store.negotiated = Some(negotiated),
             SwapMsg::TakerFee(data) => msg_store.taker_fee = Some(data),
@@ -383,14 +389,16 @@ impl ProcessSwapMsg for SwapMsgExt {
     fn swap_msg_to_store(self, msg_store: &mut SwapMsgStore) {
         match self {
             SwapMsgExt::NegotiationVersioned(data) => {
-                if cfg!(not(feature = "test-use-old-taker")) {
-                    // ignore versioned msg for old taker emulation
+                if cfg!(not(feature = "test-use-old-taker"))
+                // ignore to emulate old node in tests
+                {
                     msg_store.negotiation = Some(data);
                 }
             },
             SwapMsgExt::NegotiationReplyVersioned(data) => {
-                if cfg!(not(feature = "test-use-old-maker")) {
-                    // ignore versioned msg for old maker emulation
+                if cfg!(not(feature = "test-use-old-maker"))
+                // ignore to emulate old node in tests
+                {
                     msg_store.negotiation_reply = Some(data);
                 }
             },

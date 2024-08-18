@@ -14,10 +14,10 @@ use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::TakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
 use crate::lp_swap::taker_restart::get_command_based_on_maker_or_watcher_activity;
-#[cfg(not(feature = "test-use-old-taker"))]
-use crate::lp_swap::NegotiationDataMsgVersion;
 use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, tx_helper_topic,
-                     wait_for_maker_payment_conf_duration, TakerSwapWatcherData, MAX_STARTED_AT_DIFF};
+                     wait_for_maker_payment_conf_duration, SwapMsgWrapper, TakerSwapWatcherData, MAX_STARTED_AT_DIFF};
+#[cfg(not(feature = "test-use-old-taker"))]
+use crate::lp_swap::{swap_ext_topic, NegotiationDataMsgVersion, SwapMsgExt};
 use coins::lp_price::fetch_swap_coins_price;
 #[cfg(not(feature = "test-use-old-taker"))]
 use coins::SWAP_PROTOCOL_VERSION;
@@ -1238,25 +1238,35 @@ impl TakerSwap {
         // Emulate old node (not supporting version in negotiation msg)
         // (Run swap tests with "test-use-old-taker" feature to emulate old taker, sending non-versioned message)
         #[cfg(feature = "test-use-old-taker")]
-        let taker_data = SwapMsg::NegotiationReply(my_negotiation_data);
+        let (topic, taker_data) = (
+            swap_topic(&self.uuid),
+            SwapMsgWrapper::Legacy(SwapMsg::NegotiationReply(my_negotiation_data)),
+        );
 
         // Normal path
         #[cfg(not(feature = "test-use-old-taker"))]
-        let taker_data = match remote_version >= SWAP_PROTOCOL_VERSION {
-            true => SwapMsg::NegotiationReplyVersioned(NegotiationDataMsgVersion {
-                version: SWAP_PROTOCOL_VERSION,
-                msg: my_negotiation_data,
-            }),
-            false => SwapMsg::NegotiationReply(my_negotiation_data), // remote node is old
+        let (topic, taker_data) = match remote_version >= SWAP_PROTOCOL_VERSION {
+            true => (
+                swap_ext_topic(&self.uuid),
+                SwapMsgWrapper::Ext(SwapMsgExt::NegotiationReplyVersioned(NegotiationDataMsgVersion {
+                    version: SWAP_PROTOCOL_VERSION,
+                    msg: my_negotiation_data,
+                })),
+            ),
+            false => (
+                swap_topic(&self.uuid),
+                SwapMsgWrapper::Legacy(SwapMsg::NegotiationReply(my_negotiation_data)), // remote node is old
+            ),
         };
 
         debug!("Sending taker negotiation data {:?}", taker_data);
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            vec![(swap_topic(&self.uuid), taker_data)],
+            vec![(topic, taker_data)],
             NEGOTIATE_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
+
         let recv_fut = recv_swap_msg(
             self.ctx.clone(),
             |store| store.negotiated.take(),

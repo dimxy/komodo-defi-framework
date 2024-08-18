@@ -14,9 +14,9 @@ use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF};
+use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, SwapMsgWrapper, MAX_STARTED_AT_DIFF};
 #[cfg(not(feature = "test-use-old-maker"))]
-use crate::lp_swap::{swap_ext_topic, NegotiationDataMsgVersion};
+use crate::lp_swap::{swap_ext_topic, NegotiationDataMsgVersion, SwapMsgExt};
 use coins::lp_price::fetch_swap_coins_price;
 #[cfg(not(feature = "test-use-old-maker"))]
 use coins::SWAP_PROTOCOL_VERSION;
@@ -599,15 +599,21 @@ impl MakerSwap {
         // (Run swap tests with "test-use-old-maker" feature to emulate old maker, sending non-versioned message only)
         #[cfg(not(feature = "test-use-old-maker"))]
         {
-            let maker_versioned_negotiation_msg = SwapMsg::NegotiationVersioned(NegotiationDataMsgVersion {
+            let maker_versioned_negotiation_msg = SwapMsgExt::NegotiationVersioned(NegotiationDataMsgVersion {
                 version: SWAP_PROTOCOL_VERSION,
                 msg: negotiation_data.clone(),
             });
-            msgs.push((swap_ext_topic(&self.uuid), maker_versioned_negotiation_msg));
+            msgs.push((
+                swap_ext_topic(&self.uuid),
+                SwapMsgWrapper::Ext(maker_versioned_negotiation_msg),
+            ));
         }
 
         let maker_old_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
-        msgs.push((swap_topic(&self.uuid), maker_old_negotiation_msg));
+        msgs.push((
+            swap_topic(&self.uuid),
+            SwapMsgWrapper::Legacy(maker_old_negotiation_msg),
+        ));
 
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
