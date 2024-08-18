@@ -221,6 +221,7 @@ fn test_search_for_taker_swap_tx_spend_native_was_spent_by_maker() {
     };
     coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
     let maker_spends_payment_args = SpendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         other_payment_tx: &tx.tx_hex(),
         time_lock,
         other_pubkey: my_pubkey,
@@ -290,6 +291,7 @@ fn test_search_for_maker_swap_tx_spend_native_was_spent_by_taker() {
     };
     coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
     let taker_spends_payment_args = SpendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         other_payment_tx: &tx.tx_hex(),
         time_lock,
         other_pubkey: my_pubkey,

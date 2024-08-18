@@ -228,6 +228,7 @@ fn test_taker_spends_maker_payment() {
     };
     block_on(taker_coin.validate_maker_payment(input)).unwrap();
     let taker_spends_payment_args = SpendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         other_payment_tx: &payment_tx_hex,
         time_lock: timelock,
         other_pubkey: &maker_pub,
@@ -331,6 +332,7 @@ fn test_maker_spends_taker_payment() {
     };
     block_on(maker_coin.validate_taker_payment(input)).unwrap();
     let maker_spends_payment_args = SpendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         other_payment_tx: &payment_tx_hex,
         time_lock: timelock,
         other_pubkey: &taker_pub,
@@ -609,6 +611,7 @@ fn test_search_for_swap_tx_spend_taker_spent() {
     };
     taker_coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
     let taker_spends_payment_args = SpendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         other_payment_tx: &payment_tx_hex,
         time_lock: timelock,
         other_pubkey: maker_pub,
@@ -855,6 +858,7 @@ fn test_wait_for_tx_spend() {
     thread::spawn(move || {
         thread::sleep(Duration::from_secs(5));
         let taker_spends_payment_args = SpendPaymentArgs {
+            other_version: SWAP_PROTOCOL_VERSION,
             other_payment_tx: &payment_hex,
             time_lock: timelock,
             other_pubkey: &maker_pub_c,

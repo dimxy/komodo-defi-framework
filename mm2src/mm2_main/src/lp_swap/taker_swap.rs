@@ -1826,6 +1826,7 @@ impl TakerSwap {
         let other_maker_coin_htlc_pub = self.r().other_maker_coin_htlc_pub;
         let secret = self.r().secret;
         let taker_spends_payment_args = SpendPaymentArgs {
+            other_version: self.r().data.maker_version.unwrap_or(LEGACY_PROTOCOL_VERSION),
             other_payment_tx: &self.r().maker_payment.clone().unwrap().tx_hex,
             time_lock: self.maker_payment_lock.load(Ordering::Relaxed),
             other_pubkey: &*other_maker_coin_htlc_pub,
@@ -2193,10 +2194,12 @@ impl TakerSwap {
             let secret = self.r().secret.0;
             let maker_coin_swap_contract_address = self.r().data.maker_coin_swap_contract_address.clone();
             let watcher_reward = self.r().watcher_reward;
+            let other_version = self.r().data.maker_version.unwrap_or(LEGACY_PROTOCOL_VERSION);
 
             let maybe_spend_tx = self
                 .maker_coin
                 .send_taker_spends_maker_payment(SpendPaymentArgs {
+                    other_version,
                     other_payment_tx: &maker_payment,
                     time_lock: self.maker_payment_lock.load(Ordering::Relaxed),
                     other_pubkey: other_maker_coin_htlc_pub.as_slice(),
@@ -2256,6 +2259,7 @@ impl TakerSwap {
                     );
 
                     let taker_spends_payment_args = SpendPaymentArgs {
+                        other_version: self.r().data.maker_version.unwrap_or(LEGACY_PROTOCOL_VERSION),
                         other_payment_tx: &maker_payment,
                         time_lock: self.maker_payment_lock.load(Ordering::Relaxed),
                         other_pubkey: other_maker_coin_htlc_pub.as_slice(),

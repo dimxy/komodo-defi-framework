@@ -686,6 +686,7 @@ fn send_and_spend_eth_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
     taker_eth_coin.wait_for_confirmations(confirm_input).wait().unwrap();
 
     let spend_args = SpendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         other_payment_tx: &eth_maker_payment.tx_hex(),
         time_lock,
         other_pubkey: &maker_pubkey,
@@ -876,6 +877,7 @@ fn send_and_spend_erc20_maker_payment_impl(swap_txfee_policy: SwapTxFeePolicy) {
     }
 
     let spend_args = SpendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         other_payment_tx: &eth_maker_payment.tx_hex(),
         time_lock,
         other_pubkey: &maker_pubkey,

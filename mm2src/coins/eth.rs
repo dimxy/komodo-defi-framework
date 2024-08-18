@@ -4232,6 +4232,7 @@ impl EthCoin {
 
         let secret_vec = args.secret.to_vec();
         let watcher_reward = args.watcher_reward;
+        let can_use_tx_type = SwapFeature::is_active(SwapFeature::EthTypeTx, args.other_version);
 
         match self.coin_type {
             EthCoinType::Eth => {
@@ -4286,9 +4287,16 @@ impl EthCoin {
                     .await
                     .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
                     .ok();
-                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list, true)
-                    .compat()
-                    .await
+                self.sign_and_send_transaction(
+                    0.into(),
+                    Call(swap_contract_address),
+                    data,
+                    gas,
+                    access_list,
+                    can_use_tx_type,
+                )
+                .compat()
+                .await
             },
             EthCoinType::Erc20 {
                 platform: _,
@@ -4345,9 +4353,16 @@ impl EthCoin {
                     .await
                     .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
                     .ok();
-                self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list, true)
-                    .compat()
-                    .await
+                self.sign_and_send_transaction(
+                    0.into(),
+                    Call(swap_contract_address),
+                    data,
+                    gas,
+                    access_list,
+                    can_use_tx_type,
+                )
+                .compat()
+                .await
             },
             EthCoinType::Nft { .. } => Err(TransactionErr::ProtocolNotSupported(ERRL!(
                 "Nft Protocol is not supported!"

@@ -992,6 +992,8 @@ pub struct SpendPaymentArgs<'a> {
     pub swap_contract_address: &'a Option<BytesJson>,
     pub swap_unique_data: &'a [u8],
     pub watcher_reward: bool,
+    /// other party version
+    pub other_version: u16,
 }
 
 #[derive(Debug)]

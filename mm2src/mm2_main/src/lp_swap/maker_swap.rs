@@ -1124,6 +1124,7 @@ impl MakerSwap {
         let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
         let secret = self.r().data.secret;
         let maker_spends_payment_args = SpendPaymentArgs {
+            other_version: self.r().data.taker_version.unwrap_or(LEGACY_PROTOCOL_VERSION),
             other_payment_tx: &self.r().taker_payment.clone().unwrap().tx_hex.clone(),
             time_lock: self.taker_payment_lock.load(Ordering::Relaxed),
             other_pubkey: &*other_taker_coin_htlc_pub,
@@ -1438,6 +1439,7 @@ impl MakerSwap {
             let secret = selfi.r().data.secret.0;
             let unique_data = selfi.unique_swap_data();
             let watcher_reward = selfi.r().watcher_reward;
+            let other_version = selfi.r().data.taker_version.unwrap_or(LEGACY_PROTOCOL_VERSION);
 
             let search_input = SearchForSwapTxSpendInput {
                 time_lock: timelock,
@@ -1472,6 +1474,7 @@ impl MakerSwap {
             selfi
                 .taker_coin
                 .send_maker_spends_taker_payment(SpendPaymentArgs {
+                    other_version,
                     other_payment_tx: taker_payment_hex,
                     time_lock: timelock,
                     other_pubkey: other_taker_coin_htlc_pub.as_slice(),

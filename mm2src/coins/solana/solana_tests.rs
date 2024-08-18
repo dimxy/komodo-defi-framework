@@ -423,6 +423,7 @@ fn solana_coin_send_and_spend_maker_payment() {
     let maker_pub = taker_pub;
 
     let spends_payment_args = SpendPaymentArgs {
+        other_version: SWAP_PROTOCOL_VERSION,
         other_payment_tx: &tx.tx_hex(),
         time_lock: lock_time,
         other_pubkey: maker_pub.as_ref(),
