@@ -14,16 +14,18 @@ use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF,
-                     MIN_SWAP_PROTOCOL_VERSION};
+use crate::lp_swap::{broadcast_swap_message, swap_ext_topic, taker_payment_spend_duration, SwapMsgWrapper,
+                     MAX_STARTED_AT_DIFF};
 #[cfg(not(feature = "test-use-old-maker"))]
-use crate::lp_swap::{NegotiationDataMsgVersion, SWAP_PROTOCOL_VERSION};
+use crate::lp_swap::{NegotiationDataMsgVersion, SwapMsgExt};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::swap_features::SwapFeature;
+#[cfg(not(feature = "test-use-old-maker"))]
+use coins::SWAP_PROTOCOL_VERSION;
 use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, MmCoin,
             MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
             SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash, TradeFee,
-            TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput};
+            TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput, MIN_SWAP_PROTOCOL_VERSION};
 use common::log::{debug, error, info, warn};
 use common::{bits256, executor::Timer, now_ms};
 use common::{now_sec, wait_until_sec};
@@ -599,15 +601,21 @@ impl MakerSwap {
         // (Run swap tests with "test-use-old-maker" feature to emulate old maker, sending non-versioned message only)
         #[cfg(not(feature = "test-use-old-maker"))]
         {
-            let maker_versioned_negotiation_msg = SwapMsg::NegotiationVersioned(NegotiationDataMsgVersion {
+            let maker_versioned_negotiation_msg = SwapMsgExt::NegotiationVersioned(NegotiationDataMsgVersion {
                 version: SWAP_PROTOCOL_VERSION,
                 msg: negotiation_data.clone(),
             });
-            msgs.push(maker_versioned_negotiation_msg);
+            msgs.push((
+                swap_ext_topic(&self.uuid),
+                SwapMsgWrapper::Ext(maker_versioned_negotiation_msg),
+            ));
         }
 
         let maker_old_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
-        msgs.push(maker_old_negotiation_msg);
+        msgs.push((
+            swap_topic(&self.uuid),
+            SwapMsgWrapper::Legacy(maker_old_negotiation_msg),
+        ));
 
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
@@ -616,7 +624,6 @@ impl MakerSwap {
         // When all nodes upgrade to NegotiationDataMsgVersion we won't need to send both messages and will use 'version' field in NegotiationDataMsgVersion
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            swap_topic(&self.uuid),
             msgs,
             NEGOTIATION_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
@@ -731,8 +738,7 @@ impl MakerSwap {
         let negotiated = SwapMsg::Negotiated(true);
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            swap_topic(&self.uuid),
-            vec![negotiated],
+            vec![(swap_topic(&self.uuid), negotiated)],
             TAKER_FEE_RECV_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -956,8 +962,7 @@ impl MakerSwap {
         let msg = SwapMsg::MakerPayment(payment_data_msg);
         let abort_send_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            swap_topic(&self.uuid),
-            vec![msg],
+            vec![(swap_topic(&self.uuid), msg)],
             PAYMENT_MSG_INTERVAL_SEC,
             self.p2p_privkey,
         );
@@ -2140,6 +2145,7 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
 
     let ctx = swap.ctx.clone();
     subscribe_to_topic(&ctx, swap_topic(&swap.uuid));
+    subscribe_to_topic(&ctx, swap_ext_topic(&swap.uuid));
     let mut status = ctx.log.status_handle();
     let uuid_str = swap.uuid.to_string();
     let to_broadcast = !(swap.maker_coin.is_privacy() || swap.taker_coin.is_privacy());

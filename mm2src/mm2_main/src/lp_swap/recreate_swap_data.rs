@@ -4,14 +4,12 @@ use crate::lp_swap::taker_swap::{MakerNegotiationData, TakerPaymentSpentData, Ta
                                  TakerSwapEvent, TAKER_ERROR_EVENTS, TAKER_SUCCESS_EVENTS};
 use crate::lp_swap::{wait_for_maker_payment_conf_until, MakerSavedEvent, MakerSavedSwap, SavedSwap, SwapError,
                      TakerSavedSwap};
-use coins::{lp_coinfind, MmCoinEnum};
+use coins::{lp_coinfind, MmCoinEnum, SWAP_PROTOCOL_VERSION};
 use common::{HttpStatusCode, StatusCode};
 use derive_more::Display;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
-
-use super::SWAP_PROTOCOL_VERSION;
 
 pub type RecreateSwapResult<T> = Result<T, MmError<RecreateSwapError>>;
 

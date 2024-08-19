@@ -325,6 +325,17 @@ use z_coin::{ZCoin, ZcoinProtocolInfo};
 #[cfg(feature = "enable-sia")] pub mod sia;
 #[cfg(feature = "enable-sia")] use sia::SiaCoin;
 
+/// Default swap protocol version before version field added to NegotiationDataMsg
+pub const LEGACY_PROTOCOL_VERSION: u16 = 0;
+
+/// Current swap protocol version
+pub const SWAP_PROTOCOL_VERSION: u16 = 1;
+
+/// Minimal supported swap protocol version implemented by remote peer
+pub const MIN_SWAP_PROTOCOL_VERSION: u16 = LEGACY_PROTOCOL_VERSION;
+
+// TODO: add version field to the SWAP V2 negotiation protocol
+
 pub type TransactionFut = Box<dyn Future<Item = TransactionEnum, Error = TransactionErr> + Send>;
 pub type TransactionResult = Result<TransactionEnum, TransactionErr>;
 pub type BalanceResult<T> = Result<T, MmError<BalanceError>>;
