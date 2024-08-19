@@ -126,8 +126,8 @@ async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSav
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TakerNegotiationData {
-    /// Protocol version supported by taker. Optional because it was added in V4 of NegotiationDataMsg
-    /// so it could be read as None from a saved swap if the swap started before upgrade to V4
+    /// Protocol version supported by taker. Optional because it was added in NegotiationDataMsgVersion
+    /// so it could be read as None from a saved swap if the swap started before upgrade to NegotiationDataMsgVersion
     pub taker_version: Option<u16>,
     pub taker_payment_locktime: u64,
     pub taker_pubkey: H264Json,
@@ -418,7 +418,7 @@ impl MakerSwap {
         }
     }
 
-    /// Creates initial negotiation messages. Creates new and old messages to try both until all nodes are upgraded to V4
+    /// Creates initial negotiation messages. Creates new and old messages to try both until all nodes are upgraded to NegotiationDataMsgVersion
     fn get_my_negotiation_data(&self) -> NegotiationDataMsg {
         let r = self.r();
         let secret_hash = self.secret_hash();
