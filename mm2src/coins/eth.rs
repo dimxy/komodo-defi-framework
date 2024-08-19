@@ -738,7 +738,7 @@ macro_rules! set_tx_type_from_pay_for_gas_option {
     };
 }
 
-/// set tx type if pay_for_gas_option requires type 2
+/// set tx type if access_list requires type 1
 #[macro_export]
 macro_rules! set_tx_type_from_access_list {
     ($tx_type: ident, $access_list: expr) => {
@@ -3826,8 +3826,9 @@ impl EthCoin {
                 let coin = self.clone();
                 Box::new(
                     access_list_fut
-                        .map(move |list| remove_from_access_list(&list, &[swap_contract_address])) // edit access list to remove an item that does not reduce gas
-                        .map(Some)
+                        .map(move |opt_list| {
+                            opt_list.map(|list| remove_from_access_list(&list, &[swap_contract_address]))
+                        }) // edit access list to remove an item that does not reduce gas
                         .or_else(|_err| futures01::future::ok(None::<ethcore_transaction::AccessList>)) // ignore create_access_list_if_configured errors and use None value
                         .and_then(move |list| {
                             coin.sign_and_send_transaction(
@@ -3934,8 +3935,7 @@ impl EthCoin {
                                     .and_then(move |_| {
                                         let access_list_fut = arc.create_access_list_if_configured(swap_contract_address, Some(value), Some(data.clone()), Some(gas));
                                         access_list_fut
-                                            .map(move |list| remove_from_access_list(&list, &[swap_contract_address]))
-                                            .map(Some)
+                                            .map(move |opt_list| opt_list.map(|list| remove_from_access_list(&list, &[swap_contract_address])))
                                             .or_else(|_err| futures01::future::ok(None::<ethcore_transaction::AccessList>))
                                             .and_then(move |list| {
                                                 arc.sign_and_send_transaction(
@@ -3954,8 +3954,7 @@ impl EthCoin {
                         let access_list_fut = arc.create_access_list_if_configured(swap_contract_address, Some(value), Some(data.clone()), Some(gas));
                         Box::new(
                             access_list_fut
-                                .map(move |list| remove_from_access_list(&list, &[swap_contract_address]))
-                                .map(Some)
+                                .map(move |opt_list| opt_list.map(|list| remove_from_access_list(&list, &[swap_contract_address])))
                                 .or_else(|_err| futures01::future::ok(None::<ethcore_transaction::AccessList>))
                                 .and_then(move |list| arc.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, gas, list, can_use_tx_type))
                         )
@@ -4285,8 +4284,8 @@ impl EthCoin {
                     )
                     .compat()
                     .await
-                    .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
-                    .ok();
+                    .map(|opt_list| opt_list.map(|list| remove_from_access_list(&list, &[swap_contract_address])))
+                    .unwrap_or(None);
                 self.sign_and_send_transaction(
                     0.into(),
                     Call(swap_contract_address),
@@ -4351,8 +4350,8 @@ impl EthCoin {
                     )
                     .compat()
                     .await
-                    .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
-                    .ok();
+                    .map(|opt_list| opt_list.map(|list| remove_from_access_list(&list, &[swap_contract_address])))
+                    .unwrap_or(None);
                 self.sign_and_send_transaction(
                     0.into(),
                     Call(swap_contract_address),
@@ -4431,8 +4430,8 @@ impl EthCoin {
                     .create_access_list_if_configured(swap_contract_address, Some(value), Some(data.clone()), Some(gas))
                     .compat()
                     .await
-                    .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
-                    .ok();
+                    .map(|opt_list| opt_list.map(|list| remove_from_access_list(&list, &[swap_contract_address])))
+                    .unwrap_or(None);
                 self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list, true)
                     .compat()
                     .await
@@ -4490,8 +4489,8 @@ impl EthCoin {
                     )
                     .compat()
                     .await
-                    .map(|list| remove_from_access_list(&list, &[swap_contract_address]))
-                    .ok(); // ignore errors
+                    .map(|opt_list| opt_list.map(|list| remove_from_access_list(&list, &[swap_contract_address])))
+                    .unwrap_or(None); // ignore errors
                 self.sign_and_send_transaction(0.into(), Call(swap_contract_address), data, gas, access_list, true)
                     .compat()
                     .await
@@ -5618,11 +5617,11 @@ impl EthCoin {
         value: Option<U256>,
         data: Option<Vec<u8>>,
         gas: Option<U256>,
-    ) -> Box<dyn Future<Item = ethcore_transaction::AccessList, Error = String> + Send> {
+    ) -> Box<dyn Future<Item = Option<ethcore_transaction::AccessList>, Error = String> + Send> {
         let coin = self.clone();
         let fut = async move {
             if !coin.use_access_list {
-                return Ok(ethcore_transaction::AccessList(vec![]));
+                return Ok(None);
             }
             let my_address = coin
                 .derivation_method
@@ -5650,7 +5649,7 @@ impl EthCoin {
                     err
                 })
                 .map_err(|err| err.to_string())
-                .map(|result| map_web3_access_list(&result.access_list))
+                .map(|result| Some(map_web3_access_list(&result.access_list)))
         };
         Box::new(Box::pin(fut).compat())
     }
