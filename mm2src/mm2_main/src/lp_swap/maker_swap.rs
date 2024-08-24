@@ -179,8 +179,10 @@ pub struct MakerSwapData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub taker_coin_swap_contract_address: Option<BytesJson>,
     /// Temporary pubkey used in HTLC redeem script when applicable for maker coin
+    /// Note: it's temporary for zcoin. For other coins it's currently obtained from iguana key or HD wallet activated key
     pub maker_coin_htlc_pubkey: Option<H264Json>,
     /// Temporary pubkey used in HTLC redeem script when applicable for taker coin
+    /// Note: it's temporary for zcoin. For other coins it's currently obtained from iguana key or HD wallet activated key
     pub taker_coin_htlc_pubkey: Option<H264Json>,
     /// Temporary privkey used to sign P2P messages when applicable
     pub p2p_privkey: Option<SerializableSecp256k1Keypair>,
@@ -784,6 +786,36 @@ impl MakerSwap {
         };
         swap_events.push(MakerSwapEvent::MakerPaymentInstructionsReceived(instructions));
 
+        let taker_amount = MmNumber::from(self.taker_amount.clone());
+        let remote_version = self
+            .r()
+            .data
+            .taker_version
+            .ok_or("No swap protocol version".to_owned())?;
+        let is_burn_active = SwapFeature::is_active(SwapFeature::SendToPreBurnAccount, remote_version);
+        let dex_fee = dex_fee_from_taker_coin(
+            self.taker_coin.deref(),
+            &self.r().data.maker_coin,
+            &taker_amount,
+            Some(self.r().other_taker_coin_htlc_pub.to_vec().as_ref()),
+            is_burn_active,
+        );
+        debug!(
+            "MakerSwap::wait_taker_fee remote_version={remote_version} is_burn_active={is_burn_active} dex_fee={:?} my_taker_coin_htlc_pub={}",
+            dex_fee,
+            hex::encode(self.my_taker_coin_htlc_pub().0)
+        );
+
+        if matches!(dex_fee, DexFee::NoFee) {
+            info!("Taker fee is not expected for dex taker");
+            let fee_ident = TransactionIdentifier {
+                tx_hex: BytesJson::from(vec![]),
+                tx_hash: BytesJson::from(vec![]),
+            };
+            swap_events.push(MakerSwapEvent::TakerFeeValidated(fee_ident));
+            return Ok((Some(MakerSwapCommand::SendPayment), swap_events));
+        }
+
         let taker_fee = match self.taker_coin.tx_enum_from_bytes(payload.data()) {
             Ok(tx) => tx,
             Err(e) => {
@@ -796,23 +828,6 @@ impl MakerSwap {
         let hash = taker_fee.tx_hash_as_bytes();
         info!("Taker fee tx {:02x}", hash);
 
-        let taker_amount = MmNumber::from(self.taker_amount.clone());
-        let remote_version = self
-            .r()
-            .data
-            .taker_version
-            .ok_or("No swap protocol version".to_owned())?;
-        let is_burn_active = SwapFeature::is_active(SwapFeature::SendToPreBurnAccount, remote_version);
-        let dex_fee = dex_fee_from_taker_coin(
-            self.taker_coin.deref(),
-            &self.r().data.maker_coin,
-            &taker_amount,
-            is_burn_active,
-        );
-        debug!(
-            "MakerSwap::wait_taker_fee remote_version={remote_version} is_burn_active={is_burn_active} dex_fee={:?}",
-            dex_fee
-        );
         let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
         let taker_coin_start_block = self.r().data.taker_coin_start_block;
 

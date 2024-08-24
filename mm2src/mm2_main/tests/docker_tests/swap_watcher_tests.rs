@@ -821,6 +821,7 @@ fn test_watcher_spends_maker_payment_eth_utxo() {
         &coin,
         "ETH",
         &MmNumber::from(mycoin_volume.clone()),
+        None,
         PRE_BURN_ACCOUNT_ACTIVE,
     )
     .fee_amount()
@@ -966,6 +967,7 @@ fn test_watcher_spends_maker_payment_erc20_utxo() {
         &coin,
         "ERC20DEV",
         &MmNumber::from(mycoin_volume.clone()),
+        None,
         PRE_BURN_ACCOUNT_ACTIVE,
     )
     .fee_amount()
@@ -1217,7 +1219,13 @@ fn test_watcher_validate_taker_fee_utxo() {
     let taker_pubkey = taker_coin.my_public_key().unwrap();
 
     let taker_amount = MmNumber::from((10, 1));
-    let fee_amount = dex_fee_from_taker_coin(&taker_coin, maker_coin.ticker(), &taker_amount, PRE_BURN_ACCOUNT_ACTIVE);
+    let fee_amount = dex_fee_from_taker_coin(
+        &taker_coin,
+        maker_coin.ticker(),
+        &taker_amount,
+        None,
+        PRE_BURN_ACCOUNT_ACTIVE,
+    );
 
     let taker_fee = taker_coin
         .send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)
@@ -1338,7 +1346,7 @@ fn test_watcher_validate_taker_fee_eth() {
     let taker_pubkey = taker_keypair.public();
 
     let taker_amount = MmNumber::from((1, 1));
-    let fee_amount = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, PRE_BURN_ACCOUNT_ACTIVE);
+    let fee_amount = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, None, PRE_BURN_ACCOUNT_ACTIVE);
     let taker_fee = taker_coin
         .send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)
         .wait()
@@ -1439,7 +1447,7 @@ fn test_watcher_validate_taker_fee_erc20() {
     let taker_pubkey = taker_keypair.public();
 
     let taker_amount = MmNumber::from((1, 1));
-    let fee_amount = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, PRE_BURN_ACCOUNT_ACTIVE);
+    let fee_amount = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, None, PRE_BURN_ACCOUNT_ACTIVE);
     let taker_fee = taker_coin
         .send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)
         .wait()

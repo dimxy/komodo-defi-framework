@@ -1301,7 +1301,7 @@ pub async fn gen_and_sign_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOp
         swap_proto_v2_scripts::taker_payment_script(time_lock, args.maker_secret_hash, args.taker_pub, args.maker_pub);
 
     let sig_hash_type = match args.dex_fee {
-        DexFee::Standard(_) => SIGHASH_SINGLE,
+        DexFee::Standard(_) | DexFee::NoFee => SIGHASH_SINGLE,
         DexFee::WithBurn { .. } => SIGHASH_ALL,
     };
 
@@ -1344,7 +1344,7 @@ pub async fn validate_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
     );
 
     let sig_hash_type = match gen_args.dex_fee {
-        DexFee::Standard(_) => SIGHASH_SINGLE,
+        DexFee::Standard(_) | DexFee::NoFee => SIGHASH_SINGLE,
         DexFee::WithBurn { .. } => SIGHASH_ALL,
     };
 
@@ -1428,7 +1428,7 @@ pub async fn sign_and_broadcast_taker_payment_spend<T: UtxoCommonOps>(
     ));
     let mut taker_signature_with_sighash = preimage.signature.to_vec();
     let taker_sig_hash = match gen_args.dex_fee {
-        DexFee::Standard(_) => (SIGHASH_SINGLE | coin.as_ref().conf.fork_id) as u8,
+        DexFee::Standard(_) | DexFee::NoFee => (SIGHASH_SINGLE | coin.as_ref().conf.fork_id) as u8,
         DexFee::WithBurn { .. } => (SIGHASH_ALL | coin.as_ref().conf.fork_id) as u8,
     };
 
@@ -1469,53 +1469,56 @@ fn generate_taker_fee_tx_outputs<T>(coin: &T, dex_fee: &DexFee) -> Result<Vec<Tr
 where
     T: UtxoCommonOps + SwapOps,
 {
-    let dex_address = address_from_raw_pubkey(
-        coin.dex_pubkey(),
-        coin.as_ref().conf.address_prefixes.clone(),
-        coin.as_ref().conf.checksum_type,
-        coin.as_ref().conf.bech32_hrp.clone(),
-        coin.addr_format().clone(),
-    )?;
-    let burn_address = address_from_raw_pubkey(
-        coin.burn_pubkey(),
-        coin.as_ref().conf.address_prefixes.clone(),
-        coin.as_ref().conf.checksum_type,
-        coin.as_ref().conf.bech32_hrp.clone(),
-        coin.addr_format().clone(),
-    )?;
-
-    let fee_amount = dex_fee
-        .fee_amount_as_u64(coin.as_ref().decimals)
-        .map_err(|err| err.get_inner().to_string())?;
-
-    let mut outputs = vec![TransactionOutput {
-        value: fee_amount,
-        script_pubkey: Builder::build_p2pkh(dex_address.hash()).to_bytes(),
-    }];
-
     match dex_fee {
-        DexFee::Standard(_) => {}, // TODO: replace with error 'dex fee must contain burn amount' when nodes upgraded
-        DexFee::WithBurn {
-            fee_amount: _,
-            burn_amount,
-            burn_destination,
-        } => {
-            let burn_amount_u64 = sat_from_big_decimal(&burn_amount.to_decimal(), coin.as_ref().decimals)
+        DexFee::NoFee => Ok(vec![]),
+        // TODO: for DexFee::Standard return an error like 'dex fee must contain burn amount' when nodes upgraded to this code
+        DexFee::Standard(_) | DexFee::WithBurn { .. } => {
+            let dex_address = address_from_raw_pubkey(
+                coin.dex_pubkey(),
+                coin.as_ref().conf.address_prefixes.clone(),
+                coin.as_ref().conf.checksum_type,
+                coin.as_ref().conf.bech32_hrp.clone(),
+                coin.addr_format().clone(),
+            )?;
+            let burn_address = address_from_raw_pubkey(
+                coin.burn_pubkey(),
+                coin.as_ref().conf.address_prefixes.clone(),
+                coin.as_ref().conf.checksum_type,
+                coin.as_ref().conf.bech32_hrp.clone(),
+                coin.addr_format().clone(),
+            )?;
+
+            let fee_amount = dex_fee
+                .fee_amount_as_u64(coin.as_ref().decimals)
                 .map_err(|err| err.get_inner().to_string())?;
-            match burn_destination {
-                DexFeeBurnDestination::KmdOpReturn => outputs.push(TransactionOutput {
-                    value: burn_amount_u64,
-                    script_pubkey: Builder::default().push_opcode(Opcode::OP_RETURN).into_bytes(),
-                }),
-                DexFeeBurnDestination::PreBurnAccount => outputs.push(TransactionOutput {
-                    value: burn_amount_u64,
-                    script_pubkey: Builder::build_p2pkh(burn_address.hash()).to_bytes(),
-                }),
-            };
+
+            let mut outputs = vec![TransactionOutput {
+                value: fee_amount,
+                script_pubkey: Builder::build_p2pkh(dex_address.hash()).to_bytes(),
+            }];
+
+            if let DexFee::WithBurn {
+                fee_amount: _,
+                burn_amount,
+                burn_destination,
+            } = dex_fee
+            {
+                let burn_amount_u64 = sat_from_big_decimal(&burn_amount.to_decimal(), coin.as_ref().decimals)
+                    .map_err(|err| err.get_inner().to_string())?;
+                match burn_destination {
+                    DexFeeBurnDestination::KmdOpReturn => outputs.push(TransactionOutput {
+                        value: burn_amount_u64,
+                        script_pubkey: Builder::default().push_opcode(Opcode::OP_RETURN).into_bytes(),
+                    }),
+                    DexFeeBurnDestination::PreBurnAccount => outputs.push(TransactionOutput {
+                        value: burn_amount_u64,
+                        script_pubkey: Builder::build_p2pkh(burn_address.hash()).to_bytes(),
+                    }),
+                };
+            }
+            Ok(outputs)
         },
     }
-
-    Ok(outputs)
 }
 
 pub fn send_maker_payment<T>(coin: T, args: SendPaymentArgs) -> TransactionFut
@@ -2278,6 +2281,7 @@ pub fn validate_fee<T: UtxoCommonOps + SwapOps>(
         }
 
         match dex_fee {
+            DexFee::NoFee => {},
             DexFee::Standard(fee_amount) => {
                 validate_dex_output(&coin, &tx, output_index, &dex_address, &fee_amount)?;
             },

@@ -1,4 +1,4 @@
-use super::swap_v2_common::*;
+use super::{dex_fee_from_taker_coin, swap_v2_common::*, PRE_BURN_ACCOUNT_ACTIVE};
 use super::{LockedAmount, LockedAmountInfo, SavedTradeFee, SwapsContext, TakerSwapPreparedParams,
             NEGOTIATE_SEND_INTERVAL, NEGOTIATION_TIMEOUT_SEC};
 use crate::lp_swap::swap_lock::SwapLock;
@@ -16,7 +16,7 @@ use coins::{CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, GenTaker
 use common::executor::abortable_queue::AbortableQueue;
 use common::executor::{AbortableSystem, Timer};
 use common::log::{debug, error, info, warn};
-use common::{Future01CompatExt, DEX_FEE_ADDR_RAW_PUBKEY};
+use common::Future01CompatExt;
 use crypto::privkey::SerializableSecp256k1Keypair;
 use keys::KeyPair;
 use mm2_core::mm_ctx::MmArc;
@@ -397,8 +397,6 @@ pub struct TakerSwapStateMachine<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCo
     pub taker_coin: TakerCoin,
     /// The amount swapped by taker.
     pub taker_volume: MmNumber,
-    /// DEX fee amount.
-    pub dex_fee: DexFee,
     /// Premium amount, which might be paid to maker as additional reward.
     pub taker_premium: MmNumber,
     /// Algorithm used to hash swap secrets.
@@ -439,6 +437,18 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             SecretHashAlgo::SHA256 => sha256(self.taker_secret.as_slice()).take().into(),
         }
     }
+
+    fn dex_fee(&self) -> DexFee {
+        let dummy_unique_data = vec![];
+        let taker_pub = self.taker_coin.derive_htlc_pubkey_v2_bytes(&dummy_unique_data); // Using dummy swap data because we need only permanent taker pubkey for dex fee
+        dex_fee_from_taker_coin(
+            &self.taker_coin,
+            self.maker_coin.ticker(),
+            &self.taker_volume,
+            Some(&taker_pub),
+            PRE_BURN_ACCOUNT_ACTIVE,
+        )
+    }
 }
 
 #[async_trait]
@@ -464,13 +474,13 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             taker_coin: self.taker_coin.ticker().into(),
             taker_volume: self.taker_volume.clone(),
             taker_premium: self.taker_premium.clone(),
-            dex_fee_amount: self.dex_fee.fee_amount(),
+            dex_fee_amount: self.dex_fee().fee_amount(),
             conf_settings: self.conf_settings,
             uuid: self.uuid,
             p2p_keypair: self.p2p_keypair.map(Into::into),
             events: Vec::new(),
             maker_p2p_pub: self.maker_p2p_pubkey.into(),
-            dex_fee_burn: self.dex_fee.burn_amount().unwrap_or_default(),
+            dex_fee_burn: self.dex_fee().burn_amount().unwrap_or_default(),
         }
     }
 
@@ -730,9 +740,6 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             },
         };
 
-        let dex_fee =
-            DexFee::create_from_fields(repr.dex_fee_amount, repr.dex_fee_burn, recreate_ctx.taker_coin.ticker());
-
         let machine = TakerSwapStateMachine {
             ctx: storage.ctx.clone(),
             abortable_system: storage
@@ -747,7 +754,6 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             maker_volume: repr.maker_volume,
             taker_coin: recreate_ctx.taker_coin,
             taker_volume: repr.taker_volume,
-            dex_fee,
             taker_premium: repr.taker_premium,
             secret_hash_algo: repr.secret_hash_algo,
             conf_settings: repr.conf_settings,
@@ -801,7 +807,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
                     swap_uuid: self.uuid,
                     locked_amount: LockedAmount {
                         coin: taker_coin_ticker.clone(),
-                        amount: &(&self.taker_volume + &self.dex_fee.total_spend_amount()) + &self.taker_premium,
+                        amount: &(&self.taker_volume + &self.dex_fee().total_spend_amount()) + &self.taker_premium,
                         trade_fee: Some(taker_payment_fee.clone().into()),
                     },
                 };
@@ -848,7 +854,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
                     swap_uuid: self.uuid,
                     locked_amount: LockedAmount {
                         coin: taker_coin_ticker.clone(),
-                        amount: &(&self.taker_volume + &self.dex_fee.total_spend_amount()) + &self.taker_premium,
+                        amount: &(&self.taker_volume + &self.dex_fee().total_spend_amount()) + &self.taker_premium,
                         trade_fee: Some(taker_payment_fee.into()),
                     },
                 };
@@ -920,8 +926,8 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             },
         };
 
-        let total_payment_value =
-            &(&state_machine.taker_volume + &state_machine.dex_fee.total_spend_amount()) + &state_machine.taker_premium;
+        let total_payment_value = &(&state_machine.taker_volume + &state_machine.dex_fee().total_spend_amount())
+            + &state_machine.taker_premium;
         let preimage_value = TradePreimageValue::Exact(total_payment_value.to_decimal());
         let stage = FeeApproxStage::StartSwap;
 
@@ -946,7 +952,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
         };
 
         let prepared_params = TakerSwapPreparedParams {
-            dex_fee: Default::default(),
+            dex_fee: Default::default(), // TODO: is it correct to use 0 here? It's for calculating the needed balance. What if the actual dex_fee will be not 0?
             fee_to_send_dex_fee: TradeFee {
                 coin: state_machine.taker_coin.ticker().into(),
                 amount: Default::default(),
@@ -1223,7 +1229,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             taker_secret_hash: &state_machine.taker_secret_hash(),
             maker_secret_hash: &self.negotiation_data.maker_secret_hash,
             maker_pub: &self.negotiation_data.taker_coin_htlc_pub_from_maker.to_bytes(),
-            dex_fee: &state_machine.dex_fee,
+            dex_fee: &state_machine.dex_fee(),
             premium_amount: state_machine.taker_premium.to_decimal(),
             trading_amount: state_machine.taker_volume.to_decimal(),
             swap_unique_data: &state_machine.unique_data(),
@@ -1639,8 +1645,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             maker_pub: &self.negotiation_data.taker_coin_htlc_pub_from_maker,
             maker_address: &self.negotiation_data.taker_coin_maker_address,
             taker_pub: &state_machine.taker_coin.derive_htlc_pubkey_v2(&unique_data),
-            dex_fee_pub: &DEX_FEE_ADDR_RAW_PUBKEY,
-            dex_fee: &state_machine.dex_fee,
+            dex_fee: &state_machine.dex_fee(),
             premium_amount: Default::default(),
             trading_amount: state_machine.taker_volume.to_decimal(),
         };
@@ -1797,7 +1802,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             taker_secret_hash: &secret_hash,
             maker_secret_hash: &self.negotiation_data.maker_secret_hash,
             swap_contract_address: &None,
-            dex_fee: &state_machine.dex_fee,
+            dex_fee: &state_machine.dex_fee(),
             premium_amount: state_machine.taker_premium.to_decimal(),
             trading_amount: state_machine.taker_volume.to_decimal(),
             swap_unique_data: &unique_data,

@@ -1395,8 +1395,6 @@ pub struct GenTakerPaymentSpendArgs<'a, Coin: ParseCoinAssocTypes + ?Sized> {
     pub maker_address: &'a Coin::Address,
     /// Taker's pubkey
     pub taker_pub: &'a Coin::Pubkey,
-    /// Pubkey of address, receiving DEX fees
-    pub dex_fee_pub: &'a [u8],
     /// DEX fee
     pub dex_fee: &'a DexFee,
     /// Additional reward for maker (premium)
@@ -3670,6 +3668,8 @@ pub enum DexFeeBurnDestination {
 /// Represents the different types of DEX fees.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DexFee {
+    /// No dex fee is taken (if taker is dex pubkey)
+    NoFee,
     /// Standard dex fee which will be sent to the dex fee address
     Standard(MmNumber),
     /// Dex fee with the burn amount
@@ -3708,8 +3708,14 @@ impl DexFee {
         taker_coin: &dyn MmCoin,
         rel_ticker: &str,
         trade_amount: &MmNumber,
+        taker_pubkey: Option<&[u8]>,
         burn_active: bool,
     ) -> DexFee {
+        if let Some(taker_pubkey) = taker_pubkey {
+            if !taker_coin.is_privacy() && taker_coin.dex_pubkey() == taker_pubkey {
+                return DexFee::NoFee; // do not change dex fee for the dex pubkey as the taker
+            }
+        }
         // calc dex fee
         let rate = Self::dex_fee_rate(taker_coin.ticker(), rel_ticker);
         let dex_fee = trade_amount * &rate;
@@ -3805,6 +3811,7 @@ impl DexFee {
     /// Gets the fee amount associated with the dex fee.
     pub fn fee_amount(&self) -> MmNumber {
         match self {
+            DexFee::NoFee => 0.into(),
             DexFee::Standard(t) => t.clone(),
             DexFee::WithBurn { fee_amount, .. } => fee_amount.clone(),
         }
@@ -3813,6 +3820,7 @@ impl DexFee {
     /// Gets the burn amount associated with the dex fee, if applicable.
     pub fn burn_amount(&self) -> Option<MmNumber> {
         match self {
+            DexFee::NoFee => None,
             DexFee::Standard(_) => None,
             DexFee::WithBurn { burn_amount, .. } => Some(burn_amount.clone()),
         }
@@ -3821,6 +3829,7 @@ impl DexFee {
     /// Calculates the total spend amount, considering both the fee and burn amounts.
     pub fn total_spend_amount(&self) -> MmNumber {
         match self {
+            DexFee::NoFee => 0.into(),
             DexFee::Standard(t) => t.clone(),
             DexFee::WithBurn {
                 fee_amount,

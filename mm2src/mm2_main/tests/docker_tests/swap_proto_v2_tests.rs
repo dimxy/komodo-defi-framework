@@ -5,7 +5,7 @@ use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArg
             MakerCoinSwapOpsV2, MarketCoinOps, ParseCoinAssocTypes, RefundFundingSecretArgs, RefundMakerPaymentArgs,
             RefundPaymentArgs, SendMakerPaymentArgs, SendTakerFundingArgs, SwapTxTypeWithSecretHash,
             TakerCoinSwapOpsV2, Transaction, ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
-use common::{block_on, now_sec, DEX_FEE_ADDR_RAW_PUBKEY};
+use common::{block_on, now_sec};
 use futures01::Future;
 use mm2_number::MmNumber;
 use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed_for_kickstart, disable_coin,
@@ -348,7 +348,6 @@ fn send_and_spend_taker_payment_dex_fee_burn_kmd() {
         maker_pub,
         maker_address: &block_on(maker_coin.my_addr()),
         taker_pub,
-        dex_fee_pub: &DEX_FEE_ADDR_RAW_PUBKEY,
         dex_fee,
         premium_amount: 0.into(),
         trading_amount: 777.into(),
@@ -453,7 +452,6 @@ fn send_and_spend_taker_payment_dex_fee_burn_non_kmd() {
         maker_pub,
         maker_address: &block_on(maker_coin.my_addr()),
         taker_pub,
-        dex_fee_pub: &DEX_FEE_ADDR_RAW_PUBKEY,
         dex_fee,
         premium_amount: 0.into(),
         trading_amount: 777.into(),
