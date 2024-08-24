@@ -182,6 +182,7 @@ cfg_native! {
     use findshlibs::{IterationControl, Segment, SharedLibrary, TargetSharedLibrary};
     use std::env;
     use std::sync::Mutex;
+    use std::str::FromStr;
 }
 
 cfg_wasm32! {
@@ -630,6 +631,17 @@ pub fn var(name: &str) -> Result<String, String> {
         Err(_err) => ERR!("No {}", name),
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn env_var_as_bool(name: &str) -> bool {
+    match env::var(name) {
+        Ok(v) => FromStr::from_str(&v).unwrap_or_default(),
+        Err(_err) => false,
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn env_var_as_bool(_name: &str) -> bool { false }
 
 /// TODO make it wasm32 only
 #[cfg(target_arch = "wasm32")]

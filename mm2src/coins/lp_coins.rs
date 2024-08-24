@@ -32,6 +32,7 @@
 #![feature(hash_raw_entry)]
 #![feature(stmt_expr_attributes)]
 #![feature(result_flattening)]
+#![feature(local_key_cell_methods)] // for tests
 
 #[macro_use] extern crate common;
 #[macro_use] extern crate gstuff;
@@ -89,6 +90,10 @@ use std::time::Duration;
 use std::{fmt, iter};
 use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
 use zcash_primitives::transaction::Transaction as ZTransaction;
+
+#[cfg(feature = "for-tests")]
+pub static mut TEST_DEX_FEE_ADDR_RAW_PUBKEY: Option<Vec<u8>> = None;
+
 cfg_native! {
     use crate::lightning::LightningCoin;
     use crate::lightning::ln_conf::PlatformCoinConfirmationTargets;
@@ -1221,7 +1226,17 @@ pub trait SwapOps {
 
     fn maker_locktime_multiplier(&self) -> f64 { 2.0 }
 
-    fn dex_pubkey(&self) -> &[u8] { &DEX_FEE_ADDR_RAW_PUBKEY }
+    fn dex_pubkey(&self) -> &[u8] {
+        #[cfg(feature = "for-tests")]
+        {
+            unsafe {
+                if let Some(ref test_pk) = TEST_DEX_FEE_ADDR_RAW_PUBKEY {
+                    return test_pk.as_slice();
+                }
+            }
+        }
+        &DEX_FEE_ADDR_RAW_PUBKEY
+    }
 
     fn burn_pubkey(&self) -> &[u8] { &DEX_BURN_ADDR_RAW_PUBKEY }
 }
@@ -3687,7 +3702,11 @@ impl DexFee {
     const DEX_FEE_SHARE: &str = "0.75";
 
     /// Recreates a `DexFee` from separate fields (usually stored in db).
+    #[cfg(any(test, feature = "for-tests"))]
     pub fn create_from_fields(fee_amount: MmNumber, burn_amount: MmNumber, ticker: &str) -> DexFee {
+        if fee_amount == MmNumber::default() && burn_amount == MmNumber::default() {
+            return DexFee::NoFee;
+        }
         if burn_amount > MmNumber::default() {
             let burn_destination = match ticker {
                 "KMD" => DexFeeBurnDestination::KmdOpReturn,

@@ -16,19 +16,20 @@ use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
 use crate::lp_swap::{broadcast_swap_message, swap_ext_topic, taker_payment_spend_duration, SwapMsgWrapper,
                      MAX_STARTED_AT_DIFF};
-#[cfg(not(feature = "test-use-old-maker"))]
 use crate::lp_swap::{NegotiationDataMsgVersion, SwapMsgExt};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::swap_features::SwapFeature;
-#[cfg(not(feature = "test-use-old-maker"))]
 use coins::SWAP_PROTOCOL_VERSION;
-use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend, MmCoin,
-            MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
-            SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash, TradeFee,
-            TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput, MIN_SWAP_PROTOCOL_VERSION};
+#[cfg(feature = "for-tests")]
+use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
+use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage, FoundSwapTxSpend,
+            MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
+            RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash,
+            TradeFee, TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput,
+            MIN_SWAP_PROTOCOL_VERSION};
 use common::log::{debug, error, info, warn};
 use common::{bits256, executor::Timer, now_ms};
-use common::{now_sec, wait_until_sec};
+use common::{env_var_as_bool, now_sec, wait_until_sec};
 use crypto::privkey::SerializableSecp256k1Keypair;
 use crypto::CryptoCtx;
 use futures::{compat::Future01CompatExt, select, FutureExt};
@@ -486,6 +487,13 @@ impl MakerSwap {
     }
 
     async fn start(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
+        #[cfg(feature = "for-tests")]
+        if let Ok(env_pubkey) = std::env::var("TEST_DEX_FEE_ADDR_RAW_PUBKEY") {
+            unsafe {
+                TEST_DEX_FEE_ADDR_RAW_PUBKEY = Some(hex::decode(env_pubkey).expect("valid hex"));
+            }
+        }
+
         // do not use self.r().data here as it is not initialized at this step yet
         let preimage_value = TradePreimageValue::Exact(self.maker_amount.clone());
         let stage = FeeApproxStage::StartSwap;
@@ -600,9 +608,7 @@ impl MakerSwap {
         let mut msgs = vec![];
 
         // Important to try the new versioned negotiation message first
-        // (Run swap tests with "test-use-old-maker" feature to emulate old maker, sending non-versioned message only)
-        #[cfg(not(feature = "test-use-old-maker"))]
-        {
+        if cfg!(not(feature = "for-tests")) || !env_var_as_bool("USE_NON_VERSIONED_MAKER") {
             let maker_versioned_negotiation_msg = SwapMsgExt::NegotiationVersioned(NegotiationDataMsgVersion {
                 version: SWAP_PROTOCOL_VERSION,
                 msg: negotiation_data.clone(),

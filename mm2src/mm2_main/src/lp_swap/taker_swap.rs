@@ -17,19 +17,19 @@ use crate::lp_swap::taker_restart::get_command_based_on_maker_or_watcher_activit
 use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, swap_ext_topic, tx_helper_topic,
                      wait_for_maker_payment_conf_duration, SwapMsgWrapper, TakerSwapWatcherData, MAX_STARTED_AT_DIFF,
                      PRE_BURN_ACCOUNT_ACTIVE};
-#[cfg(not(feature = "test-use-old-taker"))]
 use crate::lp_swap::{NegotiationDataMsgVersion, SwapMsgExt};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::swap_features::SwapFeature;
-#[cfg(not(feature = "test-use-old-taker"))]
 use coins::SWAP_PROTOCOL_VERSION;
+#[cfg(feature = "for-tests")]
+use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
 use coins::{lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage,
             FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
             RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash,
             TradeFee, TradePreimageValue, ValidatePaymentInput, WaitForHTLCTxSpendArgs, MIN_SWAP_PROTOCOL_VERSION};
 use common::executor::Timer;
 use common::log::{debug, error, info, warn};
-use common::{bits256, now_ms, now_sec, wait_until_sec};
+use common::{bits256, env_var_as_bool, now_ms, now_sec, wait_until_sec};
 use crypto::{privkey::SerializableSecp256k1Keypair, CryptoCtx};
 use futures::{compat::Future01CompatExt, future::try_join, select, FutureExt};
 use http::Response;
@@ -1005,6 +1005,13 @@ impl TakerSwap {
     }
 
     async fn start(&self) -> Result<(Option<TakerSwapCommand>, Vec<TakerSwapEvent>), String> {
+        #[cfg(feature = "for-tests")]
+        if let Ok(env_pubkey) = std::env::var("TEST_DEX_FEE_ADDR_RAW_PUBKEY") {
+            unsafe {
+                TEST_DEX_FEE_ADDR_RAW_PUBKEY = Some(hex::decode(env_pubkey).expect("valid hex"));
+            }
+        }
+
         // do not use self.r().data here as it is not initialized at this step yet
         let stage = FeeApproxStage::StartSwap;
         let dex_fee = dex_fee_from_taker_coin(
@@ -1251,28 +1258,27 @@ impl TakerSwap {
             taker_coin_swap_contract_bytes,
         );
 
-        // Emulate old node (not supporting version in negotiation msg)
-        // (Run swap tests with "test-use-old-taker" feature to emulate old taker, sending non-versioned message)
-        #[cfg(feature = "test-use-old-taker")]
-        let (topic, taker_data) = (
-            swap_topic(&self.uuid),
-            SwapMsgWrapper::Legacy(SwapMsg::NegotiationReply(my_negotiation_data)),
-        );
-
-        // Normal path
-        #[cfg(not(feature = "test-use-old-taker"))]
-        let (topic, taker_data) = match remote_version >= SWAP_PROTOCOL_VERSION {
-            true => (
-                swap_ext_topic(&self.uuid),
-                SwapMsgWrapper::Ext(SwapMsgExt::NegotiationReplyVersioned(NegotiationDataMsgVersion {
-                    version: SWAP_PROTOCOL_VERSION,
-                    msg: my_negotiation_data,
-                })),
-            ),
-            false => (
+        let (topic, taker_data) = if cfg!(feature = "for-tests") && env_var_as_bool("USE_NON_VERSIONED_TAKER") {
+            // emulate old taker, sending non-versioned message
+            (
                 swap_topic(&self.uuid),
-                SwapMsgWrapper::Legacy(SwapMsg::NegotiationReply(my_negotiation_data)), // remote node is old
-            ),
+                SwapMsgWrapper::Legacy(SwapMsg::NegotiationReply(my_negotiation_data)),
+            )
+        } else {
+            // Normal path for versioned taker
+            match remote_version >= SWAP_PROTOCOL_VERSION {
+                true => (
+                    swap_ext_topic(&self.uuid),
+                    SwapMsgWrapper::Ext(SwapMsgExt::NegotiationReplyVersioned(NegotiationDataMsgVersion {
+                        version: SWAP_PROTOCOL_VERSION,
+                        msg: my_negotiation_data,
+                    })),
+                ),
+                false => (
+                    swap_topic(&self.uuid),
+                    SwapMsgWrapper::Legacy(SwapMsg::NegotiationReply(my_negotiation_data)), // remote node is old
+                ),
+            }
         };
 
         debug!("Sending taker negotiation data {:?}", taker_data);

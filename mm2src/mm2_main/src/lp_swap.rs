@@ -64,6 +64,7 @@ use crate::lp_swap::taker_swap_v2::{TakerSwapStateMachine, TakerSwapStorage};
 use bitcrypto::{dhash160, sha256};
 use coins::{lp_coinfind, lp_coinfind_or_err, CoinFindError, DexFee, MmCoin, MmCoinEnum, TradeFee, TransactionEnum,
             LEGACY_PROTOCOL_VERSION};
+#[cfg(feature = "for-tests")] use common::env_var_as_bool;
 use common::log::{debug, warn};
 use common::now_sec;
 use common::time_cache::DuplicateCache;
@@ -390,18 +391,24 @@ impl ProcessSwapMsg for SwapMsgExt {
     fn swap_msg_to_store(self, msg_store: &mut SwapMsgStore) {
         match self {
             SwapMsgExt::NegotiationVersioned(data) => {
-                if cfg!(not(feature = "test-use-old-taker"))
-                // ignore to emulate old node in tests
+                #[cfg(feature = "for-tests")]
                 {
-                    msg_store.negotiation = Some(data);
+                    if env_var_as_bool("USE_NON_VERSIONED_TAKER") {
+                        // ignore versioned msg to emulate old taker not supporting it
+                        break;
+                    }
                 }
+                msg_store.negotiation = Some(data);
             },
             SwapMsgExt::NegotiationReplyVersioned(data) => {
-                if cfg!(not(feature = "test-use-old-maker"))
-                // ignore to emulate old node in tests
+                #[cfg(feature = "for-tests")]
                 {
-                    msg_store.negotiation_reply = Some(data);
+                    if env_var_as_bool("USE_NON_VERSIONED_MAKER") {
+                        // ignore versioned reply to emulate old maker not supporting it
+                        break;
+                    }
                 }
+                msg_store.negotiation_reply = Some(data);
             },
         }
     }

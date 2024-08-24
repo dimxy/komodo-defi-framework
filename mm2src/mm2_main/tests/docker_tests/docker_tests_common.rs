@@ -23,7 +23,7 @@ use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardC
 use coins::utxo::{coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path, UtxoActivationParams,
                   UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps};
 use coins::{ConfirmPaymentInput, MarketCoinOps, Transaction};
-use crypto::privkey::key_pair_from_seed;
+use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
 use crypto::Secp256k1Secret;
 use ethabi::Token;
 use ethereum_types::{H160 as H160Eth, U256};
@@ -41,6 +41,7 @@ use script::Builder;
 use secp256k1::Secp256k1;
 pub use secp256k1::{PublicKey, SecretKey};
 use serde_json::{self as json, Value as Json};
+pub use std::cell::Cell;
 use std::process::{Command, Stdio};
 pub use std::{env, thread};
 use std::{path::PathBuf, str::FromStr, sync::Mutex, time::Duration};
@@ -104,6 +105,14 @@ pub static mut SEPOLIA_ERC721_CONTRACT: H160Eth = H160Eth::zero();
 pub static mut SEPOLIA_ERC1155_CONTRACT: H160Eth = H160Eth::zero();
 pub static GETH_RPC_URL: &str = "http://127.0.0.1:8545";
 pub static SEPOLIA_RPC_URL: &str = "https://ethereum-sepolia-rpc.publicnode.com";
+
+// use thread local to affect only the current running test
+thread_local! {
+    /// Set test dex pubkey as Taker (to check DexFee::NoFee)
+    pub static SET_DEX_PUBKEY_TO_ALICE: Cell<bool> = Cell::new(false);
+    pub static USE_NON_VERSIONED_MAKER: Cell<bool> = Cell::new(false);
+    pub static USE_NON_VERSIONED_TAKER: Cell<bool> = Cell::new(false);
+}
 
 pub const UTXO_ASSET_DOCKER_IMAGE: &str = "docker.io/artempikulin/testblockchain";
 pub const UTXO_ASSET_DOCKER_IMAGE_WITH_TAG: &str = "docker.io/artempikulin/testblockchain:multiarch";
@@ -857,6 +866,23 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
 
     let bob_priv_key = generate_and_fill_priv_key(base);
     let alice_priv_key = generate_and_fill_priv_key(rel);
+    let alice_pubkey_str = hex::encode(
+        key_pair_from_secret(alice_priv_key.as_ref())
+            .expect("valid test key pair")
+            .public()
+            .to_vec(),
+    );
+
+    let mut envs = vec![];
+    if SET_DEX_PUBKEY_TO_ALICE.get() {
+        envs.push(("TEST_DEX_FEE_ADDR_RAW_PUBKEY", alice_pubkey_str.as_str()));
+    }
+    if USE_NON_VERSIONED_MAKER.get() {
+        envs.push(("USE_NON_VERSIONED_MAKER", "true"));
+    }
+    if USE_NON_VERSIONED_TAKER.get() {
+        envs.push(("USE_NON_VERSIONED_TAKER", "true"));
+    }
 
     let confpath = unsafe { QTUM_CONF_PATH.as_ref().expect("Qtum config is not set yet") };
     let coins = json! ([
@@ -873,7 +899,7 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
         {"coin":"FORSLP","asset":"FORSLP","required_confirmations":0,"txversion":4,"overwintered":1,"txfee":1000,"protocol":{"type":"BCH","protocol_data":{"slp_prefix":"slptest"}}},
         {"coin":"ADEXSLP","protocol":{"type":"SLPTOKEN","protocol_data":{"decimals":8,"token_id":get_slp_token_id(),"platform":"FORSLP"}}}
     ]);
-    let mut mm_bob = MarketMakerIt::start(
+    let mut mm_bob = block_on(MarketMakerIt::start_with_envs(
         json! ({
             "gui": "nogui",
             "netid": 9000,
@@ -885,12 +911,13 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
         }),
         "pass".to_string(),
         None,
-    )
+        envs.as_slice(),
+    ))
     .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_dump(&mm_bob.log_path);
     block_on(mm_bob.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
 
-    let mut mm_alice = MarketMakerIt::start(
+    let mut mm_alice = block_on(MarketMakerIt::start_with_envs(
         json! ({
             "gui": "nogui",
             "netid": 9000,
@@ -902,7 +929,8 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
         }),
         "pass".to_string(),
         None,
-    )
+        envs.as_slice(),
+    ))
     .unwrap();
     let (_alice_dump_log, _alice_dump_dashboard) = mm_dump(&mm_alice.log_path);
     block_on(mm_alice.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
