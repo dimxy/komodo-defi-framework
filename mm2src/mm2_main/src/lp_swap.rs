@@ -82,6 +82,7 @@ use mm2_state_machine::storable_state_machine::StateMachineStorage;
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use secp256k1::{PublicKey, SecretKey, Signature};
+use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{self as json, Value as Json};
 use std::collections::{HashMap, HashSet};
@@ -160,6 +161,15 @@ const NEGOTIATE_SEND_INTERVAL: f64 = 30.;
 
 /// If a certain P2P message is not received, swap will be aborted after this time expires.
 const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
+
+/// Add refund fee to calculate maximum available balance for a swap (including possible refund)
+pub(crate) const INCLUDE_REFUND_FEE: bool = true;
+
+/// Do not add refund fee to calculate fee needed only to make a successful swap
+pub(crate) const NO_REFUND_FEE: bool = false;
+
+/// Sending part of dex fee to the pre-burn account is active
+pub const PRE_BURN_ACCOUNT_ACTIVE: bool = true;
 
 cfg_wasm32! {
     use mm2_db::indexed_db::{ConstructibleDb, DbLocked};
@@ -402,11 +412,10 @@ impl ProcessSwapMsg for SwapMsgExt {
     }
 }
 
-pub async fn process_swap_msg<'life, SwapMsgT: serde::Deserialize<'life> + ProcessSwapMsg + std::fmt::Debug>(
-    ctx: MmArc,
-    topic: &str,
-    msg: &'life [u8],
-) -> P2PRequestResult<()> {
+pub async fn process_swap_msg<SwapMsgT>(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequestResult<()>
+where
+    SwapMsgT: ProcessSwapMsg + DeserializeOwned + std::fmt::Debug,
+{
     let uuid = Uuid::from_str(topic).map_to_mm(|e| P2PRequestError::DecodeError(e.to_string()))?;
 
     let msg = match decode_signed::<SwapMsgT>(msg) {
@@ -1885,14 +1894,6 @@ pub fn generate_secret() -> Result<[u8; 32], rand::Error> {
     common::os_rng(&mut sec)?;
     Ok(sec)
 }
-
-/// Add refund fee to calculate maximum available balance for a swap (including possible refund)
-pub(crate) const INCLUDE_REFUND_FEE: bool = true;
-/// Do not add refund fee to calculate fee needed only to make a successful swap
-pub(crate) const NO_REFUND_FEE: bool = false;
-
-/// Sending part of dex fee to the pre-burn account is active
-pub const PRE_BURN_ACCOUNT_ACTIVE: bool = true;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod lp_swap_tests {
