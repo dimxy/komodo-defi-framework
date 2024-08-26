@@ -1241,36 +1241,45 @@ pub async fn sign_and_send_taker_funding_spend<T: UtxoCommonOps>(
     Ok(final_tx)
 }
 
+// Make tx preimage to spend taker payment for swaps V2
 async fn gen_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
     coin: &T,
     args: &GenTakerPaymentSpendArgs<'_, T>,
     n_time: NTimeSetting,
 ) -> GenPreimageResInner {
     let mut outputs = generate_taker_fee_tx_outputs(coin, args.dex_fee).map_err(TxGenError::Other)?;
-    if let DexFee::WithBurn { .. } = args.dex_fee {
-        let script = output_script(args.maker_address).map_to_mm(|e| {
-            TxGenError::Other(format!(
-                "Couldn't generate output script for maker address {}, error {}",
-                args.maker_address, e
-            ))
-        })?;
-        let tx_fee = coin
-            .get_htlc_spend_fee(DEFAULT_SWAP_TX_SPEND_SIZE, &FeeApproxStage::WithoutApprox)
-            .await?;
-        let maker_value = args
-            .taker_tx
-            .first_output()
-            .map_to_mm(|e| TxGenError::PrevTxIsNotValid(e.to_string()))?
-            .value
-            - outputs[0].value
-            - outputs[1].value
-            - tx_fee;
-        // taker also adds maker output as we can't use SIGHASH_SINGLE with two outputs, dex fee and burn,
-        // and both the maker and taker sign all outputs
-        outputs.push(TransactionOutput {
-            value: maker_value,
-            script_pubkey: script.to_bytes(),
-        })
+    match args.dex_fee {
+        &DexFee::WithBurn { .. } | &DexFee::NoFee => {
+            let script = output_script(args.maker_address).map_to_mm(|e| {
+                TxGenError::Other(format!(
+                    "Couldn't generate output script for maker address {}, error {}",
+                    args.maker_address, e
+                ))
+            })?;
+            let tx_fee = coin
+                .get_htlc_spend_fee(DEFAULT_SWAP_TX_SPEND_SIZE, &FeeApproxStage::WithoutApprox)
+                .await?;
+            let dex_fee_value = if matches!(args.dex_fee, &DexFee::WithBurn { .. }) {
+                outputs[0].value + outputs[1].value
+            } else {
+                0
+            };
+            let maker_value = args
+                .taker_tx
+                .first_output()
+                .map_to_mm(|e| TxGenError::PrevTxIsNotValid(e.to_string()))?
+                .value
+                - dex_fee_value
+                - tx_fee;
+            // taker also adds maker output as we can't use SIGHASH_SINGLE with two outputs, dex fee and burn,
+            // and both the maker and taker sign all outputs:
+            outputs.push(TransactionOutput {
+                value: maker_value,
+                script_pubkey: script.to_bytes(),
+            })
+        },
+        &DexFee::Standard(..) => {}, // We do not add maker output here, only the single dex fee output (signed with SIGHASH_SINGLE) is created by the taker or validated by the maker
+    }
     }
 
     p2sh_spending_tx_preimage(
@@ -1301,8 +1310,8 @@ pub async fn gen_and_sign_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOp
         swap_proto_v2_scripts::taker_payment_script(time_lock, args.maker_secret_hash, args.taker_pub, args.maker_pub);
 
     let sig_hash_type = match args.dex_fee {
-        DexFee::Standard(_) | DexFee::NoFee => SIGHASH_SINGLE,
-        DexFee::WithBurn { .. } => SIGHASH_ALL,
+        DexFee::Standard(_) => SIGHASH_SINGLE,
+        DexFee::WithBurn { .. } | DexFee::NoFee => SIGHASH_ALL,
     };
 
     let signature = calc_and_sign_sighash(
@@ -1344,8 +1353,8 @@ pub async fn validate_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
     );
 
     let sig_hash_type = match gen_args.dex_fee {
-        DexFee::Standard(_) | DexFee::NoFee => SIGHASH_SINGLE,
-        DexFee::WithBurn { .. } => SIGHASH_ALL,
+        DexFee::Standard(_) => SIGHASH_SINGLE,
+        DexFee::WithBurn { .. } | DexFee::NoFee => SIGHASH_ALL,
     };
 
     let sig_hash = signature_hash_to_sign(
@@ -1428,8 +1437,8 @@ pub async fn sign_and_broadcast_taker_payment_spend<T: UtxoCommonOps>(
     ));
     let mut taker_signature_with_sighash = preimage.signature.to_vec();
     let taker_sig_hash = match gen_args.dex_fee {
-        DexFee::Standard(_) | DexFee::NoFee => (SIGHASH_SINGLE | coin.as_ref().conf.fork_id) as u8,
-        DexFee::WithBurn { .. } => (SIGHASH_ALL | coin.as_ref().conf.fork_id) as u8,
+        DexFee::Standard(_) => (SIGHASH_SINGLE | coin.as_ref().conf.fork_id) as u8,
+        DexFee::WithBurn { .. } | DexFee::NoFee => (SIGHASH_ALL | coin.as_ref().conf.fork_id) as u8,
     };
 
     taker_signature_with_sighash.push(taker_sig_hash);
