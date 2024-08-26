@@ -8,7 +8,7 @@ use common::log;
 
 use futures::channel::mpsc::UnboundedSender;
 use futures::channel::oneshot;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tokio::sync::mpsc;
 
 /// The errors that could originate from the streaming manager.
@@ -101,6 +101,12 @@ struct StreamingManagerInner {
 pub struct StreamingManager(Arc<RwLock<StreamingManagerInner>>);
 
 impl StreamingManager {
+    /// Returns a read guard over the streaming manager.
+    fn read(&self) -> RwLockReadGuard<StreamingManagerInner> { self.0.read() }
+
+    /// Returns a write guard over the streaming manager.
+    fn write(&self) -> RwLockWriteGuard<StreamingManagerInner> { self.0.write() }
+
     /// Spawns and adds a new streamer `streamer` to the manager.
     pub async fn add(
         &self,
@@ -114,7 +120,7 @@ impl StreamingManager {
 
         // Pre-checks before spawning the streamer. Inside another scope to drop the lock early.
         {
-            let mut this = self.0.write();
+            let mut this = self.write();
             match this.clients.get(&client_id) {
                 // We don't know that client. We don't have a connection to it.
                 None => return Err(StreamingManagerError::UnknownClient),
@@ -147,7 +153,7 @@ impl StreamingManager {
         // Note that we didn't hold the lock while spawning the streamer (potentially a long operation).
         // This means we can't assume either that the client still exists at this point or
         // that the streamer still doesn't exist.
-        let mut this = self.0.write();
+        let mut this = self.write();
         if let Some(client_info) = this.clients.get_mut(&client_id) {
             client_info.add_streamer(streamer_id.clone());
             this.streamers
@@ -164,7 +170,7 @@ impl StreamingManager {
 
     /// Sends data to a streamer with `streamer_id`.
     pub fn send<T: Send + 'static>(&self, streamer_id: &str, data: T) -> Result<(), StreamingManagerError> {
-        let this = self.0.read();
+        let this = self.read();
         let streamer_info = this
             .streamers
             .get(streamer_id)
@@ -185,7 +191,7 @@ impl StreamingManager {
         streamer_id: &str,
         data_fn: impl FnOnce() -> T,
     ) -> Result<(), StreamingManagerError> {
-        let this = self.0.read();
+        let this = self.read();
         let streamer_info = this
             .streamers
             .get(streamer_id)
@@ -198,7 +204,7 @@ impl StreamingManager {
 
     /// Stops streaming from the streamer with `streamer_id` to the client with `client_id`.
     pub fn stop(&self, client_id: u64, streamer_id: &str) -> Result<(), StreamingManagerError> {
-        let mut this = self.0.write();
+        let mut this = self.write();
         if let Some(client_info) = this.clients.get_mut(&client_id) {
             client_info.remove_streamer(streamer_id);
 
@@ -224,7 +230,7 @@ impl StreamingManager {
     /// of any streamer (i.e. bypassing any streamer).
     pub fn broadcast(&self, event: Event) {
         let event = Arc::new(event);
-        let this = self.0.read();
+        let this = self.read();
         if let Some(client_ids) = this.streamers.get(event.origin()).map(|info| &info.clients) {
             client_ids.iter().for_each(|client_id| {
                 this.clients.get(client_id).map(|info| info.send_event(event.clone()));
@@ -235,14 +241,14 @@ impl StreamingManager {
     /// Forcefully broadcasts an event to all known clients even if they are not listening for such an event.
     pub fn broadcast_all(&self, event: Event) {
         let event = Arc::new(event);
-        self.0.read().clients.values().for_each(|info| {
+        self.read().clients.values().for_each(|info| {
             info.send_event(event.clone());
         });
     }
 
     /// Creates a new client and returns the event receiver for this client.
     pub fn new_client(&self, client_id: u64) -> Result<mpsc::Receiver<Arc<Event>>, StreamingManagerError> {
-        let mut this = self.0.write();
+        let mut this = self.write();
         if this.clients.contains_key(&client_id) {
             return Err(StreamingManagerError::ClientExists);
         }
@@ -256,7 +262,7 @@ impl StreamingManager {
 
     /// Removes a client from the manager.
     pub fn remove_client(&self, client_id: u64) -> Result<(), StreamingManagerError> {
-        let mut this = self.0.write();
+        let mut this = self.write();
         // Remove the client from our known-clients map.
         let client_info = this
             .clients
@@ -285,7 +291,7 @@ impl StreamingManager {
     /// the streamer might die by itself (e.g. the spawner it was spawned with aborted).
     /// In this case, we need to remove the streamer and de-list it from all clients.
     fn remove_streamer_if_down(&self, streamer_id: &str) {
-        let mut this = self.0.write();
+        let mut this = self.write();
         if let Some(streamer_info) = this.streamers.get_mut(streamer_id) {
             if streamer_info.is_down() {
                 // Remove the streamer from our registry.
@@ -483,7 +489,7 @@ mod tests {
         manager.remove_streamer_if_down(&streamer_id);
 
         // The streamer should be removed.
-        assert!(manager.0.read().streamers.get(&streamer_id).is_none());
+        assert!(manager.read().streamers.get(&streamer_id).is_none());
         // And the client is no more listening to it.
         assert!(!manager
             .0
