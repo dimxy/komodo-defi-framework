@@ -2,6 +2,7 @@
 
 #[derive(PartialEq)]
 pub enum SwapFeature {
+    // Sending part of dex fee to a dedicated account to exchange it on KMD coins and burn them
     SendToPreBurnAccount,
 }
 

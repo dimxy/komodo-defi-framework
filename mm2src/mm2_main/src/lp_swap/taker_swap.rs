@@ -1175,7 +1175,12 @@ impl TakerSwap {
         #[allow(clippy::absurd_extreme_comparisons)]
         if remote_version < MIN_SWAP_PROTOCOL_VERSION {
             return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
-                ERRL!("Maker protocol version {} too old", remote_version).into(),
+                ERRL!(
+                    "Remote maker protocol version {} too old, minimal version is {}",
+                    remote_version,
+                    MIN_SWAP_PROTOCOL_VERSION
+                )
+                .into(),
             )]));
         }
 

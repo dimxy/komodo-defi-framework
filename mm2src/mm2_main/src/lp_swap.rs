@@ -187,23 +187,11 @@ pub enum SwapMsgExt {
 }
 
 /// Utility wrapper to allow manage both SwapMsg and SwapMsgExt as one entity
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
 pub enum SwapMsgWrapper {
     Legacy(SwapMsg),
     Ext(SwapMsgExt),
-}
-
-// We use own Serializer instead of derived one to preserve compatibility with old nodes supporting only SwapMsg
-impl Serialize for SwapMsgWrapper {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            SwapMsgWrapper::Legacy(swap_msg) => swap_msg.serialize(serializer),
-            SwapMsgWrapper::Ext(swap_msg_ext) => swap_msg_ext.serialize(serializer),
-        }
-    }
 }
 
 #[derive(Debug, Default)]

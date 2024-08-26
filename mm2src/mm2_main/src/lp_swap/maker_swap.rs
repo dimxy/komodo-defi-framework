@@ -659,7 +659,12 @@ impl MakerSwap {
         if remote_version < MIN_SWAP_PROTOCOL_VERSION {
             self.broadcast_negotiated_false();
             return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
-                ERRL!("Taker protocol version {} too old", remote_version).into(),
+                ERRL!(
+                    "Remote taker protocol version {} too old, minimal version is {}",
+                    remote_version,
+                    MIN_SWAP_PROTOCOL_VERSION
+                )
+                .into(),
             )]));
         }
 
