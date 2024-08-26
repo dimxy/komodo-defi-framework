@@ -1,4 +1,4 @@
-use crate::{generate_utxo_coin_with_random_privkey, MYCOIN, MYCOIN1};
+use crate::{generate_utxo_coin_with_random_privkey, MYCOIN, MYCOIN1, SET_DEX_PUBKEY_TO_ALICE};
 use bitcrypto::dhash160;
 use coins::utxo::UtxoCommonOps;
 use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs,
@@ -6,6 +6,7 @@ use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArg
             RefundPaymentArgs, SendMakerPaymentArgs, SendTakerFundingArgs, SwapTxTypeWithSecretHash,
             TakerCoinSwapOpsV2, Transaction, ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
 use common::{block_on, now_sec};
+use crypto::privkey::key_pair_from_secret;
 use futures01::Future;
 use mm2_number::MmNumber;
 use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed_for_kickstart, disable_coin,
@@ -608,13 +609,39 @@ fn send_and_refund_maker_payment_taker_secret() {
 }
 
 #[test]
-fn test_v2_swap_utxo_utxo() {
+fn test_v2_swap_utxo_utxo() { test_v2_swap_utxo_utxo_impl(); }
+
+// test a swap when taker is dex pubkey (no dex fee should be paid)
+#[test]
+fn test_v2_swap_utxo_utxo_dex_as_alice() {
+    SET_DEX_PUBKEY_TO_ALICE.set(true);
+    test_v2_swap_utxo_utxo_impl();
+}
+
+fn test_v2_swap_utxo_utxo_impl() {
     let (_ctx, _, bob_priv_key) = generate_utxo_coin_with_random_privkey(MYCOIN, 1000.into());
     let (_ctx, _, alice_priv_key) = generate_utxo_coin_with_random_privkey(MYCOIN1, 1000.into());
     let coins = json!([mycoin_conf(1000), mycoin1_conf(1000)]);
 
+    let alice_pubkey_str = hex::encode(
+        key_pair_from_secret(alice_priv_key.as_ref())
+            .expect("valid test key pair")
+            .public()
+            .to_vec(),
+    );
+    let mut envs = vec![];
+    if SET_DEX_PUBKEY_TO_ALICE.get() {
+        envs.push(("TEST_DEX_FEE_ADDR_RAW_PUBKEY", alice_pubkey_str.as_str()));
+    }
+
     let bob_conf = Mm2TestConf::seednode_trade_v2(&format!("0x{}", hex::encode(bob_priv_key)), &coins);
-    let mut mm_bob = MarketMakerIt::start(bob_conf.conf, bob_conf.rpc_password, None).unwrap();
+    let mut mm_bob = block_on(MarketMakerIt::start_with_envs(
+        bob_conf.conf,
+        bob_conf.rpc_password,
+        None,
+        &envs,
+    ))
+    .unwrap();
     let (_bob_dump_log, _bob_dump_dashboard) = mm_dump(&mm_bob.log_path);
     log!("Bob log path: {}", mm_bob.log_path.display());
 
@@ -622,7 +649,13 @@ fn test_v2_swap_utxo_utxo() {
         Mm2TestConf::light_node_trade_v2(&format!("0x{}", hex::encode(alice_priv_key)), &coins, &[&mm_bob
             .ip
             .to_string()]);
-    let mut mm_alice = MarketMakerIt::start(alice_conf.conf, alice_conf.rpc_password, None).unwrap();
+    let mut mm_alice = block_on(MarketMakerIt::start_with_envs(
+        alice_conf.conf,
+        alice_conf.rpc_password,
+        None,
+        &envs,
+    ))
+    .unwrap();
     let (_alice_dump_log, _alice_dump_dashboard) = mm_dump(&mm_alice.log_path);
     log!("Alice log path: {}", mm_alice.log_path.display());
 
@@ -670,7 +703,11 @@ fn test_v2_swap_utxo_utxo() {
 
     let locked_alice = block_on(get_locked_amount(&mm_alice, MYCOIN1));
     assert_eq!(locked_alice.coin, MYCOIN1);
-    let expected: MmNumberMultiRepr = MmNumber::from("778.00001").into();
+    let expected: MmNumberMultiRepr = if SET_DEX_PUBKEY_TO_ALICE.get() {
+        MmNumber::from("777.00001").into() // no dex fee if dex pubkey is alice
+    } else {
+        MmNumber::from("778.00001").into()
+    };
     assert_eq!(locked_alice.locked_amount, expected);
 
     // amount must unlocked after funding tx is sent

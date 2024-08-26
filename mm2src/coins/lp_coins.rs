@@ -3732,7 +3732,8 @@ impl DexFee {
     ) -> DexFee {
         if let Some(taker_pubkey) = taker_pubkey {
             if !taker_coin.is_privacy() && taker_coin.dex_pubkey() == taker_pubkey {
-                return DexFee::NoFee; // do not change dex fee for the dex pubkey as the taker
+                // Only updated taker nodes will use this feature (no need to activate by version)
+                return DexFee::NoFee; // no dex fee if the taker is the dex pubkey
             }
         }
         // calc dex fee

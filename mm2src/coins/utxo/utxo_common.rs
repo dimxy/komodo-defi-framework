@@ -1280,6 +1280,29 @@ async fn gen_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
         },
         &DexFee::Standard(..) => {}, // We do not add maker output here, only the single dex fee output (signed with SIGHASH_SINGLE) is created by the taker or validated by the maker
     }
+
+    #[cfg(feature = "run-docker-tests")]
+    {
+        match *args.dex_fee {
+            DexFee::NoFee => {
+                if args.taker_pub.to_vec().as_slice() != coin.dex_pubkey() {
+                    panic!("taker pubkey must be equal to dex pubkey for DexFee::NoFee");
+                }
+                assert_eq!(outputs.len(), 1); // only the maker output
+            },
+            DexFee::Standard(..) => {
+                if args.taker_pub.to_vec().as_slice() == coin.dex_pubkey() {
+                    panic!("taker pubkey must NOT be equal to dex pubkey for DexFee::Standard");
+                }
+                assert_eq!(outputs.len(), 1); // only the dex fee output (maker output will be added later)
+            },
+            DexFee::WithBurn { .. } => {
+                if args.taker_pub.to_vec().as_slice() == coin.dex_pubkey() {
+                    panic!("taker pubkey must NOT be equal to dex pubkey for DexFee::WithBurn");
+                }
+                assert_eq!(outputs.len(), 3); // dex fee, burn and maker outputs
+            },
+        }
     }
 
     p2sh_spending_tx_preimage(
@@ -1405,6 +1428,8 @@ pub async fn sign_and_broadcast_taker_payment_spend<T: UtxoCommonOps>(
     payment_input.amount = payment_output.value;
     signer.consensus_branch_id = coin.as_ref().conf.consensus_branch_id;
 
+    // Add the maker output if DexFee is Standard (when the single dex fee output is signed with SIGHASH_SINGLE)
+    // (in other DexFee options the make output is added in gen_taker_payment_spend_preimage fn)
     if let DexFee::Standard(dex_fee) = gen_args.dex_fee {
         let dex_fee_sat = try_tx_s!(sat_from_big_decimal(&dex_fee.to_decimal(), coin.as_ref().decimals));
 
@@ -1471,16 +1496,39 @@ where
 {
     let outputs = try_tx_fus!(generate_taker_fee_tx_outputs(&coin, &dex_fee,));
 
+    #[cfg(feature = "run-docker-tests")]
+    {
+        let taker_pub = coin.derive_htlc_pubkey(&[]);
+        match dex_fee {
+            DexFee::NoFee => {
+                panic!("should not send dex fee for DexFee::NoFee");
+            },
+            DexFee::Standard(..) => {
+                if taker_pub.as_slice() == coin.dex_pubkey() {
+                    panic!("taker pubkey must NOT be equal to dex pubkey for DexFee::Standard");
+                }
+                assert_eq!(outputs.len(), 1);
+            },
+            DexFee::WithBurn { .. } => {
+                if taker_pub.as_slice() == coin.dex_pubkey() {
+                    panic!("taker pubkey must NOT be equal to dex pubkey for DexFee::WithBurn");
+                }
+                assert_eq!(outputs.len(), 2);
+            },
+        }
+    }
+
     send_outputs_from_my_address(coin, outputs)
 }
 
+// Create dex fee (burn fee) outputs
 fn generate_taker_fee_tx_outputs<T>(coin: &T, dex_fee: &DexFee) -> Result<Vec<TransactionOutput>, String>
 where
     T: UtxoCommonOps + SwapOps,
 {
     match dex_fee {
         DexFee::NoFee => Ok(vec![]),
-        // TODO: for DexFee::Standard return an error like 'dex fee must contain burn amount' when nodes upgraded to this code
+        // TODO: return an error for DexFee::Standard like 'dex fee must contain burn amount' when nodes upgraded to this code
         DexFee::Standard(_) | DexFee::WithBurn { .. } => {
             let dex_address = address_from_raw_pubkey(
                 coin.dex_pubkey(),
