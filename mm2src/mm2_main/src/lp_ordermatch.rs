@@ -3893,7 +3893,7 @@ pub async fn sell(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
 
 /// Created when maker order is matched with taker request
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct MakerMatch {
+pub struct MakerMatch {
     request: TakerRequest,
     reserved: MakerReserved,
     connect: Option<TakerConnect>,
@@ -3903,7 +3903,7 @@ struct MakerMatch {
 
 /// Created upon taker request broadcast
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct TakerMatch {
+pub struct TakerMatch {
     reserved: MakerReserved,
     connect: TakerConnect,
     connected: Option<MakerConnected>,

@@ -15,7 +15,7 @@ impl OrderStatusStreamer {
 
 #[derive(Serialize)]
 #[serde(tag = "order_type", content = "order_data")]
-pub(super) enum OrderStatusEvent {
+pub enum OrderStatusEvent {
     MakerMatch(MakerMatch),
     TakerMatch(TakerMatch),
     MakerConnected(MakerMatch),
@@ -24,7 +24,7 @@ pub(super) enum OrderStatusEvent {
 
 #[async_trait]
 impl EventStreamer for OrderStatusStreamer {
-    type DataInType = ();
+    type DataInType = OrderStatusEvent;
 
     fn streamer_id(&self) -> String { Self::derive_streamer_id().to_string() }
 
@@ -38,8 +38,8 @@ impl EventStreamer for OrderStatusStreamer {
             .send(Ok(()))
             .expect("Receiver is dropped, which should never happen.");
 
-        while let Some(swap_data) = data_rx.next().await {
-            let event_data = serde_json::to_value(swap_data).expect("Serialization shouldn't fail.");
+        while let Some(order_data) = data_rx.next().await {
+            let event_data = serde_json::to_value(order_data).expect("Serialization shouldn't fail.");
             let event = Event::new(self.streamer_id(), event_data);
             broadcaster.broadcast(event);
         }
