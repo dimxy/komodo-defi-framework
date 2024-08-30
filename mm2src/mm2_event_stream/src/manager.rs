@@ -205,22 +205,22 @@ impl StreamingManager {
     /// Stops streaming from the streamer with `streamer_id` to the client with `client_id`.
     pub fn stop(&self, client_id: u64, streamer_id: &str) -> Result<(), StreamingManagerError> {
         let mut this = self.write();
-        if let Some(client_info) = this.clients.get_mut(&client_id) {
-            client_info.remove_streamer(streamer_id);
+        let client_info = this
+            .clients
+            .get_mut(&client_id)
+            .ok_or(StreamingManagerError::UnknownClient)?;
+        client_info.remove_streamer(streamer_id);
 
-            this.streamers
-                .get_mut(streamer_id)
-                .ok_or(StreamingManagerError::StreamerNotFound)?
-                .remove_client(&client_id);
+        this.streamers
+            .get_mut(streamer_id)
+            .ok_or(StreamingManagerError::StreamerNotFound)?
+            .remove_client(&client_id);
 
-            // If there are no more listening clients, terminate the streamer.
-            if this.streamers.get(streamer_id).map(|info| info.clients.len()) == Some(0) {
-                this.streamers.remove(streamer_id);
-            }
-            Ok(())
-        } else {
-            Err(StreamingManagerError::UnknownClient)
+        // If there are no more listening clients, terminate the streamer.
+        if this.streamers.get(streamer_id).map(|info| info.clients.len()) == Some(0) {
+            this.streamers.remove(streamer_id);
         }
+        Ok(())
     }
 
     /// Broadcasts some event to clients listening to it.
