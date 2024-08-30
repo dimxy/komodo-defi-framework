@@ -762,7 +762,12 @@ pub struct ZcoinActivationParams {
 impl Default for ZcoinActivationParams {
     fn default() -> Self {
         Self {
-            mode: ZcoinRpcMode::Native,
+            mode: ZcoinRpcMode::Light {
+                electrum_servers: Vec::new(),
+                light_wallet_d_servers: Vec::new(),
+                sync_params: None,
+                skip_sync_params: None,
+            },
             required_confirmations: None,
             requires_notarization: None,
             zcash_params_path: None,

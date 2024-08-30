@@ -388,7 +388,7 @@ mod tests {
 
         // We should be hooked now. try to receive some events from the streamer.
         for _ in 0..3 {
-            // The streamer should send an event every 0.1s. Wait for 0.2s for safety.
+            // The streamer should send an event every 0.1s. Wait for 0.15s for safety.
             Timer::sleep(0.15).await;
             let event = client1.try_recv().unwrap();
             assert_eq!(event.origin(), streamer_id);
