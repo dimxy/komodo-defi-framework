@@ -22,9 +22,12 @@ extern crate serde_json;
 #[cfg(test)] extern crate ser_error_derive;
 #[cfg(test)] extern crate test;
 
+use common::custom_futures::timeout::FutureTimerExt;
 use std::env;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 use test::{test_main, StaticBenchFn, StaticTestFn, TestDescAndFn};
 use testcontainers::clients::Cli;
 
@@ -62,9 +65,11 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
             remove_docker_containers(image);
         }
 
-        let nucleus_node = nucleus_node(&docker);
-        let atom_node = atom_node(&docker);
-        let ibc_relayer_node = ibc_relayer_node(&docker);
+        let runtime_dir = prepare_runtime_dir().unwrap();
+
+        let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
+        let atom_node = atom_node(&docker, runtime_dir);
+        // let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
         let utxo_node = utxo_asset_docker_node(&docker, "MYCOIN", 7000);
         let utxo_node1 = utxo_asset_docker_node(&docker, "MYCOIN1", 8000);
         let qtum_node = qtum_docker_node(&docker, 9000);
@@ -83,8 +88,10 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         utxo_ops.wait_ready(4);
         utxo_ops1.wait_ready(4);
 
+        wait_for_geth_node_ready();
         init_geth_node();
-        wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
+        thread::sleep(Duration::from_secs(10));
+        // wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
 
         containers.push(utxo_node);
         containers.push(utxo_node1);
@@ -93,7 +100,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         containers.push(geth_node);
         containers.push(nucleus_node);
         containers.push(atom_node);
-        containers.push(ibc_relayer_node);
+        // containers.push(ibc_relayer_node);
     }
     // detect if docker is installed
     // skip the tests that use docker if not installed
@@ -113,6 +120,29 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         .collect();
     let args: Vec<String> = env::args().collect();
     test_main(&args, owned_tests, None);
+}
+
+fn wait_for_geth_node_ready() {
+    let mut attempts = 0;
+    loop {
+        if attempts >= 5 {
+            panic!("Failed to connect to Geth node after several attempts.");
+        }
+        match block_on(GETH_WEB3.eth().block_number().timeout(Duration::from_secs(6))) {
+            Ok(Ok(block_number)) => {
+                log!("Geth node is ready, latest block number: {:?}", block_number);
+                break;
+            },
+            Ok(Err(e)) => {
+                log!("Failed to connect to Geth node: {:?}, retrying...", e);
+            },
+            Err(_) => {
+                log!("Connection to Geth node timed out, retrying...");
+            },
+        }
+        attempts += 1;
+        thread::sleep(Duration::from_secs(1));
+    }
 }
 
 fn pull_docker_image(name: &str) {
@@ -142,4 +172,26 @@ fn remove_docker_containers(name: &str) {
             .status()
             .expect("Failed to execute docker command");
     }
+}
+fn prepare_runtime_dir() -> std::io::Result<PathBuf> {
+    let project_root = {
+        let mut current_dir = std::env::current_dir().unwrap();
+        current_dir.pop();
+        current_dir.pop();
+        current_dir
+    };
+
+    let containers_state_dir = project_root.join(".docker/container-state");
+    assert!(containers_state_dir.exists());
+    let containers_runtime_dir = project_root.join(".docker/container-runtime");
+
+    // Remove runtime directory if it exists to copy containers files to a clean directory
+    if containers_runtime_dir.exists() {
+        std::fs::remove_dir_all(&containers_runtime_dir).unwrap();
+    }
+
+    // Copy container files to runtime directory
+    mm2_io::fs::copy_dir_all(&containers_state_dir, &containers_runtime_dir).unwrap();
+
+    Ok(containers_runtime_dir)
 }

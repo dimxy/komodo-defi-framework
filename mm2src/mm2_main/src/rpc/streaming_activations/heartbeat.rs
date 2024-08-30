@@ -1,7 +1,7 @@
 //! RPC activation and deactivation for the heartbeats.
 use super::EnableStreamingResponse;
 
-use crate::mm2::heartbeat_event::HeartbeatEvent;
+use crate::heartbeat_event::HeartbeatEvent;
 use common::HttpStatusCode;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;

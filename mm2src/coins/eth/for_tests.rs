@@ -33,7 +33,7 @@ pub(crate) fn eth_coin_from_keypair(
     for url in urls.iter() {
         let node = HttpTransportNode {
             uri: url.parse().unwrap(),
-            gui_auth: false,
+            komodo_proxy: false,
         };
         let transport = Web3Transport::new_http(node);
         let web3 = Web3::new(transport);
@@ -49,6 +49,8 @@ pub(crate) fn eth_coin_from_keypair(
         EthCoinType::Nft { ref platform } => platform.to_string(),
     };
     let my_address = key_pair.address();
+    let coin_conf = coin_conf(&ctx, &ticker);
+    let gas_limit = extract_gas_limit_from_conf(&coin_conf).expect("expected valid gas_limit config");
 
     let eth_coin = EthCoin(Arc::new(EthCoinImpl {
         coin_type,
@@ -58,6 +60,7 @@ pub(crate) fn eth_coin_from_keypair(
         priv_key_policy: key_pair.into(),
         derivation_method: Arc::new(DerivationMethod::SingleAddress(my_address)),
         swap_contract_address: Address::from_str(ETH_SEPOLIA_SWAP_CONTRACT).unwrap(),
+        swap_v2_contracts: None,
         fallback_swap_contract,
         contract_supports_watchers: false,
         ticker,
@@ -72,6 +75,7 @@ pub(crate) fn eth_coin_from_keypair(
         max_eth_tx_type: None,
         erc20_tokens_infos: Default::default(),
         nfts_infos: Arc::new(Default::default()),
+        gas_limit,
         abortable_system: AbortableQueue::default(),
     }));
     (ctx, eth_coin)

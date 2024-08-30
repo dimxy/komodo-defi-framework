@@ -35,10 +35,10 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::mm2::lp_dispatcher::{dispatch_lp_event, StopCtxEvent};
-use crate::mm2::lp_network::subscribe_to_topic;
-use crate::mm2::lp_ordermatch::{cancel_orders_by, get_matching_orders, CancelBy};
-use crate::mm2::lp_swap::{active_swaps_using_coins, tx_helper_topic, watcher_topic};
+use crate::lp_dispatcher::{dispatch_lp_event, StopCtxEvent};
+use crate::lp_network::subscribe_to_topic;
+use crate::lp_ordermatch::{cancel_orders_by, get_matching_orders, CancelBy};
+use crate::lp_swap::{active_swaps_using_coins, tx_helper_topic, watcher_topic};
 
 const INTERNAL_SERVER_ERROR_CODE: u16 = 500;
 const RESPONSE_OK_STATUS_CODE: u16 = 200;
@@ -372,7 +372,9 @@ pub async fn get_relay_mesh(ctx: MmArc) -> Result<Response<Vec<u8>>, String> {
 }
 
 pub async fn get_my_peer_id(ctx: MmArc) -> Result<Response<Vec<u8>>, String> {
-    let peer_id = try_s!(ctx.peer_id.ok_or("Peer ID is not initialized"));
+    let p2p_ctx = P2PContext::fetch_from_mm_arc(&ctx);
+    let peer_id = p2p_ctx.peer_id().to_string();
+
     let result = json!({
         "result": peer_id,
     });

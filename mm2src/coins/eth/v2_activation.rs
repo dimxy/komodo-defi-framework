@@ -1,4 +1,5 @@
 use super::*;
+use crate::eth::web3_transport::http_transport::HttpTransport;
 use crate::hd_wallet::{load_hd_accounts_from_storage, HDAccountsMutex, HDPathAccountToAddressId, HDWalletCoinStorage,
                        HDWalletStorageError, DEFAULT_GAP_LIMIT};
 use crate::nft::get_nfts_for_activation;
@@ -12,6 +13,8 @@ use instant::Instant;
 use mm2_err_handle::common_errors::WithInternal;
 #[cfg(target_arch = "wasm32")]
 use mm2_metamask::{from_metamask_error, MetamaskError, MetamaskRpcError, WithMetamaskRpcError};
+use mm2_net::p2p::P2PContext;
+use proxy_signature::RawMessage;
 use rpc_task::RpcTaskError;
 use std::sync::atomic::Ordering;
 use url::Url;
@@ -89,6 +92,7 @@ impl From<EthTokenActivationError> for EthActivationV2Error {
             EthTokenActivationError::UnexpectedDerivationMethod(err) => {
                 EthActivationV2Error::UnexpectedDerivationMethod(err)
             },
+            EthTokenActivationError::PrivKeyPolicyNotAllowed(e) => EthActivationV2Error::PrivKeyPolicyNotAllowed(e),
         }
     }
 }
@@ -174,6 +178,8 @@ pub struct EthActivationV2Request {
     #[serde(default)]
     pub rpc_mode: EthRpcMode,
     pub swap_contract_address: Address,
+    #[serde(default)]
+    pub swap_v2_contracts: Option<SwapV2Contracts>,
     pub fallback_swap_contract: Option<Address>,
     #[serde(default)]
     pub contract_supports_watchers: bool,
@@ -192,7 +198,7 @@ pub struct EthActivationV2Request {
 pub struct EthNode {
     pub url: String,
     #[serde(default)]
-    pub gui_auth: bool,
+    pub komodo_proxy: bool,
 }
 
 #[derive(Display, Serialize, SerializeErrorType)]
@@ -204,6 +210,7 @@ pub enum EthTokenActivationError {
     InvalidPayload(String),
     Transport(String),
     UnexpectedDerivationMethod(UnexpectedDerivationMethod),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
 }
 
 impl From<AbortedError> for EthTokenActivationError {
@@ -254,6 +261,36 @@ impl From<String> for EthTokenActivationError {
     fn from(e: String) -> Self { EthTokenActivationError::InternalError(e) }
 }
 
+impl From<PrivKeyPolicyNotAllowed> for EthTokenActivationError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { EthTokenActivationError::PrivKeyPolicyNotAllowed(e) }
+}
+
+impl From<GenerateSignedMessageError> for EthTokenActivationError {
+    fn from(e: GenerateSignedMessageError) -> Self {
+        match e {
+            GenerateSignedMessageError::InternalError(e) => EthTokenActivationError::InternalError(e),
+            GenerateSignedMessageError::PrivKeyPolicyNotAllowed(e) => {
+                EthTokenActivationError::PrivKeyPolicyNotAllowed(e)
+            },
+        }
+    }
+}
+
+#[derive(Display, Serialize)]
+pub enum GenerateSignedMessageError {
+    #[display(fmt = "Internal: {}", _0)]
+    InternalError(String),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
+}
+
+impl From<PrivKeyPolicyNotAllowed> for GenerateSignedMessageError {
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self { GenerateSignedMessageError::PrivKeyPolicyNotAllowed(e) }
+}
+
+impl From<SignatureError> for GenerateSignedMessageError {
+    fn from(e: SignatureError) -> Self { GenerateSignedMessageError::InternalError(e.to_string()) }
+}
+
 /// Represents the parameters required for activating either an ERC-20 token or an NFT on the Ethereum platform.
 #[derive(Clone, Deserialize)]
 #[serde(untagged)]
@@ -300,7 +337,11 @@ pub struct NftActivationRequest {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "type", content = "info")]
 pub enum NftProviderEnum {
-    Moralis { url: Url },
+    Moralis {
+        url: Url,
+        #[serde(default)]
+        komodo_proxy: bool,
+    },
 }
 
 /// Represents the protocol type for an Ethereum-based token, distinguishing between ERC-20 tokens and NFTs.
@@ -361,24 +402,6 @@ impl EthCoin {
             Some(d) => d as u8,
         };
 
-        let web3_instances: Vec<Web3Instance> = self
-            .web3_instances
-            .lock()
-            .await
-            .iter()
-            .map(|node| {
-                let mut transport = node.web3.transport().clone();
-                if let Some(auth) = transport.gui_auth_validation_generator_as_mut() {
-                    auth.coin_ticker = ticker.clone();
-                }
-                let web3 = Web3::new(transport);
-                Web3Instance {
-                    web3,
-                    is_parity: node.is_parity,
-                }
-            })
-            .collect();
-
         let required_confirmations = activation_params
             .required_confirmations
             .unwrap_or_else(|| conf["required_confirmations"].as_u64().unwrap_or(1))
@@ -393,6 +416,8 @@ impl EthCoin {
             token_addr: protocol.token_addr,
         };
         let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type).await?;
+        let gas_limit = extract_gas_limit_from_conf(&conf)
+            .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?;
 
         let token = EthCoinImpl {
             priv_key_policy: self.priv_key_policy.clone(),
@@ -403,11 +428,12 @@ impl EthCoin {
             coin_type,
             sign_message_prefix: self.sign_message_prefix.clone(),
             swap_contract_address: self.swap_contract_address,
+            swap_v2_contracts: self.swap_v2_contracts,
             fallback_swap_contract: self.fallback_swap_contract,
             contract_supports_watchers: self.contract_supports_watchers,
             decimals,
             ticker,
-            web3_instances: AsyncMutex::new(web3_instances),
+            web3_instances: AsyncMutex::new(self.web3_instances.lock().await.clone()),
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
             swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
             max_eth_tx_type,
@@ -419,6 +445,7 @@ impl EthCoin {
             address_nonce_locks: self.address_nonce_locks.clone(),
             erc20_tokens_infos: Default::default(),
             nfts_infos: Default::default(),
+            gas_limit,
             abortable_system,
         };
 
@@ -433,15 +460,26 @@ impl EthCoin {
     /// It fetches NFT details from a given URL to populate the `nfts_infos` field, which stores information about the user's NFTs.
     ///
     /// This setup allows the Global NFT to function like a coin, supporting swap operations and providing easy access to NFT details via `nfts_infos`.
-    pub async fn global_nft_from_platform_coin(&self, url: &Url) -> MmResult<EthCoin, EthTokenActivationError> {
+    pub async fn initialize_global_nft(
+        &self,
+        original_url: &Url,
+        komodo_proxy: bool,
+    ) -> MmResult<EthCoin, EthTokenActivationError> {
         let chain = Chain::from_ticker(self.ticker())?;
         let ticker = chain.to_nft_ticker().to_string();
 
         let ctx = MmArc::from_weak(&self.ctx)
             .ok_or_else(|| String::from("No context"))
             .map_err(EthTokenActivationError::InternalError)?;
+        let p2p_ctx = P2PContext::fetch_from_mm_arc(&ctx);
 
         let conf = coin_conf(&ctx, &ticker);
+
+        let required_confirmations = AtomicU64::new(
+            conf["required_confirmations"]
+                .as_u64()
+                .unwrap_or_else(|| self.required_confirmations.load(Ordering::Relaxed)),
+        );
 
         // Create an abortable system linked to the `platform_coin` (which is self) so if the platform coin is disabled,
         // all spawned futures related to global Non-Fungible Token will be aborted as well.
@@ -449,11 +487,24 @@ impl EthCoin {
 
         // Todo: support HD wallet for NFTs, currently we get nfts for enabled address only and there might be some issues when activating NFTs while ETH is activated with HD wallet
         let my_address = self.derivation_method.single_addr_or_err().await?;
-        let nft_infos = get_nfts_for_activation(&chain, &my_address, url).await?;
+
+        let proxy_sign = if komodo_proxy {
+            let uri = Uri::from_str(original_url.as_ref())
+                .map_err(|e| EthTokenActivationError::InternalError(e.to_string()))?;
+            let proxy_sign = RawMessage::sign(p2p_ctx.keypair(), &uri, 0, common::PROXY_REQUEST_EXPIRATION_SEC)
+                .map_err(|e| EthTokenActivationError::InternalError(e.to_string()))?;
+            Some(proxy_sign)
+        } else {
+            None
+        };
+
+        let nft_infos = get_nfts_for_activation(&chain, &my_address, original_url, proxy_sign).await?;
         let coin_type = EthCoinType::Nft {
             platform: self.ticker.clone(),
         };
         let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type).await?;
+        let gas_limit = extract_gas_limit_from_conf(&conf)
+            .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?;
 
         let global_nft = EthCoinImpl {
             ticker,
@@ -462,14 +513,15 @@ impl EthCoin {
             derivation_method: self.derivation_method.clone(),
             sign_message_prefix: self.sign_message_prefix.clone(),
             swap_contract_address: self.swap_contract_address,
+            swap_v2_contracts: self.swap_v2_contracts,
             fallback_swap_contract: self.fallback_swap_contract,
             contract_supports_watchers: self.contract_supports_watchers,
-            web3_instances: self.web3_instances.lock().await.clone().into(),
+            web3_instances: AsyncMutex::new(self.web3_instances.lock().await.clone()),
             decimals: self.decimals,
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
             swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
             max_eth_tx_type,
-            required_confirmations: AtomicU64::new(self.required_confirmations.load(Ordering::Relaxed)),
+            required_confirmations,
             ctx: self.ctx.clone(),
             chain_id: self.chain_id,
             trezor_coin: self.trezor_coin.clone(),
@@ -477,6 +529,7 @@ impl EthCoin {
             address_nonce_locks: self.address_nonce_locks.clone(),
             erc20_tokens_infos: Default::default(),
             nfts_infos: Arc::new(AsyncMutex::new(nft_infos)),
+            gas_limit,
             abortable_system,
         };
         Ok(EthCoin(Arc::new(global_nft)))
@@ -497,6 +550,23 @@ pub async fn eth_coin_from_conf_and_request_v2(
             "swap_contract_address can't be zero address".to_string(),
         )
         .into());
+    }
+
+    if ctx.use_trading_proto_v2() {
+        let contracts = req.swap_v2_contracts.as_ref().ok_or_else(|| {
+            EthActivationV2Error::InvalidPayload(
+                "swap_v2_contracts must be provided when using trading protocol v2".to_string(),
+            )
+        })?;
+        if contracts.maker_swap_v2_contract == Address::default()
+            || contracts.taker_swap_v2_contract == Address::default()
+            || contracts.nft_maker_swap_v2_contract == Address::default()
+        {
+            return Err(EthActivationV2Error::InvalidSwapContractAddr(
+                "All swap_v2_contracts addresses must be non-zero".to_string(),
+            )
+            .into());
+        }
     }
 
     if let Some(fallback) = req.fallback_swap_contract {
@@ -520,33 +590,9 @@ pub async fn eth_coin_from_conf_and_request_v2(
 
     let chain_id = conf["chain_id"].as_u64().ok_or(EthActivationV2Error::ChainIdNotSet)?;
     let web3_instances = match (req.rpc_mode, &priv_key_policy) {
-        (
-            EthRpcMode::Default,
-            EthPrivKeyPolicy::Iguana(key_pair)
-            | EthPrivKeyPolicy::HDWallet {
-                activated_key: key_pair,
-                ..
-            },
-        ) => {
-            let auth_address = key_pair.address();
-            let auth_address_str = display_eth_address(&auth_address);
-            build_web3_instances(ctx, ticker.to_string(), auth_address_str, key_pair, req.nodes.clone()).await?
-        },
-        (EthRpcMode::Default, EthPrivKeyPolicy::Trezor) => {
-            let crypto_ctx = CryptoCtx::from_ctx(ctx)?;
-            let secp256k1_key_pair = crypto_ctx.mm2_internal_key_pair();
-            let auth_key_pair = KeyPair::from_secret_slice(secp256k1_key_pair.private_ref())
-                .map_to_mm(|_| EthActivationV2Error::InternalError("could not get internal keypair".to_string()))?;
-            let auth_address = auth_key_pair.address();
-            let auth_address_str = display_eth_address(&auth_address);
-            build_web3_instances(
-                ctx,
-                ticker.to_string(),
-                auth_address_str,
-                &auth_key_pair,
-                req.nodes.clone(),
-            )
-            .await?
+        (EthRpcMode::Default, EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. })
+        | (EthRpcMode::Default, EthPrivKeyPolicy::Trezor) => {
+            build_web3_instances(ctx, ticker.to_string(), req.nodes.clone()).await?
         },
         #[cfg(target_arch = "wasm32")]
         (EthRpcMode::Metamask, EthPrivKeyPolicy::Metamask(_)) => {
@@ -588,6 +634,8 @@ pub async fn eth_coin_from_conf_and_request_v2(
     let abortable_system = ctx.abortable_system.create_subsystem()?;
     let coin_type = EthCoinType::Eth;
     let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
+    let gas_limit = extract_gas_limit_from_conf(conf)
+        .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?;
 
     let coin = EthCoinImpl {
         priv_key_policy,
@@ -595,6 +643,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         coin_type,
         sign_message_prefix,
         swap_contract_address: req.swap_contract_address,
+        swap_v2_contracts: req.swap_v2_contracts,
         fallback_swap_contract: req.fallback_swap_contract,
         contract_supports_watchers: req.contract_supports_watchers,
         decimals: ETH_DECIMALS,
@@ -611,6 +660,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         address_nonce_locks,
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
+        gas_limit,
         abortable_system,
     };
 
@@ -723,8 +773,6 @@ pub(crate) async fn build_address_and_priv_key_policy(
 async fn build_web3_instances(
     ctx: &MmArc,
     coin_ticker: String,
-    address: String,
-    key_pair: &KeyPair,
     mut eth_nodes: Vec<EthNode>,
 ) -> MmResult<Vec<Web3Instance>, EthActivationV2Error> {
     if eth_nodes.is_empty() {
@@ -737,6 +785,7 @@ async fn build_web3_instances(
 
     let event_handlers = rpc_event_handlers_for_eth_transport(ctx, coin_ticker.clone());
 
+    let p2p_ctx = P2PContext::fetch_from_mm_arc(ctx);
     let mut web3_instances = Vec::with_capacity(eth_nodes.len());
     for eth_node in eth_nodes {
         let uri: Uri = eth_node
@@ -748,19 +797,12 @@ async fn build_web3_instances(
             Some("ws") | Some("wss") => {
                 const TMP_SOCKET_CONNECTION: Duration = Duration::from_secs(20);
 
-                let node = WebsocketTransportNode {
-                    uri: uri.clone(),
-                    gui_auth: eth_node.gui_auth,
-                };
+                let node = WebsocketTransportNode { uri: uri.clone() };
 
                 let mut websocket_transport = WebsocketTransport::with_event_handlers(node, event_handlers.clone());
 
-                if eth_node.gui_auth {
-                    websocket_transport.gui_auth_validation_generator = Some(GuiAuthValidationGenerator {
-                        coin_ticker: coin_ticker.clone(),
-                        secret: key_pair.secret().clone(),
-                        address: address.clone(),
-                    });
+                if eth_node.komodo_proxy {
+                    websocket_transport.proxy_sign_keypair = Some(p2p_ctx.keypair().clone());
                 }
 
                 // Temporarily start the connection loop (we close the connection once we have the client version below).
@@ -777,16 +819,17 @@ async fn build_web3_instances(
             Some("http") | Some("https") => {
                 let node = HttpTransportNode {
                     uri,
-                    gui_auth: eth_node.gui_auth,
+                    komodo_proxy: eth_node.komodo_proxy,
                 };
 
-                build_http_transport(
-                    coin_ticker.clone(),
-                    address.clone(),
-                    key_pair,
-                    node,
-                    event_handlers.clone(),
-                )
+                let komodo_proxy = node.komodo_proxy;
+                let mut http_transport = HttpTransport::with_event_handlers(node, event_handlers.clone());
+
+                if komodo_proxy {
+                    http_transport.proxy_sign_keypair = Some(p2p_ctx.keypair().clone());
+                }
+
+                Web3Transport::from(http_transport)
             },
             _ => {
                 return MmError::err(EthActivationV2Error::InvalidPayload(format!(
@@ -817,28 +860,6 @@ async fn build_web3_instances(
     }
 
     Ok(web3_instances)
-}
-
-fn build_http_transport(
-    coin_ticker: String,
-    address: String,
-    key_pair: &KeyPair,
-    node: HttpTransportNode,
-    event_handlers: Vec<RpcTransportEventHandlerShared>,
-) -> Web3Transport {
-    use crate::eth::web3_transport::http_transport::HttpTransport;
-
-    let gui_auth = node.gui_auth;
-    let mut http_transport = HttpTransport::with_event_handlers(node, event_handlers);
-
-    if gui_auth {
-        http_transport.gui_auth_validation_generator = Some(GuiAuthValidationGenerator {
-            coin_ticker,
-            secret: key_pair.secret().clone(),
-            address,
-        });
-    }
-    Web3Transport::from(http_transport)
 }
 
 #[cfg(target_arch = "wasm32")]

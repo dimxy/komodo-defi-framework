@@ -136,9 +136,9 @@ impl StreamingManager {
                 // Register the client as a listener to the streamer.
                 streamer_info.add_client(client_id);
                 // Register the streamer as listened-to by the client.
-                this.clients
-                    .get_mut(&client_id)
-                    .map(|info| info.add_streamer(streamer_id.clone()));
+                if let Some(client_info) = this.clients.get_mut(&client_id) {
+                    client_info.add_streamer(streamer_id.clone());
+                }
                 return Ok(streamer_id);
             }
         }
@@ -233,7 +233,9 @@ impl StreamingManager {
         let this = self.read();
         if let Some(client_ids) = this.streamers.get(event.origin()).map(|info| &info.clients) {
             client_ids.iter().for_each(|client_id| {
-                this.clients.get(client_id).map(|info| info.send_event(event.clone()));
+                if let Some(info) = this.clients.get(client_id) {
+                    info.send_event(event.clone());
+                }
             });
         };
     }
@@ -298,9 +300,9 @@ impl StreamingManager {
                 if let Some(streamer_info) = this.streamers.remove(streamer_id) {
                     // And remove the streamer from all clients listening to it.
                     for client_id in streamer_info.clients {
-                        this.clients
-                            .get_mut(&client_id)
-                            .map(|info| info.remove_streamer(streamer_id));
+                        if let Some(info) = this.clients.get_mut(&client_id) {
+                            info.remove_streamer(streamer_id);
+                        }
                     }
                 }
             }

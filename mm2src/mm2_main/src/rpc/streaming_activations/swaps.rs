@@ -1,6 +1,6 @@
 //! RPC activation and deactivation of the swap status streamer.
 use super::EnableStreamingResponse;
-use crate::mm2::lp_swap::swap_events::SwapStatusStreamer;
+use crate::lp_swap::swap_events::SwapStatusStreamer;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_to_mm::MapToMmResult, mm_error::MmResult};
 

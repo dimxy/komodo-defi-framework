@@ -65,9 +65,11 @@ use keys::{KeyPair, Public};
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
 use mm2_git::{FileMetadata, GitController, GithubClient, RepositoryOperations, GITHUB_API_URI};
+use mm2_net::p2p::P2PContext;
 use mm2_number::MmNumber;
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::H256;
+use regex::Regex;
 use rpc::v1::types::Bytes as BytesJson;
 use serde_json::{self as json, Value as Json};
 use std::collections::HashMap;
@@ -105,7 +107,11 @@ pub(crate) const TX_DEFAULT_MEMO: &str = "";
 const MAX_TIME_LOCK: i64 = 34560;
 const MIN_TIME_LOCK: i64 = 50;
 
-const ACCOUNT_SEQUENCE_ERR: &str = "incorrect account sequence";
+const ACCOUNT_SEQUENCE_ERR: &str = "account sequence mismatch";
+
+lazy_static! {
+    static ref SEQUENCE_PARSER_REGEX: Regex = Regex::new(r"expected (\d+)").unwrap();
+}
 
 pub struct SerializedUnsignedTx {
     tx_json: Json,
@@ -124,6 +130,23 @@ impl TendermintKeyPair {
         Self {
             private_key_secret,
             public_key,
+        }
+    }
+}
+
+#[derive(Clone, Deserialize)]
+pub struct RpcNode {
+    url: String,
+    #[serde(default)]
+    komodo_proxy: bool,
+}
+
+impl RpcNode {
+    #[cfg(test)]
+    fn for_test(url: &str) -> Self {
+        Self {
+            url: url.to_string(),
+            komodo_proxy: false,
         }
     }
 }
@@ -611,12 +634,12 @@ impl TendermintCoin {
         ticker: String,
         conf: TendermintConf,
         protocol_info: TendermintProtocolInfo,
-        rpc_urls: Vec<String>,
+        nodes: Vec<RpcNode>,
         tx_history: bool,
         activation_policy: TendermintActivationPolicy,
         is_keplr_from_ledger: bool,
     ) -> MmResult<Self, TendermintInitError> {
-        if rpc_urls.is_empty() {
+        if nodes.is_empty() {
             return MmError::err(TendermintInitError {
                 ticker,
                 kind: TendermintInitErrorKind::EmptyRpcUrls,
@@ -630,7 +653,7 @@ impl TendermintCoin {
                 kind: TendermintInitErrorKind::CouldNotGenerateAccountId(e.to_string()),
             })?;
 
-        let rpc_clients = clients_from_urls(rpc_urls.as_ref()).mm_err(|kind| TendermintInitError {
+        let rpc_clients = clients_from_urls(ctx, nodes).mm_err(|kind| TendermintInitError {
             ticker: ticker.clone(),
             kind,
         })?;
@@ -748,7 +771,7 @@ impl TendermintCoin {
     // Therefore, we can call SimulateRequest or CheckTx(doesn't work with using Abci interface) to get used gas or fee itself.
     pub(super) fn gen_simulated_tx(
         &self,
-        account_info: BaseAccount,
+        account_info: &BaseAccount,
         priv_key: &Secp256k1Secret,
         tx_payload: Any,
         timeout_height: u64,
@@ -835,10 +858,11 @@ impl TendermintCoin {
         timeout_height: u64,
         memo: String,
     ) -> Result<(String, Raw), TransactionErr> {
+        let mut account_info = try_tx_s!(self.account_info(&self.account_id).await);
         let (tx_id, tx_raw) = loop {
             let tx_raw = try_tx_s!(self.any_to_signed_raw_tx(
                 try_tx_s!(self.activation_policy.activated_key_or_err()),
-                try_tx_s!(self.account_info(&self.account_id).await),
+                &account_info,
                 tx_payload.clone(),
                 fee.clone(),
                 timeout_height,
@@ -849,6 +873,7 @@ impl TendermintCoin {
                 Ok(tx_id) => break (tx_id, tx_raw),
                 Err(e) => {
                     if e.contains(ACCOUNT_SEQUENCE_ERR) {
+                        account_info.sequence = try_tx_s!(parse_expected_sequence_number(&e));
                         debug!("Got wrong account sequence, trying again.");
                         continue;
                     }
@@ -878,9 +903,9 @@ impl TendermintCoin {
 
         let account_info = try_tx_s!(self.account_info(&self.account_id).await);
         let SerializedUnsignedTx { tx_json, body_bytes } = if self.is_keplr_from_ledger {
-            try_tx_s!(self.any_to_legacy_amino_json(account_info, tx_payload, fee, timeout_height, memo))
+            try_tx_s!(self.any_to_legacy_amino_json(&account_info, tx_payload, fee, timeout_height, memo))
         } else {
-            try_tx_s!(self.any_to_serialized_sign_doc(account_info, tx_payload, fee, timeout_height, memo))
+            try_tx_s!(self.any_to_serialized_sign_doc(&account_info, tx_payload, fee, timeout_height, memo))
         };
 
         let data: TxHashData = try_tx_s!(ctx
@@ -925,11 +950,11 @@ impl TendermintCoin {
             return Ok(Fee::from_amount_and_gas(fee_amount, gas_limit));
         };
 
+        let mut account_info = self.account_info(&self.account_id).await?;
         let (response, raw_response) = loop {
-            let account_info = self.account_info(&self.account_id).await?;
             let tx_bytes = self
                 .gen_simulated_tx(
-                    account_info,
+                    &account_info,
                     activated_priv_key,
                     msg.clone(),
                     timeout_height,
@@ -946,7 +971,9 @@ impl TendermintCoin {
 
             let raw_response = self.rpc_client().await?.perform(request).await?;
 
-            if raw_response.response.log.to_string().contains(ACCOUNT_SEQUENCE_ERR) {
+            let log = raw_response.response.log.to_string();
+            if log.contains(ACCOUNT_SEQUENCE_ERR) {
+                account_info.sequence = parse_expected_sequence_number(&log)?;
                 debug!("Got wrong account sequence, trying again.");
                 continue;
             }
@@ -1001,10 +1028,10 @@ impl TendermintCoin {
             return Ok(((GAS_WANTED_BASE_VALUE * 1.5) * gas_price).ceil() as u64);
         };
 
+        let mut account_info = self.account_info(account_id).await?;
         let (response, raw_response) = loop {
-            let account_info = self.account_info(account_id).await?;
             let tx_bytes = self
-                .gen_simulated_tx(account_info, &priv_key, msg.clone(), timeout_height, memo.clone())
+                .gen_simulated_tx(&account_info, &priv_key, msg.clone(), timeout_height, memo.clone())
                 .map_to_mm(|e| TendermintCoinRpcError::InternalError(format!("{}", e)))?;
 
             let request = AbciRequest::new(
@@ -1016,7 +1043,9 @@ impl TendermintCoin {
 
             let raw_response = self.rpc_client().await?.perform(request).await?;
 
-            if raw_response.response.log.to_string().contains(ACCOUNT_SEQUENCE_ERR) {
+            let log = raw_response.response.log.to_string();
+            if log.contains(ACCOUNT_SEQUENCE_ERR) {
+                account_info.sequence = parse_expected_sequence_number(&log)?;
                 debug!("Got wrong account sequence, trying again.");
                 continue;
             }
@@ -1155,7 +1184,7 @@ impl TendermintCoin {
         &self,
         maybe_pk: Option<H256>,
         message: Any,
-        account_info: BaseAccount,
+        account_info: &BaseAccount,
         fee: Fee,
         timeout_height: u64,
         memo: String,
@@ -1239,7 +1268,7 @@ impl TendermintCoin {
     pub(super) fn any_to_signed_raw_tx(
         &self,
         priv_key: &Secp256k1Secret,
-        account_info: BaseAccount,
+        account_info: &BaseAccount,
         tx_payload: Any,
         fee: Fee,
         timeout_height: u64,
@@ -1254,7 +1283,7 @@ impl TendermintCoin {
 
     pub(super) fn any_to_serialized_sign_doc(
         &self,
-        account_info: BaseAccount,
+        account_info: &BaseAccount,
         tx_payload: Any,
         fee: Fee,
         timeout_height: u64,
@@ -1286,7 +1315,7 @@ impl TendermintCoin {
     /// Visit https://docs.cosmos.network/main/build/architecture/adr-050-sign-mode-textual#context for more context.
     pub(super) fn any_to_legacy_amino_json(
         &self,
-        account_info: BaseAccount,
+        account_info: &BaseAccount,
         tx_payload: Any,
         fee: Fee,
         timeout_height: u64,
@@ -2053,18 +2082,28 @@ impl TendermintCoin {
     }
 }
 
-fn clients_from_urls(rpc_urls: &[String]) -> MmResult<Vec<HttpClient>, TendermintInitErrorKind> {
-    if rpc_urls.is_empty() {
+fn clients_from_urls(ctx: &MmArc, nodes: Vec<RpcNode>) -> MmResult<Vec<HttpClient>, TendermintInitErrorKind> {
+    if nodes.is_empty() {
         return MmError::err(TendermintInitErrorKind::EmptyRpcUrls);
     }
+
+    let p2p_keypair = if nodes.iter().any(|n| n.komodo_proxy) {
+        let p2p_ctx = P2PContext::fetch_from_mm_arc(ctx);
+        Some(p2p_ctx.keypair().clone())
+    } else {
+        None
+    };
+
     let mut clients = Vec::new();
     let mut errors = Vec::new();
+
     // check that all urls are valid
     // keep all invalid urls in one vector to show all of them in error
-    for url in rpc_urls.iter() {
-        match HttpClient::new(url.as_str()) {
+    for node in nodes.iter() {
+        let proxy_sign_keypair = if node.komodo_proxy { p2p_keypair.clone() } else { None };
+        match HttpClient::new(node.url.as_str(), proxy_sign_keypair) {
             Ok(client) => clients.push(client),
-            Err(e) => errors.push(format!("Url {} is invalid, got error {}", url, e)),
+            Err(e) => errors.push(format!("Url {} is invalid, got error {}", node.url, e)),
         }
     }
     drop_mutability!(clients);
@@ -2266,7 +2305,7 @@ impl MmCoin for TendermintCoin {
             let account_info = coin.account_info(&account_id).await?;
 
             let tx = coin
-                .any_to_transaction_data(maybe_pk, msg_payload, account_info, fee, timeout_height, memo.clone())
+                .any_to_transaction_data(maybe_pk, msg_payload, &account_info, fee, timeout_height, memo.clone())
                 .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
 
             let internal_id = {
@@ -3258,6 +3297,20 @@ pub async fn get_ibc_transfer_channels(
     })
 }
 
+fn parse_expected_sequence_number(e: &str) -> MmResult<u64, TendermintCoinRpcError> {
+    if let Some(sequence) = SEQUENCE_PARSER_REGEX.captures(e).and_then(|c| c.get(1)) {
+        let account_sequence =
+            u64::from_str(sequence.as_str()).map_to_mm(|e| TendermintCoinRpcError::InternalError(e.to_string()))?;
+
+        return Ok(account_sequence);
+    }
+
+    MmError::err(TendermintCoinRpcError::InternalError(format!(
+        "Could not parse the expected sequence number from this error message: '{}'",
+        e
+    )))
+}
+
 #[cfg(test)]
 pub mod tendermint_coin_tests {
     use super::*;
@@ -3338,7 +3391,7 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn test_htlc_create_and_claim() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
 
         let protocol_conf = get_iris_protocol();
 
@@ -3359,7 +3412,7 @@ pub mod tendermint_coin_tests {
             "IRIS".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -3407,7 +3460,7 @@ pub mod tendermint_coin_tests {
             fee,
             timeout_height,
             TX_DEFAULT_MEMO.into(),
-            Duration::from_secs(10),
+            Duration::from_secs(20),
         );
         block_on(async {
             send_tx_fut.await.unwrap();
@@ -3464,7 +3517,7 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn try_query_claim_htlc_txs_and_get_secret() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
 
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
@@ -3485,7 +3538,7 @@ pub mod tendermint_coin_tests {
             "USDC-IBC".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -3527,7 +3580,7 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn wait_for_tx_spend_test() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
 
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
@@ -3548,7 +3601,7 @@ pub mod tendermint_coin_tests {
             "USDC-IBC".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -3601,7 +3654,7 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn validate_taker_fee_test() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
 
         let protocol_conf = get_iris_protocol();
 
@@ -3622,7 +3675,7 @@ pub mod tendermint_coin_tests {
             "IRIS-TEST".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -3798,7 +3851,7 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn validate_payment_test() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
 
         let protocol_conf = get_iris_protocol();
 
@@ -3819,7 +3872,7 @@ pub mod tendermint_coin_tests {
             "IRIS-TEST".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -3881,7 +3934,7 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn test_search_for_swap_tx_spend_spent() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
 
         let protocol_conf = get_iris_protocol();
 
@@ -3902,7 +3955,7 @@ pub mod tendermint_coin_tests {
             "IRIS-TEST".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -3957,7 +4010,7 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn test_search_for_swap_tx_spend_refunded() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
 
         let protocol_conf = get_iris_protocol();
 
@@ -3978,7 +4031,7 @@ pub mod tendermint_coin_tests {
             "IRIS-TEST".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -4031,7 +4084,7 @@ pub mod tendermint_coin_tests {
 
     #[test]
     fn test_get_tx_status_code_or_none() {
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
         let conf = TendermintConf {
@@ -4050,7 +4103,7 @@ pub mod tendermint_coin_tests {
             "USDC-IBC".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -4086,7 +4139,7 @@ pub mod tendermint_coin_tests {
     fn test_wait_for_confirmations() {
         const CHECK_INTERVAL: u64 = 2;
 
-        let rpc_urls = vec![IRIS_TESTNET_RPC_URL.to_string()];
+        let nodes = vec![RpcNode::for_test(IRIS_TESTNET_RPC_URL)];
         let protocol_conf = get_iris_usdc_ibc_protocol();
 
         let conf = TendermintConf {
@@ -4105,7 +4158,7 @@ pub mod tendermint_coin_tests {
             "USDC-IBC".to_string(),
             conf,
             protocol_conf,
-            rpc_urls,
+            nodes,
             false,
             activation_policy,
             false,
@@ -4166,5 +4219,20 @@ pub mod tendermint_coin_tests {
         let pb_account_id = pb_activation_policy.generate_account_id("cosmos").unwrap();
         // Public and private keys are from the same keypair, account ids must be equal.
         assert_eq!(pk_account_id, pb_account_id);
+    }
+
+    #[test]
+    fn test_parse_expected_sequence_number() {
+        assert_eq!(
+            13,
+            parse_expected_sequence_number("check_tx log: account sequence mismatch, expected 13").unwrap()
+        );
+        assert_eq!(
+            5,
+            parse_expected_sequence_number("check_tx log: account sequence mismatch, expected 5, got...").unwrap()
+        );
+        assert_eq!(17, parse_expected_sequence_number("account sequence mismatch, expected. check_tx log: account sequence mismatch, expected 17, got 16: incorrect account sequence, deliver_tx log...").unwrap());
+        assert!(parse_expected_sequence_number("").is_err());
+        assert!(parse_expected_sequence_number("check_tx log: account sequence mismatch, expected").is_err());
     }
 }

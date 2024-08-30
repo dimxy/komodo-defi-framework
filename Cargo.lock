@@ -1083,6 +1083,7 @@ dependencies = [
  "prost",
  "prost-build",
  "protobuf",
+ "proxy_signature",
  "rand 0.7.3",
  "regex",
  "reqwest",
@@ -4358,7 +4359,7 @@ dependencies = [
 
 [[package]]
 name = "mm2_bin_lib"
-version = "2.1.0-beta"
+version = "2.2.0-beta"
 dependencies = [
  "chrono",
  "common",
@@ -5726,6 +5727,18 @@ checksum = "8ca6e0e2f898f7856a6328650abc9b2df71b7c1a5f39be0800d19051ad0214b2"
 dependencies = [
  "protobuf",
  "protobuf-codegen",
+]
+
+[[package]]
+name = "proxy_signature"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "http 0.2.12",
+ "libp2p",
+ "rand 0.7.3",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

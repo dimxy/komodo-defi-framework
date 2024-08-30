@@ -21,12 +21,7 @@ use mm2_number::MmNumber;
 fn native_zcoin_activation_params() -> ZcoinActivationParams {
     ZcoinActivationParams {
         mode: ZcoinRpcMode::Native,
-        required_confirmations: None,
-        requires_notarization: None,
-        zcash_params_path: None,
-        scan_blocks_per_iteration: 1000,
-        scan_interval_ms: 0,
-        account: 0,
+        ..Default::default()
     }
 }
 
@@ -45,12 +40,7 @@ fn light_zcoin_activation_params() -> ZcoinActivationParams {
             sync_params: Some(crate::z_coin::SyncStartPoint::Date(now_sec() - 24 * 60 * 60)),
             skip_sync_params: None,
         },
-        required_confirmations: None,
-        requires_notarization: None,
-        zcash_params_path: None,
-        scan_blocks_per_iteration: 1000,
-        scan_interval_ms: 0,
-        account: 0,
+        ..Default::default()
     }
 }
 
