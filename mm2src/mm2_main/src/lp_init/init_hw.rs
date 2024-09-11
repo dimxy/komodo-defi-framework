@@ -101,6 +101,7 @@ pub enum InitHwInProgressStatus {
 #[derive(Deserialize, Clone)]
 pub struct InitHwRequest {
     device_pubkey: Option<HwPubkey>,
+    client_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Debug, Deserialize)]
@@ -128,6 +129,8 @@ impl RpcTaskTypes for InitHwTask {
 #[async_trait]
 impl RpcTask for InitHwTask {
     fn initial_status(&self) -> Self::InProgressStatus { InitHwInProgressStatus::Initializing }
+
+    fn client_id(&self) -> Option<u64> { self.req.client_id }
 
     async fn cancel(self) {
         if let Ok(crypto_ctx) = CryptoCtx::from_ctx(&self.ctx) {

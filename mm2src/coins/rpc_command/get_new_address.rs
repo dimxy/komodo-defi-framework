@@ -204,6 +204,7 @@ pub struct GetNewAddressRequest {
     coin: String,
     #[serde(flatten)]
     params: GetNewAddressParams,
+    client_id: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -290,6 +291,8 @@ impl RpcTaskTypes for InitGetNewAddressTask {
 #[async_trait]
 impl RpcTask for InitGetNewAddressTask {
     fn initial_status(&self) -> Self::InProgressStatus { GetNewAddressInProgressStatus::Preparing }
+
+    fn client_id(&self) -> Option<u64> { self.req.client_id }
 
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}

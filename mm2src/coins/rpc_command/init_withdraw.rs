@@ -123,6 +123,8 @@ impl RpcTaskTypes for WithdrawTask {
 impl RpcTask for WithdrawTask {
     fn initial_status(&self) -> Self::InProgressStatus { WithdrawInProgressStatus::Preparing }
 
+    fn client_id(&self) -> Option<u64> { self.request.client_id }
+
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}
 

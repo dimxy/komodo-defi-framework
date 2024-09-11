@@ -31,6 +31,7 @@ pub struct InitAccountBalanceRequest {
     coin: String,
     #[serde(flatten)]
     params: InitAccountBalanceParams,
+    client_id: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -64,6 +65,8 @@ impl RpcTaskTypes for InitAccountBalanceTask {
 #[async_trait]
 impl RpcTask for InitAccountBalanceTask {
     fn initial_status(&self) -> Self::InProgressStatus { AccountBalanceInProgressStatus::RequestingAccountBalance }
+
+    fn client_id(&self) -> Option<u64> { self.req.client_id }
 
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}

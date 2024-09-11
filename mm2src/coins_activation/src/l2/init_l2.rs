@@ -24,6 +24,7 @@ pub type InitL2TaskHandleShared<L2> = RpcTaskHandleShared<InitL2Task<L2>>;
 pub struct InitL2Req<T> {
     ticker: String,
     activation_params: T,
+    client_id: Option<u64>,
 }
 
 pub trait L2ProtocolParams {
@@ -98,9 +99,11 @@ where
 
     let coins_act_ctx = CoinsActivationContext::from_ctx(&ctx).map_to_mm(InitL2Error::Internal)?;
     let spawner = ctx.spawner();
+    let client_id = req.client_id;
     let task = InitL2Task::<L2> {
         ctx,
         ticker,
+        client_id,
         platform_coin,
         validated_params,
         protocol_conf,
@@ -161,6 +164,7 @@ pub async fn cancel_init_l2<L2: InitL2ActivationOps>(
 pub struct InitL2Task<L2: InitL2ActivationOps> {
     ctx: MmArc,
     ticker: String,
+    client_id: Option<u64>,
     platform_coin: L2::PlatformCoin,
     validated_params: L2::ValidatedParams,
     protocol_conf: L2::ProtocolInfo,
@@ -183,6 +187,8 @@ where
     fn initial_status(&self) -> Self::InProgressStatus {
         <L2::InProgressStatus as InitL2InitialStatus>::initial_status()
     }
+
+    fn client_id(&self) -> Option<u64> { self.client_id }
 
     /// Try to disable the coin in case if we managed to register it already.
     async fn cancel(self) {

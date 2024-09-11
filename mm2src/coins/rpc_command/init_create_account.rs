@@ -164,6 +164,7 @@ pub struct CreateNewAccountRequest {
     coin: String,
     #[serde(flatten)]
     params: CreateNewAccountParams,
+    client_id: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -237,6 +238,8 @@ impl RpcTaskTypes for InitCreateAccountTask {
 #[async_trait]
 impl RpcTask for InitCreateAccountTask {
     fn initial_status(&self) -> Self::InProgressStatus { CreateAccountInProgressStatus::Preparing }
+
+    fn client_id(&self) -> Option<u64> { self.req.client_id }
 
     async fn cancel(self) {
         if let Some(account_id) = self.task_state.create_account_id() {

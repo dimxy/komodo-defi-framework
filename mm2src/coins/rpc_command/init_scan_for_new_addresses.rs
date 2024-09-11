@@ -43,6 +43,7 @@ pub struct ScanAddressesRequest {
     coin: String,
     #[serde(flatten)]
     params: ScanAddressesParams,
+    client_id: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -86,6 +87,8 @@ impl RpcTaskTypes for InitScanAddressesTask {
 impl RpcTask for InitScanAddressesTask {
     #[inline]
     fn initial_status(&self) -> Self::InProgressStatus { ScanAddressesInProgressStatus::InProgress }
+
+    fn client_id(&self) -> Option<u64> { self.req.client_id }
 
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}

@@ -38,6 +38,7 @@ pub type CancelInitTokenError = CancelRpcTaskError;
 pub struct InitTokenReq<T> {
     ticker: String,
     activation_params: T,
+    client_id: Option<u64>,
 }
 
 /// Trait for the initializing a token using the task manager.
@@ -194,6 +195,8 @@ where
     fn initial_status(&self) -> Self::InProgressStatus {
         <Token::InProgressStatus as InitTokenInitialStatus>::initial_status()
     }
+
+    fn client_id(&self) -> Option<u64> { self.request.client_id }
 
     /// Try to disable the coin in case if we managed to register it already.
     async fn cancel(self) {

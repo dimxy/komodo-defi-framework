@@ -223,6 +223,7 @@ pub struct EnablePlatformCoinWithTokensReq<T: Clone> {
     ticker: String,
     #[serde(flatten)]
     request: T,
+    client_id: Option<u64>,
 }
 
 #[derive(Debug, Display, Serialize, SerializeErrorType, Clone)]
@@ -508,6 +509,8 @@ where
     fn initial_status(&self) -> Self::InProgressStatus {
         <Platform::InProgressStatus as InitPlatformCoinWithTokensInitialStatus>::initial_status()
     }
+
+    fn client_id(&self) -> Option<u64> { self.request.client_id }
 
     /// Try to disable the coin in case if we managed to register it already.
     async fn cancel(self) {}

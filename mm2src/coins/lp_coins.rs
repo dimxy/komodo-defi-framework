@@ -2177,6 +2177,7 @@ pub struct WithdrawRequest {
     #[cfg(target_arch = "wasm32")]
     #[serde(default)]
     broadcast: bool,
+    client_id: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]

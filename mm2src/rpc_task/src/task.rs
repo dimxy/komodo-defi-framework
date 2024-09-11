@@ -15,6 +15,11 @@ pub trait RpcTaskTypes {
 pub trait RpcTask: RpcTaskTypes + Sized + Send + 'static {
     fn initial_status(&self) -> Self::InProgressStatus;
 
+    /// Returns the ID of the client that initiated/requesting the task.
+    ///
+    /// This is related to event streaming and is used to identify the client to whom the updates shall be sent.
+    fn client_id(&self) -> Option<u64>;
+
     /// The method is invoked when the task has been cancelled.
     async fn cancel(self);
 

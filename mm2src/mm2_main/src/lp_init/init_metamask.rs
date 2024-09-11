@@ -11,9 +11,10 @@ use mm2_err_handle::common_errors::WithInternal;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
-use std::time::Duration;
+use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+               RpcTaskTypes};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub type InitMetamaskManagerShared = RpcTaskManagerShared<InitMetamaskTask>;
 pub type InitMetamaskStatus =
@@ -90,6 +91,7 @@ pub enum InitMetamaskInProgressStatus {
 #[derive(Deserialize)]
 pub struct InitMetamaskRequest {
     project: String,
+    client_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize)]
@@ -113,6 +115,8 @@ impl RpcTaskTypes for InitMetamaskTask {
 #[async_trait]
 impl RpcTask for InitMetamaskTask {
     fn initial_status(&self) -> Self::InProgressStatus { InitMetamaskInProgressStatus::Initializing }
+
+    fn client_id(&self) -> Option<u64> { self.req.client_id }
 
     async fn cancel(self) {
         if let Ok(crypto_ctx) = CryptoCtx::from_ctx(&self.ctx) {
