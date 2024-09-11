@@ -240,6 +240,18 @@ impl StreamingManager {
         };
     }
 
+    /// Broadcasts (actually just *sends* in this case) some event to a specific client.
+    ///
+    /// Could be used in case we have a single known client and don't want to spawn up a streamer just for that.
+    pub fn broadcast_to(&self, event: Event, client_id: u64) -> Result<(), StreamingManagerError> {
+        let event = Arc::new(event);
+        self.read()
+            .clients
+            .get(&client_id)
+            .map(|info| info.send_event(event))
+            .ok_or(StreamingManagerError::UnknownClient)
+    }
+
     /// Forcefully broadcasts an event to all known clients even if they are not listening for such an event.
     pub fn broadcast_all(&self, event: Event) {
         let event = Arc::new(event);
