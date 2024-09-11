@@ -160,13 +160,9 @@ fn solana_transaction_simulations() {
         sol_coin
             .withdraw(WithdrawRequest {
                 coin: "SOL".to_string(),
-                from: None,
                 to: sol_coin.my_address.clone(),
                 amount: request_amount.clone(),
-                max: false,
-                fee: None,
-                memo: None,
-                ibc_source_channel: None,
+                ..Default::default()
             })
             .compat(),
     )
@@ -189,13 +185,9 @@ fn solana_transaction_zero_balance() {
         sol_coin
             .withdraw(WithdrawRequest {
                 coin: "SOL".to_string(),
-                from: None,
                 to: sol_coin.my_address.clone(),
                 amount: BigDecimal::from_str("0.000001").unwrap(),
-                max: false,
-                fee: None,
-                memo: None,
-                ibc_source_channel: None,
+                ..Default::default()
             })
             .compat(),
     );
@@ -219,13 +211,9 @@ fn solana_transaction_simulations_not_enough_for_fees() {
         sol_coin
             .withdraw(WithdrawRequest {
                 coin: "SOL".to_string(),
-                from: None,
                 to: sol_coin.my_address.clone(),
                 amount: BigDecimal::from(1),
-                max: false,
-                fee: None,
-                memo: None,
-                ibc_source_channel: None,
+                ..Default::default()
             })
             .compat(),
     );
@@ -254,13 +242,10 @@ fn solana_transaction_simulations_max() {
         sol_coin
             .withdraw(WithdrawRequest {
                 coin: "SOL".to_string(),
-                from: None,
                 to: sol_coin.my_address.clone(),
                 amount: BigDecimal::from(0),
                 max: true,
-                fee: None,
-                memo: None,
-                ibc_source_channel: None,
+                ..Default::default()
             })
             .compat(),
     )
@@ -284,13 +269,9 @@ fn solana_test_transactions() {
         sol_coin
             .withdraw(WithdrawRequest {
                 coin: "SOL".to_string(),
-                from: None,
                 to: sol_coin.my_address.clone(),
                 amount: BigDecimal::try_from(0.0001).unwrap(),
-                max: false,
-                fee: None,
-                memo: None,
-                ibc_source_channel: None,
+                ..Default::default()
             })
             .compat(),
     )

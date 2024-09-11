@@ -107,13 +107,9 @@ fn test_spl_transactions() {
         usdc_sol_coin
             .withdraw(WithdrawRequest {
                 coin: "USDC".to_string(),
-                from: None,
                 to: "AYJmtzc9D4KU6xsDzhKShFyYKUNXY622j9QoQEo4LfpX".to_string(),
                 amount: withdraw_amount.clone(),
-                max: false,
-                fee: None,
-                memo: None,
-                ibc_source_channel: None,
+                ..Default::default()
             })
             .compat(),
     )

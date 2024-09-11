@@ -211,16 +211,13 @@ fn test_withdraw_impl_manual_fee() {
 
     let withdraw_req = WithdrawRequest {
         amount: 1.into(),
-        from: None,
         to: "0x7Bc1bBDD6A0a722fC9bffC49c921B685ECB84b94".to_string(),
         coin: "ETH".to_string(),
-        max: false,
         fee: Some(WithdrawFee::EthGas {
             gas: gas_limit::ETH_MAX_TRADE_GAS,
             gas_price: 1.into(),
         }),
-        memo: None,
-        ibc_source_channel: None,
+        ..Default::default()
     };
     coin.get_balance().wait().unwrap();
 
@@ -260,16 +257,13 @@ fn test_withdraw_impl_fee_details() {
 
     let withdraw_req = WithdrawRequest {
         amount: 1.into(),
-        from: None,
         to: "0x7Bc1bBDD6A0a722fC9bffC49c921B685ECB84b94".to_string(),
         coin: "JST".to_string(),
-        max: false,
         fee: Some(WithdrawFee::EthGas {
             gas: gas_limit::ETH_MAX_TRADE_GAS,
             gas_price: 1.into(),
         }),
-        memo: None,
-        ibc_source_channel: None,
+        ..Default::default()
     };
     coin.get_balance().wait().unwrap();
 

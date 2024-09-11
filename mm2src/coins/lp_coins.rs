@@ -2160,7 +2160,7 @@ pub trait GetWithdrawSenderAddress {
 /// Instead, accept a generic type from withdraw implementations.
 /// This way we won't have to update the payload for every platform when
 /// one of them requires specific addition.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 pub struct WithdrawRequest {
     coin: String,
     from: Option<WithdrawFrom>,
@@ -2222,15 +2222,9 @@ impl WithdrawRequest {
     pub fn new_max(coin: String, to: String) -> WithdrawRequest {
         WithdrawRequest {
             coin,
-            from: None,
             to,
-            amount: 0.into(),
             max: true,
-            fee: None,
-            memo: None,
-            ibc_source_channel: None,
-            #[cfg(target_arch = "wasm32")]
-            broadcast: false,
+            ..Default::default()
         }
     }
 }
@@ -5691,10 +5685,8 @@ pub mod for_tests {
             }),
             to: to.to_owned(),
             coin: ticker.to_owned(),
-            max: false,
             fee,
-            memo: None,
-            ibc_source_channel: None,
+            ..Default::default()
         };
         let init = init_withdraw(ctx.clone(), withdraw_req).await.unwrap();
         let timeout = wait_until_ms(150000);
