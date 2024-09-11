@@ -3800,11 +3800,11 @@ impl CoinsContext {
                 platform_coin_tokens: PaMutex::new(HashMap::new()),
                 coins: AsyncMutex::new(HashMap::new()),
                 balance_update_handlers: AsyncMutex::new(vec![]),
-                account_balance_task_manager: AccountBalanceTaskManager::new_shared(),
-                create_account_manager: CreateAccountTaskManager::new_shared(),
-                get_new_address_manager: GetNewAddressTaskManager::new_shared(),
-                scan_addresses_manager: ScanAddressesTaskManager::new_shared(),
-                withdraw_task_manager: WithdrawTaskManager::new_shared(),
+                account_balance_task_manager: AccountBalanceTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                create_account_manager: CreateAccountTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                get_new_address_manager: GetNewAddressTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                scan_addresses_manager: ScanAddressesTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                withdraw_task_manager: WithdrawTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 #[cfg(target_arch = "wasm32")]
                 tx_history_db: ConstructibleDb::new(ctx).into_shared(),
                 #[cfg(target_arch = "wasm32")]

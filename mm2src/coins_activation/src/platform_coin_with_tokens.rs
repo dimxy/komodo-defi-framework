@@ -171,8 +171,8 @@ pub trait PlatformCoinWithTokensActivationOps: Into<MmCoinEnum> + Clone + Send +
         + Send
         + Sync;
 
-    type InProgressStatus: InitPlatformCoinWithTokensInitialStatus + Clone + Send + Sync;
-    type AwaitingStatus: Clone + Send + Sync;
+    type InProgressStatus: InitPlatformCoinWithTokensInitialStatus + serde::Serialize + Clone + Send + Sync;
+    type AwaitingStatus: serde::Serialize + Clone + Send + Sync;
     type UserAction: NotMmError + Send + Sync;
 
     /// Initializes the platform coin itself

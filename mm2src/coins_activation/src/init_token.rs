@@ -45,7 +45,7 @@ pub struct InitTokenReq<T> {
 pub trait InitTokenActivationOps: Into<MmCoinEnum> + TokenOf + Clone + Send + Sync + 'static {
     type ActivationRequest: Clone + Send + Sync;
     type ProtocolInfo: TokenProtocolParams + TryFromCoinProtocol + Clone + Send + Sync;
-    type ActivationResult: serde::Serialize + Clone + CurrentBlock + Send + Sync;
+    type ActivationResult: CurrentBlock + serde::Serialize + Clone + Send + Sync;
     type ActivationError: From<RegisterCoinError>
         + Into<InitTokenError>
         + NotEqual
@@ -53,8 +53,8 @@ pub trait InitTokenActivationOps: Into<MmCoinEnum> + TokenOf + Clone + Send + Sy
         + Clone
         + Send
         + Sync;
-    type InProgressStatus: InitTokenInitialStatus + Clone + Send + Sync;
-    type AwaitingStatus: Clone + Send + Sync;
+    type InProgressStatus: InitTokenInitialStatus + serde::Serialize + Clone + Send + Sync;
+    type AwaitingStatus: serde::Serialize + Clone + Send + Sync;
     type UserAction: NotMmError + Send + Sync;
 
     /// Getter for the token initialization task manager.

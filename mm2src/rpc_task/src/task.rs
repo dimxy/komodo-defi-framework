@@ -6,8 +6,8 @@ use serde::Serialize;
 pub trait RpcTaskTypes {
     type Item: Serialize + Clone + Send + Sync + 'static;
     type Error: SerMmErrorType + Clone + Send + Sync + 'static;
-    type InProgressStatus: Clone + Send + Sync + 'static;
-    type AwaitingStatus: Clone + Send + Sync + 'static;
+    type InProgressStatus: Serialize + Clone + Send + Sync + 'static;
+    type AwaitingStatus: Serialize + Clone + Send + Sync + 'static;
     type UserAction: NotMmError + Send + Sync + 'static;
 }
 

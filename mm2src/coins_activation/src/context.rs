@@ -28,14 +28,14 @@ impl CoinsActivationContext {
         from_ctx(&ctx.coins_activation_ctx, move || {
             Ok(CoinsActivationContext {
                 #[cfg(feature = "enable-sia")]
-                init_sia_task_manager: RpcTaskManager::new_shared(),
-                init_utxo_standard_task_manager: RpcTaskManager::new_shared(),
-                init_qtum_task_manager: RpcTaskManager::new_shared(),
-                init_z_coin_task_manager: RpcTaskManager::new_shared(),
-                init_eth_task_manager: RpcTaskManager::new_shared(),
-                init_erc20_token_task_manager: RpcTaskManager::new_shared(),
+                init_sia_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                init_utxo_standard_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                init_qtum_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                init_z_coin_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                init_eth_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                init_erc20_token_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 #[cfg(not(target_arch = "wasm32"))]
-                init_lightning_task_manager: RpcTaskManager::new_shared(),
+                init_lightning_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
             })
         })
     }

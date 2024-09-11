@@ -39,8 +39,8 @@ pub trait InitL2ActivationOps: Into<MmCoinEnum> + Send + Sync + 'static {
     type CoinConf: Clone + Send + Sync;
     type ActivationResult: serde::Serialize + Clone + Send + Sync;
     type ActivationError: From<RegisterCoinError> + NotEqual + SerMmErrorType + Clone + Send + Sync;
-    type InProgressStatus: InitL2InitialStatus + Clone + Send + Sync;
-    type AwaitingStatus: Clone + Send + Sync;
+    type InProgressStatus: InitL2InitialStatus + serde::Serialize + Clone + Send + Sync;
+    type AwaitingStatus: serde::Serialize + Clone + Send + Sync;
     type UserAction: NotMmError + Send + Sync;
 
     fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &InitL2TaskManagerShared<Self>;

@@ -6,6 +6,7 @@ use common::log::{debug, info};
 use futures::channel::oneshot;
 use futures::future::{select, Either};
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::{Event, StreamingManager};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
@@ -29,11 +30,10 @@ static NEXT_RPC_TASK_ID: AtomicTaskId = AtomicTaskId::new(0);
 fn next_rpc_task_id() -> TaskId { NEXT_RPC_TASK_ID.fetch_add(1, Ordering::Relaxed) }
 
 pub struct RpcTaskManager<Task: RpcTask> {
+    /// A map of task IDs to their statuses and abort handlers.
     tasks: HashMap<TaskId, TaskStatusExt<Task>>,
-}
-
-impl<Task: RpcTask> Default for RpcTaskManager<Task> {
-    fn default() -> Self { RpcTaskManager { tasks: HashMap::new() } }
+    /// A copy of the MM2's streaming manager to broadcast task status updates to interested parties.
+    streaming_manager: StreamingManager,
 }
 
 impl<Task: RpcTask> RpcTaskManager<Task> {
@@ -43,12 +43,11 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
     where
         F: SpawnFuture,
     {
-        let initial_task_status = task.initial_status();
         let (task_id, task_abort_handler) = {
             let mut task_manager = this
                 .lock()
                 .map_to_mm(|e| RpcTaskError::Internal(format!("RpcTaskManager is not available: {}", e)))?;
-            task_manager.register_task(initial_task_status)?
+            task_manager.register_task(&task)?
         };
         let task_handle = Arc::new(RpcTaskHandle {
             task_manager: RpcTaskManagerShared::downgrade(this),
@@ -103,7 +102,16 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
         Some(rpc_status)
     }
 
-    pub fn new_shared() -> RpcTaskManagerShared<Task> { Arc::new(Mutex::new(Self::default())) }
+    pub fn new(streaming_manager: StreamingManager) -> Self {
+        RpcTaskManager {
+            tasks: HashMap::new(),
+            streaming_manager,
+        }
+    }
+
+    pub fn new_shared(streaming_manager: StreamingManager) -> RpcTaskManagerShared<Task> {
+        Arc::new(Mutex::new(Self::new(streaming_manager)))
+    }
 
     pub fn contains(&self, task_id: TaskId) -> bool { self.tasks.contains_key(&task_id) }
 
@@ -138,17 +146,17 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
         }
     }
 
-    pub(crate) fn register_task(
-        &mut self,
-        task_initial_in_progress_status: Task::InProgressStatus,
-    ) -> RpcTaskResult<(TaskId, TaskAbortHandler)> {
+    // FIXME: We can ask &Task for `client_id() -> Option<u64>` (most Tasks stores `req/request` and we can
+    // have the client provide these in their "task::" request so we know who to respond to).
+    // We can then store this ID in our map and use it to send updates to that client. Or send nothing if not provided.
+    pub(crate) fn register_task(&mut self, task: &Task) -> RpcTaskResult<(TaskId, TaskAbortHandler)> {
         let task_id = next_rpc_task_id();
         let (abort_handle, abort_handler) = oneshot::channel();
         match self.tasks.entry(task_id) {
             Entry::Occupied(_entry) => unexpected_task_status!(task_id, actual = InProgress, expected = Idle),
             Entry::Vacant(entry) => {
                 entry.insert(TaskStatusExt::InProgress {
-                    status: task_initial_in_progress_status,
+                    status: task.initial_status(),
                     abort_handle,
                 });
                 Ok((task_id, abort_handler))
@@ -157,7 +165,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
     }
 
     pub(crate) fn update_task_status(&mut self, task_id: TaskId, status: TaskStatus<Task>) -> RpcTaskResult<()> {
-        match status {
+        let update_result = match status {
             TaskStatus::Ok(result) => self.on_task_finished(task_id, Ok(result)),
             TaskStatus::Error(error) => self.on_task_finished(task_id, Err(error)),
             TaskStatus::InProgress(in_progress) => self.update_in_progress_status(task_id, in_progress),
@@ -165,7 +173,19 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
                 awaiting_status,
                 user_action_tx,
             } => self.set_task_is_waiting_for_user_action(task_id, awaiting_status, user_action_tx),
-        }
+        };
+        // If the status was updated successfully, we need to inform the client about the new status.
+        if update_result.is_ok() {
+            // Note that this should really always be Some, since we updated the status successfully.
+            if let Some(new_status) = self.task_status(task_id, false) {
+                let event = Event::new(
+                    format!("TASK:{task_id}"),
+                    serde_json::to_value(new_status).expect("Serialization shouldn't fail."),
+                );
+                self.streaming_manager.broadcast_all(event);
+            };
+        };
+        update_result
     }
 
     pub(crate) fn on_task_cancelling_finished(&mut self, task_id: TaskId) -> RpcTaskResult<()> {
