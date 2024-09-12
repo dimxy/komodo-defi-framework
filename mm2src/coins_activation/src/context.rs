@@ -4,7 +4,7 @@ use crate::init_erc20_token_activation::Erc20TokenTaskManagerShared;
 use crate::lightning_activation::LightningTaskManagerShared;
 #[cfg(feature = "enable-sia")]
 use crate::sia_coin_activation::SiaCoinTaskManagerShared;
-use crate::utxo_activation::{QtumTaskManagerShared, UtxoStandardTaskManagerShared};
+use crate::utxo_activation::{BchTaskManagerShared, QtumTaskManagerShared, UtxoStandardTaskManagerShared};
 use crate::z_coin_activation::ZcoinTaskManagerShared;
 use mm2_core::mm_ctx::{from_ctx, MmArc};
 use rpc_task::RpcTaskManager;
@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 pub struct CoinsActivationContext {
     pub(crate) init_utxo_standard_task_manager: UtxoStandardTaskManagerShared,
+    pub(crate) init_bch_task_manager: BchTaskManagerShared,
     pub(crate) init_qtum_task_manager: QtumTaskManagerShared,
     #[cfg(feature = "enable-sia")]
     pub(crate) init_sia_task_manager: SiaCoinTaskManagerShared,
@@ -30,6 +31,7 @@ impl CoinsActivationContext {
                 #[cfg(feature = "enable-sia")]
                 init_sia_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 init_utxo_standard_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                init_bch_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 init_qtum_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 init_z_coin_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 init_eth_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),

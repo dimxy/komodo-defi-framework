@@ -256,6 +256,10 @@ async fn rpc_task_dispatcher(
         "create_new_account::init" => handle_mmrpc(ctx, request, init_create_new_account).await,
         "create_new_account::status" => handle_mmrpc(ctx, request, init_create_new_account_status).await,
         "create_new_account::user_action" => handle_mmrpc(ctx, request, init_create_new_account_user_action).await,
+        "enable_bch::cancel" => handle_mmrpc(ctx, request, cancel_init_standalone_coin::<BchCoin>).await,
+        "enable_bch::init" => handle_mmrpc(ctx, request, init_standalone_coin::<BchCoin>).await,
+        "enable_bch::status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<BchCoin>).await,
+        "enable_bch::user_action" => handle_mmrpc(ctx, request, init_standalone_coin_user_action::<BchCoin>).await,
         "enable_qtum::cancel" => handle_mmrpc(ctx, request, cancel_init_standalone_coin::<QtumCoin>).await,
         "enable_qtum::init" => handle_mmrpc(ctx, request, init_standalone_coin::<QtumCoin>).await,
         "enable_qtum::status" => handle_mmrpc(ctx, request, init_standalone_coin_status::<QtumCoin>).await,
@@ -276,6 +280,29 @@ async fn rpc_task_dispatcher(
         "enable_erc20::init" => handle_mmrpc(ctx, request, init_token::<EthCoin>).await,
         "enable_erc20::status" => handle_mmrpc(ctx, request, init_token_status::<EthCoin>).await,
         "enable_erc20::user_action" => handle_mmrpc(ctx, request, init_token_user_action::<EthCoin>).await,
+        // // FIXME: tendermint with tokens
+        // "enable_tendermint::cancel" => {
+        //     handle_mmrpc(ctx, request, cancel_init_platform_coin_with_tokens::<TendermintCoin>).await
+        // },
+        // "enable_tendermint::init" => handle_mmrpc(ctx, request, init_platform_coin_with_tokens::<TendermintCoin>).await,
+        // "enable_tendermint::status" => {
+        //     handle_mmrpc(ctx, request, init_platform_coin_with_tokens_status::<TendermintCoin>).await
+        // },
+        // "enable_tendermint::user_action" => {
+        //     handle_mmrpc(
+        //         ctx,
+        //         request,
+        //         init_platform_coin_with_tokens_user_action::<TendermintCoin>,
+        //     )
+        //     .await
+        // },
+        // // FIXME: tendermint tokens
+        // "enable_tendermint_token::cancel" => handle_mmrpc(ctx, request, cancel_init_token::<TendermintToken>).await,
+        // "enable_tendermint_token::init" => handle_mmrpc(ctx, request, init_token::<TendermintToken>).await,
+        // "enable_tendermint_token::status" => handle_mmrpc(ctx, request, init_token_status::<TendermintToken>).await,
+        // "enable_tendermint_token::user_action" => {
+        //     handle_mmrpc(ctx, request, init_token_user_action::<TendermintToken>).await
+        // },
         "get_new_address::cancel" => handle_mmrpc(ctx, request, cancel_get_new_address).await,
         "get_new_address::init" => handle_mmrpc(ctx, request, init_get_new_address).await,
         "get_new_address::status" => handle_mmrpc(ctx, request, init_get_new_address_status).await,
