@@ -4,6 +4,7 @@ use crate::init_erc20_token_activation::Erc20TokenTaskManagerShared;
 use crate::lightning_activation::LightningTaskManagerShared;
 #[cfg(feature = "enable-sia")]
 use crate::sia_coin_activation::SiaCoinTaskManagerShared;
+use crate::tendermint_with_assets_activation::TendermintCoinTaskManagerShared;
 use crate::utxo_activation::{BchTaskManagerShared, QtumTaskManagerShared, UtxoStandardTaskManagerShared};
 use crate::z_coin_activation::ZcoinTaskManagerShared;
 use mm2_core::mm_ctx::{from_ctx, MmArc};
@@ -19,6 +20,7 @@ pub struct CoinsActivationContext {
     pub(crate) init_z_coin_task_manager: ZcoinTaskManagerShared,
     pub(crate) init_eth_task_manager: EthTaskManagerShared,
     pub(crate) init_erc20_token_task_manager: Erc20TokenTaskManagerShared,
+    pub(crate) init_tendermint_coin_task_manager: TendermintCoinTaskManagerShared,
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) init_lightning_task_manager: LightningTaskManagerShared,
 }
@@ -36,6 +38,7 @@ impl CoinsActivationContext {
                 init_z_coin_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 init_eth_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 init_erc20_token_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                init_tendermint_coin_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 #[cfg(not(target_arch = "wasm32"))]
                 init_lightning_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
             })

@@ -27,6 +27,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 
+pub type TendermintCoinTaskManagerShared = InitPlatformCoinWithTokensTaskManagerShared<TendermintCoin>;
+
 impl TokenOf for TendermintToken {
     type PlatformCoin = TendermintCoin;
 }
@@ -367,9 +369,7 @@ impl PlatformCoinWithTokensActivationOps for TendermintCoin {
         self.spawner().spawn_with_settings(fut, settings);
     }
 
-    fn rpc_task_manager(
-        _activation_ctx: &CoinsActivationContext,
-    ) -> &InitPlatformCoinWithTokensTaskManagerShared<TendermintCoin> {
-        unimplemented!()
+    fn rpc_task_manager(activation_ctx: &CoinsActivationContext) -> &TendermintCoinTaskManagerShared {
+        &activation_ctx.init_tendermint_coin_task_manager
     }
 }
