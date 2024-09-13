@@ -2,9 +2,10 @@ use crate::{generate_utxo_coin_with_random_privkey, MYCOIN, MYCOIN1, SET_DEX_PUB
 use bitcrypto::dhash160;
 use coins::utxo::UtxoCommonOps;
 use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs,
-            MakerCoinSwapOpsV2, MarketCoinOps, ParseCoinAssocTypes, RefundFundingSecretArgs, RefundMakerPaymentArgs,
-            RefundPaymentArgs, SendMakerPaymentArgs, SendTakerFundingArgs, SwapTxTypeWithSecretHash,
-            TakerCoinSwapOpsV2, Transaction, ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
+            MakerCoinSwapOpsV2, MarketCoinOps, ParseCoinAssocTypes, RefundFundingSecretArgs,
+            RefundMakerPaymentSecretArgs, RefundMakerPaymentTimelockArgs, RefundTakerPaymentArgs,
+            SendMakerPaymentArgs, SendTakerFundingArgs, SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2, Transaction,
+            ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
 use common::{block_on, now_sec};
 use crypto::privkey::key_pair_from_secret;
 use futures01::Future;
@@ -56,9 +57,11 @@ fn send_and_refund_taker_funding_timelock() {
 
     let validate_args = ValidateTakerFundingArgs {
         funding_tx: &taker_funding_utxo_tx,
-        time_lock: funding_time_lock,
+        payment_time_lock: 0,
+        funding_time_lock,
         taker_secret_hash,
-        other_pub: maker_pub,
+        maker_secret_hash: &[],
+        taker_pub: maker_pub,
         dex_fee,
         premium_amount: "0.1".parse().unwrap(),
         trading_amount: 1.into(),
@@ -66,16 +69,18 @@ fn send_and_refund_taker_funding_timelock() {
     };
     block_on(coin.validate_taker_funding(validate_args)).unwrap();
 
-    let refund_args = RefundPaymentArgs {
+    let refund_args = RefundTakerPaymentArgs {
         payment_tx: &serialize(&taker_funding_utxo_tx).take(),
         time_lock: funding_time_lock,
-        other_pubkey: coin.my_public_key().unwrap(),
+        maker_pub: coin.my_public_key().unwrap(),
         tx_type_with_secret_hash: SwapTxTypeWithSecretHash::TakerFunding {
             taker_secret_hash: &[0; 20],
         },
         swap_unique_data: &[],
-        swap_contract_address: &None,
         watcher_reward: false,
+        dex_fee,
+        premium_amount: Default::default(),
+        trading_amount: Default::default(),
     };
 
     let refund_tx = block_on(coin.refund_taker_funding_timelock(refund_args)).unwrap();
@@ -138,9 +143,11 @@ fn send_and_refund_taker_funding_secret() {
 
     let validate_args = ValidateTakerFundingArgs {
         funding_tx: &taker_funding_utxo_tx,
-        time_lock: funding_time_lock,
+        funding_time_lock,
+        payment_time_lock: 0,
         taker_secret_hash,
-        other_pub: maker_pub,
+        maker_secret_hash: &[],
+        taker_pub: maker_pub,
         dex_fee,
         premium_amount: "0.1".parse().unwrap(),
         trading_amount: 1.into(),
@@ -156,7 +163,6 @@ fn send_and_refund_taker_funding_secret() {
         taker_secret: &taker_secret,
         taker_secret_hash,
         maker_secret_hash: &[],
-        swap_contract_address: &None,
         dex_fee,
         premium_amount: "0.1".parse().unwrap(),
         trading_amount: 1.into(),
@@ -229,9 +235,11 @@ fn send_and_spend_taker_funding() {
 
     let validate_args = ValidateTakerFundingArgs {
         funding_tx: &taker_funding_utxo_tx,
-        time_lock: funding_time_lock,
+        payment_time_lock: 0,
+        funding_time_lock,
         taker_secret_hash,
-        other_pub: taker_pub,
+        maker_secret_hash: &[],
+        taker_pub,
         dex_fee,
         premium_amount: "0.1".parse().unwrap(),
         trading_amount: 1.into(),
@@ -318,9 +326,11 @@ fn send_and_spend_taker_payment_dex_fee_burn_kmd() {
 
     let validate_args = ValidateTakerFundingArgs {
         funding_tx: &taker_funding_utxo_tx,
-        time_lock: funding_time_lock,
+        funding_time_lock,
+        payment_time_lock: 0,
         taker_secret_hash,
-        other_pub: taker_pub,
+        maker_secret_hash,
+        taker_pub,
         dex_fee,
         premium_amount: 0.into(),
         trading_amount: 777.into(),
@@ -422,9 +432,11 @@ fn send_and_spend_taker_payment_dex_fee_burn_non_kmd() {
 
     let validate_args = ValidateTakerFundingArgs {
         funding_tx: &taker_funding_utxo_tx,
-        time_lock: funding_time_lock,
+        funding_time_lock,
+        payment_time_lock: 0,
         taker_secret_hash,
-        other_pub: taker_pub,
+        maker_secret_hash,
+        taker_pub,
         dex_fee,
         premium_amount: 0.into(),
         trading_amount: 777.into(),
@@ -530,10 +542,10 @@ fn send_and_refund_maker_payment_timelock() {
     };
     block_on(coin.validate_maker_payment_v2(validate_args)).unwrap();
 
-    let refund_args = RefundPaymentArgs {
+    let refund_args = RefundMakerPaymentTimelockArgs {
         payment_tx: &serialize(&maker_payment).take(),
         time_lock,
-        other_pubkey: coin.my_public_key().unwrap(),
+        taker_pub: coin.my_public_key().unwrap(),
         tx_type_with_secret_hash: SwapTxTypeWithSecretHash::MakerPaymentV2 {
             taker_secret_hash,
             maker_secret_hash,
@@ -594,7 +606,7 @@ fn send_and_refund_maker_payment_taker_secret() {
     };
     block_on(coin.validate_maker_payment_v2(validate_args)).unwrap();
 
-    let refund_args = RefundMakerPaymentArgs {
+    let refund_args = RefundMakerPaymentSecretArgs {
         maker_payment_tx: &maker_payment,
         time_lock,
         taker_secret_hash,
