@@ -70,7 +70,6 @@ impl MmCtx {
             "data": data
         });
 
-        // FIXME: This event will be broadcasted to all the clients. We should only hand it to one client?
         self.event_stream_manager
             .broadcast_all(Event::new(format!("{EVENT_NAME}:{data_type}"), input));
 

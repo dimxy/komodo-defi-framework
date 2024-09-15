@@ -295,7 +295,7 @@ async fn rpc_task_dispatcher(
             )
             .await
         },
-        // // FIXME: tendermint tokens
+        // // TODO: tendermint tokens
         // "enable_tendermint_token::cancel" => handle_mmrpc(ctx, request, cancel_init_token::<TendermintToken>).await,
         // "enable_tendermint_token::init" => handle_mmrpc(ctx, request, init_token::<TendermintToken>).await,
         // "enable_tendermint_token::status" => handle_mmrpc(ctx, request, init_token_status::<TendermintToken>).await,
