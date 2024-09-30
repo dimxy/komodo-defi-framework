@@ -7,11 +7,11 @@ use mm2_libp2p::behaviours::atomicdex;
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use serde::Deserialize;
-use serde_json::{json, Value as Json};
+use serde_json::json;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, default)]
-struct NetworkEventConfig {
+pub struct NetworkEventConfig {
     /// The time in seconds to wait after sending network info before sending another one.
     pub stream_interval_seconds: f64,
     /// Always (force) send network info data, even if it's the same as the previous one sent.
@@ -33,12 +33,7 @@ pub struct NetworkEvent {
 }
 
 impl NetworkEvent {
-    pub fn try_new(config: Option<Json>, ctx: MmArc) -> serde_json::Result<Self> {
-        Ok(Self {
-            config: config.map(serde_json::from_value).unwrap_or(Ok(Default::default()))?,
-            ctx,
-        })
-    }
+    pub fn new(config: NetworkEventConfig, ctx: MmArc) -> Self { Self { config, ctx } }
 }
 
 #[async_trait]

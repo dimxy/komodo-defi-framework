@@ -1,20 +1,18 @@
 //! RPC activation and deactivation for different fee estimation streamers.
 use super::EnableStreamingResponse;
 
-use coins::eth::fee_estimation::eth_fee_events::EthFeeEventStreamer;
+use coins::eth::fee_estimation::eth_fee_events::{EthFeeEventStreamer, EthFeeStreamingConfig};
 use coins::{lp_coinfind, MmCoin, MmCoinEnum};
 use common::HttpStatusCode;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_to_mm::MapToMmResult, mm_error::MmResult};
 
-use serde_json::Value as Json;
-
 #[derive(Deserialize)]
 pub struct EnableFeeStreamingRequest {
     pub client_id: u64,
     pub coin: String,
-    pub config: Option<Json>,
+    pub config: EthFeeStreamingConfig,
 }
 
 #[derive(Display, Serialize, SerializeErrorType)]
@@ -48,8 +46,7 @@ pub async fn enable_fee_estimation(
 
     match coin {
         MmCoinEnum::EthCoin(coin) => {
-            let eth_fee_estimator_streamer = EthFeeEventStreamer::try_new(req.config, coin.clone())
-                .map_to_mm(|e| FeeStreamingRequestError::EnableError(format!("{e:?}")))?;
+            let eth_fee_estimator_streamer = EthFeeEventStreamer::new(req.config, coin.clone());
             ctx.event_stream_manager
                 .add(req.client_id, eth_fee_estimator_streamer, coin.spawner())
                 .await

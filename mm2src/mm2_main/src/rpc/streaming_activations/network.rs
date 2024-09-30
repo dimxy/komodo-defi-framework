@@ -5,14 +5,12 @@ use common::HttpStatusCode;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_to_mm::MapToMmResult, mm_error::MmResult};
-use mm2_net::network_event::NetworkEvent;
-
-use serde_json::Value as Json;
+use mm2_net::network_event::{NetworkEvent, NetworkEventConfig};
 
 #[derive(Deserialize)]
 pub struct EnableNetworkStreamingRequest {
     pub client_id: u64,
-    pub config: Option<Json>,
+    pub config: NetworkEventConfig,
 }
 
 #[derive(Display, Serialize, SerializeErrorType)]
@@ -29,8 +27,7 @@ pub async fn enable_network(
     ctx: MmArc,
     req: EnableNetworkStreamingRequest,
 ) -> MmResult<EnableStreamingResponse, NetworkStreamingRequestError> {
-    let network_steamer = NetworkEvent::try_new(req.config, ctx.clone())
-        .map_to_mm(|e| NetworkStreamingRequestError::EnableError(format!("{e:?}")))?;
+    let network_steamer = NetworkEvent::new(req.config, ctx.clone());
     ctx.event_stream_manager
         .add(req.client_id, network_steamer, ctx.spawner())
         .await

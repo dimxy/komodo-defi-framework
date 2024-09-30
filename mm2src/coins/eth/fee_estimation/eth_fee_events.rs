@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use futures::channel::oneshot;
 use instant::Instant;
 use serde::Deserialize;
-use serde_json::Value as Json;
 use std::convert::TryFrom;
 
 #[derive(Deserialize)]
@@ -14,14 +13,14 @@ use std::convert::TryFrom;
 /// Types of estimators available.
 /// Simple - simple internal gas price estimator based on historical data.
 /// Provider - gas price estimator using external provider (using gas api).
-enum EstimatorType {
+pub enum EstimatorType {
     Simple,
     Provider,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, default)]
-struct EthFeeStreamingConfig {
+pub struct EthFeeStreamingConfig {
     /// The time in seconds to wait before re-estimating the gas fees.
     pub estimate_every: f64,
     /// The type of the estimator to use.
@@ -43,11 +42,7 @@ pub struct EthFeeEventStreamer {
 }
 
 impl EthFeeEventStreamer {
-    pub fn try_new(config: Option<Json>, coin: EthCoin) -> serde_json::Result<Self> {
-        let config = config.map(serde_json::from_value).unwrap_or(Ok(Default::default()))?;
-
-        Ok(Self { config, coin })
-    }
+    pub fn new(config: EthFeeStreamingConfig, coin: EthCoin) -> Self { Self { config, coin } }
 }
 
 #[async_trait]

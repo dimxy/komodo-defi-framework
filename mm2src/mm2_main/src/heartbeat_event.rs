@@ -3,11 +3,10 @@ use common::executor::Timer;
 use futures::channel::oneshot;
 use mm2_event_stream::{Broadcaster, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use serde::Deserialize;
-use serde_json::Value as Json;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, default)]
-struct HeartbeatEventConfig {
+pub struct HeartbeatEventConfig {
     /// The time in seconds to wait before sending another ping event.
     pub stream_interval_seconds: f64,
 }
@@ -25,11 +24,7 @@ pub struct HeartbeatEvent {
 }
 
 impl HeartbeatEvent {
-    pub fn try_new(config: Option<Json>) -> serde_json::Result<Self> {
-        Ok(Self {
-            config: config.map(serde_json::from_value).unwrap_or(Ok(Default::default()))?,
-        })
-    }
+    pub fn new(config: HeartbeatEventConfig) -> Self { Self { config } }
 }
 
 #[async_trait]
