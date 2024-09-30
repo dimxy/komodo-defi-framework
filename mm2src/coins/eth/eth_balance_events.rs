@@ -2,6 +2,7 @@ use super::EthCoin;
 use crate::{eth::{u256_to_big_decimal, Erc20TokenInfo},
             BalanceError, CoinWithDerivationMethod};
 use common::{executor::Timer, log, Future01CompatExt};
+use mm2_err_handle::prelude::MmError;
 use mm2_event_stream::{Broadcaster, Event, EventStreamer, NoDataIn, StreamHandlerInput};
 use mm2_number::BigDecimal;
 
@@ -55,7 +56,7 @@ struct BalanceData {
 struct BalanceFetchError {
     ticker: String,
     address: String,
-    error: BalanceError,
+    error: MmError<BalanceError>,
 }
 
 type BalanceResult = Result<BalanceData, BalanceFetchError>;
@@ -111,7 +112,7 @@ async fn fetch_balance(
                 .map_err(|error| BalanceFetchError {
                     ticker: token_ticker.clone(),
                     address: address.to_string(),
-                    error: error.into_inner(),
+                    error,
                 })?,
             coin.decimals,
         )
@@ -122,7 +123,7 @@ async fn fetch_balance(
                 .map_err(|error| BalanceFetchError {
                     ticker: token_ticker.clone(),
                     address: address.to_string(),
-                    error: error.into_inner(),
+                    error,
                 })?,
             info.decimals,
         )
@@ -131,7 +132,7 @@ async fn fetch_balance(
     let balance_as_big_decimal = u256_to_big_decimal(balance_as_u256, decimals).map_err(|e| BalanceFetchError {
         ticker: token_ticker.clone(),
         address: address.to_string(),
-        error: e.into_inner().into(),
+        error: e.into(),
     })?;
 
     Ok(BalanceData {
