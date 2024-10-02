@@ -10,7 +10,6 @@ use crate::prelude::*;
 use async_trait::async_trait;
 use coins::hd_wallet::HDPathAccountToAddressId;
 use coins::my_tx_history_v2::TxHistoryStorage;
-
 use coins::tendermint::tendermint_tx_history_v2::tendermint_history_loop;
 use coins::tendermint::{tendermint_priv_key_policy, RpcNode, TendermintActivationPolicy, TendermintCoin,
                         TendermintCommons, TendermintConf, TendermintInitError, TendermintInitErrorKind,
