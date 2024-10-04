@@ -132,7 +132,7 @@ macro_rules! try_f {
     };
 }
 
-#[cfg(feature = "enable-solana")]
+#[cfg(all(feature = "enable-solana", not(target_arch = "wasm32")))]
 macro_rules! try_tx_fus_err {
     ($err: expr) => {
         return Box::new(futures01::future::err(crate::TransactionErr::Plain(ERRL!(
@@ -141,7 +141,7 @@ macro_rules! try_tx_fus_err {
     };
 }
 
-#[cfg(feature = "enable-solana")]
+#[cfg(all(feature = "enable-solana", not(target_arch = "wasm32")))]
 macro_rules! try_tx_fus_opt {
     ($e: expr, $err: expr) => {
         match $e {

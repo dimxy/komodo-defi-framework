@@ -6,9 +6,9 @@ use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArg
             RefundMakerPaymentSecretArgs, RefundMakerPaymentTimelockArgs, RefundTakerPaymentArgs,
             SendMakerPaymentArgs, SendTakerFundingArgs, SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2, Transaction,
             ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
-use common::{block_on, now_sec};
 use crypto::privkey::key_pair_from_secret;
-use futures01::Future;
+//use futures01::Future;
+use common::{block_on, block_on_f01, now_sec};
 use mm2_number::MmNumber;
 use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed_for_kickstart, disable_coin,
                                   disable_coin_err, enable_native, get_locked_amount, mm_dump, my_swap_status,
@@ -94,7 +94,7 @@ fn send_and_refund_taker_funding_timelock() {
         wait_until: now_sec() + 20,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_input)).unwrap();
 
     let found_refund_tx =
         block_on(coin.search_for_taker_funding_spend(&taker_funding_utxo_tx, 1, taker_secret_hash)).unwrap();
@@ -181,7 +181,7 @@ fn send_and_refund_taker_funding_secret() {
         wait_until: now_sec() + 20,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_input)).unwrap();
 
     let found_refund_tx =
         block_on(coin.search_for_taker_funding_spend(&taker_funding_utxo_tx, 1, taker_secret_hash)).unwrap();
@@ -269,7 +269,7 @@ fn send_and_spend_taker_funding() {
         wait_until: now_sec() + 20,
         check_every: 1,
     };
-    taker_coin.wait_for_confirmations(confirm_input).wait().unwrap();
+    block_on_f01(taker_coin.wait_for_confirmations(confirm_input)).unwrap();
 
     let found_spend_tx =
         block_on(taker_coin.search_for_taker_funding_spend(&taker_funding_utxo_tx, 1, taker_secret_hash)).unwrap();

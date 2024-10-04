@@ -38,9 +38,8 @@ use mm2_net::p2p::P2PContext;
 use serde::de;
 use std::net::ToSocketAddrs;
 
-use crate::lp_ordermatch;
-use crate::lp_swap::{SwapMsg, SwapMsgExt};
-use crate::{lp_stats, lp_swap};
+use crate::{lp_healthcheck, lp_ordermatch, lp_stats,
+            lp_swap::{self, SwapMsg, SwapMsgExt}};
 
 pub type P2PRequestResult<T> = Result<T, MmError<P2PRequestError>>;
 pub type P2PProcessResult<T> = Result<T, MmError<P2PProcessError>>;
@@ -227,6 +226,9 @@ async fn process_p2p_message(
                         })
                 }
             }
+        },
+        Some(lp_healthcheck::PEER_HEALTHCHECK_PREFIX) => {
+            lp_healthcheck::process_p2p_healthcheck_message(&ctx, message).await
         },
         None | Some(_) => (),
     }

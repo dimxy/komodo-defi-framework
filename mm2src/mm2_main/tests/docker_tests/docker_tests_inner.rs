@@ -13,10 +13,9 @@ use coins::TxFeeDetails;
 use coins::{ConfirmPaymentInput, FoundSwapTxSpend, MarketCoinOps, MmCoin, RefundPaymentArgs,
             SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash,
             TransactionEnum, WithdrawRequest};
-use common::{block_on, executor::Timer, get_utc_timestamp, now_sec, wait_until_sec};
+use common::{block_on, block_on_f01, executor::Timer, get_utc_timestamp, now_sec, wait_until_sec};
 use crypto::privkey::key_pair_from_seed;
 use crypto::{CryptoCtx, DerivationPath, KeyPairPolicy};
-use futures01::Future;
 use http::StatusCode;
 use mm2_number::{BigDecimal, BigRational, MmNumber};
 use mm2_test_helpers::for_tests::{check_my_swap_status_amounts, disable_coin, disable_coin_err, enable_eth_coin,
@@ -52,7 +51,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_taker() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = coin.send_taker_payment(taker_payment_args).wait().unwrap();
+    let tx = block_on_f01(coin.send_taker_payment(taker_payment_args)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: tx.tx_hex(),
@@ -61,7 +60,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_taker() {
         wait_until: timeout,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
     let maker_refunds_payment_args = RefundPaymentArgs {
         payment_tx: &tx.tx_hex(),
         time_lock,
@@ -82,7 +81,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_taker() {
         wait_until: timeout,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
 
     let search_input = SearchForSwapTxSpendInput {
         time_lock,
@@ -114,7 +113,9 @@ fn test_for_non_existent_tx_hex_utxo() {
         wait_until: timeout,
         check_every: 1,
     };
-    let actual = coin.wait_for_confirmations(confirm_payment_input).wait().err().unwrap();
+    let actual = block_on_f01(coin.wait_for_confirmations(confirm_payment_input))
+        .err()
+        .unwrap();
     assert!(actual.contains(
         "Tx d342ff9da528a2e262bddf2b6f9a27d1beb7aeb03f0fc8d9eac2987266447e44 was not found on chain after 10 tries"
     ));
@@ -139,7 +140,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_maker() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = coin.send_maker_payment(maker_payment_args).wait().unwrap();
+    let tx = block_on_f01(coin.send_maker_payment(maker_payment_args)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: tx.tx_hex(),
@@ -148,7 +149,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_maker() {
         wait_until: timeout,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
     let maker_refunds_payment_args = RefundPaymentArgs {
         payment_tx: &tx.tx_hex(),
         time_lock,
@@ -169,7 +170,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_maker() {
         wait_until: timeout,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
 
     let search_input = SearchForSwapTxSpendInput {
         time_lock,
@@ -208,7 +209,7 @@ fn test_search_for_taker_swap_tx_spend_native_was_spent_by_maker() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = coin.send_taker_payment(taker_payment_args).wait().unwrap();
+    let tx = block_on_f01(coin.send_taker_payment(taker_payment_args)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: tx.tx_hex(),
@@ -217,7 +218,7 @@ fn test_search_for_taker_swap_tx_spend_native_was_spent_by_maker() {
         wait_until: timeout,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
     let maker_spends_payment_args = SpendPaymentArgs {
         other_payment_tx: &tx.tx_hex(),
         time_lock,
@@ -237,7 +238,7 @@ fn test_search_for_taker_swap_tx_spend_native_was_spent_by_maker() {
         wait_until: timeout,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
 
     let search_input = SearchForSwapTxSpendInput {
         time_lock,
@@ -276,7 +277,7 @@ fn test_search_for_maker_swap_tx_spend_native_was_spent_by_taker() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = coin.send_maker_payment(maker_payment_args).wait().unwrap();
+    let tx = block_on_f01(coin.send_maker_payment(maker_payment_args)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: tx.tx_hex(),
@@ -285,7 +286,7 @@ fn test_search_for_maker_swap_tx_spend_native_was_spent_by_taker() {
         wait_until: timeout,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
     let taker_spends_payment_args = SpendPaymentArgs {
         other_payment_tx: &tx.tx_hex(),
         time_lock,
@@ -305,7 +306,7 @@ fn test_search_for_maker_swap_tx_spend_native_was_spent_by_taker() {
         wait_until: timeout,
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
 
     let search_input = SearchForSwapTxSpendInput {
         time_lock,
@@ -347,7 +348,7 @@ fn test_one_hundred_maker_payments_in_a_row_native() {
             watcher_reward: None,
             wait_for_confirmation_until: 0,
         };
-        let tx = coin.send_maker_payment(maker_payment_args).wait().unwrap();
+        let tx = block_on_f01(coin.send_maker_payment(maker_payment_args)).unwrap();
         if let TransactionEnum::UtxoTx(tx) = tx {
             unspents.push(UnspentInfo {
                 outpoint: OutPoint {
@@ -2473,16 +2474,12 @@ fn test_maker_order_should_not_kick_start_and_appear_in_orderbook_if_balance_is_
     bob_conf["log"] = mm_bob.folder.join("mm2_dup.log").to_str().unwrap().into();
     block_on(mm_bob.stop()).unwrap();
 
-    let withdraw = coin
-        .withdraw(WithdrawRequest::new_max(
-            "MYCOIN".to_string(),
-            "RRYmiZSDo3UdHHqj1rLKf8cbJroyv9NxXw".to_string(),
-        ))
-        .wait()
-        .unwrap();
-    coin.send_raw_tx(&hex::encode(&withdraw.tx.tx_hex().unwrap().0))
-        .wait()
-        .unwrap();
+    let withdraw = block_on_f01(coin.withdraw(WithdrawRequest::new_max(
+        "MYCOIN".to_string(),
+        "RRYmiZSDo3UdHHqj1rLKf8cbJroyv9NxXw".to_string(),
+    )))
+    .unwrap();
+    block_on_f01(coin.send_raw_tx(&hex::encode(&withdraw.tx.tx_hex().unwrap().0))).unwrap();
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: withdraw.tx.tx_hex().unwrap().0.to_owned(),
         confirmations: 1,
@@ -2490,7 +2487,7 @@ fn test_maker_order_should_not_kick_start_and_appear_in_orderbook_if_balance_is_
         wait_until: wait_until_sec(10),
         check_every: 1,
     };
-    coin.wait_for_confirmations(confirm_payment_input).wait().unwrap();
+    block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
 
     let mm_bob_dup = MarketMakerIt::start(bob_conf, "pass".to_string(), None).unwrap();
     let (_bob_dup_dump_log, _bob_dup_dump_dashboard) = mm_dump(&mm_bob_dup.log_path);
