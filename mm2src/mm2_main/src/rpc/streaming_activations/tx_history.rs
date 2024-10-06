@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for Tx history event streamers.
-use super::EnableStreamingResponse;
+use super::{EnableStreamingRequest, EnableStreamingResponse};
 
 use coins::utxo::tx_history_events::TxHistoryEventStreamer;
 use coins::z_coin::tx_history_events::ZCoinTxHistoryEventStreamer;
@@ -11,7 +11,6 @@ use mm2_err_handle::{map_to_mm::MapToMmResult, mm_error::MmResult};
 
 #[derive(Deserialize)]
 pub struct EnableTxHistoryStreamingRequest {
-    pub client_id: u64,
     pub coin: String,
 }
 
@@ -37,8 +36,9 @@ impl HttpStatusCode for TxHistoryStreamingRequestError {
 
 pub async fn enable_tx_history(
     ctx: MmArc,
-    req: EnableTxHistoryStreamingRequest,
+    req: EnableStreamingRequest<EnableTxHistoryStreamingRequest>,
 ) -> MmResult<EnableStreamingResponse, TxHistoryStreamingRequestError> {
+    let (client_id, req) = (req.client_id, req.inner);
     let coin = lp_coinfind(&ctx, &req.coin)
         .await
         .map_err(TxHistoryStreamingRequestError::Internal)?
@@ -47,35 +47,25 @@ pub async fn enable_tx_history(
     let enable_result = match coin {
         MmCoinEnum::UtxoCoin(coin) => {
             let streamer = TxHistoryEventStreamer::new(req.coin);
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::Bch(coin) => {
             let streamer = TxHistoryEventStreamer::new(req.coin);
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::QtumCoin(coin) => {
             let streamer = TxHistoryEventStreamer::new(req.coin);
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::Tendermint(coin) => {
             // The tx history streamer is very primitive reactive streamer that only emits new txs.
             // it's logic is exactly the same for utxo coins and tendermint coins as well.
             let streamer = TxHistoryEventStreamer::new(req.coin);
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::ZCoin(coin) => {
             let streamer = ZCoinTxHistoryEventStreamer::new(coin.clone());
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         // FIXME: What about tokens?!
         _ => Err(TxHistoryStreamingRequestError::CoinNotSupported)?,

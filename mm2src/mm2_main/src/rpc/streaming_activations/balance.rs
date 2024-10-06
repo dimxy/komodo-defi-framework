@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for different balance event streamers.
-use super::EnableStreamingResponse;
+use super::{EnableStreamingRequest, EnableStreamingResponse};
 
 use coins::eth::eth_balance_events::EthBalanceEventStreamer;
 use coins::tendermint::tendermint_balance_events::TendermintBalanceEventStreamer;
@@ -15,7 +15,6 @@ use serde_json::Value as Json;
 
 #[derive(Deserialize)]
 pub struct EnableBalanceStreamingRequest {
-    pub client_id: u64,
     pub coin: String,
     pub config: Option<Json>,
 }
@@ -42,8 +41,9 @@ impl HttpStatusCode for BalanceStreamingRequestError {
 
 pub async fn enable_balance(
     ctx: MmArc,
-    req: EnableBalanceStreamingRequest,
+    req: EnableStreamingRequest<EnableBalanceStreamingRequest>,
 ) -> MmResult<EnableStreamingResponse, BalanceStreamingRequestError> {
+    let (client_id, req) = (req.client_id, req.inner);
     let coin = lp_coinfind(&ctx, &req.coin)
         .await
         .map_err(BalanceStreamingRequestError::Internal)?
@@ -53,44 +53,32 @@ pub async fn enable_balance(
         MmCoinEnum::UtxoCoin(coin) => {
             check_empty_config(&req.config)?;
             let streamer = UtxoBalanceEventStreamer::new(coin.clone().into());
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::Bch(coin) => {
             check_empty_config(&req.config)?;
             let streamer = UtxoBalanceEventStreamer::new(coin.clone().into());
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::QtumCoin(coin) => {
             check_empty_config(&req.config)?;
             let streamer = UtxoBalanceEventStreamer::new(coin.clone().into());
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::EthCoin(coin) => {
             let streamer = EthBalanceEventStreamer::try_new(req.config, coin.clone())
                 .map_to_mm(|e| BalanceStreamingRequestError::EnableError(format!("{e:?}")))?;
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::ZCoin(coin) => {
             check_empty_config(&req.config)?;
             let streamer = ZCoinBalanceEventStreamer::new(coin.clone());
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         MmCoinEnum::Tendermint(coin) => {
             check_empty_config(&req.config)?;
             let streamer = TendermintBalanceEventStreamer::new(coin.clone());
-            ctx.event_stream_manager
-                .add(req.client_id, streamer, coin.spawner())
-                .await
+            ctx.event_stream_manager.add(client_id, streamer, coin.spawner()).await
         },
         // FIXME: What about tokens?!
         _ => Err(BalanceStreamingRequestError::CoinNotSupported)?,

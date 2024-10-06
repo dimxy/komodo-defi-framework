@@ -7,25 +7,25 @@ pub const SSE_ENDPOINT: &str = "/event-stream";
 
 /// Handles broadcasted messages from `mm2_event_stream` continuously.
 pub async fn handle_sse(request: Request<Body>, ctx_h: u32) -> Result<Response<Body>, Infallible> {
-    // This is only called once for per client on the initialization,
-    // meaning this is not a resource intensive computation.
     let ctx = match MmArc::from_ffi_handle(ctx_h) {
         Ok(ctx) => ctx,
         Err(err) => return handle_internal_error(err).await,
     };
+
     let event_streaming_config = ctx.event_streaming_configuration();
     if event_streaming_config.disabled {
         return handle_internal_error("Event streaming is explicitly disabled".to_string()).await;
     }
 
-    let Some(Ok(client_id)) = request.uri().query().and_then(|query| {
+    let client_id = match request.uri().query().and_then(|query| {
         query
             .split('&')
             .find(|param| param.starts_with("id="))
-            .map(|id_param| id_param.trim_start_matches("id="))
-            .map(|id| id.parse::<u64>())
-    }) else {
-        return handle_internal_error("Query parameter `id` (64-bit unsigned number) must be present.".to_string()).await;
+            .map(|id_param| id_param.trim_start_matches("id=").parse::<u64>())
+    }) {
+        Some(Ok(id)) => id,
+        // Default to zero when client ID isn't passed, most of the cases we will have a single user/client.
+        _ => 0,
     };
 
     let event_stream_manager = ctx.event_stream_manager.clone();

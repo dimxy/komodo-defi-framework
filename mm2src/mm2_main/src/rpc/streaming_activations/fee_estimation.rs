@@ -1,5 +1,5 @@
 //! RPC activation and deactivation for different fee estimation streamers.
-use super::EnableStreamingResponse;
+use super::{EnableStreamingRequest, EnableStreamingResponse};
 
 use coins::eth::fee_estimation::eth_fee_events::{EthFeeEventStreamer, EthFeeStreamingConfig};
 use coins::{lp_coinfind, MmCoin, MmCoinEnum};
@@ -10,7 +10,6 @@ use mm2_err_handle::{map_to_mm::MapToMmResult, mm_error::MmResult};
 
 #[derive(Deserialize)]
 pub struct EnableFeeStreamingRequest {
-    pub client_id: u64,
     pub coin: String,
     pub config: EthFeeStreamingConfig,
 }
@@ -37,8 +36,9 @@ impl HttpStatusCode for FeeStreamingRequestError {
 
 pub async fn enable_fee_estimation(
     ctx: MmArc,
-    req: EnableFeeStreamingRequest,
+    req: EnableStreamingRequest<EnableFeeStreamingRequest>,
 ) -> MmResult<EnableStreamingResponse, FeeStreamingRequestError> {
+    let (client_id, req) = (req.client_id, req.inner);
     let coin = lp_coinfind(&ctx, &req.coin)
         .await
         .map_err(FeeStreamingRequestError::Internal)?
@@ -48,7 +48,7 @@ pub async fn enable_fee_estimation(
         MmCoinEnum::EthCoin(coin) => {
             let eth_fee_estimator_streamer = EthFeeEventStreamer::new(req.config, coin.clone());
             ctx.event_stream_manager
-                .add(req.client_id, eth_fee_estimator_streamer, coin.spawner())
+                .add(client_id, eth_fee_estimator_streamer, coin.spawner())
                 .await
                 .map(EnableStreamingResponse::new)
                 .map_to_mm(|e| FeeStreamingRequestError::EnableError(format!("{e:?}")))

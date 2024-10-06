@@ -17,9 +17,19 @@ pub use orders::*;
 pub use swaps::*;
 pub use tx_history::*;
 
+#[derive(Deserialize)]
+/// The general request for enabling any streamer.
+/// `client_id` is common in each request, other data is request-specific.
+pub struct EnableStreamingRequest<T> {
+    // If the client ID isn't included, assume it's 0.
+    #[serde(default)]
+    pub client_id: u64,
+    #[serde(flatten)]
+    inner: T,
+}
+
 #[derive(Serialize)]
 /// The success/ok response for any event streaming activation request.
-/// Note that we don't have a unified request. It is rather defined per event streaming activation.
 pub struct EnableStreamingResponse {
     pub streamer_id: String,
     // FIXME: If the the streamer was already running, it is probably running with different configuration.
