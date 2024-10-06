@@ -6,7 +6,7 @@ use common::log::{self, LogLevel, LogOnError, LogState};
 use common::{cfg_native, cfg_wasm32, small_rng};
 use gstuff::{try_s, Constructible, ERR, ERRL};
 use lazy_static::lazy_static;
-use mm2_event_stream::StreamingManager;
+use mm2_event_stream::{EventStreamingConfiguration, StreamingManager};
 use mm2_metrics::{MetricsArc, MetricsOps};
 use primitives::hash::H160;
 use rand::Rng;
@@ -331,6 +331,11 @@ impl MmCtx {
 
     /// Returns whether node is configured to use [Upgraded Trading Protocol](https://github.com/KomodoPlatform/komodo-defi-framework/issues/1895)
     pub fn use_trading_proto_v2(&self) -> bool { self.conf["use_trading_proto_v2"].as_bool().unwrap_or_default() }
+
+    /// Returns the event streaming configuration in use.
+    pub fn event_streaming_configuration(&self) -> EventStreamingConfiguration {
+        serde_json::from_value(self.conf["event_streaming_configuration"].clone()).unwrap_or_default()
+    }
 
     /// Returns the cloneable `WeakSpawner`.
     pub fn spawner(&self) -> WeakSpawner { self.abortable_system.weak_spawner() }

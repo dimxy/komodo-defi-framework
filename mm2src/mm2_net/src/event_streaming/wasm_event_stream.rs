@@ -2,8 +2,6 @@ use mm2_core::mm_ctx::MmArc;
 use serde_json::json;
 use web_sys::SharedWorker;
 
-const DEFAULT_WORKER_PATH: &str = "event_streaming_worker.js";
-
 struct SendableSharedWorker(SharedWorker);
 
 unsafe impl Send for SendableSharedWorker {}
@@ -13,12 +11,9 @@ struct SendableMessagePort(web_sys::MessagePort);
 unsafe impl Send for SendableMessagePort {}
 
 /// Handles broadcasted messages from `mm2_event_stream` continuously for WASM.
-pub async fn handle_worker_stream(ctx: MmArc) {
-    let worker_path = ctx.conf["event_stream_worker_path"]
-        .as_str()
-        .unwrap_or(DEFAULT_WORKER_PATH);
+pub async fn handle_worker_stream(ctx: MmArc, worker_path: String) {
     let worker = SendableSharedWorker(
-        SharedWorker::new(worker_path).unwrap_or_else(|_| {
+        SharedWorker::new(&worker_path).unwrap_or_else(|_| {
             panic!(
                 "Failed to create a new SharedWorker with path '{}'.\n\
                 This could be due to the file missing or the browser being incompatible.\n\

@@ -63,7 +63,7 @@ cfg_native! {
 #[path = "lp_init/init_hw.rs"] pub mod init_hw;
 
 cfg_wasm32! {
-    use mm2_net::wasm_event_stream::handle_worker_stream;
+    use mm2_net::event_streaming::wasm_event_stream::handle_worker_stream;
 
     #[path = "lp_init/init_metamask.rs"]
     pub mod init_metamask;
@@ -422,7 +422,13 @@ fn migrate_db(ctx: &MmArc) -> MmInitResult<()> {
 fn migration_1(_ctx: &MmArc) {}
 
 #[cfg(target_arch = "wasm32")]
-fn init_wasm_event_streaming(ctx: &MmArc) { ctx.spawner().spawn(handle_worker_stream(ctx.clone())); }
+fn init_wasm_event_streaming(ctx: &MmArc) {
+    let event_streaming_config = ctx.event_streaming_configuration();
+    if !event_streaming_config.disabled {
+        ctx.spawner()
+            .spawn(handle_worker_stream(ctx.clone(), event_streaming_config.worker_path));
+    }
+}
 
 pub async fn lp_init_continue(ctx: MmArc) -> MmInitResult<()> {
     init_ordermatch_context(&ctx)?;

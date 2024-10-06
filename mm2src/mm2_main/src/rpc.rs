@@ -37,7 +37,7 @@ use std::net::SocketAddr;
 
 cfg_native! {
     use hyper::{self, Body, Server};
-    use mm2_net::sse_handler::{handle_sse, SSE_ENDPOINT};
+    use mm2_net::event_streaming::sse_handler::{handle_sse, SSE_ENDPOINT};
 }
 
 #[path = "rpc/dispatcher/dispatcher.rs"] mod dispatcher;
