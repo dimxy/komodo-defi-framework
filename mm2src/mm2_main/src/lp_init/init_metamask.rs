@@ -11,8 +11,8 @@ use mm2_err_handle::common_errors::WithInternal;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
-               RpcTaskTypes};
+use rpc_task::{RpcInitReq, RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared,
+               RpcTaskStatus, RpcTaskTypes};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -91,7 +91,6 @@ pub enum InitMetamaskInProgressStatus {
 #[derive(Deserialize)]
 pub struct InitMetamaskRequest {
     project: String,
-    client_id: Option<u64>,
 }
 
 #[derive(Clone, Serialize)]
@@ -116,8 +115,6 @@ impl RpcTaskTypes for InitMetamaskTask {
 impl RpcTask for InitMetamaskTask {
     fn initial_status(&self) -> Self::InProgressStatus { InitMetamaskInProgressStatus::Initializing }
 
-    fn client_id(&self) -> Option<u64> { self.req.client_id }
-
     async fn cancel(self) {
         if let Ok(crypto_ctx) = CryptoCtx::from_ctx(&self.ctx) {
             crypto_ctx.reset_metamask_ctx();
@@ -136,12 +133,13 @@ impl RpcTask for InitMetamaskTask {
 
 pub async fn connect_metamask(
     ctx: MmArc,
-    req: InitMetamaskRequest,
+    req: RpcInitReq<InitMetamaskRequest>,
 ) -> MmResult<InitRpcTaskResponse, InitMetamaskError> {
+    let (client_id, req) = (req.client_id, req.inner);
     let init_ctx = MmInitContext::from_ctx(&ctx).map_to_mm(InitMetamaskError::Internal)?;
     let spawner = ctx.spawner();
     let task = InitMetamaskTask { ctx, req };
-    let task_id = RpcTaskManager::spawn_rpc_task(&init_ctx.init_metamask_manager, &spawner, task)?;
+    let task_id = RpcTaskManager::spawn_rpc_task(&init_ctx.init_metamask_manager, &spawner, task, client_id)?;
     Ok(InitRpcTaskResponse { task_id })
 }
 

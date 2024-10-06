@@ -10,7 +10,8 @@ use common::SuccessResponse;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusRequest, RpcTaskUserActionRequest};
-use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcInitReq, RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+               RpcTaskTypes};
 use serde_derive::Deserialize;
 use serde_json::Value as Json;
 
@@ -24,7 +25,6 @@ pub type InitL2TaskHandleShared<L2> = RpcTaskHandleShared<InitL2Task<L2>>;
 pub struct InitL2Req<T> {
     ticker: String,
     activation_params: T,
-    client_id: Option<u64>,
 }
 
 pub trait L2ProtocolParams {
@@ -68,13 +68,14 @@ pub trait InitL2ActivationOps: Into<MmCoinEnum> + Send + Sync + 'static {
 
 pub async fn init_l2<L2>(
     ctx: MmArc,
-    req: InitL2Req<L2::ActivationParams>,
+    req: RpcInitReq<InitL2Req<L2::ActivationParams>>,
 ) -> Result<InitL2Response, MmError<InitL2Error>>
 where
     L2: InitL2ActivationOps,
     InitL2Error: From<L2::ActivationError>,
     (L2::ActivationError, InitL2Error): NotEqual,
 {
+    let (client_id, req) = (req.client_id, req.inner);
     let ticker = req.ticker.clone();
     if let Ok(Some(_)) = lp_coinfind(&ctx, &ticker).await {
         return MmError::err(InitL2Error::L2IsAlreadyActivated(ticker));
@@ -99,11 +100,9 @@ where
 
     let coins_act_ctx = CoinsActivationContext::from_ctx(&ctx).map_to_mm(InitL2Error::Internal)?;
     let spawner = ctx.spawner();
-    let client_id = req.client_id;
     let task = InitL2Task::<L2> {
         ctx,
         ticker,
-        client_id,
         platform_coin,
         validated_params,
         protocol_conf,
@@ -111,7 +110,7 @@ where
     };
     let task_manager = L2::rpc_task_manager(&coins_act_ctx);
 
-    let task_id = RpcTaskManager::spawn_rpc_task(task_manager, &spawner, task)
+    let task_id = RpcTaskManager::spawn_rpc_task(task_manager, &spawner, task, client_id)
         .mm_err(|e| InitL2Error::Internal(e.to_string()))?;
 
     Ok(InitL2Response { task_id })
@@ -164,7 +163,6 @@ pub async fn cancel_init_l2<L2: InitL2ActivationOps>(
 pub struct InitL2Task<L2: InitL2ActivationOps> {
     ctx: MmArc,
     ticker: String,
-    client_id: Option<u64>,
     platform_coin: L2::PlatformCoin,
     validated_params: L2::ValidatedParams,
     protocol_conf: L2::ProtocolInfo,
@@ -187,8 +185,6 @@ where
     fn initial_status(&self) -> Self::InProgressStatus {
         <L2::InProgressStatus as InitL2InitialStatus>::initial_status()
     }
-
-    fn client_id(&self) -> Option<u64> { self.client_id }
 
     /// Try to disable the coin in case if we managed to register it already.
     async fn cancel(self) {

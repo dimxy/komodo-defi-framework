@@ -16,8 +16,8 @@ use mm2_err_handle::prelude::*;
 use mm2_number::BigDecimal;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError, RpcTaskUserActionRequest};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
-               RpcTaskTypes, TaskId};
+use rpc_task::{RpcInitReq, RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared,
+               RpcTaskStatus, RpcTaskTypes, TaskId};
 use ser_error_derive::SerializeErrorType;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as Json;
@@ -223,7 +223,6 @@ pub struct EnablePlatformCoinWithTokensReq<T: Clone> {
     ticker: String,
     #[serde(flatten)]
     request: T,
-    client_id: Option<u64>,
 }
 
 #[derive(Debug, Display, Serialize, SerializeErrorType, Clone)]
@@ -510,8 +509,6 @@ where
         <Platform::InProgressStatus as InitPlatformCoinWithTokensInitialStatus>::initial_status()
     }
 
-    fn client_id(&self) -> Option<u64> { self.request.client_id }
-
     /// Try to disable the coin in case if we managed to register it already.
     async fn cancel(self) {}
 
@@ -550,7 +547,7 @@ impl InitPlatformCoinWithTokensInitialStatus for InitPlatformCoinWithTokensInPro
 /// Implementation of the init platform coin with tokens RPC command.
 pub async fn init_platform_coin_with_tokens<Platform>(
     ctx: MmArc,
-    request: EnablePlatformCoinWithTokensReq<Platform::ActivationRequest>,
+    request: RpcInitReq<EnablePlatformCoinWithTokensReq<Platform::ActivationRequest>>,
 ) -> MmResult<EnablePlatformCoinWithTokensResponse, EnablePlatformCoinWithTokensError>
 where
     Platform: PlatformCoinWithTokensActivationOps + Send + Sync + 'static + Clone,
@@ -558,6 +555,7 @@ where
     EnablePlatformCoinWithTokensError: From<Platform::ActivationError>,
     (Platform::ActivationError, EnablePlatformCoinWithTokensError): NotEqual,
 {
+    let (client_id, request) = (request.client_id, request.inner);
     if let Ok(Some(_)) = lp_coinfind(&ctx, &request.ticker).await {
         return MmError::err(EnablePlatformCoinWithTokensError::PlatformIsAlreadyActivated(
             request.ticker,
@@ -570,7 +568,7 @@ where
     let task = InitPlatformCoinWithTokensTask::<Platform> { ctx, request };
     let task_manager = Platform::rpc_task_manager(&coins_act_ctx);
 
-    let task_id = RpcTaskManager::spawn_rpc_task(task_manager, &spawner, task)
+    let task_id = RpcTaskManager::spawn_rpc_task(task_manager, &spawner, task, client_id)
         .mm_err(|e| EnablePlatformCoinWithTokensError::Internal(e.to_string()))?;
 
     Ok(EnablePlatformCoinWithTokensResponse { task_id })
@@ -654,7 +652,7 @@ pub mod for_tests {
     use common::{executor::Timer, now_ms, wait_until_ms};
     use mm2_core::mm_ctx::MmArc;
     use mm2_err_handle::prelude::MmResult;
-    use rpc_task::RpcTaskStatus;
+    use rpc_task::{RpcInitReq, RpcTaskStatus};
 
     use super::{init_platform_coin_with_tokens, init_platform_coin_with_tokens_status,
                 EnablePlatformCoinWithTokensError, EnablePlatformCoinWithTokensReq,
@@ -672,6 +670,10 @@ pub mod for_tests {
         EnablePlatformCoinWithTokensError: From<Platform::ActivationError>,
         (Platform::ActivationError, EnablePlatformCoinWithTokensError): NotEqual,
     {
+        let request = RpcInitReq {
+            client_id: 0,
+            inner: request,
+        };
         let init_result = init_platform_coin_with_tokens::<Platform>(ctx.clone(), request)
             .await
             .unwrap();

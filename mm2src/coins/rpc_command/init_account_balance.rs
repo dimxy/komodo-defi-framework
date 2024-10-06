@@ -7,7 +7,8 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest};
-use rpc_task::{RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcInitReq, RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
+               RpcTaskTypes};
 
 pub type AccountBalanceUserAction = SerdeInfallible;
 pub type AccountBalanceAwaitingStatus = SerdeInfallible;
@@ -31,7 +32,6 @@ pub struct InitAccountBalanceRequest {
     coin: String,
     #[serde(flatten)]
     params: InitAccountBalanceParams,
-    client_id: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -66,8 +66,6 @@ impl RpcTaskTypes for InitAccountBalanceTask {
 impl RpcTask for InitAccountBalanceTask {
     fn initial_status(&self) -> Self::InProgressStatus { AccountBalanceInProgressStatus::RequestingAccountBalance }
 
-    fn client_id(&self) -> Option<u64> { self.req.client_id }
-
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}
 
@@ -92,13 +90,15 @@ impl RpcTask for InitAccountBalanceTask {
 
 pub async fn init_account_balance(
     ctx: MmArc,
-    req: InitAccountBalanceRequest,
+    req: RpcInitReq<InitAccountBalanceRequest>,
 ) -> MmResult<InitRpcTaskResponse, HDAccountBalanceRpcError> {
+    let (client_id, req) = (req.client_id, req.inner);
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     let spawner = coin.spawner();
     let coins_ctx = CoinsContext::from_ctx(&ctx).map_to_mm(HDAccountBalanceRpcError::Internal)?;
     let task = InitAccountBalanceTask { coin, req };
-    let task_id = AccountBalanceTaskManager::spawn_rpc_task(&coins_ctx.account_balance_task_manager, &spawner, task)?;
+    let task_id =
+        AccountBalanceTaskManager::spawn_rpc_task(&coins_ctx.account_balance_task_manager, &spawner, task, client_id)?;
     Ok(InitRpcTaskResponse { task_id })
 }
 

@@ -16,8 +16,8 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest, RpcTaskUserActionError};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus,
-               RpcTaskTypes};
+use rpc_task::{RpcInitReq, RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared,
+               RpcTaskStatus, RpcTaskTypes};
 use std::time::Duration;
 
 pub type GetNewAddressUserAction = HwRpcTaskUserAction;
@@ -204,7 +204,6 @@ pub struct GetNewAddressRequest {
     coin: String,
     #[serde(flatten)]
     params: GetNewAddressParams,
-    client_id: Option<u64>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -291,8 +290,6 @@ impl RpcTaskTypes for InitGetNewAddressTask {
 #[async_trait]
 impl RpcTask for InitGetNewAddressTask {
     fn initial_status(&self) -> Self::InProgressStatus { GetNewAddressInProgressStatus::Preparing }
-
-    fn client_id(&self) -> Option<u64> { self.req.client_id }
 
     // Do nothing if the task has been cancelled.
     async fn cancel(self) {}
@@ -382,13 +379,15 @@ pub async fn get_new_address(
 /// TODO remove once GUI integrates `task::get_new_address::init`.
 pub async fn init_get_new_address(
     ctx: MmArc,
-    req: GetNewAddressRequest,
+    req: RpcInitReq<GetNewAddressRequest>,
 ) -> MmResult<InitRpcTaskResponse, GetNewAddressRpcError> {
+    let (client_id, req) = (req.client_id, req.inner);
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     let coins_ctx = CoinsContext::from_ctx(&ctx).map_to_mm(GetNewAddressRpcError::Internal)?;
     let spawner = coin.spawner();
     let task = InitGetNewAddressTask { ctx, coin, req };
-    let task_id = GetNewAddressTaskManager::spawn_rpc_task(&coins_ctx.get_new_address_manager, &spawner, task)?;
+    let task_id =
+        GetNewAddressTaskManager::spawn_rpc_task(&coins_ctx.get_new_address_manager, &spawner, task, client_id)?;
     Ok(InitRpcTaskResponse { task_id })
 }
 

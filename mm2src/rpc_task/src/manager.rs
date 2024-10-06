@@ -39,7 +39,12 @@ pub struct RpcTaskManager<Task: RpcTask> {
 impl<Task: RpcTask> RpcTaskManager<Task> {
     /// Create new instance of `RpcTaskHandle` attached to the only one `RpcTask`.
     /// This function registers corresponding RPC task in the `RpcTaskManager` and returns the task id.
-    pub fn spawn_rpc_task<F>(this: &RpcTaskManagerShared<Task>, spawner: &F, mut task: Task) -> RpcTaskResult<TaskId>
+    pub fn spawn_rpc_task<F>(
+        this: &RpcTaskManagerShared<Task>,
+        spawner: &F,
+        mut task: Task,
+        client_id: u64,
+    ) -> RpcTaskResult<TaskId>
     where
         F: SpawnFuture,
     {
@@ -47,7 +52,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
             let mut task_manager = this
                 .lock()
                 .map_to_mm(|e| RpcTaskError::Internal(format!("RpcTaskManager is not available: {}", e)))?;
-            task_manager.register_task(&task)?
+            task_manager.register_task(&task, client_id)?
         };
         let task_handle = Arc::new(RpcTaskHandle {
             task_manager: RpcTaskManagerShared::downgrade(this),
@@ -117,7 +122,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
 
     fn get_client_id(&self, task_id: TaskId) -> Option<u64> {
         self.tasks.get(&task_id).and_then(|task| match task {
-            TaskStatusExt::InProgress { client_id, .. } | TaskStatusExt::Awaiting { client_id, .. } => *client_id,
+            TaskStatusExt::InProgress { client_id, .. } | TaskStatusExt::Awaiting { client_id, .. } => Some(*client_id),
             _ => None,
         })
     }
@@ -153,7 +158,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
         }
     }
 
-    pub(crate) fn register_task(&mut self, task: &Task) -> RpcTaskResult<(TaskId, TaskAbortHandler)> {
+    pub(crate) fn register_task(&mut self, task: &Task, client_id: u64) -> RpcTaskResult<(TaskId, TaskAbortHandler)> {
         let task_id = next_rpc_task_id();
         let (abort_handle, abort_handler) = oneshot::channel();
         match self.tasks.entry(task_id) {
@@ -162,7 +167,7 @@ impl<Task: RpcTask> RpcTaskManager<Task> {
                 entry.insert(TaskStatusExt::InProgress {
                     status: task.initial_status(),
                     abort_handle,
-                    client_id: task.client_id(),
+                    client_id,
                 });
                 Ok((task_id, abort_handler))
             },
@@ -347,7 +352,7 @@ enum TaskStatusExt<Task: RpcTaskTypes> {
         status: Task::InProgressStatus,
         abort_handle: TaskAbortHandle,
         /// The ID of the client requesting the task. To stream out the updates & results for them.
-        client_id: Option<u64>,
+        client_id: u64,
     },
     Awaiting {
         status: Task::AwaitingStatus,
@@ -355,7 +360,7 @@ enum TaskStatusExt<Task: RpcTaskTypes> {
         next_in_progress_status: Task::InProgressStatus,
         abort_handle: TaskAbortHandle,
         /// The ID of the client requesting the task. To stream out the updates & results for them.
-        client_id: Option<u64>,
+        client_id: u64,
     },
     /// `Cancelling` status is set on [`RpcTaskManager::cancel_task`].
     /// This status is used to save the task state before it's actually canceled on [`RpcTaskHandle::on_canceled`],

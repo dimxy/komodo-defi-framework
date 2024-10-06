@@ -2177,7 +2177,6 @@ pub struct WithdrawRequest {
     #[cfg(target_arch = "wasm32")]
     #[serde(default)]
     broadcast: bool,
-    client_id: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -5666,7 +5665,7 @@ pub mod for_tests {
     use mm2_core::mm_ctx::MmArc;
     use mm2_err_handle::prelude::MmResult;
     use mm2_number::BigDecimal;
-    use rpc_task::RpcTaskStatus;
+    use rpc_task::{RpcInitReq, RpcTaskStatus};
     use std::str::FromStr;
 
     /// Helper to call init_withdraw and wait for completion
@@ -5678,15 +5677,18 @@ pub mod for_tests {
         from_derivation_path: Option<&str>,
         fee: Option<WithdrawFee>,
     ) -> MmResult<TransactionDetails, WithdrawError> {
-        let withdraw_req = WithdrawRequest {
-            amount: BigDecimal::from_str(amount).unwrap(),
-            from: from_derivation_path.map(|from_derivation_path| WithdrawFrom::DerivationPath {
-                derivation_path: from_derivation_path.to_owned(),
-            }),
-            to: to.to_owned(),
-            coin: ticker.to_owned(),
-            fee,
-            ..Default::default()
+        let withdraw_req = RpcInitReq {
+            client_id: 0,
+            inner: WithdrawRequest {
+                amount: BigDecimal::from_str(amount).unwrap(),
+                from: from_derivation_path.map(|from_derivation_path| WithdrawFrom::DerivationPath {
+                    derivation_path: from_derivation_path.to_owned(),
+                }),
+                to: to.to_owned(),
+                coin: ticker.to_owned(),
+                fee,
+                ..Default::default()
+            },
         };
         let init = init_withdraw(ctx.clone(), withdraw_req).await.unwrap();
         let timeout = wait_until_ms(150000);

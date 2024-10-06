@@ -15,13 +15,21 @@ pub trait RpcTaskTypes {
 pub trait RpcTask: RpcTaskTypes + Sized + Send + 'static {
     fn initial_status(&self) -> Self::InProgressStatus;
 
-    /// Returns the ID of the client that initiated/requesting the task.
-    ///
-    /// This is related to event streaming and is used to identify the client to whom the updates shall be sent.
-    fn client_id(&self) -> Option<u64>;
-
     /// The method is invoked when the task has been cancelled.
     async fn cancel(self);
 
     async fn run(&mut self, task_handle: RpcTaskHandleShared<Self>) -> Result<Self::Item, MmError<Self::Error>>;
+}
+
+#[derive(Deserialize)]
+/// The general request for initializing an RPC Task.
+///
+/// `client_id` is used to identify the client to which the task should stream out update events
+/// to and is common in each request. Other data is request-specific.
+pub struct RpcInitReq<T> {
+    // If the client ID isn't included, assume it's 0.
+    #[serde(default)]
+    pub client_id: u64,
+    #[serde(flatten)]
+    pub inner: T,
 }
