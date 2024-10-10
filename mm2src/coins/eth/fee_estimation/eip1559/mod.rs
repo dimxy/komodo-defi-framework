@@ -3,8 +3,20 @@ pub mod block_native;
 pub mod infura;
 pub mod simple;
 
+use futures::TryFutureExt;
+
+use crate::eth::{EthCoin, Web3RpcError};
+use block_native::BlocknativeGasApiCaller;
+use common::log::debug;
 use ethereum_types::U256;
+use infura::InfuraGasApiCaller;
+use mm2_err_handle::mm_error::MmError;
+use simple::FeePerGasSimpleEstimator;
 use url::Url;
+
+use crate::eth::Web3RpcResult;
+
+type HeaderParams = Vec<(&'static str, &'static str)>;
 
 const FEE_PER_GAS_LEVELS: usize = 3;
 
@@ -40,19 +52,68 @@ enum PriorityLevelId {
     High = 2,
 }
 
-/// Supported gas api providers
-#[derive(Clone, Deserialize)]
-pub enum GasApiProvider {
-    Infura,
-    Blocknative,
+/// Gas fee estimator options
+#[derive(Clone, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub enum GasFeeEstimator {
+    /// Internal tx history gas fee estimator
+    #[default]
+    Simple,
+    Infura {
+        url: Url,
+    },
+    Blocknative {
+        url: Url,
+    },
 }
 
-#[derive(Clone, Deserialize)]
-pub struct GasApiConfig {
-    /// gas api provider name to use
-    pub provider: GasApiProvider,
-    /// gas api provider or proxy base url (scheme, host and port without the relative part)
-    pub url: Url,
+impl GasFeeEstimator {
+    pub(crate) async fn fetch_fee_estimation(&self, coin: &EthCoin) -> Web3RpcResult<FeePerGasEstimated> {
+        match self {
+            Self::Infura { url } => InfuraGasApiCaller::fetch_infura_fee_estimation(url, coin.chain_id).await,
+            Self::Blocknative { url } => {
+                BlocknativeGasApiCaller::fetch_blocknative_fee_estimation(url, coin.chain_id).await
+            },
+            Self::Simple => FeePerGasSimpleEstimator::estimate_fee_by_history(coin).await,
+        }
+    }
+
+    pub(crate) fn is_chain_supported(&self, chain_id: u64) -> bool {
+        match self {
+            Self::Infura { .. } => InfuraGasApiCaller::is_chain_supported(chain_id),
+            Self::Blocknative { .. } => BlocknativeGasApiCaller::is_chain_supported(chain_id),
+            Self::Simple => FeePerGasSimpleEstimator::is_chain_supported(chain_id),
+        }
+    }
+}
+
+pub(crate) async fn call_gas_fee_estimator(coin: &EthCoin, use_simple: bool) -> Web3RpcResult<FeePerGasEstimated> {
+    println!("call_gas_fee_estimator use_simple={use_simple}");
+    if !use_simple && coin.gas_fee_estimator.is_chain_supported(coin.chain_id) {
+        return coin
+            .gas_fee_estimator
+            .fetch_fee_estimation(coin)
+            .or_else(|provider_err| {
+                debug!(
+                    "Call to evm gas api provider failed {}, using internal fee estimator",
+                    provider_err
+                );
+                println!(
+                    "call_gas_fee_estimator falling back to simple... err={:?}",
+                    provider_err
+                );
+                // use simple if third party estimator has failed
+                FeePerGasSimpleEstimator::estimate_fee_by_history(coin).map_err(move |simple_err| {
+                    MmError::new(Web3RpcError::Internal(format!(
+                        "All gas api requests failed, provider error: {}, history estimator error: {}",
+                        provider_err, simple_err
+                    )))
+                })
+            })
+            .await;
+    }
+    println!("call_gas_fee_estimator default to simple");
+    FeePerGasSimpleEstimator::estimate_fee_by_history(coin).await
 }
 
 /// Priority level estimated max fee per gas

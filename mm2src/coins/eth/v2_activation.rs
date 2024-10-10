@@ -192,6 +192,8 @@ pub struct EthActivationV2Request {
     #[serde(default)]
     pub path_to_address: HDPathAccountToAddressId,
     pub gap_limit: Option<u32>,
+    #[serde(default)]
+    pub gas_fee_estimator: GasFeeEstimator,
 }
 
 #[derive(Clone, Deserialize)]
@@ -434,6 +436,7 @@ impl EthCoin {
             decimals,
             ticker,
             web3_instances: AsyncMutex::new(self.web3_instances.lock().await.clone()),
+            gas_fee_estimator: self.gas_fee_estimator.clone(),
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
             swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
             max_eth_tx_type,
@@ -517,6 +520,7 @@ impl EthCoin {
             fallback_swap_contract: self.fallback_swap_contract,
             contract_supports_watchers: self.contract_supports_watchers,
             web3_instances: AsyncMutex::new(self.web3_instances.lock().await.clone()),
+            gas_fee_estimator: self.gas_fee_estimator.clone(),
             decimals: self.decimals,
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
             swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
@@ -649,6 +653,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         decimals: ETH_DECIMALS,
         ticker: ticker.to_string(),
         web3_instances: AsyncMutex::new(web3_instances),
+        gas_fee_estimator: req.gas_fee_estimator,
         history_sync_state: Mutex::new(HistorySyncState::NotEnabled),
         swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
         max_eth_tx_type,

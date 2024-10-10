@@ -361,6 +361,7 @@ fn global_nft_with_random_privkey(
         enable_params: Default::default(),
         path_to_address: Default::default(),
         gap_limit: None,
+        gas_fee_estimator: Default::default(),
     };
     let coin = block_on(eth_coin_from_conf_and_request_v2(
         &MM_CTX1,
@@ -430,6 +431,7 @@ fn sepolia_coin_from_privkey(ctx: &MmArc, secret: &'static str, ticker: &str, co
         enable_params: Default::default(),
         path_to_address: Default::default(),
         gap_limit: None,
+        gas_fee_estimator: Default::default(),
     };
     let coin = block_on(eth_coin_from_conf_and_request_v2(
         ctx,
@@ -1426,6 +1428,7 @@ fn eth_coin_v2_activation_with_random_privkey(
         enable_params: Default::default(),
         path_to_address: Default::default(),
         gap_limit: None,
+        gas_fee_estimator: Default::default(),
     };
     let coin = block_on(eth_coin_from_conf_and_request_v2(
         &MM_CTX1,

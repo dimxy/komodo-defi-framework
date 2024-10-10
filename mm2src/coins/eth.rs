@@ -72,6 +72,7 @@ use ethcore_transaction::{Action, TransactionWrapper, TransactionWrapperBuilder 
 pub use ethcore_transaction::{SignedTransaction as SignedEthTx, TxType};
 use ethereum_types::{Address, H160, H256, U256};
 use ethkey::{public_to_address, sign, verify_address, KeyPair, Public, Signature};
+use fee_estimation::eip1559::{call_gas_fee_estimator, FeePerGasEstimated, GasFeeEstimator};
 use futures::compat::Future01CompatExt;
 use futures::future::{join, join_all, select_ok, try_join_all, Either, FutureExt, TryFutureExt};
 use futures01::Future;
@@ -153,10 +154,8 @@ use eth_withdraw::{EthWithdraw, InitEthWithdraw, StandardEthWithdraw};
 mod nonce;
 use nonce::ParityNonce;
 
-pub mod fee_estimation;
-use fee_estimation::eip1559::{block_native::BlocknativeGasApiCaller, infura::InfuraGasApiCaller,
-                              simple::FeePerGasSimpleEstimator, FeePerGasEstimated, GasApiConfig, GasApiProvider};
 pub(crate) mod eth_swap_v2;
+pub mod fee_estimation;
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
@@ -251,7 +250,7 @@ pub mod gas_limit {
 }
 
 /// Coin conf param to override default gas limits
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(default)]
 pub struct EthGasLimit {
     /// Gas limit for sending coins
@@ -630,6 +629,7 @@ pub struct EthCoinImpl {
     fallback_swap_contract: Option<Address>,
     contract_supports_watchers: bool,
     web3_instances: AsyncMutex<Vec<Web3Instance>>,
+    gas_fee_estimator: GasFeeEstimator,
     decimals: u8,
     history_sync_state: Mutex<HistorySyncState>,
     required_confirmations: AtomicU64,
@@ -5119,38 +5119,7 @@ impl EthCoin {
     /// Get gas base fee and suggest priority tip fees for the next block (see EIP-1559)
     pub async fn get_eip1559_gas_fee(&self, use_simple: bool) -> Web3RpcResult<FeePerGasEstimated> {
         let coin = self.clone();
-        let history_estimator_fut = FeePerGasSimpleEstimator::estimate_fee_by_history(&coin);
-        let ctx =
-            MmArc::from_weak(&coin.ctx).ok_or_else(|| MmError::new(Web3RpcError::Internal("ctx is null".into())))?;
-
-        let gas_api_conf = ctx.conf["gas_api"].clone();
-        if gas_api_conf.is_null() || use_simple {
-            return history_estimator_fut
-                .await
-                .map_err(|e| MmError::new(Web3RpcError::Internal(e.to_string())));
-        }
-        let gas_api_conf: GasApiConfig = json::from_value(gas_api_conf)
-            .map_err(|e| MmError::new(Web3RpcError::InvalidGasApiConfig(e.to_string())))?;
-        let provider_estimator_fut = match gas_api_conf.provider {
-            GasApiProvider::Infura => InfuraGasApiCaller::fetch_infura_fee_estimation(&gas_api_conf.url).boxed(),
-            GasApiProvider::Blocknative => {
-                BlocknativeGasApiCaller::fetch_blocknative_fee_estimation(&gas_api_conf.url).boxed()
-            },
-        };
-        provider_estimator_fut
-            .or_else(|provider_estimator_err| {
-                debug!(
-                    "Call to eth gas api provider failed {}, using internal fee estimator",
-                    provider_estimator_err
-                );
-                history_estimator_fut.map_err(move |history_estimator_err| {
-                    MmError::new(Web3RpcError::Internal(format!(
-                        "All gas api requests failed, provider estimator error: {}, history estimator error: {}",
-                        provider_estimator_err, history_estimator_err
-                    )))
-                })
-            })
-            .await
+        call_gas_fee_estimator(&coin, use_simple).await
     }
 
     async fn get_swap_pay_for_gas_option(&self, swap_fee_policy: SwapTxFeePolicy) -> Web3RpcResult<PayForGasOption> {
@@ -6335,8 +6304,23 @@ pub async fn eth_coin_from_conf_and_request(
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = try_s!(ctx.abortable_system.create_subsystem());
 
-    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
-    let gas_limit = extract_gas_limit_from_conf(conf)?;
+    // Get some eth params from the platform coin, if it is a token being activated
+    // This is a deprecated method to activate tokens this way. We should eth_coin_from_conf_and_request_v2 instead
+    let (max_eth_tx_type, gas_limit, gas_fee_estimator) = match &coin_type {
+        EthCoinType::Eth => (
+            get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?,
+            extract_gas_limit_from_conf(conf)?,
+            extract_gas_fee_estimator_from_value(req)?,
+        ),
+        EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => match lp_coinfind(ctx, platform).await {
+            Ok(Some(MmCoinEnum::EthCoin(platform_coin))) => (
+                platform_coin.max_eth_tx_type,
+                platform_coin.gas_limit.clone(),
+                platform_coin.gas_fee_estimator.clone(),
+            ),
+            _ => (Default::default(), Default::default(), Default::default()),
+        },
+    };
 
     let coin = EthCoinImpl {
         priv_key_policy: key_pair,
@@ -6350,6 +6334,7 @@ pub async fn eth_coin_from_conf_and_request(
         decimals,
         ticker: ticker.into(),
         web3_instances: AsyncMutex::new(web3_instances),
+        gas_fee_estimator,
         history_sync_state: Mutex::new(initial_history_state),
         swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
         max_eth_tx_type,
@@ -6992,6 +6977,14 @@ fn extract_gas_limit_from_conf(coin_conf: &Json) -> Result<EthGasLimit, String> 
     }
 }
 
+fn extract_gas_fee_estimator_from_value(value: &Json) -> Result<GasFeeEstimator, String> {
+    if value["gas_fee_estimator"].is_null() {
+        Ok(Default::default())
+    } else {
+        json::from_value(value["gas_fee_estimator"].clone()).map_err(|e| e.to_string())
+    }
+}
+
 impl Eip1559Ops for EthCoin {
     fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy { self.swap_txfee_policy.lock().unwrap().clone() }
 
@@ -7159,6 +7152,7 @@ impl EthCoin {
             fallback_swap_contract: self.fallback_swap_contract,
             contract_supports_watchers: self.contract_supports_watchers,
             web3_instances: AsyncMutex::new(self.web3_instances.lock().await.clone()),
+            gas_fee_estimator: self.gas_fee_estimator.clone(),
             decimals: self.decimals,
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
             required_confirmations: AtomicU64::new(

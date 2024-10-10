@@ -11,6 +11,7 @@ use std::convert::TryFrom;
 #[derive(Deserialize)]
 pub struct GetFeeEstimationRequest {
     coin: String,
+    #[serde(default)]
     estimator_type: EstimatorType,
 }
 

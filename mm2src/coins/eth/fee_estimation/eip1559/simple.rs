@@ -53,6 +53,8 @@ impl FeePerGasSimpleEstimator {
         v_mut[value_pos]
     }
 
+    pub(crate) fn is_chain_supported(_chain_id: u64) -> bool { true }
+
     /// Estimate simplified gas priority fees based on fee history
     pub async fn estimate_fee_by_history(coin: &EthCoin) -> Web3RpcResult<FeePerGasEstimated> {
         let res: Result<FeeHistoryResult, web3::Error> = coin

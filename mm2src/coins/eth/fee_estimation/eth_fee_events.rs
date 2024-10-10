@@ -9,12 +9,13 @@ use instant::Instant;
 use serde::Deserialize;
 use std::convert::TryFrom;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 /// Types of estimators available.
 /// Simple - simple internal gas price estimator based on historical data.
 /// Provider - gas price estimator using external provider (using gas api).
 pub enum EstimatorType {
+    #[default]
     Simple,
     Provider,
 }

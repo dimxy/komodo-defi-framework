@@ -1,4 +1,4 @@
-use super::{EstimationSource, FeePerGasEstimated, FeePerGasLevel};
+use super::{EstimationSource, FeePerGasEstimated, FeePerGasLevel, HeaderParams};
 use crate::eth::{Web3RpcError, Web3RpcResult};
 use crate::{wei_from_gwei_decimal, NumConversError};
 use mm2_err_handle::mm_error::MmError;
@@ -10,7 +10,7 @@ use http::StatusCode;
 use serde_json::{self as json};
 use std::convert::TryFrom;
 use std::convert::TryInto;
-use url::Url;
+use url::{ParseError, Url};
 
 lazy_static! {
     /// API key for testing
@@ -92,19 +92,44 @@ pub(crate) struct InfuraGasApiCaller {}
 
 #[allow(dead_code)]
 impl InfuraGasApiCaller {
-    const INFURA_GAS_FEES_ENDPOINT: &'static str = "networks/1/suggestedGasFees"; // Support only main chain
+    const INFURA_GAS_API_ENDPOINT: &'static str = "networks/";
+    const INFURA_GAS_FEES_METHOD: &'static str = "suggestedGasFees";
 
-    fn get_infura_gas_api_url(base_url: &Url) -> (Url, Vec<(&'static str, &'static str)>) {
-        let mut url = base_url.clone();
-        url.set_path(Self::INFURA_GAS_FEES_ENDPOINT);
-        let headers = vec![("Authorization", INFURA_GAS_API_AUTH_TEST.as_str())];
-        (url, headers)
+    const INFURA_GAS_API_CHAINS: &[(&'static str, u64)] = &[
+        ("ArbitrumMainnet", 42161),
+        ("ArbitrumNova", 42170),
+        ("AvalancheMainnet", 43114),
+        ("BaseMainnet", 8453),
+        ("BNBMainnet", 56),
+        ("opBNBLayer2", 204),
+        ("CronosMainnet", 25),
+        ("EthereumMainnet", 1),
+        ("EthereumHolesky", 17000),
+        ("EthereumSepolia", 11155111),
+        ("FantomMainnet", 250),
+        ("FilecoinMainnet", 314),
+        ("LineaMainnet", 59144),
+        ("LineaSepolia", 59141),
+        ("OptimismMainnet", 10),
+        ("PolygonMainnet", 137),
+        ("PolygonAmoy", 80002),
+        ("ZKsyncEraMainnet", 324),
+    ];
+
+    pub(crate) fn is_chain_supported(chain_id: u64) -> bool {
+        Self::INFURA_GAS_API_CHAINS.iter().any(|(_name, id)| *id == chain_id)
     }
 
-    async fn make_infura_gas_api_request(
-        url: &Url,
-        headers: Vec<(&'static str, &'static str)>,
-    ) -> Result<InfuraFeePerGas, MmError<String>> {
+    fn get_infura_gas_api_url(base_url: &Url, chain_id: u64) -> MmResult<(Url, HeaderParams), ParseError> {
+        let url = base_url
+            .join(Self::INFURA_GAS_API_ENDPOINT)?
+            .join(&format!("{}/", chain_id.to_string()))?
+            .join(Self::INFURA_GAS_FEES_METHOD)?;
+        let headers = vec![("Authorization", INFURA_GAS_API_AUTH_TEST.as_str())];
+        Ok((url, headers))
+    }
+
+    async fn make_infura_gas_api_request(url: &Url, headers: HeaderParams) -> MmResult<InfuraFeePerGas, String> {
         let resp = slurp_url_with_headers(url.as_str(), headers)
             .await
             .mm_err(|e| e.to_string())?;
@@ -117,8 +142,9 @@ impl InfuraGasApiCaller {
     }
 
     /// Fetch fee per gas estimations from infura provider
-    pub async fn fetch_infura_fee_estimation(base_url: &Url) -> Web3RpcResult<FeePerGasEstimated> {
-        let (url, headers) = Self::get_infura_gas_api_url(base_url);
+    pub async fn fetch_infura_fee_estimation(base_url: &Url, chain_id: u64) -> Web3RpcResult<FeePerGasEstimated> {
+        let (url, headers) =
+            Self::get_infura_gas_api_url(base_url, chain_id).mm_err(|err| Web3RpcError::Internal(err.to_string()))?;
         let infura_estimated_fees = Self::make_infura_gas_api_request(&url, headers)
             .await
             .mm_err(Web3RpcError::Transport)?;

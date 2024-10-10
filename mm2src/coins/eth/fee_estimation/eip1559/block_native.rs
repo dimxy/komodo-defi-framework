@@ -1,4 +1,4 @@
-use super::{EstimationSource, FeePerGasEstimated, FeePerGasLevel, FEE_PER_GAS_LEVELS};
+use super::{EstimationSource, FeePerGasEstimated, FeePerGasLevel, HeaderParams, FEE_PER_GAS_LEVELS};
 use crate::eth::{Web3RpcError, Web3RpcResult};
 use crate::{wei_from_gwei_decimal, NumConversError};
 use mm2_err_handle::mm_error::MmError;
@@ -119,10 +119,20 @@ impl BlocknativeGasApiCaller {
     const BLOCKNATIVE_GAS_PRICES_MEDIUM: &'static str = "50";
     const BLOCKNATIVE_GAS_PRICES_HIGH: &'static str = "90";
 
-    fn get_blocknative_gas_api_url(base_url: &Url) -> (Url, Vec<(&'static str, &'static str)>) {
+    const BLOCKNATIVE_GAS_API_CHAINS: &[(&'static str, u64)] =
+        &[("EthereumMainnet", 1), ("PolygonMainnet", 137), ("SeiMainnet", 1329)];
+
+    pub(crate) fn is_chain_supported(chain_id: u64) -> bool {
+        Self::BLOCKNATIVE_GAS_API_CHAINS
+            .iter()
+            .any(|(_name, id)| *id == chain_id)
+    }
+
+    fn get_blocknative_gas_api_url(base_url: &Url, chain_id: u64) -> (Url, HeaderParams) {
         let mut url = base_url.clone();
         url.set_path(Self::BLOCKNATIVE_GAS_PRICES_ENDPOINT);
         url.query_pairs_mut()
+            .append_pair("chainid", chain_id.to_string().as_str())
             .append_pair("confidenceLevels", Self::BLOCKNATIVE_GAS_PRICES_LOW)
             .append_pair("confidenceLevels", Self::BLOCKNATIVE_GAS_PRICES_MEDIUM)
             .append_pair("confidenceLevels", Self::BLOCKNATIVE_GAS_PRICES_HIGH)
@@ -134,8 +144,8 @@ impl BlocknativeGasApiCaller {
 
     async fn make_blocknative_gas_api_request(
         url: &Url,
-        headers: Vec<(&'static str, &'static str)>,
-    ) -> Result<BlocknativeBlockPricesResponse, MmError<String>> {
+        headers: HeaderParams,
+    ) -> MmResult<BlocknativeBlockPricesResponse, String> {
         let resp = slurp_url_with_headers(url.as_str(), headers)
             .await
             .mm_err(|e| e.to_string())?;
@@ -148,8 +158,8 @@ impl BlocknativeGasApiCaller {
     }
 
     /// Fetch fee per gas estimations from blocknative provider
-    pub async fn fetch_blocknative_fee_estimation(base_url: &Url) -> Web3RpcResult<FeePerGasEstimated> {
-        let (url, headers) = Self::get_blocknative_gas_api_url(base_url);
+    pub async fn fetch_blocknative_fee_estimation(base_url: &Url, chain_id: u64) -> Web3RpcResult<FeePerGasEstimated> {
+        let (url, headers) = Self::get_blocknative_gas_api_url(base_url, chain_id);
         let block_prices = Self::make_blocknative_gas_api_request(&url, headers)
             .await
             .mm_err(Web3RpcError::Transport)?;
