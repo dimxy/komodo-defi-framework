@@ -119,8 +119,8 @@ pub const SIA_DOCKER_IMAGE: &str = "docker.io/alrighttt/walletd-komodo";
 pub const SIA_DOCKER_IMAGE_WITH_TAG: &str = "docker.io/alrighttt/walletd-komodo:latest";
 
 pub const NUCLEUS_IMAGE: &str = "docker.io/komodoofficial/nucleusd";
-pub const ATOM_IMAGE: &str = "docker.io/komodoofficial/gaiad";
-pub const IBC_RELAYER_IMAGE: &str = "docker.io/komodoofficial/ibc-relayer";
+pub const ATOM_IMAGE_WITH_TAG: &str = "docker.io/komodoofficial/gaiad:kdf-ci";
+pub const IBC_RELAYER_IMAGE_WITH_TAG: &str = "docker.io/komodoofficial/ibc-relayer:kdf-ci";
 
 pub const QTUM_ADDRESS_LABEL: &str = "MM2_ADDRESS_LABEL";
 
@@ -418,8 +418,8 @@ pub fn atom_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_> {
     let atom_node_runtime_dir = runtime_dir.join("atom-testnet-data");
     assert!(atom_node_runtime_dir.exists());
 
-    let image =
-        GenericImage::new(ATOM_IMAGE, "latest").with_volume(atom_node_runtime_dir.to_str().unwrap(), "/root/.gaia");
+    let (image, tag) = ATOM_IMAGE_WITH_TAG.rsplit_once(':').unwrap();
+    let image = GenericImage::new(image, tag).with_volume(atom_node_runtime_dir.to_str().unwrap(), "/root/.gaia");
     let image = RunnableImage::from((image, vec![])).with_network("host");
     let container = docker.run(image);
 
@@ -430,13 +430,12 @@ pub fn atom_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_> {
     }
 }
 
-#[allow(dead_code)]
 pub fn ibc_relayer_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_> {
     let relayer_node_runtime_dir = runtime_dir.join("ibc-relayer-data");
     assert!(relayer_node_runtime_dir.exists());
 
-    let image = GenericImage::new(IBC_RELAYER_IMAGE, "latest")
-        .with_volume(relayer_node_runtime_dir.to_str().unwrap(), "/home/relayer/.relayer");
+    let (image, tag) = IBC_RELAYER_IMAGE_WITH_TAG.rsplit_once(':').unwrap();
+    let image = GenericImage::new(image, tag).with_volume(relayer_node_runtime_dir.to_str().unwrap(), "/root/.relayer");
     let image = RunnableImage::from((image, vec![])).with_network("host");
     let container = docker.run(image);
 
@@ -1096,29 +1095,6 @@ pub fn slp_supplied_node() -> MarketMakerIt {
     .unwrap()
 }
 
-pub fn _solana_supplied_node() -> MarketMakerIt {
-    let coins = json! ([
-        {"coin": "SOL-DEVNET","name": "solana","fname": "Solana","rpcport": 80,"mm2": 1,"required_confirmations": 1,"avg_blocktime": 0.25,"protocol": {"type": "SOLANA"}},
-        {"coin":"USDC-SOL-DEVNET","protocol":{"type":"SPLTOKEN","protocol_data":{"decimals":6,"token_contract_address":"4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU","platform":"SOL-DEVNET"}},"mm2": 1},
-        {"coin":"ADEX-SOL-DEVNET","protocol":{"type":"SPLTOKEN","protocol_data":{"decimals":9,"token_contract_address":"5tSm6PqMosy1rz1AqV3kD28yYT5XqZW3QYmZommuFiPJ","platform":"SOL-DEVNET"}},"mm2": 1},
-    ]);
-
-    MarketMakerIt::start(
-        json! ({
-            "gui": "nogui",
-            "netid": 9000,
-            "dht": "on",  // Enable DHT without delay.
-            "passphrase": "federal stay trigger hour exist success game vapor become comfort action phone bright ill target wild nasty crumble dune close rare fabric hen iron",
-            "coins": coins,
-            "rpc_password": "pass",
-            "i_am_seed": true,
-        }),
-        "pass".to_string(),
-        None,
-    )
-    .unwrap()
-}
-
 pub fn get_balance(mm: &MarketMakerIt, coin: &str) -> BalanceResponse {
     let rc = block_on(mm.rpc(&json!({
         "userpass": mm.userpass,
@@ -1179,7 +1155,23 @@ async fn get_current_gas_limit(web3: &Web3<Http>) {
     }
 }
 
-#[allow(dead_code)]
+pub fn prepare_ibc_channels(container_id: &str) {
+    let exec = |args: &[&str]| {
+        Command::new("docker")
+            .args(["exec", container_id])
+            .args(args)
+            .output()
+            .unwrap();
+    };
+
+    exec(&["rly", "transact", "clients", "nucleus-atom", "--override"]);
+    // It takes a couple of seconds for nodes to get into the right state after updating clients.
+    // Wait for 5 just to make sure.
+    thread::sleep(Duration::from_secs(5));
+
+    exec(&["rly", "transact", "link", "nucleus-atom"]);
+}
+
 pub fn wait_until_relayer_container_is_ready(container_id: &str) {
     const Q_RESULT: &str = "0: nucleus-atom         -> chns(✔) clnts(✔) conn(✔) (nucleus-testnet<>cosmoshub-testnet)";
 
