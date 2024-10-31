@@ -36,10 +36,11 @@ use common::executor::{abortable_queue::AbortableQueue, AbortableSystem};
 use common::executor::{AbortedError, Timer};
 use common::log::{debug, warn};
 use common::{get_utc_timestamp, now_sec, Future01CompatExt, DEX_FEE_ADDR_PUBKEY};
-use cosmrs::bank::MsgSend;
+use cosmrs::bank::{MsgMultiSend, MsgSend, MultiSendIo};
 use cosmrs::crypto::secp256k1::SigningKey;
 use cosmrs::proto::cosmos::auth::v1beta1::{BaseAccount, QueryAccountRequest, QueryAccountResponse};
-use cosmrs::proto::cosmos::bank::v1beta1::{MsgSend as MsgSendProto, QueryBalanceRequest, QueryBalanceResponse};
+use cosmrs::proto::cosmos::bank::v1beta1::{MsgMultiSend as MsgMultiSendProto, MsgSend as MsgSendProto,
+                                           QueryBalanceRequest, QueryBalanceResponse};
 use cosmrs::proto::cosmos::base::tendermint::v1beta1::{GetBlockByHeightRequest, GetBlockByHeightResponse,
                                                        GetLatestBlockRequest, GetLatestBlockResponse};
 use cosmrs::proto::cosmos::base::v1beta1::Coin as CoinProto;
@@ -1542,8 +1543,7 @@ impl TendermintCoin {
 
     pub(super) fn send_taker_fee_for_denom(
         &self,
-        fee_addr: &[u8],
-        amount: BigDecimal,
+        dex_fee: &DexFee,
         denom: Denom,
         decimals: u8,
         uuid: &[u8],
@@ -1551,20 +1551,56 @@ impl TendermintCoin {
     ) -> TransactionFut {
         let memo = try_tx_fus!(Uuid::from_slice(uuid)).to_string();
         let from_address = self.account_id.clone();
-        let pubkey_hash = dhash160(fee_addr);
-        let to_address = try_tx_fus!(AccountId::new(&self.account_prefix, pubkey_hash.as_slice()));
+        let dex_pubkey_hash = dhash160(self.dex_pubkey());
+        let burn_pubkey_hash = dhash160(self.burn_pubkey());
+        let dex_address = try_tx_fus!(AccountId::new(&self.account_prefix, dex_pubkey_hash.as_slice()));
+        let burn_address = try_tx_fus!(AccountId::new(&self.account_prefix, burn_pubkey_hash.as_slice()));
 
-        let amount_as_u64 = try_tx_fus!(sat_from_big_decimal(&amount, decimals));
-        let amount = cosmrs::Amount::from(amount_as_u64);
+        let fee_amount_as_u64 = try_tx_fus!(dex_fee.fee_amount_as_u64(decimals));
+        let fee_amount = vec![Coin {
+            denom: denom.clone(),
+            amount: cosmrs::Amount::from(fee_amount_as_u64),
+        }];
 
-        let amount = vec![Coin { denom, amount }];
-
-        let tx_payload = try_tx_fus!(MsgSend {
-            from_address,
-            to_address,
-            amount,
-        }
-        .to_any());
+        let tx_result = match dex_fee {
+            DexFee::NoFee => try_tx_fus!(Err("Unexpected DexFee::NoFee".to_owned())),
+            DexFee::Standard(_) => MsgSend {
+                from_address,
+                to_address: dex_address,
+                amount: fee_amount,
+            }
+            .to_any(),
+            DexFee::WithBurn { .. } => {
+                let burn_amount_as_u64 = try_tx_fus!(dex_fee.burn_amount_as_u64(decimals)).unwrap_or_default();
+                let burn_amount = vec![Coin {
+                    denom: denom.clone(),
+                    amount: cosmrs::Amount::from(burn_amount_as_u64),
+                }];
+                let total_amount_as_u64 = fee_amount_as_u64 + burn_amount_as_u64;
+                let total_amount = vec![Coin {
+                    denom,
+                    amount: cosmrs::Amount::from(total_amount_as_u64),
+                }];
+                MsgMultiSend {
+                    inputs: vec![MultiSendIo {
+                        address: from_address,
+                        coins: total_amount,
+                    }],
+                    outputs: vec![
+                        MultiSendIo {
+                            address: dex_address,
+                            coins: fee_amount,
+                        },
+                        MultiSendIo {
+                            address: burn_address,
+                            coins: burn_amount,
+                        },
+                    ],
+                }
+                .to_any()
+            },
+        };
+        let tx_payload = try_tx_fus!(tx_result);
 
         let coin = self.clone();
         let fut = async move {
@@ -1601,8 +1637,7 @@ impl TendermintCoin {
         &self,
         fee_tx: &TransactionEnum,
         expected_sender: &[u8],
-        fee_addr: &[u8],
-        amount: &BigDecimal,
+        dex_fee: &DexFee,
         decimals: u8,
         uuid: &[u8],
         denom: String,
@@ -1621,66 +1656,40 @@ impl TendermintCoin {
 
         let sender_pubkey_hash = dhash160(expected_sender);
         let expected_sender_address = try_f!(AccountId::new(&self.account_prefix, sender_pubkey_hash.as_slice())
-            .map_to_mm(|r| ValidatePaymentError::InvalidParameter(r.to_string())))
-        .to_string();
-
-        let dex_fee_addr_pubkey_hash = dhash160(fee_addr);
-        let expected_dex_fee_address = try_f!(AccountId::new(
-            &self.account_prefix,
-            dex_fee_addr_pubkey_hash.as_slice()
-        )
-        .map_to_mm(|r| ValidatePaymentError::InvalidParameter(r.to_string())))
-        .to_string();
-
-        let expected_amount = try_f!(sat_from_big_decimal(amount, decimals));
-        let expected_amount = CoinProto {
-            denom,
-            amount: expected_amount.to_string(),
-        };
+            .map_to_mm(|r| ValidatePaymentError::InvalidParameter(r.to_string())));
 
         let coin = self.clone();
+        let dex_fee = dex_fee.clone();
         let fut = async move {
             let tx_body = TxBody::decode(tx.data.body_bytes.as_slice())
                 .map_to_mm(|e| ValidatePaymentError::TxDeserializationError(e.to_string()))?;
-            if tx_body.messages.len() != 1 {
-                return MmError::err(ValidatePaymentError::WrongPaymentTx(
-                    "Tx body must have exactly one message".to_string(),
-                ));
-            }
 
-            let msg = MsgSendProto::decode(tx_body.messages[0].value.as_slice())
-                .map_to_mm(|e| ValidatePaymentError::TxDeserializationError(e.to_string()))?;
-            if msg.to_address != expected_dex_fee_address {
-                return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                    "Dex fee is sent to wrong address: {}, expected {}",
-                    msg.to_address, expected_dex_fee_address
-                )));
-            }
-
-            if msg.amount.len() != 1 {
-                return MmError::err(ValidatePaymentError::WrongPaymentTx(
-                    "Msg must have exactly one Coin".to_string(),
-                ));
-            }
-
-            if msg.amount[0] != expected_amount {
-                return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                    "Invalid amount {:?}, expected {:?}",
-                    msg.amount[0], expected_amount
-                )));
-            }
-
-            if msg.from_address != expected_sender_address {
-                return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                    "Invalid sender: {}, expected {}",
-                    msg.from_address, expected_sender_address
-                )));
+            match dex_fee {
+                DexFee::NoFee => {
+                    return MmError::err(ValidatePaymentError::InternalError(
+                        "unexpected DexFee::NoFee".to_string(),
+                    ))
+                },
+                DexFee::Standard(_) => coin.validate_standard_dex_fee(
+                    &tx_body,
+                    &expected_sender_address,
+                    &dex_fee,
+                    decimals,
+                    denom.clone(),
+                )?,
+                DexFee::WithBurn { .. } => coin.validate_with_burn_dex_fee(
+                    &tx_body,
+                    &expected_sender_address,
+                    &dex_fee,
+                    decimals,
+                    denom.clone(),
+                )?,
             }
 
             if tx_body.memo != uuid {
                 return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                     "Invalid memo: {}, expected {}",
-                    msg.from_address, uuid
+                    tx_body.memo, uuid
                 )));
             }
 
@@ -1778,6 +1787,160 @@ impl TendermintCoin {
                 unexpected_state
             ))),
         }
+    }
+
+    fn validate_standard_dex_fee(
+        &self,
+        tx_body: &TxBody,
+        expected_sender_address: &AccountId,
+        dex_fee: &DexFee,
+        decimals: u8,
+        denom: String,
+    ) -> MmResult<(), ValidatePaymentError> {
+        if tx_body.messages.len() != 1 {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(
+                "Tx body must have exactly one message".to_string(),
+            ));
+        }
+
+        let dex_pubkey_hash = dhash160(self.dex_pubkey());
+        let expected_dex_address = AccountId::new(&self.account_prefix, dex_pubkey_hash.as_slice())
+            .map_to_mm(|r| ValidatePaymentError::InvalidParameter(r.to_string()))?;
+
+        let fee_amount_as_u64 = dex_fee.fee_amount_as_u64(decimals)?;
+        let expected_dex_amount = CoinProto {
+            denom,
+            amount: fee_amount_as_u64.to_string(),
+        };
+
+        let msg = MsgSendProto::decode(tx_body.messages[0].value.as_slice())
+            .map_to_mm(|e| ValidatePaymentError::TxDeserializationError(e.to_string()))?;
+        if msg.to_address != expected_dex_address.to_string() {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Dex fee is sent to wrong address: {}, expected {}",
+                msg.to_address, expected_dex_address
+            )));
+        }
+
+        if msg.amount.len() != 1 {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(
+                "Msg must have exactly one Coin".to_string(),
+            ));
+        }
+
+        if msg.amount[0] != expected_dex_amount {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Invalid amount {:?}, expected {:?}",
+                msg.amount[0], expected_dex_amount
+            )));
+        }
+
+        if msg.from_address != expected_sender_address.to_string() {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Invalid sender: {}, expected {}",
+                msg.from_address, expected_sender_address
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_with_burn_dex_fee(
+        &self,
+        tx_body: &TxBody,
+        expected_sender_address: &AccountId,
+        dex_fee: &DexFee,
+        decimals: u8,
+        denom: String,
+    ) -> MmResult<(), ValidatePaymentError> {
+        if tx_body.messages.len() != 1 {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(
+                "Tx body must have exactly one message".to_string(),
+            ));
+        }
+
+        let dex_pubkey_hash = dhash160(self.dex_pubkey());
+        let expected_dex_address = AccountId::new(&self.account_prefix, dex_pubkey_hash.as_slice())
+            .map_to_mm(|r| ValidatePaymentError::InvalidParameter(r.to_string()))?;
+
+        let burn_pubkey_hash = dhash160(self.dex_pubkey());
+        let expected_burn_address = AccountId::new(&self.account_prefix, burn_pubkey_hash.as_slice())
+            .map_to_mm(|r| ValidatePaymentError::InvalidParameter(r.to_string()))?;
+
+        let fee_amount_as_u64 = dex_fee.fee_amount_as_u64(decimals)?;
+        let expected_dex_amount = CoinProto {
+            denom: denom.clone(),
+            amount: fee_amount_as_u64.to_string(),
+        };
+        let burn_amount_as_u64 = dex_fee.burn_amount_as_u64(decimals)?.unwrap_or_default();
+        let expected_burn_amount = CoinProto {
+            denom,
+            amount: burn_amount_as_u64.to_string(),
+        };
+
+        let msg = MsgMultiSendProto::decode(tx_body.messages[0].value.as_slice())
+            .map_to_mm(|e| ValidatePaymentError::TxDeserializationError(e.to_string()))?;
+
+        if msg.outputs.len() != 2 {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(
+                "Msg must have exactly two outputs".to_string(),
+            ));
+        }
+        // Validate dex fee output
+        if msg.outputs[0].address != expected_dex_address.to_string() {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Dex fee is sent to wrong address: {}, expected {}",
+                msg.outputs[0].address, expected_dex_address
+            )));
+        }
+
+        if msg.outputs[0].coins.len() != 1 {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(
+                "Dex fee output must have exactly one Coin".to_string(),
+            ));
+        }
+
+        if msg.outputs[0].coins[0] != expected_dex_amount {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Invalid dex fee amount {:?}, expected {:?}",
+                msg.outputs[0].coins[0], expected_dex_amount
+            )));
+        }
+
+        // Validate burn output
+        if msg.outputs[1].address != expected_burn_address.to_string() {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Burn fee is sent to wrong address: {}, expected {}",
+                msg.outputs[1].address, expected_burn_address
+            )));
+        }
+
+        if msg.outputs[1].coins.len() != 1 {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(
+                "Burn fee output must have exactly one Coin".to_string(),
+            ));
+        }
+
+        if msg.outputs[1].coins[0] != expected_burn_amount {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Invalid burn amount {:?}, expected {:?}",
+                msg.outputs[1].coins[0], expected_burn_amount
+            )));
+        }
+
+        if msg.inputs.len() != 1 {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(
+                "Msg must have exactly one input".to_string(),
+            ));
+        }
+        // validate input
+        if msg.inputs[0].address != expected_sender_address.to_string() {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Invalid sender: {}, expected {}",
+                msg.inputs[0].address, expected_sender_address
+            )));
+        }
+        Ok(())
     }
 
     pub(super) async fn get_sender_trade_fee_for_denom(
@@ -2695,14 +2858,7 @@ impl MarketCoinOps for TendermintCoin {
 #[allow(unused_variables)]
 impl SwapOps for TendermintCoin {
     fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8], expire_at: u64) -> TransactionFut {
-        self.send_taker_fee_for_denom(
-            self.dex_pubkey(),
-            dex_fee.fee_amount().into(),
-            self.denom.clone(),
-            self.decimals,
-            uuid,
-            expire_at,
-        )
+        self.send_taker_fee_for_denom(&dex_fee, self.denom.clone(), self.decimals, uuid, expire_at)
     }
 
     fn send_maker_payment(&self, maker_payment_args: SendPaymentArgs) -> TransactionFut {
@@ -2865,8 +3021,7 @@ impl SwapOps for TendermintCoin {
         self.validate_fee_for_denom(
             validate_fee_args.fee_tx,
             validate_fee_args.expected_sender,
-            self.dex_pubkey(),
-            &validate_fee_args.dex_fee.fee_amount().into(),
+            validate_fee_args.dex_fee,
             self.decimals,
             validate_fee_args.uuid,
             self.denom.to_string(),
@@ -3819,18 +3974,10 @@ pub mod tendermint_coin_tests {
         });
 
         let uuid: Uuid = "cae6011b-9810-4710-b784-1e5dd0b3a0d0".parse().unwrap();
-        let amount: BigDecimal = "0.0001".parse().unwrap();
+        let dex_fee = DexFee::Standard(MmNumber::from("0.0001"));
         block_on(
-            coin.validate_fee_for_denom(
-                &fee_with_memo_tx,
-                &pubkey,
-                &DEX_FEE_ADDR_RAW_PUBKEY,
-                &amount,
-                6,
-                uuid.as_bytes(),
-                "nim".into(),
-            )
-            .compat(),
+            coin.validate_fee_for_denom(&fee_with_memo_tx, &pubkey, &dex_fee, 6, uuid.as_bytes(), "nim".into())
+                .compat(),
         )
         .unwrap();
     }

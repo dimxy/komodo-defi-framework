@@ -105,14 +105,8 @@ impl TendermintToken {
 #[allow(unused_variables)]
 impl SwapOps for TendermintToken {
     fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8], expire_at: u64) -> TransactionFut {
-        self.platform_coin.send_taker_fee_for_denom(
-            self.dex_pubkey(),
-            dex_fee.fee_amount().into(),
-            self.denom.clone(),
-            self.decimals,
-            uuid,
-            expire_at,
-        )
+        self.platform_coin
+            .send_taker_fee_for_denom(&dex_fee, self.denom.clone(), self.decimals, uuid, expire_at)
     }
 
     fn send_maker_payment(&self, maker_payment_args: SendPaymentArgs) -> TransactionFut {
@@ -171,8 +165,7 @@ impl SwapOps for TendermintToken {
         self.platform_coin.validate_fee_for_denom(
             validate_fee_args.fee_tx,
             validate_fee_args.expected_sender,
-            self.dex_pubkey(),
-            &validate_fee_args.dex_fee.fee_amount().into(),
+            validate_fee_args.dex_fee,
             self.decimals,
             validate_fee_args.uuid,
             self.denom.to_string(),
