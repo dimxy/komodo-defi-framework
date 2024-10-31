@@ -1821,27 +1821,23 @@ impl TendermintCoin {
                 msg.to_address, expected_dex_address
             )));
         }
-
         if msg.amount.len() != 1 {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(
                 "Msg must have exactly one Coin".to_string(),
             ));
         }
-
         if msg.amount[0] != expected_dex_amount {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Invalid amount {:?}, expected {:?}",
                 msg.amount[0], expected_dex_amount
             )));
         }
-
         if msg.from_address != expected_sender_address.to_string() {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Invalid sender: {}, expected {}",
                 msg.from_address, expected_sender_address
             )));
         }
-
         Ok(())
     }
 
@@ -1863,7 +1859,7 @@ impl TendermintCoin {
         let expected_dex_address = AccountId::new(&self.account_prefix, dex_pubkey_hash.as_slice())
             .map_to_mm(|r| ValidatePaymentError::InvalidParameter(r.to_string()))?;
 
-        let burn_pubkey_hash = dhash160(self.dex_pubkey());
+        let burn_pubkey_hash = dhash160(self.burn_pubkey());
         let expected_burn_address = AccountId::new(&self.account_prefix, burn_pubkey_hash.as_slice())
             .map_to_mm(|r| ValidatePaymentError::InvalidParameter(r.to_string()))?;
 
@@ -1880,12 +1876,12 @@ impl TendermintCoin {
 
         let msg = MsgMultiSendProto::decode(tx_body.messages[0].value.as_slice())
             .map_to_mm(|e| ValidatePaymentError::TxDeserializationError(e.to_string()))?;
-
         if msg.outputs.len() != 2 {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(
                 "Msg must have exactly two outputs".to_string(),
             ));
         }
+
         // Validate dex fee output
         if msg.outputs[0].address != expected_dex_address.to_string() {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
@@ -1893,13 +1889,11 @@ impl TendermintCoin {
                 msg.outputs[0].address, expected_dex_address
             )));
         }
-
         if msg.outputs[0].coins.len() != 1 {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(
                 "Dex fee output must have exactly one Coin".to_string(),
             ));
         }
-
         if msg.outputs[0].coins[0] != expected_dex_amount {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Invalid dex fee amount {:?}, expected {:?}",
@@ -1914,25 +1908,23 @@ impl TendermintCoin {
                 msg.outputs[1].address, expected_burn_address
             )));
         }
-
         if msg.outputs[1].coins.len() != 1 {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(
                 "Burn fee output must have exactly one Coin".to_string(),
             ));
         }
-
         if msg.outputs[1].coins[0] != expected_burn_amount {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Invalid burn amount {:?}, expected {:?}",
                 msg.outputs[1].coins[0], expected_burn_amount
             )));
         }
-
         if msg.inputs.len() != 1 {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(
                 "Msg must have exactly one input".to_string(),
             ));
         }
+
         // validate input
         if msg.inputs[0].address != expected_sender_address.to_string() {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
@@ -2844,7 +2836,7 @@ impl MarketCoinOps for TendermintCoin {
     fn min_trading_vol(&self) -> MmNumber { self.min_tx_amount().into() }
 
     #[inline]
-    fn should_burn_dex_fee(&self) -> bool { false }
+    fn should_burn_dex_fee(&self) -> bool { true }
 
     fn is_trezor(&self) -> bool {
         match &self.activation_policy {
