@@ -3471,6 +3471,7 @@ fn parse_expected_sequence_number(e: &str) -> MmResult<u64, TendermintCoinRpcErr
 
 #[cfg(test)]
 pub mod tendermint_coin_tests {
+    use crate::DexFeeBurnDestination;
     use super::*;
 
     use common::{block_on, block_on_f01, wait_until_ms, DEX_FEE_ADDR_RAW_PUBKEY};
@@ -3533,6 +3534,17 @@ pub mod tendermint_coin_tests {
             denom: String::from("unyan"),
             account_prefix: String::from("iaa"),
             chain_id: String::from("nyancat-9"),
+            gas_price: None,
+            chain_registry_name: None,
+        }
+    }
+
+    fn get_iris_ibc_nucleus_protocol() -> TendermintProtocolInfo {
+        TendermintProtocolInfo {
+            decimals: 6,
+            denom: String::from("ibc/F7F28FF3C09024A0225EDBBDB207E5872D2B4EF2FB874FE47B05EF9C9A7D211C"),
+            account_prefix: String::from("nuc"),
+            chain_id: String::from("nucleus-testnet"),
             gas_price: None,
             chain_registry_name: None,
         }
@@ -4027,6 +4039,75 @@ pub mod tendermint_coin_tests {
         )
         .unwrap();
         TendermintCoin::request_tx.clear_mock();
+    }
+
+    #[test]
+    fn validate_taker_fee_with_burn_test() {
+        const NUCLEUS_TEST_SEED: &str = "nucleus test seed";
+
+        let ctx = mm2_core::mm_ctx::MmCtxBuilder::default().into_mm_arc();
+        let conf = TendermintConf {
+            avg_blocktime: AVG_BLOCKTIME,
+            derivation_path: None,
+        };
+
+        let key_pair = key_pair_from_seed(NUCLEUS_TEST_SEED).unwrap();
+        let tendermint_pair = TendermintKeyPair::new(key_pair.private().secret, *key_pair.public());
+        let activation_policy =
+            TendermintActivationPolicy::with_private_key_policy(TendermintPrivKeyPolicy::Iguana(tendermint_pair));
+        let nucleus_nodes = vec![RpcNode::for_test("http://localhost:26657")];
+        let iris_ibc_nucleus_protocol = get_iris_ibc_nucleus_protocol();
+        let iris_ibc_nucleus_denom =
+            String::from("ibc/F7F28FF3C09024A0225EDBBDB207E5872D2B4EF2FB874FE47B05EF9C9A7D211C");
+        let coin = block_on(TendermintCoin::init(
+            &ctx,
+            "NUCLEUS-TEST".to_string(),
+            conf,
+            iris_ibc_nucleus_protocol,
+            nucleus_nodes,
+            false,
+            activation_policy,
+            false,
+        ))
+        .unwrap();
+
+        // tx from docker test (no real swaps yet)
+        let fee_with_burn_tx = Tx::decode(hex::decode("0abd030a91030a212f636f736d6f732e62616e6b2e763162657461312e4d73674d756c746953656e6412eb020a770a2a6e7563316572666e6b6a736d616c6b7774766a3434716e6672326472667a6474346e396c65647736337912490a446962632f4637463238464633433039303234413032323545444242444232303745353837324432423445463246423837344645343742303545463943394137443231314312013912770a2a6e7563316567307167617a37336a737676727676747a713478383233686d7a387161706c656877326b3212490a446962632f4637463238464633433039303234413032323545444242444232303745353837324432423445463246423837344645343742303545463943394137443231314312013712770a2a6e756331346e7938336a6d306637303430357435726a7039736b796c6c77366876687a356e356370796612490a446962632f46374632384646334330393032344130323235454442424442323037453538373244324234454632464238373446453437423035454639433941374432313143120132122433376339323861362d393161382d346466312d616536372d663636616537323538326338188c0912680a500a460a1f2f636f736d6f732e63727970746f2e736563703235366b312e5075624b657912230a21025a37975c079a7543603fcab24e2565a4adee3cf9af8934690e103282fa40251112040a020801180312140a0e0a05756e75636c1205333338383510c8d0071a4018c1ce9472bd9e99e6e9d181d3be2d7aa1b56da030de4bf02f8fcb867b1a1ca47d64f7795bd7891923a13774da28723a76c531cde13a0cffc5a17c8ccd371ed5").unwrap().as_slice()).unwrap();
+        let mock_tx = fee_with_burn_tx.clone();
+
+        let pubkey = fee_with_burn_tx.auth_info.as_ref().unwrap().signer_infos[0]
+            .public_key
+            .as_ref()
+            .unwrap()
+            .value[2..]
+            .to_vec();
+
+        let fee_with_burn_cosmos_tx = TransactionEnum::CosmosTransaction(CosmosTransaction {
+            data: TxRaw::decode(fee_with_burn_tx.encode_to_vec().as_slice()).unwrap(),
+        });
+
+        TendermintCoin::request_tx.mock_safe(move |_, _| {
+            let mock_tx = mock_tx.clone();
+            MockResult::Return(Box::pin(async move { Ok(mock_tx) }))
+        });
+        let uuid: Uuid = "37c928a6-91a8-4df1-ae67-f66ae72582c8".parse().unwrap();
+        let dex_fee = DexFee::WithBurn {
+            fee_amount: MmNumber::from("0.000007"), // Amount is 0.008, both dex and burn fees rounded down
+            burn_amount: MmNumber::from("0.000002"),
+            burn_destination: DexFeeBurnDestination::PreBurnAccount,
+        };
+        block_on(
+            coin.validate_fee_for_denom(
+                &fee_with_burn_cosmos_tx,
+                &pubkey,
+                &dex_fee,
+                6,
+                uuid.as_bytes(),
+                iris_ibc_nucleus_denom,
+            )
+            .compat(),
+        )
+        .unwrap();
     }
 
     #[test]
