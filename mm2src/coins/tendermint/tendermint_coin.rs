@@ -3471,8 +3471,8 @@ fn parse_expected_sequence_number(e: &str) -> MmResult<u64, TendermintCoinRpcErr
 
 #[cfg(test)]
 pub mod tendermint_coin_tests {
-    use crate::DexFeeBurnDestination;
     use super::*;
+    use crate::DexFeeBurnDestination;
 
     use common::{block_on, block_on_f01, wait_until_ms, DEX_FEE_ADDR_RAW_PUBKEY};
     use cosmrs::proto::cosmos::tx::v1beta1::{GetTxRequest, GetTxResponse, GetTxsEventResponse};

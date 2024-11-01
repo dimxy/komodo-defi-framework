@@ -2008,6 +2008,26 @@ mod lp_swap_tests {
         let actual_fee = DexFee::new_from_taker_coin(&btc, rel, &amount, None, PRE_BURN_ACCOUNT_ACTIVE);
         assert_eq!(DexFee::Standard(amount / "777".into()), actual_fee);
         TestCoin::should_burn_dex_fee.clear_mock();
+
+        let base = "NUCLEUS";
+        let btc = TestCoin::new(base);
+        TestCoin::should_burn_dex_fee.mock_safe(|_| MockResult::Return(true));
+        TestCoin::min_tx_amount.mock_safe(|_| MockResult::Return(MmNumber::from("0.000001").into()));
+        let rel = "IRIS";
+        let amount: MmNumber = "0.008".parse::<BigDecimal>().unwrap().into();
+        let actual_fee = DexFee::new_from_taker_coin(&btc, rel, &amount, None, PRE_BURN_ACCOUNT_ACTIVE);
+        let std_fee = amount / "777".into();
+        let fee_amount = std_fee.clone() * "0.75".into();
+        let burn_amount = std_fee - fee_amount.clone();
+        assert_eq!(
+            DexFee::WithBurn {
+                fee_amount,
+                burn_amount,
+                burn_destination: DexFeeBurnDestination::PreBurnAccount,
+            },
+            actual_fee
+        );
+        TestCoin::should_burn_dex_fee.clear_mock();
     }
 
     #[test]
