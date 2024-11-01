@@ -82,6 +82,9 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
+#[cfg(any(test, feature = "mocktopus"))]
+use mocktopus::macros::*;
+
 // ABCI Request Paths
 const ABCI_GET_LATEST_BLOCK_PATH: &str = "/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock";
 const ABCI_GET_BLOCK_BY_HEIGHT_PATH: &str = "/cosmos.base.tendermint.v1beta1.Service/GetBlockByHeight";
@@ -628,6 +631,7 @@ impl TendermintCommons for TendermintCoin {
     }
 }
 
+#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
 impl TendermintCoin {
     #[allow(clippy::too_many_arguments)]
     pub async fn init(
@@ -639,7 +643,7 @@ impl TendermintCoin {
         tx_history: bool,
         activation_policy: TendermintActivationPolicy,
         is_keplr_from_ledger: bool,
-    ) -> MmResult<Self, TendermintInitError> {
+    ) -> MmResult<TendermintCoin, TendermintInitError> {
         if nodes.is_empty() {
             return MmError::err(TendermintInitError {
                 ticker,
@@ -939,7 +943,9 @@ impl TendermintCoin {
         memo: String,
         withdraw_fee: Option<WithdrawFee>,
     ) -> MmResult<Fee, TendermintCoinRpcError> {
-        let Ok(activated_priv_key) = self.activation_policy.activated_key_or_err() else {
+        let activated_priv_key = if let Ok(activated_priv_key) = self.activation_policy.activated_key_or_err() {
+            activated_priv_key
+        } else {
             let (gas_price, gas_limit) = self.gas_info_for_withdraw(&withdraw_fee, GAS_LIMIT_DEFAULT);
             let amount = ((GAS_WANTED_BASE_VALUE * 1.5) * gas_price).ceil();
 
@@ -1024,7 +1030,9 @@ impl TendermintCoin {
         memo: String,
         withdraw_fee: Option<WithdrawFee>,
     ) -> MmResult<u64, TendermintCoinRpcError> {
-        let Some(priv_key) = priv_key else {
+        let priv_key = if let Some(priv_key) = priv_key {
+            priv_key
+        } else {
             let (gas_price, _) = self.gas_info_for_withdraw(&withdraw_fee, 0);
             return Ok(((GAS_WANTED_BASE_VALUE * 1.5) * gas_price).ceil() as u64);
         };
@@ -1096,9 +1104,10 @@ impl TendermintCoin {
             .account
             .or_mm_err(|| TendermintCoinRpcError::InvalidResponse("Account is None".into()))?;
 
+        let account_prefix = self.account_prefix.clone();
         let base_account = match BaseAccount::decode(account.value.as_slice()) {
             Ok(account) => account,
-            Err(err) if &self.account_prefix == "iaa" => {
+            Err(err) if account_prefix.as_str() == "iaa" => {
                 let ethermint_account = EthermintAccount::decode(account.value.as_slice())?;
 
                 ethermint_account
@@ -1394,6 +1403,7 @@ impl TendermintCoin {
         Ok(SerializedUnsignedTx { tx_json, body_bytes })
     }
 
+    #[allow(clippy::let_unit_value)] // for mockable
     pub fn add_activated_token_info(&self, ticker: String, decimals: u8, denom: Denom) {
         self.tokens_info
             .lock()
@@ -2133,9 +2143,9 @@ impl TendermintCoin {
         amount >= &min_tx_amount
     }
 
-    async fn search_for_swap_tx_spend(
+    async fn search_for_swap_tx_spend<'l>(
         &self,
-        input: SearchForSwapTxSpendInput<'_>,
+        input: SearchForSwapTxSpendInput<'l>,
     ) -> MmResult<Option<FoundSwapTxSpend>, SearchForSwapTxSpendErr> {
         let tx = cosmrs::Tx::from_bytes(input.tx)?;
         let first_message = tx
