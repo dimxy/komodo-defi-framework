@@ -1,4 +1,4 @@
-use super::{dex_fee_from_taker_coin, swap_v2_common::*, PRE_BURN_ACCOUNT_ACTIVE};
+use super::{swap_v2_common::*, PRE_BURN_ACCOUNT_ACTIVE};
 use super::{LockedAmount, LockedAmountInfo, SavedTradeFee, SwapsContext, TakerSwapPreparedParams,
             NEGOTIATE_SEND_INTERVAL, NEGOTIATION_TIMEOUT_SEC};
 use crate::lp_swap::swap_lock::SwapLock;
@@ -10,11 +10,11 @@ use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
-use coins::{CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, GenTakerFundingSpendArgs,
-            GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes, RefundFundingSecretArgs,
-            RefundTakerPaymentArgs, SendTakerFundingArgs, SpendMakerPaymentArgs, SwapTxTypeWithSecretHash,
-            TakerCoinSwapOpsV2, ToBytes, TradeFee, TradePreimageValue, Transaction, TxPreimageWithSig,
-            ValidateMakerPaymentArgs};
+use coins::{dex_fee_from_taker_coin, CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage,
+            GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes,
+            RefundFundingSecretArgs, RefundTakerPaymentArgs, SendTakerFundingArgs, SpendMakerPaymentArgs,
+            SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2, ToBytes, TradeFee, TradePreimageValue, Transaction,
+            TxPreimageWithSig, ValidateMakerPaymentArgs};
 use common::executor::abortable_queue::AbortableQueue;
 use common::executor::{AbortableSystem, Timer};
 use common::log::{debug, error, info, warn};
@@ -450,7 +450,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             self.maker_coin.ticker(),
             &self.taker_volume,
             Some(&taker_pub),
-            PRE_BURN_ACCOUNT_ACTIVE,
+            Some(PRE_BURN_ACCOUNT_ACTIVE), // Always active for TPU
         )
     }
 }

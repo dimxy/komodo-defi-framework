@@ -5,7 +5,7 @@ use super::swap_lock::{SwapLock, SwapLockOps};
 use super::swap_watcher::{watcher_topic, SwapWatcherMsg};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg_every,
-            check_other_coin_balance_for_swap, dex_fee_from_taker_coin, get_locked_amount, recv_swap_msg, swap_topic,
+            check_other_coin_balance_for_swap, get_locked_amount, recv_swap_msg, swap_topic,
             wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
             NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
             SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext,
@@ -15,18 +15,18 @@ use crate::lp_ordermatch::TakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
 use crate::lp_swap::taker_restart::get_command_based_on_maker_or_watcher_activity;
 use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, swap_ext_topic, tx_helper_topic,
-                     wait_for_maker_payment_conf_duration, SwapMsgWrapper, TakerSwapWatcherData, MAX_STARTED_AT_DIFF,
-                     PRE_BURN_ACCOUNT_ACTIVE};
+                     wait_for_maker_payment_conf_duration, SwapMsgWrapper, TakerSwapWatcherData, MAX_STARTED_AT_DIFF};
 use crate::lp_swap::{NegotiationDataMsgVersion, SwapMsgExt};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::swap_features::SwapFeature;
 use coins::SWAP_PROTOCOL_VERSION;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
-use coins::{lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage,
-            FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
-            RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash,
-            TradeFee, TradePreimageValue, ValidatePaymentInput, WaitForHTLCTxSpendArgs, MIN_SWAP_PROTOCOL_VERSION};
+use coins::{dex_fee_from_taker_coin, lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput,
+            DexFee, FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
+            PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
+            SwapTxTypeWithSecretHash, TradeFee, TradePreimageValue, ValidatePaymentInput, WaitForHTLCTxSpendArgs,
+            MIN_SWAP_PROTOCOL_VERSION};
 use common::executor::Timer;
 use common::log::{debug, error, info, warn};
 use common::{bits256, env_var_as_bool, now_ms, now_sec, wait_until_sec};
@@ -1049,7 +1049,7 @@ impl TakerSwap {
             self.maker_coin.ticker(),
             &self.taker_amount,
             Some(&self.my_taker_coin_htlc_pub().0),
-            PRE_BURN_ACCOUNT_ACTIVE,
+            None, // None as we need only learn total dex fee amount
         );
         let preimage_value = TradePreimageValue::Exact(self.taker_amount.to_decimal());
 
@@ -1381,7 +1381,7 @@ impl TakerSwap {
             &self.r().data.maker_coin,
             &self.taker_amount,
             Some(&self.my_taker_coin_htlc_pub().0),
-            is_burn_active,
+            Some(is_burn_active),
         );
         if matches!(dex_fee, DexFee::NoFee) {
             info!("Taker fee tx not sent for dex taker");
@@ -2459,7 +2459,7 @@ impl AtomicSwap for TakerSwap {
             &self.r().data.maker_coin,
             &self.taker_amount,
             Some(&self.my_taker_coin_htlc_pub().0),
-            PRE_BURN_ACCOUNT_ACTIVE,
+            None, // None as we need only learn total dex fee amount
         );
         let trade_fee = self.r().data.fee_to_send_taker_fee.clone().map(TradeFee::from);
         if self.r().taker_fee.is_none() {
@@ -2529,7 +2529,7 @@ pub async fn check_balance_for_taker_swap(
         Some(params) => params,
         None => {
             // Use None as taker_pubkey is okay because we just need to calculate max swap amount
-            let dex_fee = dex_fee_from_taker_coin(my_coin, other_coin.ticker(), &volume, None, PRE_BURN_ACCOUNT_ACTIVE);
+            let dex_fee = dex_fee_from_taker_coin(my_coin, other_coin.ticker(), &volume, None, None);
             let fee_to_send_dex_fee = my_coin
                 .get_fee_to_send_taker_fee(dex_fee.clone(), stage)
                 .await
@@ -2623,7 +2623,7 @@ pub async fn taker_swap_trade_preimage(
         other_coin_ticker,
         &my_coin_volume,
         Some(&my_coin.derive_htlc_pubkey(&dummy_unique_data)), // use dummy_unique_data because we need only the permanent pubkey here (not derived from the unique data)
-        PRE_BURN_ACCOUNT_ACTIVE,
+        None,
     );
     let taker_fee = TradeFee {
         coin: my_coin_ticker.to_owned(),
@@ -2771,8 +2771,7 @@ pub async fn calc_max_taker_vol(
         // second case
         let max_possible_2 = &max_possible - &max_trade_fee.amount;
         // Use None as taker_pubkey is we need just to calc max volume
-        let max_dex_fee =
-            dex_fee_from_taker_coin(coin.deref(), other_coin, &max_possible_2, None, PRE_BURN_ACCOUNT_ACTIVE);
+        let max_dex_fee = dex_fee_from_taker_coin(coin.deref(), other_coin, &max_possible_2, None, None);
         let max_fee_to_send_taker_fee = coin
             .get_fee_to_send_taker_fee(max_dex_fee.clone(), stage)
             .await
@@ -2842,10 +2841,10 @@ fn fix_maker_version(negotiation_data: &MakerNegotiationData) -> u16 { negotiati
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod taker_swap_tests {
     use super::*;
-    use crate::lp_swap::{get_locked_amount_by_other_swaps, PRE_BURN_ACCOUNT_ACTIVE};
+    use crate::lp_swap::get_locked_amount_by_other_swaps;
     use coins::eth::{addr_from_str, signed_eth_tx_from_bytes, SignedEthTx};
     use coins::utxo::UtxoTx;
-    use coins::{DexFee, FoundSwapTxSpend, MarketCoinOps, MmCoin, SwapOps, TestCoin};
+    use coins::{dex_fee_from_taker_coin, FoundSwapTxSpend, MarketCoinOps, MmCoin, SwapOps, TestCoin};
     use common::{block_on, new_uuid};
     use mm2_test_helpers::for_tests::{mm_ctx_with_iguana, ETH_SEPOLIA_SWAP_CONTRACT};
     use mocktopus::mocking::*;
@@ -3270,8 +3269,7 @@ mod taker_swap_tests {
             let coin = TestCoin::new(base);
             let mock_min_tx_amount = min_tx_amount.clone();
             TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(mock_min_tx_amount.clone().into()));
-            let dex_fee = DexFee::new_from_taker_coin(&coin, "MORTY", &max_taker_vol, None, PRE_BURN_ACCOUNT_ACTIVE)
-                .total_spend_amount();
+            let dex_fee = dex_fee_from_taker_coin(&coin, "MORTY", &max_taker_vol, None, None).total_spend_amount();
             assert!(min_tx_amount < dex_fee);
             assert!(min_tx_amount <= max_taker_vol);
             assert_eq!(max_taker_vol + dex_fee, available);
@@ -3295,8 +3293,7 @@ mod taker_swap_tests {
             let coin = TestCoin::new(base);
             let mock_min_tx_amount = min_tx_amount.clone();
             TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(mock_min_tx_amount.clone().into()));
-            let dex_fee =
-                DexFee::new_from_taker_coin(&coin, "MORTY", &max_taker_vol, None, PRE_BURN_ACCOUNT_ACTIVE).fee_amount();
+            let dex_fee = dex_fee_from_taker_coin(&coin, "MORTY", &max_taker_vol, None, None).fee_amount(); // returns Standard dex_fee (default for TestCoin)
             println!(
                 "available={:?} max_taker_vol={:?} dex_fee={:?}",
                 available.to_decimal(),

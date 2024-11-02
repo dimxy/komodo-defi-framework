@@ -6,16 +6,16 @@ use coins::utxo::qtum::{qtum_coin_with_priv_key, QtumCoin};
 use coins::utxo::rpc_clients::UtxoRpcClientEnum;
 use coins::utxo::utxo_common::big_decimal_from_sat;
 use coins::utxo::{UtxoActivationParams, UtxoCommonOps};
-use coins::{CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, DexFeeBurnDestination, FeeApproxStage,
-            FoundSwapTxSpend, MarketCoinOps, MmCoin, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs,
-            SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, TradePreimageValue, TransactionEnum, ValidateFeeArgs,
-            ValidatePaymentInput, WaitForHTLCTxSpendArgs};
+use coins::{dex_fee_from_taker_coin, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, DexFeeBurnDestination,
+            FeeApproxStage, FoundSwapTxSpend, MarketCoinOps, MmCoin, RefundPaymentArgs, SearchForSwapTxSpendInput,
+            SendPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, TradePreimageValue, TransactionEnum,
+            ValidateFeeArgs, ValidatePaymentInput, WaitForHTLCTxSpendArgs};
 use common::{block_on_f01, temp_dir, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::Secp256k1Secret;
 use ethereum_types::H160;
 use http::StatusCode;
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
-use mm2_main::lp_swap::{max_taker_vol_from_available, PRE_BURN_ACCOUNT_ACTIVE};
+use mm2_main::lp_swap::max_taker_vol_from_available;
 use mm2_number::BigDecimal;
 use mm2_rpc::data::legacy::{CoinInitResponse, OrderbookResponse};
 use mm2_test_helpers::structs::{trade_preimage_error, RpcErrorResponse, RpcSuccessResponse, TransactionDetails};
@@ -1017,13 +1017,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     // - `max_possible_2 = balance - locked_amount - max_trade_fee`, where `locked_amount = 0`
     let max_possible_2 = &qtum_balance - &max_trade_fee;
     // - `max_dex_fee = dex_fee(max_possible_2)`
-    let max_dex_fee = DexFee::new_from_taker_coin(
-        &coin,
-        "MYCOIN",
-        &MmNumber::from(max_possible_2),
-        None,
-        PRE_BURN_ACCOUNT_ACTIVE,
-    );
+    let max_dex_fee = dex_fee_from_taker_coin(&coin, "MYCOIN", &MmNumber::from(max_possible_2), None, None);
     log!("max_dex_fee: {:?}", max_dex_fee.fee_amount().to_fraction());
 
     // - `max_fee_to_send_taker_fee = fee_to_send_taker_fee(max_dex_fee)`
@@ -1041,9 +1035,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     let expected_max_taker_vol =
         max_taker_vol_from_available(MmNumber::from(available), "QTUM", "MYCOIN", &qtum_min_tx_amount)
             .expect("max_taker_vol_from_available");
-    let real_dex_fee =
-        DexFee::new_from_taker_coin(&coin, "MYCOIN", &expected_max_taker_vol, None, PRE_BURN_ACCOUNT_ACTIVE)
-            .fee_amount();
+    let real_dex_fee = dex_fee_from_taker_coin(&coin, "MYCOIN", &expected_max_taker_vol, None, None).fee_amount();
     log!("real_max_dex_fee: {:?}", real_dex_fee.to_fraction());
 
     // check if the actual max_taker_vol equals to the expected
@@ -1076,7 +1068,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     let timelock = now_sec() - 200;
     let secret_hash = &[0; 20];
 
-    let dex_fee = DexFee::new_from_taker_coin(&coin, "MYCOIN", &expected_max_taker_vol, None, PRE_BURN_ACCOUNT_ACTIVE);
+    let dex_fee = dex_fee_from_taker_coin(&coin, "MYCOIN", &expected_max_taker_vol, None, None);
     let _taker_fee_tx = block_on_f01(coin.send_taker_fee(dex_fee, &[], timelock)).expect("!send_taker_fee");
     let taker_payment_args = SendPaymentArgs {
         time_lock_duration: 0,

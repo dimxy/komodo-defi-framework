@@ -3,18 +3,19 @@ use super::{swap_v2_topic, LockedAmount, LockedAmountInfo, SavedTradeFee, SwapsC
             NEGOTIATION_TIMEOUT_SEC};
 use crate::lp_swap::maker_swap::MakerSwapPreparedParams;
 use crate::lp_swap::swap_lock::SwapLock;
-use crate::lp_swap::{broadcast_swap_v2_msg_every, check_balance_for_maker_swap, dex_fee_from_taker_coin,
-                     recv_swap_v2_msg, SecretHashAlgo, SwapConfirmationsSettings, TransactionIdentifier,
-                     MAKER_SWAP_V2_TYPE, MAX_STARTED_AT_DIFF, PRE_BURN_ACCOUNT_ACTIVE};
+use crate::lp_swap::{broadcast_swap_v2_msg_every, check_balance_for_maker_swap, recv_swap_v2_msg, SecretHashAlgo,
+                     SwapConfirmationsSettings, TransactionIdentifier, MAKER_SWAP_V2_TYPE, MAX_STARTED_AT_DIFF,
+                     PRE_BURN_ACCOUNT_ACTIVE};
 use crate::lp_swap::{swap_v2_pb::*, NO_REFUND_FEE};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
-use coins::{CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, FundingTxSpend, GenTakerFundingSpendArgs,
-            GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes, RefundMakerPaymentSecretArgs,
-            RefundMakerPaymentTimelockArgs, SearchForFundingSpendErr, SendMakerPaymentArgs, SwapTxTypeWithSecretHash,
-            TakerCoinSwapOpsV2, ToBytes, TradePreimageValue, Transaction, TxPreimageWithSig, ValidateTakerFundingArgs};
+use coins::{dex_fee_from_taker_coin, CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, FundingTxSpend,
+            GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes,
+            RefundMakerPaymentSecretArgs, RefundMakerPaymentTimelockArgs, SearchForFundingSpendErr,
+            SendMakerPaymentArgs, SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2, ToBytes, TradePreimageValue,
+            Transaction, TxPreimageWithSig, ValidateTakerFundingArgs};
 use common::executor::abortable_queue::AbortableQueue;
 use common::executor::{AbortableSystem, Timer};
 use common::log::{debug, error, info, warn};
@@ -419,7 +420,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             self.maker_coin.ticker(),
             &self.taker_volume,
             Some(taker_pub),
-            PRE_BURN_ACCOUNT_ACTIVE,
+            Some(PRE_BURN_ACCOUNT_ACTIVE), // Always active for TPU
         )
     }
 }

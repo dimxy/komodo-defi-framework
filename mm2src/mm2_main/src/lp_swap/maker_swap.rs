@@ -4,12 +4,12 @@ use super::pubkey_banning::ban_pubkey_on_failed_swap;
 use super::swap_lock::{SwapLock, SwapLockOps};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_every,
-            check_other_coin_balance_for_swap, detect_secret_hash_algo, dex_fee_from_taker_coin, get_locked_amount,
-            recv_swap_msg, swap_topic, taker_payment_spend_deadline, tx_helper_topic,
-            wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
-            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
-            SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
-            SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, WAIT_CONFIRM_INTERVAL_SEC};
+            check_other_coin_balance_for_swap, detect_secret_hash_algo, get_locked_amount, recv_swap_msg, swap_topic,
+            taker_payment_spend_deadline, tx_helper_topic, wait_for_maker_payment_conf_until, AtomicSwap,
+            LockedAmount, MySwapInfo, NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap,
+            RecoveredSwapAction, SavedSwap, SavedSwapIo, SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings,
+            SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE,
+            NO_REFUND_FEE, WAIT_CONFIRM_INTERVAL_SEC};
 use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
@@ -22,11 +22,11 @@ use coins::swap_features::SwapFeature;
 use coins::SWAP_PROTOCOL_VERSION;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
-use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage, FoundSwapTxSpend,
-            MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
-            RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash,
-            TradeFee, TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput,
-            MIN_SWAP_PROTOCOL_VERSION};
+use coins::{dex_fee_from_taker_coin, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee,
+            FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
+            PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
+            SwapTxTypeWithSecretHash, TradeFee, TradePreimageValue, TransactionEnum, ValidateFeeArgs,
+            ValidatePaymentInput, MIN_SWAP_PROTOCOL_VERSION};
 use common::log::{debug, error, info, warn};
 use common::{bits256, executor::Timer, now_ms};
 use common::{env_var_as_bool, now_sec, wait_until_sec};
@@ -809,7 +809,7 @@ impl MakerSwap {
             &self.r().data.maker_coin,
             &taker_amount,
             Some(self.r().other_taker_coin_htlc_pub.to_vec().as_ref()),
-            is_burn_active,
+            Some(is_burn_active),
         );
         debug!(
             "MakerSwap::wait_taker_fee remote_version={remote_version} is_burn_active={is_burn_active} dex_fee={:?} my_taker_coin_htlc_pub={}",

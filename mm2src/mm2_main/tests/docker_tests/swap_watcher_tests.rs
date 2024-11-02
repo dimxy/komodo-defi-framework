@@ -7,18 +7,18 @@ use coins::coin_errors::ValidatePaymentError;
 use coins::eth::{checksum_address, EthCoin};
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::utxo::{dhash160, UtxoCommonOps};
-use coins::{ConfirmPaymentInput, DexFee, FoundSwapTxSpend, MarketCoinOps, MmCoin, MmCoinEnum, RefundPaymentArgs,
-            RewardTarget, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SwapOps,
-            SwapTxTypeWithSecretHash, TestCoin, ValidateWatcherSpendInput, WatcherOps, WatcherSpendType,
-            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, EARLY_CONFIRMATION_ERR_LOG,
+use coins::{dex_fee_from_taker_coin, ConfirmPaymentInput, FoundSwapTxSpend, MarketCoinOps, MmCoin, MmCoinEnum,
+            RefundPaymentArgs, RewardTarget, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput,
+            SendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, TestCoin, ValidateWatcherSpendInput, WatcherOps,
+            WatcherSpendType, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, EARLY_CONFIRMATION_ERR_LOG,
             INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG, INVALID_RECEIVER_ERR_LOG,
             INVALID_REFUND_TX_ERR_LOG, INVALID_SCRIPT_ERR_LOG, INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG,
             OLD_TRANSACTION_ERR_LOG};
 use common::{block_on, block_on_f01, now_sec, wait_until_sec};
 use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
-use mm2_main::lp_swap::{dex_fee_from_taker_coin, generate_secret, get_payment_locktime, MAKER_PAYMENT_SENT_LOG,
-                        MAKER_PAYMENT_SPEND_FOUND_LOG, MAKER_PAYMENT_SPEND_SENT_LOG, PRE_BURN_ACCOUNT_ACTIVE,
-                        REFUND_TEST_FAILURE_LOG, TAKER_PAYMENT_REFUND_SENT_LOG, WATCHER_MESSAGE_SENT_LOG};
+use mm2_main::lp_swap::{generate_secret, get_payment_locktime, MAKER_PAYMENT_SENT_LOG, MAKER_PAYMENT_SPEND_FOUND_LOG,
+                        MAKER_PAYMENT_SPEND_SENT_LOG, REFUND_TEST_FAILURE_LOG, TAKER_PAYMENT_REFUND_SENT_LOG,
+                        WATCHER_MESSAGE_SENT_LOG};
 use mm2_number::BigDecimal;
 use mm2_number::MmNumber;
 use mm2_test_helpers::for_tests::{enable_eth_coin, erc20_dev_conf, eth_dev_conf, eth_jst_testnet_conf, mm_dump,
@@ -818,15 +818,9 @@ fn test_watcher_spends_maker_payment_eth_utxo() {
 
     let coin = TestCoin::new("MYCOIN");
     TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(min_tx_amount.clone()));
-    let dex_fee: BigDecimal = DexFee::new_from_taker_coin(
-        &coin,
-        "ETH",
-        &MmNumber::from(mycoin_volume.clone()),
-        None,
-        PRE_BURN_ACCOUNT_ACTIVE,
-    )
-    .fee_amount()
-    .into();
+    let dex_fee: BigDecimal = dex_fee_from_taker_coin(&coin, "ETH", &MmNumber::from(mycoin_volume.clone()), None, None)
+        .fee_amount() // returns Standard fee (default for TestCoin)
+        .into();
     let alice_mycoin_reward_sent = balances.alice_acoin_balance_before
         - balances.alice_acoin_balance_after.clone()
         - mycoin_volume.clone()
@@ -964,15 +958,10 @@ fn test_watcher_spends_maker_payment_erc20_utxo() {
     let min_tx_amount = BigDecimal::from_str("0.00001").unwrap();
     let coin = TestCoin::new("MYCOIN");
     TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(min_tx_amount.clone()));
-    let dex_fee: BigDecimal = DexFee::new_from_taker_coin(
-        &coin,
-        "ERC20DEV",
-        &MmNumber::from(mycoin_volume.clone()),
-        None,
-        PRE_BURN_ACCOUNT_ACTIVE,
-    )
-    .fee_amount()
-    .into();
+    let dex_fee: BigDecimal =
+        dex_fee_from_taker_coin(&coin, "ERC20DEV", &MmNumber::from(mycoin_volume.clone()), None, None)
+            .fee_amount() // returns Standard fee (default for TestCoin)
+            .into();
     let alice_mycoin_reward_sent = balances.alice_acoin_balance_before
         - balances.alice_acoin_balance_after.clone()
         - mycoin_volume.clone()
@@ -1220,16 +1209,9 @@ fn test_watcher_validate_taker_fee_utxo() {
     let taker_pubkey = taker_coin.my_public_key().unwrap();
 
     let taker_amount = MmNumber::from((10, 1));
-    let fee_amount = dex_fee_from_taker_coin(
-        &taker_coin,
-        maker_coin.ticker(),
-        &taker_amount,
-        None,
-        PRE_BURN_ACCOUNT_ACTIVE,
-    );
+    let dex_fee = dex_fee_from_taker_coin(&taker_coin, maker_coin.ticker(), &taker_amount, None, None);
 
-    let taker_fee =
-        block_on_f01(taker_coin.send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)).unwrap();
+    let taker_fee = block_on_f01(taker_coin.send_taker_fee(dex_fee, Uuid::new_v4().as_bytes(), lock_duration)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: taker_fee.tx_hex(),
@@ -1335,9 +1317,8 @@ fn test_watcher_validate_taker_fee_eth() {
     let taker_pubkey = taker_keypair.public();
 
     let taker_amount = MmNumber::from((1, 1));
-    let fee_amount = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, None, PRE_BURN_ACCOUNT_ACTIVE);
-    let taker_fee =
-        block_on_f01(taker_coin.send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)).unwrap();
+    let dex_fee = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, None, None);
+    let taker_fee = block_on_f01(taker_coin.send_taker_fee(dex_fee, Uuid::new_v4().as_bytes(), lock_duration)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: taker_fee.tx_hex(),
@@ -1427,9 +1408,8 @@ fn test_watcher_validate_taker_fee_erc20() {
     let taker_pubkey = taker_keypair.public();
 
     let taker_amount = MmNumber::from((1, 1));
-    let fee_amount = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, None, PRE_BURN_ACCOUNT_ACTIVE);
-    let taker_fee =
-        block_on_f01(taker_coin.send_taker_fee(fee_amount, Uuid::new_v4().as_bytes(), lock_duration)).unwrap();
+    let dex_fee = dex_fee_from_taker_coin(&taker_coin, "ETH", &taker_amount, None, None);
+    let taker_fee = block_on_f01(taker_coin.send_taker_fee(dex_fee, Uuid::new_v4().as_bytes(), lock_duration)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: taker_fee.tx_hex(),
