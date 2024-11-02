@@ -66,8 +66,8 @@ use keys::{KeyPair, Public};
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
 use mm2_git::{FileMetadata, GitController, GithubClient, RepositoryOperations, GITHUB_API_URI};
-use mm2_net::p2p::P2PContext;
 use mm2_number::MmNumber;
+use mm2_p2p::p2p_ctx::P2PContext;
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::H256;
 use regex::Regex;
@@ -2859,11 +2859,13 @@ impl MarketCoinOps for TendermintCoin {
 #[async_trait]
 #[allow(unused_variables)]
 impl SwapOps for TendermintCoin {
-    fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8], expire_at: u64) -> TransactionFut {
+    async fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8], expire_at: u64) -> TransactionResult {
         self.send_taker_fee_for_denom(&dex_fee, self.denom.clone(), self.decimals, uuid, expire_at)
+            .compat()
+            .await
     }
 
-    fn send_maker_payment(&self, maker_payment_args: SendPaymentArgs) -> TransactionFut {
+    async fn send_maker_payment(&self, maker_payment_args: SendPaymentArgs<'_>) -> TransactionResult {
         self.send_htlc_for_denom(
             maker_payment_args.time_lock_duration,
             maker_payment_args.other_pubkey,
@@ -2872,9 +2874,11 @@ impl SwapOps for TendermintCoin {
             self.denom.clone(),
             self.decimals,
         )
+        .compat()
+        .await
     }
 
-    fn send_taker_payment(&self, taker_payment_args: SendPaymentArgs) -> TransactionFut {
+    async fn send_taker_payment(&self, taker_payment_args: SendPaymentArgs<'_>) -> TransactionResult {
         self.send_htlc_for_denom(
             taker_payment_args.time_lock_duration,
             taker_payment_args.other_pubkey,
@@ -2883,6 +2887,8 @@ impl SwapOps for TendermintCoin {
             self.denom.clone(),
             self.decimals,
         )
+        .compat()
+        .await
     }
 
     async fn send_maker_spends_taker_payment(
@@ -3019,7 +3025,7 @@ impl SwapOps for TendermintCoin {
         ))
     }
 
-    fn validate_fee(&self, validate_fee_args: ValidateFeeArgs) -> ValidatePaymentFut<()> {
+    async fn validate_fee(&self, validate_fee_args: ValidateFeeArgs<'_>) -> ValidatePaymentResult<()> {
         self.validate_fee_for_denom(
             validate_fee_args.fee_tx,
             validate_fee_args.expected_sender,
@@ -3028,6 +3034,8 @@ impl SwapOps for TendermintCoin {
             validate_fee_args.uuid,
             self.denom.to_string(),
         )
+        .compat()
+        .await
     }
 
     async fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
@@ -3040,10 +3048,10 @@ impl SwapOps for TendermintCoin {
             .await
     }
 
-    fn check_if_my_payment_sent(
+    async fn check_if_my_payment_sent(
         &self,
-        if_my_payment_sent_args: CheckIfMyPaymentSentArgs,
-    ) -> Box<dyn Future<Item = Option<TransactionEnum>, Error = String> + Send> {
+        if_my_payment_sent_args: CheckIfMyPaymentSentArgs<'_>,
+    ) -> Result<Option<TransactionEnum>, String> {
         self.check_if_my_payment_sent_for_denom(
             self.decimals,
             self.denom.clone(),
@@ -3051,6 +3059,8 @@ impl SwapOps for TendermintCoin {
             if_my_payment_sent_args.secret_hash,
             if_my_payment_sent_args.amount,
         )
+        .compat()
+        .await
     }
 
     async fn search_for_swap_tx_spend_my(
@@ -3474,7 +3484,7 @@ pub mod tendermint_coin_tests {
     use super::*;
     use crate::DexFeeBurnDestination;
 
-    use common::{block_on, block_on_f01, wait_until_ms, DEX_FEE_ADDR_RAW_PUBKEY};
+    use common::{block_on, wait_until_ms, DEX_FEE_ADDR_RAW_PUBKEY};
     use cosmrs::proto::cosmos::tx::v1beta1::{GetTxRequest, GetTxResponse, GetTxsEventResponse};
     use crypto::privkey::key_pair_from_seed;
     use mocktopus::mocking::{MockResult, Mockable};
@@ -3638,19 +3648,16 @@ pub mod tendermint_coin_tests {
         });
         // >> END HTLC CREATION
 
-        let htlc_spent = block_on(
-            coin.check_if_my_payment_sent(CheckIfMyPaymentSentArgs {
-                time_lock: 0,
-                other_pub: IRIS_TESTNET_HTLC_PAIR2_PUB_KEY,
-                secret_hash: sha256(&sec).as_slice(),
-                search_from_block: current_block,
-                swap_contract_address: &None,
-                swap_unique_data: &[],
-                amount: &amount_dec,
-                payment_instructions: &None,
-            })
-            .compat(),
-        )
+        let htlc_spent = block_on(coin.check_if_my_payment_sent(CheckIfMyPaymentSentArgs {
+            time_lock: 0,
+            other_pub: IRIS_TESTNET_HTLC_PAIR2_PUB_KEY,
+            secret_hash: sha256(&sec).as_slice(),
+            search_from_block: current_block,
+            swap_contract_address: &None,
+            swap_unique_data: &[],
+            amount: &amount_dec,
+            payment_instructions: &None,
+        }))
         .unwrap();
         assert!(htlc_spent.is_some());
 
@@ -3866,7 +3873,7 @@ pub mod tendermint_coin_tests {
         });
 
         let invalid_amount: MmNumber = 1.into();
-        let error = block_on_f01(coin.validate_fee(ValidateFeeArgs {
+        let error = block_on(coin.validate_fee(ValidateFeeArgs {
             fee_tx: &create_htlc_tx,
             expected_sender: &[],
             dex_fee: &DexFee::Standard(invalid_amount.clone()),
@@ -3907,7 +3914,7 @@ pub mod tendermint_coin_tests {
             .unwrap(),
         });
 
-        let error = block_on_f01(coin.validate_fee(ValidateFeeArgs {
+        let error = block_on(coin.validate_fee(ValidateFeeArgs {
             fee_tx: &random_transfer_tx,
             expected_sender: &[],
             dex_fee: &DexFee::Standard(invalid_amount.clone()),
@@ -3949,7 +3956,7 @@ pub mod tendermint_coin_tests {
             data: TxRaw::decode(dex_fee_tx_response.tx.as_ref().unwrap().encode_to_vec().as_slice()).unwrap(),
         });
 
-        let error = block_on_f01(coin.validate_fee(ValidateFeeArgs {
+        let error = block_on(coin.validate_fee(ValidateFeeArgs {
             fee_tx: &dex_fee_tx,
             expected_sender: &[],
             dex_fee: &DexFee::Standard(invalid_amount),
@@ -3966,7 +3973,7 @@ pub mod tendermint_coin_tests {
 
         let valid_amount: BigDecimal = "0.0001".parse().unwrap();
         // valid amount but invalid sender
-        let error = block_on_f01(coin.validate_fee(ValidateFeeArgs {
+        let error = block_on(coin.validate_fee(ValidateFeeArgs {
             fee_tx: &dex_fee_tx,
             expected_sender: &DEX_FEE_ADDR_RAW_PUBKEY,
             dex_fee: &DexFee::Standard(valid_amount.clone().into()),
@@ -3982,7 +3989,7 @@ pub mod tendermint_coin_tests {
         }
 
         // invalid memo
-        let error = block_on_f01(coin.validate_fee(ValidateFeeArgs {
+        let error = block_on(coin.validate_fee(ValidateFeeArgs {
             fee_tx: &dex_fee_tx,
             expected_sender: &pubkey,
             dex_fee: &DexFee::Standard(valid_amount.into()),

@@ -51,7 +51,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_taker() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = block_on_f01(coin.send_taker_payment(taker_payment_args)).unwrap();
+    let tx = block_on(coin.send_taker_payment(taker_payment_args)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: tx.tx_hex(),
@@ -140,7 +140,7 @@ fn test_search_for_swap_tx_spend_native_was_refunded_maker() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = block_on_f01(coin.send_maker_payment(maker_payment_args)).unwrap();
+    let tx = block_on(coin.send_maker_payment(maker_payment_args)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: tx.tx_hex(),
@@ -209,7 +209,7 @@ fn test_search_for_taker_swap_tx_spend_native_was_spent_by_maker() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = block_on_f01(coin.send_taker_payment(taker_payment_args)).unwrap();
+    let tx = block_on(coin.send_taker_payment(taker_payment_args)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: tx.tx_hex(),
@@ -277,7 +277,7 @@ fn test_search_for_maker_swap_tx_spend_native_was_spent_by_taker() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = block_on_f01(coin.send_maker_payment(maker_payment_args)).unwrap();
+    let tx = block_on(coin.send_maker_payment(maker_payment_args)).unwrap();
 
     let confirm_payment_input = ConfirmPaymentInput {
         payment_tx: tx.tx_hex(),
@@ -348,7 +348,7 @@ fn test_one_hundred_maker_payments_in_a_row_native() {
             watcher_reward: None,
             wait_for_confirmation_until: 0,
         };
-        let tx = block_on_f01(coin.send_maker_payment(maker_payment_args)).unwrap();
+        let tx = block_on(coin.send_maker_payment(maker_payment_args)).unwrap();
         if let TransactionEnum::UtxoTx(tx) = tx {
             unspents.push(UnspentInfo {
                 outpoint: OutPoint {

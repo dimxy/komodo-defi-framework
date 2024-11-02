@@ -1901,7 +1901,6 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             match state_machine
                 .taker_coin
                 .can_refund_htlc(state_machine.taker_payment_locktime())
-                .compat()
                 .await
             {
                 Ok(CanRefundHtlc::CanRefundNow) => break,

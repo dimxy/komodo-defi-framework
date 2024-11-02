@@ -11,7 +11,7 @@ use crate::coin_errors::{MyAddressError, ValidatePaymentResult};
 use crate::hd_wallet::HDPathAccountToAddressId;
 use crate::my_tx_history_v2::{MyTxHistoryErrorV2, MyTxHistoryRequestV2, MyTxHistoryResponseV2};
 use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawInProgressStatus, WithdrawTaskHandleShared};
-use crate::utxo::rpc_clients::{ElectrumRpcRequest, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut,
+use crate::utxo::rpc_clients::{ElectrumConnectionSettings, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut,
                                UtxoRpcResult};
 use crate::utxo::utxo_builder::UtxoCoinBuildError;
 use crate::utxo::utxo_builder::{UtxoCoinBuilder, UtxoCoinBuilderCommonOps, UtxoFieldsWithGlobalHDBuilder,
@@ -70,6 +70,7 @@ use serialization::CoinVariant;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::iter;
+use std::num::TryFromIntError;
 use std::path::PathBuf;
 use std::sync::Arc;
 pub use z_coin_errors::*;
@@ -672,6 +673,33 @@ impl ZCoin {
 
         Ok(())
     }
+
+    /// Validates dex fee output or burn output
+    /// Returns true if the output valid or error if not valid. Returns false if could not decrypt output (some other output)
+    fn validate_dex_fee_output(
+        &self,
+        shielded_out: &OutputDescription,
+        ovk: &OutgoingViewingKey,
+        expected_address: &PaymentAddress,
+        block_height: BlockHeight,
+        amount_sat: u64,
+        expected_memo: &MemoBytes,
+    ) -> Result<bool, String> {
+        if let Some((note, address, memo)) =
+            try_sapling_output_recovery(self.consensus_params_ref(), block_height, ovk, shielded_out)
+        {
+            if &address == expected_address {
+                if note.value != amount_sat {
+                    return Err(format!("invalid amount {}, expected {}", note.value, amount_sat));
+                }
+                if &memo != expected_memo {
+                    return Err(format!("invalid memo {:?}, expected {:?}", memo, expected_memo));
+                }
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 impl AsRef<UtxoCoinFields> for ZCoin {
@@ -752,7 +780,12 @@ pub enum ZcoinRpcMode {
     #[serde(alias = "Electrum")]
     Light {
         #[serde(alias = "servers")]
-        electrum_servers: Vec<ElectrumRpcRequest>,
+        /// The settings of each electrum server.
+        electrum_servers: Vec<ElectrumConnectionSettings>,
+        /// The minimum number of connections to electrum servers to keep alive/maintained at all times.
+        min_connected: Option<usize>,
+        /// The maximum number of connections to electrum servers to not exceed at any time.
+        max_connected: Option<usize>,
         light_wallet_d_servers: Vec<String>,
         /// Specifies the parameters for synchronizing the wallet from a specific block. This overrides the
         /// `CheckPointBlockInfo` configuration in the coin settings.
@@ -978,8 +1011,15 @@ impl<'a> ZCoinBuilder<'a> {
         let utxo_mode = match &z_coin_params.mode {
             #[cfg(not(target_arch = "wasm32"))]
             ZcoinRpcMode::Native => UtxoRpcMode::Native,
-            ZcoinRpcMode::Light { electrum_servers, .. } => UtxoRpcMode::Electrum {
+            ZcoinRpcMode::Light {
+                electrum_servers,
+                min_connected,
+                max_connected,
+                ..
+            } => UtxoRpcMode::Electrum {
                 servers: electrum_servers.clone(),
+                min_connected: *min_connected,
+                max_connected: *max_connected,
             },
         };
         let utxo_params = UtxoActivationParams {
@@ -1217,62 +1257,50 @@ impl MarketCoinOps for ZCoin {
 
 #[async_trait]
 impl SwapOps for ZCoin {
-    fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8], _expire_at: u64) -> TransactionFut {
-        let selfi = self.clone();
+    async fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8], _expire_at: u64) -> TransactionResult {
         let uuid = uuid.to_owned();
-        let fut = async move {
-            let tx = try_tx_s!(z_send_dex_fee(&selfi, dex_fee, &uuid).await);
-            Ok(tx.into())
-        };
-        Box::new(fut.boxed().compat())
+        let tx = try_tx_s!(z_send_dex_fee(self, dex_fee, &uuid).await);
+        Ok(tx.into())
     }
 
-    fn send_maker_payment(&self, maker_payment_args: SendPaymentArgs<'_>) -> TransactionFut {
-        let selfi = self.clone();
+    async fn send_maker_payment(&self, maker_payment_args: SendPaymentArgs<'_>) -> TransactionResult {
         let maker_key_pair = self.derive_htlc_key_pair(maker_payment_args.swap_unique_data);
-        let taker_pub = try_tx_fus!(Public::from_slice(maker_payment_args.other_pubkey));
+        let taker_pub = try_tx_s!(Public::from_slice(maker_payment_args.other_pubkey));
         let secret_hash = maker_payment_args.secret_hash.to_vec();
-        let time_lock = try_tx_fus!(maker_payment_args.time_lock.try_into());
+        let time_lock = try_tx_s!(maker_payment_args.time_lock.try_into());
         let amount = maker_payment_args.amount;
-        let fut = async move {
-            let utxo_tx = try_tx_s!(
-                z_send_htlc(
-                    &selfi,
-                    time_lock,
-                    maker_key_pair.public(),
-                    &taker_pub,
-                    &secret_hash,
-                    amount
-                )
-                .await
-            );
-            Ok(utxo_tx.into())
-        };
-        Box::new(fut.boxed().compat())
+        let utxo_tx = try_tx_s!(
+            z_send_htlc(
+                self,
+                time_lock,
+                maker_key_pair.public(),
+                &taker_pub,
+                &secret_hash,
+                amount
+            )
+            .await
+        );
+        Ok(utxo_tx.into())
     }
 
-    fn send_taker_payment(&self, taker_payment_args: SendPaymentArgs<'_>) -> TransactionFut {
-        let selfi = self.clone();
+    async fn send_taker_payment(&self, taker_payment_args: SendPaymentArgs<'_>) -> TransactionResult {
         let taker_keypair = self.derive_htlc_key_pair(taker_payment_args.swap_unique_data);
-        let maker_pub = try_tx_fus!(Public::from_slice(taker_payment_args.other_pubkey));
+        let maker_pub = try_tx_s!(Public::from_slice(taker_payment_args.other_pubkey));
         let secret_hash = taker_payment_args.secret_hash.to_vec();
-        let time_lock = try_tx_fus!(taker_payment_args.time_lock.try_into());
+        let time_lock = try_tx_s!(taker_payment_args.time_lock.try_into());
         let amount = taker_payment_args.amount;
-        let fut = async move {
-            let utxo_tx = try_tx_s!(
-                z_send_htlc(
-                    &selfi,
-                    time_lock,
-                    taker_keypair.public(),
-                    &maker_pub,
-                    &secret_hash,
-                    amount
-                )
-                .await
-            );
-            Ok(utxo_tx.into())
-        };
-        Box::new(fut.boxed().compat())
+        let utxo_tx = try_tx_s!(
+            z_send_htlc(
+                self,
+                time_lock,
+                taker_keypair.public(),
+                &maker_pub,
+                &secret_hash,
+                amount
+            )
+            .await
+        );
+        Ok(utxo_tx.into())
     }
 
     async fn send_maker_spends_taker_payment(
@@ -1388,57 +1416,59 @@ impl SwapOps for ZCoin {
 
     /// Currently validates both Standard and WithBurn options for DexFee
     /// TODO: when all mm2 nodes upgrade to support the burn account then disable validation of the Standard option
-    fn validate_fee(&self, validate_fee_args: ValidateFeeArgs<'_>) -> ValidatePaymentFut<()> {
+    async fn validate_fee(&self, validate_fee_args: ValidateFeeArgs<'_>) -> ValidatePaymentResult<()> {
         let z_tx = match validate_fee_args.fee_tx {
             TransactionEnum::ZTransaction(t) => t.clone(),
-            _ => panic!("Unexpected tx {:?}", validate_fee_args.fee_tx),
+            fee_tx => {
+                return MmError::err(ValidatePaymentError::InternalError(format!(
+                    "Invalid fee tx type. fee tx: {:?}",
+                    fee_tx
+                )))
+            },
         };
-        let fee_amount_sat = try_f!(validate_fee_args.dex_fee.fee_amount_as_u64(self.utxo_arc.decimals));
-        let burn_amount_sat = try_f!(validate_fee_args.dex_fee.burn_amount_as_u64(self.utxo_arc.decimals));
+        let fee_amount_sat = validate_fee_args.dex_fee.fee_amount_as_u64(self.utxo_arc.decimals)?;
+        let burn_amount_sat = validate_fee_args.dex_fee.burn_amount_as_u64(self.utxo_arc.decimals)?;
         let expected_memo = MemoBytes::from_bytes(validate_fee_args.uuid).expect("Uuid length < 512");
-        let min_block_number = validate_fee_args.min_block_number;
 
-        let coin = self.clone();
-        let fut = async move {
-            let tx_hash = H256::from(z_tx.txid().0).reversed();
-            let tx_from_rpc = coin
-                .utxo_rpc_client()
-                .get_verbose_transaction(&tx_hash.into())
-                .compat()
-                .await
-                .map_err(|e| MmError::new(ValidatePaymentError::InvalidRpcResponse(e.into_inner().to_string())))?;
+        let tx_hash = H256::from(z_tx.txid().0).reversed();
+        let tx_from_rpc = self
+            .utxo_rpc_client()
+            .get_verbose_transaction(&tx_hash.into())
+            .compat()
+            .await
+            .map_err(|e| MmError::new(ValidatePaymentError::InvalidRpcResponse(e.into_inner().to_string())))?;
 
-            let mut encoded = Vec::with_capacity(1024);
-            z_tx.write(&mut encoded).expect("Writing should not fail");
-            if encoded != tx_from_rpc.hex.0 {
-                return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                    "Encoded transaction {:?} does not match the tx {:?} from RPC",
-                    encoded, tx_from_rpc
-                )));
-            }
+        let mut encoded = Vec::with_capacity(1024);
+        z_tx.write(&mut encoded).expect("Writing should not fail");
+        if encoded != tx_from_rpc.hex.0 {
+            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                "Encoded transaction {:?} does not match the tx {:?} from RPC",
+                encoded, tx_from_rpc
+            )));
+        }
 
-            let block_height = match tx_from_rpc.height {
-                Some(h) => {
-                    if h < min_block_number {
-                        return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                            "Dex fee tx {:?} confirmed before min block {}",
-                            z_tx, min_block_number
-                        )));
-                    } else {
-                        BlockHeight::from_u32(h as u32)
-                    }
-                },
-                None => H0,
-            };
+        let block_height = match tx_from_rpc.height {
+            Some(h) => {
+                if h < validate_fee_args.min_block_number {
+                    return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+                        "Dex fee tx {:?} confirmed before min block {}",
+                        z_tx, validate_fee_args.min_block_number
+                    )));
+                } else {
+                    BlockHeight::from_u32(h as u32)
+                }
+            },
+            None => H0,
+        };
 
-            let mut fee_output_valid = false;
-            let mut burn_output_valid = false;
-            for shielded_out in z_tx.shielded_outputs.iter() {
-                if validate_dex_fee_output(
-                    &coin,
+        let mut fee_output_valid = false;
+        let mut burn_output_valid = false;
+        for shielded_out in z_tx.shielded_outputs.iter() {
+            if self
+                .validate_dex_fee_output(
                     shielded_out,
                     &DEX_FEE_OVK,
-                    &coin.z_fields.dex_fee_addr,
+                    &self.z_fields.dex_fee_addr,
                     block_height,
                     fee_amount_sat,
                     &expected_memo,
@@ -1448,15 +1478,16 @@ impl SwapOps for ZCoin {
                         "Bad dex fee output: {}",
                         err
                     )))
-                })? {
-                    fee_output_valid = true;
-                }
-                if let Some(burn_amount_sat) = burn_amount_sat {
-                    if validate_dex_fee_output(
-                        &coin,
+                })?
+            {
+                fee_output_valid = true;
+            }
+            if let Some(burn_amount_sat) = burn_amount_sat {
+                if self
+                    .validate_dex_fee_output(
                         shielded_out,
                         &DEX_FEE_OVK,
-                        &coin.z_fields.dex_burn_addr,
+                        &self.z_fields.dex_burn_addr,
                         block_height,
                         burn_amount_sat,
                         &expected_memo,
@@ -1466,23 +1497,21 @@ impl SwapOps for ZCoin {
                             "Bad burn output: {}",
                             err
                         )))
-                    })? {
-                        burn_output_valid = true;
-                    }
+                    })?
+                {
+                    burn_output_valid = true;
                 }
             }
+        }
 
-            if fee_output_valid && (burn_amount_sat.is_none() || burn_output_valid) {
-                return Ok(());
-            }
+        if fee_output_valid && (burn_amount_sat.is_none() || burn_output_valid) {
+            return Ok(());
+        }
 
-            MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                "The dex fee tx {:?} has no shielded outputs or outputs decryption failed",
-                z_tx
-            )))
-        };
-
-        Box::new(fut.boxed().compat())
+        MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
+            "The dex fee tx {:?} has no shielded outputs or outputs decryption failed",
+            z_tx
+        )))
     }
 
     #[inline]
@@ -1496,17 +1525,23 @@ impl SwapOps for ZCoin {
     }
 
     #[inline]
-    fn check_if_my_payment_sent(
+    async fn check_if_my_payment_sent(
         &self,
         if_my_payment_sent_args: CheckIfMyPaymentSentArgs<'_>,
-    ) -> Box<dyn Future<Item = Option<TransactionEnum>, Error = String> + Send> {
+    ) -> Result<Option<TransactionEnum>, String> {
+        let time_lock = if_my_payment_sent_args
+            .time_lock
+            .try_into()
+            .map_err(|e: TryFromIntError| e.to_string())?;
         utxo_common::check_if_my_payment_sent(
             self.clone(),
-            try_fus!(if_my_payment_sent_args.time_lock.try_into()),
+            time_lock,
             if_my_payment_sent_args.other_pub,
             if_my_payment_sent_args.secret_hash,
             if_my_payment_sent_args.swap_unique_data,
         )
+        .compat()
+        .await
     }
 
     #[inline]
@@ -2110,33 +2145,6 @@ fn extended_spending_key_from_global_hd_account(
     }
 
     Ok(spending_key)
-}
-
-/// Validates dex fee output or burn output
-/// Returns true if the output valid or error if not valid. Returns false if could not decrypt output (some other output)
-fn validate_dex_fee_output(
-    coin: &ZCoin,
-    shielded_out: &OutputDescription,
-    ovk: &OutgoingViewingKey,
-    expected_address: &PaymentAddress,
-    block_height: BlockHeight,
-    amount_sat: u64,
-    expected_memo: &MemoBytes,
-) -> Result<bool, String> {
-    if let Some((note, address, memo)) =
-        try_sapling_output_recovery(coin.consensus_params_ref(), block_height, ovk, shielded_out)
-    {
-        if &address == expected_address {
-            if note.value != amount_sat {
-                return Err(format!("invalid amount {}, expected {}", note.value, amount_sat));
-            }
-            if &memo != expected_memo {
-                return Err(format!("invalid memo {:?}, expected {:?}", memo, expected_memo));
-            }
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 #[test]
