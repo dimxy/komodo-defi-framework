@@ -1,3 +1,25 @@
+//! Native tests for zcoin 
+//!
+//! To run zcoin tests in this source you need `--features zhtlc-native-tests`
+//! ZOMBIE chain must be running for zcoin tests:
+//! komodod -ac_name=ZOMBIE -ac_supply=0 -ac_reward=25600000000 -ac_halving=388885 -ac_private=1 -ac_sapling=1 -testnode=1 -addnode=65.21.51.116 -addnode=116.203.120.163 -addnode=168.119.236.239 -addnode=65.109.1.121 -addnode=159.69.125.84 -addnode=159.69.10.44
+//! Also check the test z_key (spending key) has balance:
+//! `komodo-cli -ac_name=ZOMBIE z_getbalance zs10hvyxf3ajm82e4gvxem3zjlf9xf3yxhjww9fvz3mfqza9zwumvluzy735e29c3x5aj2nu0ua6n0`
+//! If no balance, you may mine some transparent coins and send to the test z_key.
+//! When tests are run for the first time (or have not been run for a long) synching to fill ZOMBIE_wallet.db is started which may take hours.
+//! So it is recommended to run prepare_zombie_sapling_cache to sync ZOMBIE_wallet.db before running zcoin tests:
+//! cargo test -p coins --features zhtlc-native-tests -- --nocapture prepare_zombie_sapling_cache
+//! For tests, before ZOMBIE_wallet.db is filled another database ZOMBIE_cache.db is created in memory, 
+//! so if prepare_zombie_sapling_cache is cancelled and restarted this would cause restart building of ZOMBIE_cache.db in memory
+//! 
+//! Note that during the ZOMBIE_wallet.db sync an error may be reported:
+//! 'error trying to connect: tcp connect error: Can't assign requested address (os error 49)'. 
+//! Also during the sync other apps like ssh or komodo-cli may return same error or even crash. TODO: fix this problem, maybe it is due to too much load on TCP stack
+//! 
+//! To monitor sync status in logs you may add logging support into the beginning of prepare_zombie_sapling_cache test (or other tests): 
+//! common::log::UnifiedLoggerBuilder::default().init();
+//! and run cargo test with var RUST_LOG=debug 
+
 use bitcrypto::dhash160;
 use common::{block_on, now_sec, one_thousand_u32};
 use mm2_core::mm_ctx::MmCtxBuilder;
