@@ -1132,6 +1132,7 @@ async fn z_coin_from_conf_and_params_with_z_key(
     );
 
     println!("ZOMBIE_wallet.db will be synch'ed with the chain, this may take a while for the first time.");
+    println!("You may also run prepare_zombie_sapling_cache test to update ZOMBIE_wallet.db before running tests.");
     builder.build().await
 }
 
