@@ -832,10 +832,14 @@ impl SaplingSyncLoopHandle {
                     if max_in_wallet >= current_block {
                         break;
                     } else {
+                        debug!("Updating wallet.db from block {} to {}", max_in_wallet, current_block);
                         self.notify_building_wallet_db(max_in_wallet.into(), current_block.into());
                     }
                 },
-                None => self.notify_building_wallet_db(0, current_block.into()),
+                None => {
+                    debug!("Updating wallet.db from block {} to {}", 0, current_block);
+                    self.notify_building_wallet_db(0, current_block.into())
+                },
             }
 
             let scan = DataConnStmtCacheWrapper::new(wallet_ops.clone());
@@ -966,11 +970,13 @@ impl SaplingSyncConnector {
 
     #[inline]
     pub(super) async fn first_sync_block(&self) -> Result<FirstSyncBlock, MmError<BlockchainScanStopped>> {
+        println!("first_sync_block called");
         Ok(self.first_sync_block.clone())
     }
 
     #[inline]
     pub(super) async fn current_sync_status(&mut self) -> Result<SyncStatus, MmError<BlockchainScanStopped>> {
+        println!("current_sync_status called");
         self.sync_watcher.next().await.or_mm_err(|| BlockchainScanStopped {})
     }
 

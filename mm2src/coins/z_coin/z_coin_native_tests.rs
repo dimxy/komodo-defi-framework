@@ -1,4 +1,4 @@
-//! Native tests for zcoin 
+//! Native tests for zcoin
 //!
 //! To run zcoin tests in this source you need `--features zhtlc-native-tests`
 //! ZOMBIE chain must be running for zcoin tests:
@@ -9,16 +9,18 @@
 //! When tests are run for the first time (or have not been run for a long) synching to fill ZOMBIE_wallet.db is started which may take hours.
 //! So it is recommended to run prepare_zombie_sapling_cache to sync ZOMBIE_wallet.db before running zcoin tests:
 //! cargo test -p coins --features zhtlc-native-tests -- --nocapture prepare_zombie_sapling_cache
-//! For tests, before ZOMBIE_wallet.db is filled another database ZOMBIE_cache.db is created in memory, 
-//! so if prepare_zombie_sapling_cache is cancelled and restarted this would cause restart building of ZOMBIE_cache.db in memory
-//! 
+//! If you did not run prepare_zombie_sapling_cache waiting for ZOMBIE_wallet.db sync will be done in the first call to ZCoin::gen_tx.
+//! In tests, for ZOMBIE_wallet.db to be filled, another database ZOMBIE_cache.db is created in memory,
+//! so if db sync in tests is cancelled and restarted this would cause restarting of building ZOMBIE_cache.db in memory
+//!
 //! Note that during the ZOMBIE_wallet.db sync an error may be reported:
-//! 'error trying to connect: tcp connect error: Can't assign requested address (os error 49)'. 
+//! 'error trying to connect: tcp connect error: Can't assign requested address (os error 49)'.
 //! Also during the sync other apps like ssh or komodo-cli may return same error or even crash. TODO: fix this problem, maybe it is due to too much load on TCP stack
-//! 
-//! To monitor sync status in logs you may add logging support into the beginning of prepare_zombie_sapling_cache test (or other tests): 
+//! Errors like `No one seems interested in SyncStatus: send failed because channel is full` in the debug log may be ignored (means that update status is temporarily not watched)
+//!
+//! To monitor sync status in logs you may add logging support into the beginning of prepare_zombie_sapling_cache test (or other tests):
 //! common::log::UnifiedLoggerBuilder::default().init();
-//! and run cargo test with var RUST_LOG=debug 
+//! and run cargo test with var RUST_LOG=debug
 
 use bitcrypto::dhash160;
 use common::{block_on, now_sec, one_thousand_u32};
