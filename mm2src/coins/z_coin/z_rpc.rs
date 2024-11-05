@@ -970,13 +970,11 @@ impl SaplingSyncConnector {
 
     #[inline]
     pub(super) async fn first_sync_block(&self) -> Result<FirstSyncBlock, MmError<BlockchainScanStopped>> {
-        println!("first_sync_block called");
         Ok(self.first_sync_block.clone())
     }
 
     #[inline]
     pub(super) async fn current_sync_status(&mut self) -> Result<SyncStatus, MmError<BlockchainScanStopped>> {
-        println!("current_sync_status called");
         self.sync_watcher.next().await.or_mm_err(|| BlockchainScanStopped {})
     }
 
