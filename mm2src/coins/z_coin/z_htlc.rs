@@ -88,8 +88,10 @@ pub async fn z_send_dex_fee(
     dex_fee: DexFee,
     uuid: &[u8],
 ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
-    let dex_fee_amount_sat =
-        sat_from_big_decimal(&Into::<BigDecimal>::into(dex_fee.fee_amount()), coin.utxo_arc.decimals)?;
+    if matches!(dex_fee, DexFee::NoFee) {
+        return SendOutputsErr::InternalError("unexpected DexFee::NoFee".to_string()).into();
+    }
+    let dex_fee_amount_sat = sat_from_big_decimal(&dex_fee.fee_amount().to_decimal(), coin.utxo_arc.decimals)?;
     // add dex fee output
     let dex_fee_out = ZOutput {
         to_addr: coin.z_fields.dex_fee_addr.clone(),
@@ -100,8 +102,7 @@ pub async fn z_send_dex_fee(
     };
     let mut outputs = vec![dex_fee_out];
     if let Some(dex_burn_amount) = dex_fee.burn_amount() {
-        let dex_burn_amount_sat =
-            sat_from_big_decimal(&Into::<BigDecimal>::into(dex_burn_amount), coin.utxo_arc.decimals)?;
+        let dex_burn_amount_sat = sat_from_big_decimal(&dex_burn_amount.to_decimal(), coin.utxo_arc.decimals)?;
         // add output to the dex burn address:
         let dex_burn_out = ZOutput {
             to_addr: coin.z_fields.dex_burn_addr.clone(),
@@ -114,7 +115,6 @@ pub async fn z_send_dex_fee(
     }
 
     let tx = coin.send_outputs(vec![], outputs).await?;
-
     Ok(tx)
 }
 

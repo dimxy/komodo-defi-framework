@@ -303,7 +303,7 @@ impl MakerSwap {
             },
             MakerSwapEvent::StartFailed(err) => self.errors.lock().push(err),
             MakerSwapEvent::Negotiated(data) => {
-                self.w().data.taker_version = Some(fix_taker_version(&data));
+                self.w().data.taker_version = Some(get_taker_version(&data));
                 self.taker_payment_lock
                     .store(data.taker_payment_locktime, Ordering::Relaxed);
                 self.w().other_maker_coin_htlc_pub = data.other_maker_coin_htlc_pub();
@@ -2441,7 +2441,7 @@ pub async fn calc_max_maker_vol(
 /// Determine version from negotiation data if saved swap data does not store version
 /// (if the swap started before the upgrade to versioned negotiation message)
 /// In any case it is very undesirable to upgrade mm2 when any swaps are active
-fn fix_taker_version(negotiation_data: &TakerNegotiationData) -> u16 { negotiation_data.taker_version.unwrap_or(0) }
+fn get_taker_version(negotiation_data: &TakerNegotiationData) -> u16 { negotiation_data.taker_version.unwrap_or(0) }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod maker_swap_tests {
