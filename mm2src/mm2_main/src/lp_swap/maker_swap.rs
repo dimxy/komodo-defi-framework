@@ -127,7 +127,7 @@ async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSav
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TakerNegotiationData {
-    /// Protocol version supported by taker. Optional because it was added in NegotiationDataMsgVersion
+    /// Protocol version supported by taker peer. Optional because it was added in new NegotiationDataMsgVersion
     /// so it could be read as None from a saved swap if the swap started before upgrade to NegotiationDataMsgVersion
     pub taker_version: Option<u16>,
     pub taker_payment_locktime: u64,
@@ -164,7 +164,7 @@ pub struct MakerSwapData {
     pub maker_payment_lock: u64,
     /// Allows to recognize one SWAP from the other in the logs. #274.
     pub uuid: Uuid,
-    /// Swap protocol version taker support. This field introduced with NegotiationDataMsgVersion so may be optional for past messages
+    /// Swap protocol version that the remote taker supports. This field introduced with NegotiationDataMsgVersion message so is optional for old takers
     pub taker_version: Option<u16>,
     pub started_at: u64,
     pub maker_coin_start_block: u64,

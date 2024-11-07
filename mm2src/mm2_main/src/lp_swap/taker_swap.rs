@@ -548,6 +548,7 @@ pub struct TakerSwapData {
     /// Allows to recognize one SWAP from the other in the logs. #274.
     pub uuid: Uuid,
     pub started_at: u64,
+    /// Swap protocol version that the remote maker supports. This field introduced with NegotiationDataMsgVersion message so is optional for old makers
     pub maker_version: Option<u16>,
     pub maker_payment_wait: u64,
     pub maker_coin_start_block: u64,
@@ -651,6 +652,8 @@ pub struct TakerPaymentSpentData {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MakerNegotiationData {
+    /// Protocol version supported by maker peer. Optional because it was added in new NegotiationDataMsgVersion
+    /// so it could be read as None from a saved swap if the swap started before upgrade to NegotiationDataMsgVersion
     pub maker_version: Option<u16>,
     pub maker_payment_locktime: u64,
     pub maker_pubkey: H264Json,
