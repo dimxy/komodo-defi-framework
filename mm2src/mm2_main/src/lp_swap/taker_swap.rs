@@ -18,7 +18,7 @@ use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, swa
                      wait_for_maker_payment_conf_duration, SwapMsgWrapper, TakerSwapWatcherData, MAX_STARTED_AT_DIFF};
 use crate::lp_swap::{NegotiationDataMsgVersion, SwapMsgExt};
 use coins::lp_price::fetch_swap_coins_price;
-use coins::swap_features::SwapFeature;
+use coins::swap_features::LegacySwapFeature;
 use coins::SWAP_PROTOCOL_VERSION;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
@@ -1375,7 +1375,7 @@ impl TakerSwap {
             .data
             .maker_version
             .ok_or("No swap protocol version".to_owned())?;
-        let is_burn_active = SwapFeature::is_active(SwapFeature::SendToPreBurnAccount, remote_version);
+        let is_burn_active = LegacySwapFeature::is_active(LegacySwapFeature::SendToPreBurnAccount, remote_version);
         let dex_fee = dex_fee_from_taker_coin(
             self.taker_coin.deref(),
             &self.r().data.maker_coin,
