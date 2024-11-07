@@ -89,7 +89,7 @@ pub async fn z_send_dex_fee(
     uuid: &[u8],
 ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
     if matches!(dex_fee, DexFee::NoFee) {
-        return SendOutputsErr::InternalError("unexpected DexFee::NoFee".to_string()).into();
+        return MmError::err(SendOutputsErr::InternalError("unexpected DexFee::NoFee".to_string()));
     }
     let dex_fee_amount_sat = sat_from_big_decimal(&dex_fee.fee_amount().to_decimal(), coin.utxo_arc.decimals)?;
     // add dex fee output
