@@ -1,4 +1,4 @@
-use crate::{generate_utxo_coin_with_random_privkey, MYCOIN, MYCOIN1, SET_DEX_PUBKEY_TO_ALICE};
+use crate::{generate_utxo_coin_with_random_privkey, MYCOIN, MYCOIN1, SET_BURN_PUBKEY_TO_ALICE};
 use bitcrypto::dhash160;
 use coins::utxo::UtxoCommonOps;
 use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs,
@@ -623,10 +623,10 @@ fn send_and_refund_maker_payment_taker_secret() {
 #[test]
 fn test_v2_swap_utxo_utxo() { test_v2_swap_utxo_utxo_impl(); }
 
-// test a swap when taker is dex pubkey (no dex fee should be paid)
+// test a swap when taker is burn pubkey (no dex fee should be paid)
 #[test]
-fn test_v2_swap_utxo_utxo_dex_as_alice() {
-    SET_DEX_PUBKEY_TO_ALICE.set(true);
+fn test_v2_swap_utxo_utxo_burnkey_as_alice() {
+    SET_BURN_PUBKEY_TO_ALICE.set(true);
     test_v2_swap_utxo_utxo_impl();
 }
 
@@ -642,8 +642,8 @@ fn test_v2_swap_utxo_utxo_impl() {
             .to_vec(),
     );
     let mut envs = vec![];
-    if SET_DEX_PUBKEY_TO_ALICE.get() {
-        envs.push(("TEST_DEX_FEE_ADDR_RAW_PUBKEY", alice_pubkey_str.as_str()));
+    if SET_BURN_PUBKEY_TO_ALICE.get() {
+        envs.push(("TEST_BURN_ADDR_RAW_PUBKEY", alice_pubkey_str.as_str()));
     }
 
     let bob_conf = Mm2TestConf::seednode_trade_v2(&format!("0x{}", hex::encode(bob_priv_key)), &coins);
@@ -715,7 +715,7 @@ fn test_v2_swap_utxo_utxo_impl() {
 
     let locked_alice = block_on(get_locked_amount(&mm_alice, MYCOIN1));
     assert_eq!(locked_alice.coin, MYCOIN1);
-    let expected: MmNumberMultiRepr = if SET_DEX_PUBKEY_TO_ALICE.get() {
+    let expected: MmNumberMultiRepr = if SET_BURN_PUBKEY_TO_ALICE.get() {
         MmNumber::from("777.00001").into() // no dex fee if dex pubkey is alice
     } else {
         MmNumber::from("778.00001").into()

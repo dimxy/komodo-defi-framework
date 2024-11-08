@@ -104,7 +104,7 @@ pub static SEPOLIA_RPC_URL: &str = "https://ethereum-sepolia-rpc.publicnode.com"
 // use thread local to affect only the current running test
 thread_local! {
     /// Set test dex pubkey as Taker (to check DexFee::NoFee)
-    pub static SET_DEX_PUBKEY_TO_ALICE: Cell<bool> = Cell::new(false);
+    pub static SET_BURN_PUBKEY_TO_ALICE: Cell<bool> = Cell::new(false);
     pub static USE_NON_VERSIONED_MAKER: Cell<bool> = Cell::new(false);
     pub static USE_NON_VERSIONED_TAKER: Cell<bool> = Cell::new(false);
 }
@@ -878,8 +878,8 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
     );
 
     let mut envs = vec![];
-    if SET_DEX_PUBKEY_TO_ALICE.get() {
-        envs.push(("TEST_DEX_FEE_ADDR_RAW_PUBKEY", alice_pubkey_str.as_str()));
+    if SET_BURN_PUBKEY_TO_ALICE.get() {
+        envs.push(("TEST_BURN_ADDR_RAW_PUBKEY", alice_pubkey_str.as_str()));
     }
     if USE_NON_VERSIONED_MAKER.get() {
         envs.push(("USE_NON_VERSIONED_MAKER", "true"));

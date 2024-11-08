@@ -1285,20 +1285,20 @@ async fn gen_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
     {
         match *args.dex_fee {
             DexFee::NoFee => {
-                if args.taker_pub.to_vec().as_slice() != coin.dex_pubkey() {
-                    panic!("taker pubkey must be equal to dex pubkey for DexFee::NoFee");
+                if args.taker_pub.to_vec().as_slice() != coin.burn_pubkey() {
+                    panic!("taker pubkey must be equal to burn pubkey for DexFee::NoFee");
                 }
                 assert_eq!(outputs.len(), 1); // only the maker output
             },
             DexFee::Standard(..) => {
-                if args.taker_pub.to_vec().as_slice() == coin.dex_pubkey() {
-                    panic!("taker pubkey must NOT be equal to dex pubkey for DexFee::Standard");
+                if args.taker_pub.to_vec().as_slice() == coin.burn_pubkey() {
+                    panic!("taker pubkey must NOT be equal to burn pubkey for DexFee::Standard");
                 }
                 assert_eq!(outputs.len(), 1); // only the dex fee output (maker output will be added later)
             },
             DexFee::WithBurn { .. } => {
-                if args.taker_pub.to_vec().as_slice() == coin.dex_pubkey() {
-                    panic!("taker pubkey must NOT be equal to dex pubkey for DexFee::WithBurn");
+                if args.taker_pub.to_vec().as_slice() == coin.burn_pubkey() {
+                    panic!("taker pubkey must NOT be equal to burn pubkey for DexFee::WithBurn");
                 }
                 assert_eq!(outputs.len(), 3); // dex fee, burn and maker outputs
             },
@@ -1504,14 +1504,14 @@ where
                 panic!("should not send dex fee for DexFee::NoFee");
             },
             DexFee::Standard(..) => {
-                if taker_pub.as_slice() == coin.dex_pubkey() {
-                    panic!("taker pubkey must NOT be equal to dex pubkey for DexFee::Standard");
+                if taker_pub.as_slice() == coin.burn_pubkey() {
+                    panic!("taker pubkey must NOT be equal to burn pubkey for DexFee::Standard");
                 }
                 assert_eq!(outputs.len(), 1);
             },
             DexFee::WithBurn { .. } => {
-                if taker_pub.as_slice() == coin.dex_pubkey() {
-                    panic!("taker pubkey must NOT be equal to dex pubkey for DexFee::WithBurn");
+                if taker_pub.as_slice() == coin.burn_pubkey() {
+                    panic!("taker pubkey must NOT be equal to burn pubkey for DexFee::WithBurn");
                 }
                 assert_eq!(outputs.len(), 2);
             },

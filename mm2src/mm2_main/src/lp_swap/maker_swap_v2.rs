@@ -10,7 +10,7 @@ use crate::lp_swap::{swap_v2_pb::*, NO_REFUND_FEE};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 #[cfg(feature = "run-docker-tests")]
-use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
+use coins::TEST_BURN_ADDR_RAW_PUBKEY;
 use coins::{dex_fee_from_taker_coin, CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, FundingTxSpend,
             GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes,
             RefundMakerPaymentSecretArgs, RefundMakerPaymentTimelockArgs, SearchForFundingSpendErr,
@@ -470,9 +470,9 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
         recreate_ctx: Self::RecreateCtx,
     ) -> Result<(RestoredMachine<Self>, Box<dyn RestoredState<StateMachine = Self>>), Self::RecreateError> {
         #[cfg(feature = "run-docker-tests")]
-        if let Ok(env_pubkey) = std::env::var("TEST_DEX_FEE_ADDR_RAW_PUBKEY") {
+        if let Ok(env_pubkey) = std::env::var("TEST_BURN_ADDR_RAW_PUBKEY") {
             unsafe {
-                TEST_DEX_FEE_ADDR_RAW_PUBKEY = Some(hex::decode(env_pubkey).expect("valid hex"));
+                TEST_BURN_ADDR_RAW_PUBKEY = Some(hex::decode(env_pubkey).expect("valid hex"));
             }
         }
 
@@ -808,9 +808,9 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
 
     async fn on_changed(self: Box<Self>, state_machine: &mut Self::StateMachine) -> StateResult<Self::StateMachine> {
         #[cfg(feature = "run-docker-tests")]
-        if let Ok(env_pubkey) = std::env::var("TEST_DEX_FEE_ADDR_RAW_PUBKEY") {
+        if let Ok(env_pubkey) = std::env::var("TEST_BURN_ADDR_RAW_PUBKEY") {
             unsafe {
-                TEST_DEX_FEE_ADDR_RAW_PUBKEY = Some(hex::decode(env_pubkey).expect("valid hex"));
+                TEST_BURN_ADDR_RAW_PUBKEY = Some(hex::decode(env_pubkey).expect("valid hex"));
             }
         }
 

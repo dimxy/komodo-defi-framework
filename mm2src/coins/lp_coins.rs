@@ -92,7 +92,7 @@ use utxo_signer::with_key_pair::UtxoSignWithKeyPairError;
 use zcash_primitives::transaction::Transaction as ZTransaction;
 
 #[cfg(feature = "for-tests")]
-pub static mut TEST_DEX_FEE_ADDR_RAW_PUBKEY: Option<Vec<u8>> = None;
+pub static mut TEST_BURN_ADDR_RAW_PUBKEY: Option<Vec<u8>> = None;
 
 cfg_native! {
     use crate::lightning::LightningCoin;
@@ -1203,19 +1203,19 @@ pub trait SwapOps {
 
     fn maker_locktime_multiplier(&self) -> f64 { 2.0 }
 
-    fn dex_pubkey(&self) -> &[u8] {
+    fn dex_pubkey(&self) -> &[u8] { &DEX_FEE_ADDR_RAW_PUBKEY }
+
+    fn burn_pubkey(&self) -> &[u8] {
         #[cfg(feature = "for-tests")]
         {
             unsafe {
-                if let Some(ref test_pk) = TEST_DEX_FEE_ADDR_RAW_PUBKEY {
+                if let Some(ref test_pk) = TEST_BURN_ADDR_RAW_PUBKEY {
                     return test_pk.as_slice();
                 }
             }
         }
-        &DEX_FEE_ADDR_RAW_PUBKEY
+        &DEX_BURN_ADDR_RAW_PUBKEY
     }
-
-    fn burn_pubkey(&self) -> &[u8] { &DEX_BURN_ADDR_RAW_PUBKEY }
 }
 
 /// Operations on maker coin from taker swap side

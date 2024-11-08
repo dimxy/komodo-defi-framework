@@ -21,7 +21,7 @@ use coins::lp_price::fetch_swap_coins_price;
 use coins::swap_features::LegacySwapFeature;
 use coins::SWAP_PROTOCOL_VERSION;
 #[cfg(feature = "run-docker-tests")]
-use coins::TEST_DEX_FEE_ADDR_RAW_PUBKEY;
+use coins::TEST_BURN_ADDR_RAW_PUBKEY;
 use coins::{dex_fee_from_taker_coin, lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput,
             DexFee, FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
             PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
@@ -1039,9 +1039,9 @@ impl TakerSwap {
 
     async fn start(&self) -> Result<(Option<TakerSwapCommand>, Vec<TakerSwapEvent>), String> {
         #[cfg(feature = "run-docker-tests")]
-        if let Ok(env_pubkey) = std::env::var("TEST_DEX_FEE_ADDR_RAW_PUBKEY") {
+        if let Ok(env_pubkey) = std::env::var("TEST_BURN_ADDR_RAW_PUBKEY") {
             unsafe {
-                TEST_DEX_FEE_ADDR_RAW_PUBKEY = Some(hex::decode(env_pubkey).expect("valid hex"));
+                TEST_BURN_ADDR_RAW_PUBKEY = Some(hex::decode(env_pubkey).expect("valid hex"));
             }
         }
 
