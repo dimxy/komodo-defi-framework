@@ -3725,7 +3725,10 @@ impl DexFee {
         preburn_account_active: Option<bool>,
     ) -> DexFee {
         if let Some(taker_pubkey) = taker_pubkey {
-            if !taker_coin.is_privacy() && taker_coin.burn_pubkey() == taker_pubkey && preburn_account_active.unwrap_or(false) {
+            if !taker_coin.is_privacy()
+                && taker_coin.burn_pubkey() == taker_pubkey
+                && preburn_account_active.unwrap_or(false)
+            {
                 return DexFee::NoFee; // no dex fee if the taker is the burn pubkey
             }
         }
