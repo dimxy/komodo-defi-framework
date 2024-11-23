@@ -475,6 +475,22 @@ pub struct RecoveredSwap {
     transaction: TransactionEnum,
 }
 
+#[derive(Display)]
+pub enum RecoverSwapError {
+    // We might not find the original payment tx on chain (e.g. re-orged). This doesn't mean though that nobody has it.
+    // TODO: These coins should be spent ASAP to avoid them getting locked (or stolen).
+    #[display(fmt = "The payment tx is not on-chain. Nothing to recover.")]
+    PaymentTxNotFound,
+    #[display(fmt = "An unknown error occurred. Retrying might fix it: {}", _0)]
+    Temporary(String),
+    #[display(fmt = "The swap is not recoverable: {}", _0)]
+    Irrecoverable(String),
+    #[display(fmt = "Wait {}s and try to recover again.", _0)]
+    WaitAndRetry(u64),
+    #[display(fmt = "The funds will be automatically recovered after lock-time: {}", _0)]
+    AutoRecoverableAfter(u64),
+}
+
 /// Represents the amount of a coin locked by ongoing swap
 #[derive(Debug)]
 pub struct LockedAmount {

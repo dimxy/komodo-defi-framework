@@ -7,10 +7,10 @@ use super::{broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_e
             check_other_coin_balance_for_swap, detect_secret_hash_algo, dex_fee_amount_from_taker_coin,
             get_locked_amount, recv_swap_msg, swap_topic, taker_payment_spend_deadline, tx_helper_topic,
             wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
-            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
-            SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
-            SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, TAKER_FEE_VALIDATION_ATTEMPTS,
-            TAKER_FEE_VALIDATION_RETRY_DELAY_SECS, WAIT_CONFIRM_INTERVAL_SEC};
+            NegotiationDataV2, NegotiationDataV3, RecoverSwapError, RecoveredSwap, RecoveredSwapAction, SavedSwap,
+            SavedSwapIo, SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys,
+            SwapTxDataMsg, SwapsContext, TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE,
+            TAKER_FEE_VALIDATION_ATTEMPTS, TAKER_FEE_VALIDATION_RETRY_DELAY_SECS, WAIT_CONFIRM_INTERVAL_SEC};
 use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
@@ -22,8 +22,7 @@ use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApp
             SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash, TradeFee,
             TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput};
 use common::log::{debug, error, info, warn};
-use common::{bits256, executor::Timer, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
-use common::{now_sec, wait_until_sec};
+use common::{bits256, executor::Timer, now_ms, now_sec, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::privkey::SerializableSecp256k1Keypair;
 use crypto::CryptoCtx;
 use futures::{compat::Future01CompatExt, select, FutureExt};
@@ -1188,6 +1187,7 @@ impl MakerSwap {
         ]))
     }
 
+    // fixme: turn this into a recover (forever lived, unless maker payment isn't on chain)
     async fn refund_maker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         #[cfg(test)]
         if self.fail_at == Some(FailAt::MakerPaymentRefund) {
@@ -1375,13 +1375,13 @@ impl MakerSwap {
         Ok((swap, command))
     }
 
-    pub async fn recover_funds(&self) -> Result<RecoveredSwap, String> {
-        async fn try_spend_taker_payment(selfi: &MakerSwap, secret_hash: &[u8]) -> Result<TransactionEnum, String> {
+    pub async fn recover_funds(&self) -> Result<RecoveredSwap, RecoverSwapError> {
+        async fn try_spend_taker_payment(selfi: &MakerSwap) -> Result<TransactionEnum, RecoverSwapError> {
             let taker_payment_hex = &selfi
                 .r()
                 .taker_payment
                 .clone()
-                .ok_or(ERRL!("No info about taker payment, swap is not recoverable"))?
+                .ok_or(RecoverSwapError::Irrecoverable("taker payment not found".to_string()))?
                 .tx_hex;
 
             // have to do this because std::sync::RwLockReadGuard returned by r() is not Send,
@@ -1399,34 +1399,33 @@ impl MakerSwap {
             let search_input = SearchForSwapTxSpendInput {
                 time_lock: timelock,
                 other_pub: other_taker_coin_htlc_pub.as_slice(),
-                secret_hash,
+                secret_hash: &selfi.secret_hash(),
                 tx: taker_payment_hex,
                 search_from_block: taker_coin_start_block,
                 swap_contract_address: &taker_coin_swap_contract_address,
                 swap_unique_data: &unique_data,
                 watcher_reward,
             };
-            // check if the taker payment is not spent yet
+            // Check the taker payment status first
             match selfi.taker_coin.search_for_swap_tx_spend_other(search_input).await {
                 Ok(Some(FoundSwapTxSpend::Spent(tx))) => {
-                    return ERR!(
-                        "Taker payment was already spent by {} tx {:02x}",
-                        selfi.taker_coin.ticker(),
-                        tx.tx_hash_as_bytes()
-                    )
+                    // We already spent the taker payment.
+                    return Ok(tx);
                 },
                 Ok(Some(FoundSwapTxSpend::Refunded(tx))) => {
-                    return ERR!(
+                    // The taker refunded their payment.
+                    warn!("TakerPayment was refunded back to the taker.");
+                    return Err(RecoverSwapError::Irrecoverable(format!(
                         "Taker payment was already refunded by {} tx {:02x}",
                         selfi.taker_coin.ticker(),
                         tx.tx_hash_as_bytes()
-                    )
+                    )));
                 },
-                Err(e) => return ERR!("Error {} when trying to find taker payment spend", e),
+                Err(e) => return Err(RecoverSwapError::Temporary(e)),
                 Ok(None) => (), // payment is not spent, continue
             }
 
-            selfi
+            let send_result = selfi
                 .taker_coin
                 .send_maker_spends_taker_payment(SpendPaymentArgs {
                     other_payment_tx: taker_payment_hex,
@@ -1438,20 +1437,23 @@ impl MakerSwap {
                     swap_unique_data: &selfi.unique_swap_data(),
                     watcher_reward,
                 })
-                .await
-                .map_err(|e| ERRL!("{:?}", e))
-        }
+                .await;
 
-        if self.finished_at.load(Ordering::Relaxed) == 0 {
-            return ERR!("Swap must be finished before recover funds attempt");
-        }
+            match send_result {
+                Ok(tx) => Ok(tx),
+                Err(err) => {
+                    if let Some(tx) = err.get_tx() {
+                        broadcast_p2p_tx_msg(
+                            &selfi.ctx,
+                            tx_helper_topic(selfi.taker_coin.ticker()),
+                            &tx,
+                            &selfi.p2p_privkey,
+                        );
+                    }
 
-        if self.r().maker_payment_refund.is_some() {
-            return ERR!("Maker payment is refunded, swap is not recoverable");
-        }
-
-        if self.r().taker_payment_spend.is_some() && self.r().taker_payment_spend_confirmed {
-            return ERR!("Taker payment spend transaction has been sent and confirmed");
+                    Err(RecoverSwapError::Temporary(err.get_plain_text_format()))
+                },
+            }
         }
 
         let secret_hash = self.secret_hash();
@@ -1470,23 +1472,23 @@ impl MakerSwap {
         let maker_payment = match maybe_maker_payment {
             Some(tx) => tx.tx_hex.0,
             None => {
-                let maybe_maker_payment = try_s!(
-                    self.maker_coin
-                        .check_if_my_payment_sent(CheckIfMyPaymentSentArgs {
-                            time_lock: maker_payment_lock,
-                            other_pub: other_maker_coin_htlc_pub.as_slice(),
-                            secret_hash: secret_hash.as_slice(),
-                            search_from_block: maker_coin_start_block,
-                            swap_contract_address: &maker_coin_swap_contract_address,
-                            swap_unique_data: &unique_data,
-                            amount: &self.maker_amount,
-                            payment_instructions: &payment_instructions,
-                        })
-                        .await
-                );
+                let maybe_maker_payment = self
+                    .maker_coin
+                    .check_if_my_payment_sent(CheckIfMyPaymentSentArgs {
+                        time_lock: maker_payment_lock,
+                        other_pub: other_maker_coin_htlc_pub.as_slice(),
+                        secret_hash: secret_hash.as_slice(),
+                        search_from_block: maker_coin_start_block,
+                        swap_contract_address: &maker_coin_swap_contract_address,
+                        swap_unique_data: &unique_data,
+                        amount: &self.maker_amount,
+                        payment_instructions: &payment_instructions,
+                    })
+                    .await
+                    .map_err(RecoverSwapError::Temporary)?;
                 match maybe_maker_payment {
                     Some(tx) => tx.tx_hex(),
-                    None => return ERR!("Maker payment transaction was not found"),
+                    None => return Err(RecoverSwapError::PaymentTxNotFound),
                 }
             },
         };
@@ -1505,7 +1507,7 @@ impl MakerSwap {
         match self.maker_coin.search_for_swap_tx_spend_my(search_input).await {
             Ok(Some(FoundSwapTxSpend::Spent(_))) => {
                 warn!("MakerPayment spent, but TakerPayment is not yet. Trying to spend TakerPayment");
-                let transaction = try_s!(try_spend_taker_payment(self, secret_hash.as_slice()).await);
+                let transaction = try_spend_taker_payment(self).await?;
 
                 Ok(RecoveredSwap {
                     action: RecoveredSwapAction::SpentOtherPayment,
@@ -1513,20 +1515,24 @@ impl MakerSwap {
                     transaction,
                 })
             },
-            Ok(Some(FoundSwapTxSpend::Refunded(tx))) => ERR!(
-                "Maker payment was already refunded by {} tx {:02x}",
-                self.maker_coin.ticker(),
-                tx.tx_hash_as_bytes()
-            ),
-            Err(e) => ERR!("Error {} when trying to find maker payment spend", e),
+            Ok(Some(FoundSwapTxSpend::Refunded(tx))) => Ok(RecoveredSwap {
+                action: RecoveredSwapAction::RefundedMyPayment,
+                coin: self.maker_coin.ticker().to_string(),
+                transaction: tx,
+            }),
+            Err(e) => Err(RecoverSwapError::Temporary(e)),
             Ok(None) => {
                 if self.maker_coin.is_auto_refundable() {
-                    return ERR!("Maker payment will be refunded automatically!");
+                    return Err(RecoverSwapError::AutoRecoverableAfter(maker_payment_lock));
                 }
 
-                let can_refund_htlc = try_s!(self.maker_coin.can_refund_htlc(maker_payment_lock).await);
+                let can_refund_htlc = self
+                    .maker_coin
+                    .can_refund_htlc(maker_payment_lock)
+                    .await
+                    .map_err(RecoverSwapError::Irrecoverable)?;
                 if let CanRefundHtlc::HaveToWait(seconds_to_wait) = can_refund_htlc {
-                    return ERR!("Too early to refund, wait until {}", wait_until_sec(seconds_to_wait));
+                    return Err(RecoverSwapError::WaitAndRetry(seconds_to_wait));
                 }
                 let fut = self.maker_coin.send_maker_refunds_payment(RefundPaymentArgs {
                     payment_tx: &maker_payment,
@@ -1552,7 +1558,7 @@ impl MakerSwap {
                             );
                         }
 
-                        return ERR!("{}", err.get_plain_text_format());
+                        return Err(RecoverSwapError::Temporary(err.get_plain_text_format()));
                     },
                 };
 
