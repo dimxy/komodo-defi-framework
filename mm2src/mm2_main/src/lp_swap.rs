@@ -475,7 +475,7 @@ pub struct RecoveredSwap {
     transaction: TransactionEnum,
 }
 
-#[derive(Display)]
+#[derive(Display, Debug, PartialEq)]
 pub enum RecoverSwapError {
     // We might not find the original payment tx on chain (e.g. re-orged). This doesn't mean though that nobody has it.
     // TODO: These coins should be spent ASAP to avoid them getting locked (or stolen).
