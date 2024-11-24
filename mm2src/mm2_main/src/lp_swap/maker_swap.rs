@@ -1187,7 +1187,6 @@ impl MakerSwap {
         ]))
     }
 
-    // fixme: turn this into a recover (forever lived, unless maker payment isn't on chain)
     async fn refund_maker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         #[cfg(test)]
         if self.fail_at == Some(FailAt::MakerPaymentRefund) {
@@ -1196,91 +1195,88 @@ impl MakerSwap {
             ]));
         }
 
-        let maker_payment = self.r().maker_payment.clone().unwrap().tx_hex;
-        let locktime = self.r().data.maker_payment_lock;
-        if self.maker_coin.is_auto_refundable() {
-            return match self.maker_coin.wait_for_htlc_refund(&maker_payment, locktime).await {
-                Ok(()) => Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
-                    MakerSwapEvent::MakerPaymentRefunded(None),
-                ])),
-                Err(err) => Ok((Some(MakerSwapCommand::Finish), vec![
-                    MakerSwapEvent::MakerPaymentRefundFailed(
-                        ERRL!("!maker_coin.wait_for_htlc_refund: {}", err.to_string()).into(),
-                    ),
-                ])),
-            };
-        }
-
+        // Keep trying to recover funds (by refunding the maker payment or spending the taker payment) until successful or face an irrecoverable error.
         loop {
-            match self.maker_coin.can_refund_htlc(locktime).await {
-                Ok(CanRefundHtlc::CanRefundNow) => break,
-                Ok(CanRefundHtlc::HaveToWait(to_sleep)) => Timer::sleep(to_sleep as f64).await,
-                Err(e) => {
-                    error!("Error {} on can_refund_htlc, retrying in 30 seconds", e);
-                    Timer::sleep(30.).await;
+            match self.recover_funds().await {
+                // We recovered the swap successfully.
+                Ok(recovered_swap) => match recovered_swap {
+                    // We recovered the swap by refunding the maker payment.
+                    RecoveredSwap {
+                        action: RecoveredSwapAction::RefundedMyPayment,
+                        coin: _,
+                        transaction,
+                    } => {
+                        let tx_ident = TransactionIdentifier {
+                            tx_hex: transaction.tx_hex().into(),
+                            tx_hash: transaction.tx_hash_as_bytes(),
+                        };
+                        info!("Maker payment refund tx {:02x}", tx_ident.tx_hash);
+                        return Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
+                            MakerSwapEvent::MakerPaymentRefunded(Some(tx_ident)),
+                        ]));
+                    },
+                    // We recovered the swap by proceeding forward and spending the taker payment. The swap wasn't actually a failure.
+                    // Roll back to confirming the taker payment spend.
+                    RecoveredSwap {
+                        action: RecoveredSwapAction::SpentOtherPayment,
+                        coin: _,
+                        transaction,
+                    } => {
+                        let tx_ident = TransactionIdentifier {
+                            tx_hex: transaction.tx_hex().into(),
+                            tx_hash: transaction.tx_hash_as_bytes(),
+                        };
+                        info!("Refund canceled. Taker payment spend tx {:02x}", tx_ident.tx_hash);
+                        // TODO: We prepared for refund but didn't finalize refund. This must be breaking something for lightning.
+                        return Ok((Some(MakerSwapCommand::ConfirmTakerPaymentSpend), vec![
+                            MakerSwapEvent::TakerPaymentSpent(tx_ident),
+                            MakerSwapEvent::TakerPaymentSpendConfirmStarted,
+                        ]));
+                    },
+                },
+
+                // Encountered an error during swap recover.
+                Err(err) => match err {
+                    // The payment tx we want to refund isn't even on-chain. There is nothing to refund/spend.
+                    RecoverSwapError::PaymentTxNotFound => {
+                        return Ok((Some(MakerSwapCommand::Finish), vec![
+                            MakerSwapEvent::MakerPaymentRefundFailed(
+                                "MakerPayment isn't even on-chain to refund it.".into(),
+                            ),
+                        ]));
+                    },
+                    // The error is unrecoverable, retrying will not fix the issue.
+                    RecoverSwapError::Irrecoverable(e) => {
+                        return Ok((Some(MakerSwapCommand::Finish), vec![
+                            MakerSwapEvent::MakerPaymentRefundFailed(ERRL!("!maker_coin.recover_funds: {}", e).into()),
+                        ]));
+                    },
+                    // The error is temporary, retrying may fix the issue.
+                    RecoverSwapError::Temporary(e) => {
+                        error!("Error {} on recover_funds, retrying in 30 seconds", e);
+                        Timer::sleep(30.).await;
+                    },
+                    // We should wait for this many seconds and try again.
+                    RecoverSwapError::WaitAndRetry(secs) => {
+                        Timer::sleep(secs as f64).await;
+                    },
+                    // The swap will be automatically recovered after the specified locktime.
+                    RecoverSwapError::AutoRecoverableAfter(locktime) => {
+                        let maker_payment = self.r().maker_payment.clone().unwrap().tx_hex;
+                        return match self.maker_coin.wait_for_htlc_refund(&maker_payment, locktime).await {
+                            Ok(()) => Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
+                                MakerSwapEvent::MakerPaymentRefunded(None),
+                            ])),
+                            Err(e) => Ok((Some(MakerSwapCommand::Finish), vec![
+                                MakerSwapEvent::MakerPaymentRefundFailed(
+                                    ERRL!("!maker_coin.wait_for_htlc_refund: {}", e.to_string()).into(),
+                                ),
+                            ])),
+                        };
+                    },
                 },
             }
         }
-
-        let other_maker_coin_htlc_pub = self.r().other_maker_coin_htlc_pub;
-        let maker_coin_swap_contract_address = self.r().data.maker_coin_swap_contract_address.clone();
-        let watcher_reward = self.r().watcher_reward;
-        let spend_result = self
-            .maker_coin
-            .send_maker_refunds_payment(RefundPaymentArgs {
-                payment_tx: &maker_payment,
-                time_lock: locktime,
-                other_pubkey: other_maker_coin_htlc_pub.as_slice(),
-                tx_type_with_secret_hash: SwapTxTypeWithSecretHash::TakerOrMakerPayment {
-                    maker_secret_hash: self.secret_hash().as_slice(),
-                },
-                swap_contract_address: &maker_coin_swap_contract_address,
-                swap_unique_data: &self.unique_swap_data(),
-                watcher_reward,
-            })
-            .await;
-
-        let transaction = match spend_result {
-            Ok(t) => t,
-            Err(err) => {
-                if let Some(tx) = err.get_tx() {
-                    broadcast_p2p_tx_msg(
-                        &self.ctx,
-                        tx_helper_topic(self.maker_coin.ticker()),
-                        &tx,
-                        &self.p2p_privkey,
-                    );
-                }
-
-                return Ok((Some(MakerSwapCommand::Finish), vec![
-                    MakerSwapEvent::MakerPaymentRefundFailed(
-                        ERRL!(
-                            "!maker_coin.send_maker_refunds_payment: {}",
-                            err.get_plain_text_format()
-                        )
-                        .into(),
-                    ),
-                ]));
-            },
-        };
-
-        broadcast_p2p_tx_msg(
-            &self.ctx,
-            tx_helper_topic(self.maker_coin.ticker()),
-            &transaction,
-            &self.p2p_privkey,
-        );
-
-        let tx_hash = transaction.tx_hash_as_bytes();
-        info!("Maker payment refund tx {:02x}", tx_hash);
-        let tx_ident = TransactionIdentifier {
-            tx_hex: BytesJson::from(transaction.tx_hex()),
-            tx_hash,
-        };
-
-        Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
-            MakerSwapEvent::MakerPaymentRefunded(Some(tx_ident)),
-        ]))
     }
 
     async fn finalize_maker_payment_refund(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
