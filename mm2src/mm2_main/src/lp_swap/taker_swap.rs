@@ -1896,7 +1896,6 @@ impl TakerSwap {
         ]))
     }
 
-    // fixme: turn this to a recover (long lived, terminate when taker payment doesn't exist)
     async fn refund_taker_payment(&self) -> Result<(Option<TakerSwapCommand>, Vec<TakerSwapEvent>), String> {
         #[cfg(any(test, feature = "run-docker-tests"))]
         if self.fail_at == Some(FailAt::TakerPaymentRefund) {
@@ -1907,86 +1906,91 @@ impl TakerSwap {
             panic!("{}", REFUND_TEST_FAILURE_LOG);
         }
 
-        let taker_payment = self.r().taker_payment.clone().unwrap().tx_hex;
-        let locktime = self.r().data.taker_payment_lock;
-        if self.taker_coin.is_auto_refundable() {
-            return match self.taker_coin.wait_for_htlc_refund(&taker_payment, locktime).await {
-                Ok(()) => Ok((Some(TakerSwapCommand::FinalizeTakerPaymentRefund), vec![
-                    TakerSwapEvent::TakerPaymentRefunded(None),
-                ])),
-                Err(err) => Ok((Some(TakerSwapCommand::Finish), vec![
-                    TakerSwapEvent::TakerPaymentRefundFailed(
-                        ERRL!("!taker_coin.wait_for_htlc_refund: {}", err.to_string()).into(),
-                    ),
-                ])),
-            };
-        }
-
+        // Keep trying to recover funds (by refunding the taker payment or spending the maker payment) until successful or face an irrecoverable error.
         loop {
-            match self.taker_coin.can_refund_htlc(locktime).await {
-                Ok(CanRefundHtlc::CanRefundNow) => break,
-                Ok(CanRefundHtlc::HaveToWait(to_sleep)) => Timer::sleep(to_sleep as f64).await,
-                Err(e) => {
-                    error!("Error {} on can_refund_htlc, retrying in 30 seconds", e);
-                    Timer::sleep(30.).await;
+            match self.recover_funds().await {
+                // We recovered the swap successfully.
+                Ok(recovered_swap) => match recovered_swap {
+                    // We recovered the swap by refunding the taker payment.
+                    RecoveredSwap {
+                        action: RecoveredSwapAction::RefundedMyPayment,
+                        coin: _,
+                        transaction,
+                    } => {
+                        let tx_ident = TransactionIdentifier {
+                            tx_hex: transaction.tx_hex().into(),
+                            tx_hash: transaction.tx_hash_as_bytes(),
+                        };
+                        info!("Taker payment refund tx {:02x}", tx_ident.tx_hash);
+                        return Ok((Some(TakerSwapCommand::FinalizeTakerPaymentRefund), vec![
+                            TakerSwapEvent::TakerPaymentRefunded(Some(tx_ident)),
+                        ]));
+                    },
+                    // We recovered the swap by proceeding forward and spending the maker payment. The swap wasn't actually a failure.
+                    // Roll back to confirming the maker payment spend.
+                    RecoveredSwap {
+                        action: RecoveredSwapAction::SpentOtherPayment,
+                        coin: _,
+                        transaction,
+                    } => {
+                        let tx_ident = TransactionIdentifier {
+                            tx_hex: transaction.tx_hex().into(),
+                            tx_hash: transaction.tx_hash_as_bytes(),
+                        };
+                        info!("Refund canceled. Taker payment spend tx {:02x}", tx_ident.tx_hash);
+                        // TODO: We prepared for refund but didn't finalize refund. This must be breaking something for lightning.
+                        // We better find a way to rollback the state machine and remove erroneous events,
+                        // the swap at this point will be marked as errored but in fact it recovered from the error.
+                        return Ok((Some(TakerSwapCommand::ConfirmMakerPaymentSpend), vec![
+                            TakerSwapEvent::MakerPaymentSpent(tx_ident),
+                        ]));
+                    },
+                },
+
+                // Encountered an error during swap recover.
+                Err(err) => match err {
+                    // The payment tx we want to refund isn't even on-chain. There is nothing to refund/spend.
+                    RecoverSwapError::PaymentTxNotFound => {
+                        return Ok((Some(TakerSwapCommand::Finish), vec![
+                            TakerSwapEvent::TakerPaymentRefundFailed(
+                                "TakerPayment isn't even on-chain to refund it.".into(),
+                            ),
+                        ]));
+                    },
+                    // The error is unrecoverable, retrying will not fix the issue.
+                    RecoverSwapError::Irrecoverable(e) => {
+                        return Ok((Some(TakerSwapCommand::Finish), vec![
+                            TakerSwapEvent::TakerPaymentRefundFailed(ERRL!("!taker_coin.recover_funds: {}", e).into()),
+                        ]));
+                    },
+                    // The error is temporary, retrying may fix the issue.
+                    RecoverSwapError::Temporary(e) => {
+                        error!("Error {} on recover_funds, retrying in 30 seconds", e);
+                        Timer::sleep(30.).await;
+                    },
+                    // We should wait for this many seconds and try again.
+                    RecoverSwapError::WaitAndRetry(secs) => {
+                        Timer::sleep(secs as f64).await;
+                    },
+                    // The swap will be automatically recovered after the specified locktime.
+                    RecoverSwapError::AutoRecoverableAfter(locktime) => {
+                        let taker_payment = self.r().taker_payment.clone().unwrap().tx_hex;
+                        // FIXME: We should try to `recover_funds` again after locktime. The taker payment might have been
+                        //        spent by the maker at this point and we should go for spending the maker payment instead.
+                        return match self.taker_coin.wait_for_htlc_refund(&taker_payment, locktime).await {
+                            Ok(()) => Ok((Some(TakerSwapCommand::FinalizeTakerPaymentRefund), vec![
+                                TakerSwapEvent::TakerPaymentRefunded(None),
+                            ])),
+                            Err(e) => Ok((Some(TakerSwapCommand::Finish), vec![
+                                TakerSwapEvent::TakerPaymentRefundFailed(
+                                    ERRL!("!taker_coin.wait_for_htlc_refund: {}", e.to_string()).into(),
+                                ),
+                            ])),
+                        };
+                    },
                 },
             }
         }
-
-        let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
-        let secret_hash = self.r().secret_hash.clone();
-        let swap_contract_address = self.r().data.taker_coin_swap_contract_address.clone();
-        let watcher_reward = self.r().watcher_reward;
-        let refund_result = self
-            .taker_coin
-            .send_taker_refunds_payment(RefundPaymentArgs {
-                payment_tx: &taker_payment,
-                time_lock: locktime,
-                other_pubkey: other_taker_coin_htlc_pub.as_slice(),
-                tx_type_with_secret_hash: SwapTxTypeWithSecretHash::TakerOrMakerPayment {
-                    maker_secret_hash: &secret_hash,
-                },
-                swap_contract_address: &swap_contract_address,
-                swap_unique_data: &self.unique_swap_data(),
-                watcher_reward,
-            })
-            .await;
-
-        let transaction = match refund_result {
-            Ok(t) => t,
-            Err(err) => {
-                if let Some(tx) = err.get_tx() {
-                    broadcast_p2p_tx_msg(
-                        &self.ctx,
-                        tx_helper_topic(self.taker_coin.ticker()),
-                        &tx,
-                        &self.p2p_privkey,
-                    );
-                }
-
-                return Ok((Some(TakerSwapCommand::Finish), vec![
-                    TakerSwapEvent::TakerPaymentRefundFailed(ERRL!("{:?}", err.get_plain_text_format()).into()),
-                ]));
-            },
-        };
-
-        broadcast_p2p_tx_msg(
-            &self.ctx,
-            tx_helper_topic(self.taker_coin.ticker()),
-            &transaction,
-            &self.p2p_privkey,
-        );
-
-        let tx_hash = transaction.tx_hash_as_bytes();
-        info!("Taker refund tx hash {:02x}", tx_hash);
-        let tx_ident = TransactionIdentifier {
-            tx_hex: BytesJson::from(transaction.tx_hex()),
-            tx_hash,
-        };
-
-        Ok((Some(TakerSwapCommand::FinalizeTakerPaymentRefund), vec![
-            TakerSwapEvent::TakerPaymentRefunded(Some(tx_ident)),
-        ]))
     }
 
     async fn finalize_taker_payment_refund(&self) -> Result<(Option<TakerSwapCommand>, Vec<TakerSwapEvent>), String> {
