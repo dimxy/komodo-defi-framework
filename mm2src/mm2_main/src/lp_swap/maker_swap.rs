@@ -1236,7 +1236,7 @@ impl MakerSwap {
                 },
 
                 // Encountered an error during swap recover.
-                Err(err) => match err {
+                Err(err) => match err.into_inner() {
                     // The payment tx we want to refund isn't even on-chain. There is nothing to refund/spend.
                     RecoverSwapError::PaymentTxNotFound => {
                         return Ok((Some(MakerSwapCommand::Finish), vec![
@@ -1371,8 +1371,8 @@ impl MakerSwap {
         Ok((swap, command))
     }
 
-    pub async fn recover_funds(&self) -> Result<RecoveredSwap, RecoverSwapError> {
-        async fn try_spend_taker_payment(selfi: &MakerSwap) -> Result<TransactionEnum, RecoverSwapError> {
+    pub async fn recover_funds(&self) -> MmResult<RecoveredSwap, RecoverSwapError> {
+        async fn try_spend_taker_payment(selfi: &MakerSwap) -> MmResult<TransactionEnum, RecoverSwapError> {
             let taker_payment_hex = &selfi
                 .r()
                 .taker_payment
@@ -1411,13 +1411,13 @@ impl MakerSwap {
                 Ok(Some(FoundSwapTxSpend::Refunded(tx))) => {
                     // The taker refunded their payment.
                     warn!("TakerPayment was refunded back to the taker.");
-                    return Err(RecoverSwapError::Irrecoverable(format!(
+                    return MmError::err(RecoverSwapError::Irrecoverable(format!(
                         "Taker payment was already refunded by {} tx {:02x}",
                         selfi.taker_coin.ticker(),
                         tx.tx_hash_as_bytes()
                     )));
                 },
-                Err(e) => return Err(RecoverSwapError::Temporary(e)),
+                Err(e) => return MmError::err(RecoverSwapError::Temporary(e)),
                 Ok(None) => (), // payment is not spent, continue
             }
 
@@ -1447,7 +1447,7 @@ impl MakerSwap {
                         );
                     }
 
-                    Err(RecoverSwapError::Temporary(err.get_plain_text_format()))
+                    MmError::err(RecoverSwapError::Temporary(err.get_plain_text_format()))
                 },
             }
         }
@@ -1484,7 +1484,7 @@ impl MakerSwap {
                     .map_err(RecoverSwapError::Temporary)?;
                 match maybe_maker_payment {
                     Some(tx) => tx.tx_hex(),
-                    None => return Err(RecoverSwapError::PaymentTxNotFound),
+                    None => return MmError::err(RecoverSwapError::PaymentTxNotFound),
                 }
             },
         };
@@ -1516,10 +1516,10 @@ impl MakerSwap {
                 coin: self.maker_coin.ticker().to_string(),
                 transaction: tx,
             }),
-            Err(e) => Err(RecoverSwapError::Temporary(e)),
+            Err(e) => MmError::err(RecoverSwapError::Temporary(e)),
             Ok(None) => {
                 if self.maker_coin.is_auto_refundable() {
-                    return Err(RecoverSwapError::AutoRecoverableAfter(maker_payment_lock));
+                    return MmError::err(RecoverSwapError::AutoRecoverableAfter(maker_payment_lock));
                 }
 
                 let can_refund_htlc = self
@@ -1528,7 +1528,7 @@ impl MakerSwap {
                     .await
                     .map_err(RecoverSwapError::Irrecoverable)?;
                 if let CanRefundHtlc::HaveToWait(seconds_to_wait) = can_refund_htlc {
-                    return Err(RecoverSwapError::WaitAndRetry(seconds_to_wait));
+                    return MmError::err(RecoverSwapError::WaitAndRetry(seconds_to_wait));
                 }
                 let fut = self.maker_coin.send_maker_refunds_payment(RefundPaymentArgs {
                     payment_tx: &maker_payment,
@@ -1554,7 +1554,7 @@ impl MakerSwap {
                             );
                         }
 
-                        return Err(RecoverSwapError::Temporary(err.get_plain_text_format()));
+                        return MmError::err(RecoverSwapError::Temporary(err.get_plain_text_format()));
                     },
                 };
 
@@ -2521,7 +2521,7 @@ mod maker_swap_tests {
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
 
-        assert_eq!(block_on(maker_swap.recover_funds()).unwrap_err(), RecoverSwapError::Irrecoverable("Taker payment was already refunded by ticker tx 0869be3e5d4456a29d488a533ad6c118620fef450f36778aecf31d356ff8b41f".to_string()));
+        assert_eq!(block_on(maker_swap.recover_funds()).unwrap_err().into_inner(), RecoverSwapError::Irrecoverable("Taker payment was already refunded by ticker tx 0869be3e5d4456a29d488a533ad6c118620fef450f36778aecf31d356ff8b41f".to_string()));
         assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
         assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
     }
@@ -2551,7 +2551,7 @@ mod maker_swap_tests {
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let error = block_on(maker_swap.recover_funds()).unwrap_err();
-        assert!(matches!(error, RecoverSwapError::WaitAndRetry(_)));
+        assert!(matches!(error.into_inner(), RecoverSwapError::WaitAndRetry(_)));
         assert!(unsafe { MY_PAYMENT_SENT_CALLED });
     }
 

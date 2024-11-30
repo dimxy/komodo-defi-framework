@@ -1948,7 +1948,7 @@ impl TakerSwap {
                 },
 
                 // Encountered an error during swap recover.
-                Err(err) => match err {
+                Err(err) => match err.into_inner() {
                     // The payment tx we want to refund isn't even on-chain. There is nothing to refund/spend.
                     RecoverSwapError::PaymentTxNotFound => {
                         return Ok((Some(TakerSwapCommand::Finish), vec![
@@ -2102,14 +2102,14 @@ impl TakerSwap {
         Ok((swap, Some(command)))
     }
 
-    pub async fn recover_funds(&self) -> Result<RecoveredSwap, RecoverSwapError> {
+    pub async fn recover_funds(&self) -> MmResult<RecoveredSwap, RecoverSwapError> {
         async fn try_spend_maker_payment(
             selfi: &TakerSwap,
             secret: &[u8],
-        ) -> Result<TransactionEnum, RecoverSwapError> {
+        ) -> MmResult<TransactionEnum, RecoverSwapError> {
             let maker_payment = match &selfi.r().maker_payment {
                 Some(tx) => tx.tx_hex.0.clone(),
-                None => return Err(RecoverSwapError::Irrecoverable("maker payment not found".to_string())),
+                None => return MmError::err(RecoverSwapError::Irrecoverable("maker payment not found".to_string())),
             };
             let other_maker_coin_htlc_pub = selfi.r().other_maker_coin_htlc_pub;
             let secret_hash = selfi.r().secret_hash.0.clone();
@@ -2137,13 +2137,13 @@ impl TakerSwap {
                 Ok(Some(FoundSwapTxSpend::Refunded(tx))) => {
                     // The maker refunded their payment.
                     warn!("MakerPayment was refunded back to the maker.");
-                    return Err(RecoverSwapError::Irrecoverable(format!(
+                    return MmError::err(RecoverSwapError::Irrecoverable(format!(
                         "Maker payment was already refunded by {} tx {:02x}",
-                        selfi.taker_coin.ticker(),
+                        selfi.maker_coin.ticker(),
                         tx.tx_hash_as_bytes()
                     )));
                 },
-                Err(e) => return Err(RecoverSwapError::Temporary(e)),
+                Err(e) => return MmError::err(RecoverSwapError::Temporary(e)),
                 Ok(None) => (), // payment is not spent, continue
             }
 
@@ -2173,7 +2173,7 @@ impl TakerSwap {
                         );
                     }
 
-                    Err(RecoverSwapError::Temporary(err.get_plain_text_format()))
+                    MmError::err(RecoverSwapError::Temporary(err.get_plain_text_format()))
                 },
             }
         }
@@ -2209,7 +2209,7 @@ impl TakerSwap {
                     .map_err(RecoverSwapError::Temporary)?;
                 match maybe_sent {
                     Some(tx) => tx.tx_hex(),
-                    None => return Err(RecoverSwapError::PaymentTxNotFound),
+                    None => return MmError::err(RecoverSwapError::PaymentTxNotFound),
                 }
             },
         };
@@ -2265,7 +2265,7 @@ impl TakerSwap {
             },
             Ok(None) => {
                 if self.taker_coin.is_auto_refundable() {
-                    return Err(RecoverSwapError::AutoRecoverableAfter(taker_payment_lock));
+                    return MmError::err(RecoverSwapError::AutoRecoverableAfter(taker_payment_lock));
                 }
 
                 let can_refund = self
@@ -2274,7 +2274,7 @@ impl TakerSwap {
                     .await
                     .map_err(RecoverSwapError::Irrecoverable)?;
                 if let CanRefundHtlc::HaveToWait(seconds_to_wait) = can_refund {
-                    return Err(RecoverSwapError::WaitAndRetry(seconds_to_wait));
+                    return MmError::err(RecoverSwapError::WaitAndRetry(seconds_to_wait));
                 }
                 let fut = self.taker_coin.send_taker_refunds_payment(RefundPaymentArgs {
                     payment_tx: &taker_payment,
@@ -2300,7 +2300,7 @@ impl TakerSwap {
                             );
                         }
 
-                        return Err(RecoverSwapError::Temporary(err.get_plain_text_format()));
+                        return MmError::err(RecoverSwapError::Temporary(err.get_plain_text_format()));
                     },
                 };
 
@@ -2310,7 +2310,7 @@ impl TakerSwap {
                     transaction,
                 })
             },
-            Err(e) => Err(RecoverSwapError::Temporary(e)),
+            Err(e) => MmError::err(RecoverSwapError::Temporary(e)),
         }
     }
 }
@@ -2925,7 +2925,7 @@ mod taker_swap_tests {
         ))
         .unwrap();
         let error = block_on(taker_swap.recover_funds()).unwrap_err();
-        assert!(matches!(error, RecoverSwapError::WaitAndRetry(_)));
+        assert!(matches!(error.into_inner(), RecoverSwapError::WaitAndRetry(_)));
         assert!(unsafe { SEARCH_TX_SPEND_CALLED });
     }
 
