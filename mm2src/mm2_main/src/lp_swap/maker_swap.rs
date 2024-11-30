@@ -1199,40 +1199,30 @@ impl MakerSwap {
         loop {
             match self.recover_funds().await {
                 // We recovered the swap successfully.
-                Ok(recovered_swap) => match recovered_swap {
-                    // We recovered the swap by refunding the maker payment.
-                    RecoveredSwap {
-                        action: RecoveredSwapAction::RefundedMyPayment,
-                        coin: _,
-                        transaction,
-                    } => {
-                        let tx_ident = TransactionIdentifier {
-                            tx_hex: transaction.tx_hex().into(),
-                            tx_hash: transaction.tx_hash_as_bytes(),
-                        };
-                        info!("Maker payment refund tx {:02x}", tx_ident.tx_hash);
-                        return Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
-                            MakerSwapEvent::MakerPaymentRefunded(Some(tx_ident)),
-                        ]));
-                    },
-                    // We recovered the swap by proceeding forward and spending the taker payment. The swap wasn't actually a failure.
-                    // Roll back to confirming the taker payment spend.
-                    RecoveredSwap {
-                        action: RecoveredSwapAction::SpentOtherPayment,
-                        coin: _,
-                        transaction,
-                    } => {
-                        let tx_ident = TransactionIdentifier {
-                            tx_hex: transaction.tx_hex().into(),
-                            tx_hash: transaction.tx_hash_as_bytes(),
-                        };
-                        info!("Refund canceled. Taker payment spend tx {:02x}", tx_ident.tx_hash);
-                        // TODO: We prepared for refund but didn't finalize refund. This must be breaking something for lightning.
-                        return Ok((Some(MakerSwapCommand::ConfirmTakerPaymentSpend), vec![
-                            MakerSwapEvent::TakerPaymentSpent(tx_ident),
-                            MakerSwapEvent::TakerPaymentSpendConfirmStarted,
-                        ]));
-                    },
+                Ok(recovered_swap) => {
+                    let tx_ident = TransactionIdentifier {
+                        tx_hex: recovered_swap.transaction.tx_hex().into(),
+                        tx_hash: recovered_swap.transaction.tx_hash_as_bytes(),
+                    };
+                    return match recovered_swap.action {
+                        // We recovered the swap by refunding the maker payment.
+                        RecoveredSwapAction::RefundedMyPayment => {
+                            info!("Maker payment refund tx {:02x}", tx_ident.tx_hash);
+                            Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
+                                MakerSwapEvent::MakerPaymentRefunded(Some(tx_ident)),
+                            ]))
+                        },
+                        // We recovered the swap by proceeding forward and spending the taker payment. The swap wasn't actually a failure.
+                        // Roll back to confirming the taker payment spend.
+                        RecoveredSwapAction::SpentOtherPayment => {
+                            info!("Refund canceled. Taker payment spend tx {:02x}", tx_ident.tx_hash);
+                            // TODO: We prepared for refund but didn't finalize refund. This must be breaking something for lightning.
+                            Ok((Some(MakerSwapCommand::ConfirmTakerPaymentSpend), vec![
+                                MakerSwapEvent::TakerPaymentSpent(tx_ident),
+                                MakerSwapEvent::TakerPaymentSpendConfirmStarted,
+                            ]))
+                        },
+                    };
                 },
 
                 // Encountered an error during swap recover.
@@ -1262,7 +1252,7 @@ impl MakerSwap {
                     },
                     // The swap will be automatically recovered after the specified locktime.
                     RecoverSwapError::AutoRecoverableAfter(locktime) => {
-                        let maker_payment = self.r().maker_payment.clone().unwrap().tx_hex;
+                        let maker_payment = self.r().maker_payment.as_ref().unwrap().tx_hex.clone();
                         return match self.maker_coin.wait_for_htlc_refund(&maker_payment, locktime).await {
                             Ok(()) => Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
                                 MakerSwapEvent::MakerPaymentRefunded(None),
