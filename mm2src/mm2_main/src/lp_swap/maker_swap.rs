@@ -1224,7 +1224,6 @@ impl MakerSwap {
                         },
                     };
                 },
-
                 // Encountered an error during swap recover.
                 Err(err) => match err.into_inner() {
                     // The payment tx we want to refund isn't even on-chain. There is nothing to refund/spend.
