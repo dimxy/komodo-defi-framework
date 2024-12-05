@@ -1964,17 +1964,16 @@ impl TakerSwap {
                     // The swap will be automatically recovered after the specified locktime.
                     RecoverSwapError::AutoRecoverableAfter(locktime) => {
                         let taker_payment = self.r().taker_payment.as_ref().unwrap().tx_hex.clone();
-                        // FIXME: We should try to `recover_funds` again after locktime. The taker payment might have been
-                        //        spent by the maker at this point and we should go for spending the maker payment instead.
-                        return match self.taker_coin.wait_for_htlc_refund(&taker_payment, locktime).await {
-                            Ok(()) => Ok((Some(TakerSwapCommand::FinalizeTakerPaymentRefund), vec![
-                                TakerSwapEvent::TakerPaymentRefunded(None),
-                            ])),
-                            Err(e) => Ok((Some(TakerSwapCommand::Finish), vec![
-                                TakerSwapEvent::TakerPaymentRefundFailed(
-                                    ERRL!("!taker_coin.wait_for_htlc_refund: {}", e.to_string()).into(),
-                                ),
-                            ])),
+                        match self.taker_coin.wait_for_htlc_refund(&taker_payment, locktime).await {
+                            Ok(()) => {
+                                return Ok((Some(TakerSwapCommand::FinalizeTakerPaymentRefund), vec![
+                                    TakerSwapEvent::TakerPaymentRefunded(None),
+                                ]))
+                            },
+                            Err(e) => {
+                                error!("Error {} on wait_for_htlc_refund, retrying in 30 seconds", e);
+                                Timer::sleep(30.).await;
+                            },
                         };
                     },
                 },

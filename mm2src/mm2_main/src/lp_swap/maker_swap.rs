@@ -1252,15 +1252,16 @@ impl MakerSwap {
                     // The swap will be automatically recovered after the specified locktime.
                     RecoverSwapError::AutoRecoverableAfter(locktime) => {
                         let maker_payment = self.r().maker_payment.as_ref().unwrap().tx_hex.clone();
-                        return match self.maker_coin.wait_for_htlc_refund(&maker_payment, locktime).await {
-                            Ok(()) => Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
-                                MakerSwapEvent::MakerPaymentRefunded(None),
-                            ])),
-                            Err(e) => Ok((Some(MakerSwapCommand::Finish), vec![
-                                MakerSwapEvent::MakerPaymentRefundFailed(
-                                    ERRL!("!maker_coin.wait_for_htlc_refund: {}", e.to_string()).into(),
-                                ),
-                            ])),
+                        match self.maker_coin.wait_for_htlc_refund(&maker_payment, locktime).await {
+                            Ok(()) => {
+                                return Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
+                                    MakerSwapEvent::MakerPaymentRefunded(None),
+                                ]))
+                            },
+                            Err(e) => {
+                                error!("Error {} on wait_for_htlc_refund, retrying in 30 seconds", e);
+                                Timer::sleep(30.).await;
+                            },
                         };
                     },
                 },
