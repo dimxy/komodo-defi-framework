@@ -2261,7 +2261,7 @@ impl TakerSwap {
                     .taker_coin
                     .can_refund_htlc(taker_payment_lock)
                     .await
-                    .map_err(RecoverSwapError::Irrecoverable)?;
+                    .map_err(RecoverSwapError::Temporary)?;
                 if let CanRefundHtlc::HaveToWait(seconds_to_wait) = can_refund {
                     return MmError::err(RecoverSwapError::WaitAndRetry(seconds_to_wait));
                 }
