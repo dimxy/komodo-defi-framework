@@ -48,6 +48,8 @@ jobs:
       - name: Check PR labels
         env:
           LABEL_NAMES: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        LLL=contains(env.LABEL_NAMES, 'under review') + contains(env.LABEL_NAMES, 'in progress')
+        echo "labels sum: $LLL" 
         if: (contains(env.LABEL_NAMES, 'under review') + contains(env.LABEL_NAMES, 'in progress')) != 1
         run: |
           echo "PR must have "exactly one" of these labels: ['under review', 'in progress']."
