@@ -1942,7 +1942,6 @@ impl TakerSwap {
                         // Roll back to confirming the maker payment spend.
                         RecoveredSwapAction::SpentOtherPayment => {
                             info!("Refund canceled. Maker payment spend tx {:02x}", tx_ident.tx_hash);
-                            // TODO: We prepared for refund but didn't finalize refund. This must be breaking something for lightning.
                             // We better find a way to rollback the state machine and remove erroneous events,
                             // the swap at this point will be marked as errored but in fact it recovered from the error.
                             Ok((Some(TakerSwapCommand::ConfirmMakerPaymentSpend), vec![
