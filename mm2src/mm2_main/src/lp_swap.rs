@@ -477,6 +477,8 @@ pub struct RecoveredSwap {
 
 #[derive(Display, Debug, PartialEq)]
 pub enum RecoverSwapError {
+    // We might not find the original payment tx on chain (e.g. re-orged). This doesn't mean though that nobody has it.
+    // TODO: These coins should be spent ASAP to avoid them getting locked (or stolen).
     #[display(fmt = "The payment tx is not on-chain. Nothing to recover.")]
     PaymentTxNotFound,
     #[display(fmt = "An unknown error occurred. Retrying might fix it: {}", _0)]
