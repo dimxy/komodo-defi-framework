@@ -5471,3 +5471,104 @@ fn test_approve_erc20() {
 
     block_on(mm.stop()).unwrap();
 }
+
+#[test]
+fn test_peer_time_sync_validation() {
+    const TIMEOFFSET_TOLERABLE: i64 = 19;
+    const TIMEOFFSET_TOO_BIG: i64 = 21;
+
+    let start_peers_with_time_offset = |offset: i64| -> (Json, Json) {
+        let (_ctx, _, bob_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN", 10.into());
+        let (_ctx, _, alice_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN1", 10.into());
+        let coins = json!([mycoin_conf(1000), mycoin1_conf(1000)]);
+        let mut mm_bob = block_on(MarketMakerIt::start_with_envs(
+            json!({
+                "gui": "nogui",
+                "netid": 9000,
+                "dht": "on",  // Enable DHT without delay.
+                "passphrase": format!("0x{}", hex::encode(bob_priv_key)),
+                "coins": coins,
+                "rpc_password": "pass",
+                "i_am_seed": true,
+            }),
+            "pass".to_string(),
+            None,
+            &[],
+        ))
+        .unwrap();
+        let (_bob_dump_log, _bob_dump_dashboard) = mm_dump(&mm_bob.log_path);
+        block_on(mm_bob.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
+
+        let mut mm_alice = block_on(MarketMakerIt::start_with_envs(
+            json!({
+                "gui": "nogui",
+                "netid": 9000,
+                "dht": "on",  // Enable DHT without delay.
+                "passphrase": format!("0x{}", hex::encode(alice_priv_key)),
+                "coins": coins,
+                "rpc_password": "pass",
+                "seednodes": vec![format!("{}", mm_bob.ip)],
+            }),
+            "pass".to_string(),
+            None,
+            &[("TEST_TIMESTAMP_OFFSET", offset.to_string().as_str())],
+        ))
+        .unwrap();
+        let (_alice_dump_log, _alice_dump_dashboard) = mm_dump(&mm_alice.log_path);
+        block_on(mm_alice.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
+
+        let res_bob = block_on(mm_bob.rpc(&json!({
+            "userpass": mm_bob.userpass,
+            "method": "get_directly_connected_peers",
+        })))
+        .unwrap();
+        println!(
+            "test_peer_time_sync_validation bob get_directly_connected_peers={:?} offset={}",
+            res_bob, offset
+        );
+        assert!(res_bob.0.is_success(), "!get_directly_connected_peers: {}", res_bob.1);
+        let bob_peers = serde_json::from_str::<Json>(&res_bob.1).unwrap();
+
+        let res_alice = block_on(mm_alice.rpc(&json!({
+            "userpass": mm_alice.userpass,
+            "method": "get_directly_connected_peers",
+        })))
+        .unwrap();
+        println!(
+            "test_peer_time_sync_validation alice get_directly_connected_peers={:?} offset={}",
+            res_alice, offset
+        );
+        assert!(
+            res_alice.0.is_success(),
+            "!get_directly_connected_peers: {}",
+            res_alice.1
+        );
+        let alice_peers = serde_json::from_str::<Json>(&res_alice.1).unwrap();
+
+        block_on(mm_bob.stop()).unwrap();
+        block_on(mm_alice.stop()).unwrap();
+        (bob_peers, alice_peers)
+    };
+
+    // check with small time offset:
+    let (bob_peers, alice_peers) = start_peers_with_time_offset(TIMEOFFSET_TOLERABLE);
+    assert!(
+        bob_peers["result"].as_object().unwrap().len() == 1,
+        "bob must have one peer"
+    );
+    assert!(
+        alice_peers["result"].as_object().unwrap().len() == 1,
+        "alice must have one peer"
+    );
+
+    // check with too big time offset:
+    let (bob_peers, alice_peers) = start_peers_with_time_offset(TIMEOFFSET_TOO_BIG);
+    assert!(
+        bob_peers["result"].as_object().unwrap().is_empty(),
+        "bob must have no peers"
+    );
+    assert!(
+        alice_peers["result"].as_object().unwrap().is_empty(),
+        "alice must have no peers"
+    );
+}
