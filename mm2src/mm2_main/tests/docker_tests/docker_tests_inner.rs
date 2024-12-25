@@ -5522,10 +5522,6 @@ fn test_peer_time_sync_validation() {
             "method": "get_directly_connected_peers",
         })))
         .unwrap();
-        println!(
-            "test_peer_time_sync_validation bob get_directly_connected_peers={:?} offset={}",
-            res_bob, offset
-        );
         assert!(res_bob.0.is_success(), "!get_directly_connected_peers: {}", res_bob.1);
         let bob_peers = serde_json::from_str::<Json>(&res_bob.1).unwrap();
 
@@ -5534,10 +5530,6 @@ fn test_peer_time_sync_validation() {
             "method": "get_directly_connected_peers",
         })))
         .unwrap();
-        println!(
-            "test_peer_time_sync_validation alice get_directly_connected_peers={:?} offset={}",
-            res_alice, offset
-        );
         assert!(
             res_alice.0.is_success(),
             "!get_directly_connected_peers: {}",
