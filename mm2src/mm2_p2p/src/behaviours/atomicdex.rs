@@ -450,12 +450,12 @@ impl AtomicDexBehaviour {
                 self.spawn(future);
             },
             AdexBehaviourCmd::SendResponse { res, response_channel } => {
-                if let Err(PeerResponse::Err { err }) = self
+                if let Err(response) = self
                     .core
                     .request_response
                     .send_response(response_channel.into(), res.into())
                 {
-                    error!("Error sending response: {:?}", err);
+                    error!("Error sending response: {:?}", response);
                 }
             },
             AdexBehaviourCmd::GetPeersInfo { result_tx } => {
