@@ -290,7 +290,7 @@ mod tests {
         let _ = env_logger::try_init();
 
         let receiver1_port = next_port();
-        let receiver1 = Node::spawn(receiver1_port, vec![], move |mut cmd_tx, event, _| {
+        let receiver1 = Node::spawn(receiver1_port, vec![], move |mut cmd_tx, event| {
             let response_channel = match event {
                 AdexBehaviourEvent::RequestResponse(RequestResponseBehaviourEvent::InboundRequest {
                     request,
@@ -308,7 +308,7 @@ mod tests {
         .await;
 
         let receiver2_port = next_port();
-        let receiver2 = Node::spawn(receiver2_port, vec![], move |mut cmd_tx, event, _| {
+        let receiver2 = Node::spawn(receiver2_port, vec![], move |mut cmd_tx, event| {
             let response_channel = match event {
                 AdexBehaviourEvent::RequestResponse(RequestResponseBehaviourEvent::InboundRequest {
                     request,
@@ -328,7 +328,7 @@ mod tests {
         .await;
 
         let receiver3_port = next_port();
-        let receiver3 = Node::spawn(receiver3_port, vec![], move |mut cmd_tx, event, _| {
+        let receiver3 = Node::spawn(receiver3_port, vec![], move |mut cmd_tx, event| {
             let response_channel = match event {
                 AdexBehaviourEvent::RequestResponse(RequestResponseBehaviourEvent::InboundRequest {
                     request,
@@ -349,7 +349,7 @@ mod tests {
         let mut sender = Node::spawn(
             next_port(),
             vec![receiver1_port, receiver2_port, receiver3_port],
-            |_, _, _| (),
+            |_, _| (),
         )
         .await;
 
