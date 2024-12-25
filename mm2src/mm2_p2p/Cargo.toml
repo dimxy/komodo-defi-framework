@@ -51,4 +51,3 @@ timed-map = { version = "1.1.1", features = ["rustc-hash"] }
 [dev-dependencies]
 async-std = "1.6.2"
 env_logger = "0.9.3"
-chrono = "0.4"

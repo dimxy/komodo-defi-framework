@@ -7,7 +7,6 @@ pub(crate) mod request_response;
 
 #[cfg(test)]
 mod tests {
-    use crate::{decode_message, encode_message};
     use async_std::task::spawn;
     use common::executor::abortable_queue::AbortableQueue;
     use futures::channel::{mpsc, oneshot};
@@ -20,12 +19,11 @@ mod tests {
     #[cfg(not(windows))] use std::sync::Mutex;
     use std::time::Duration;
 
-    use super::atomicdex::GossipsubConfig;
-    use crate::application::request_response::{network_info::NetworkInfoRequest, P2PRequest};
-    use crate::behaviours::atomicdex::mock_timestamp;
     use crate::behaviours::peers_exchange::{PeerIdSerde, PeersExchange};
     use crate::{spawn_gossipsub, AdexBehaviourCmd, AdexBehaviourEvent, AdexResponse, AdexResponseChannel, NetworkInfo,
                 NetworkPorts, NodeType, RelayAddress, RequestResponseBehaviourEvent, SwarmRuntime};
+
+    use super::atomicdex::GossipsubConfig;
 
     static TEST_LISTEN_PORT: AtomicU64 = AtomicU64::new(1);
 
@@ -43,7 +41,7 @@ mod tests {
     impl Node {
         async fn spawn<F>(port: u64, seednodes: Vec<u64>, on_event: F) -> Node
         where
-            F: Fn(mpsc::Sender<AdexBehaviourCmd>, AdexBehaviourEvent, PeerId) + Send + 'static,
+            F: Fn(mpsc::Sender<AdexBehaviourCmd>, AdexBehaviourEvent) + Send + 'static,
         {
             let spawner = SwarmRuntime::new(SYSTEM.weak_spawner());
             let node_type = NodeType::RelayInMemory { port };
@@ -60,7 +58,7 @@ mod tests {
                 loop {
                     let cmd_tx_fut = cmd_tx_fut.clone();
                     match event_rx.next().await {
-                        Some(r) => on_event(cmd_tx_fut, r, peer_id),
+                        Some(r) => on_event(cmd_tx_fut, r),
                         _ => {
                             println!("Finish response future");
                             break;
@@ -74,7 +72,7 @@ mod tests {
 
         async fn send_cmd(&mut self, cmd: AdexBehaviourCmd) { self.cmd_tx.send(cmd).await.unwrap(); }
 
-        async fn wait_peers(&mut self, number: usize) -> Result<(), String> {
+        async fn wait_peers(&mut self, number: usize) {
             let mut attempts = 0;
             loop {
                 let (tx, rx) = oneshot::channel();
@@ -85,7 +83,7 @@ mod tests {
                 match rx.await {
                     Ok(map) => {
                         if map.len() >= number {
-                            return Ok(());
+                            return;
                         }
                         async_std::task::sleep(Duration::from_millis(500)).await;
                     },
@@ -93,7 +91,7 @@ mod tests {
                 }
                 attempts += 1;
                 if attempts >= 10 {
-                    return Err(format!("wait_peers {} attempts exceeded", attempts));
+                    panic!("wait_peers {} attempts exceeded", attempts);
                 }
             }
         }
@@ -107,7 +105,7 @@ mod tests {
         let request_received_cpy = request_received.clone();
 
         let node1_port = next_port();
-        let node1 = Node::spawn(node1_port, vec![], move |mut cmd_tx, event, _| {
+        let node1 = Node::spawn(node1_port, vec![], move |mut cmd_tx, event| {
             let response_channel = match event {
                 AdexBehaviourEvent::RequestResponse(RequestResponseBehaviourEvent::InboundRequest {
                     request,
@@ -128,9 +126,9 @@ mod tests {
         })
         .await;
 
-        let mut node2 = Node::spawn(next_port(), vec![node1_port], |_, _, _| ()).await;
+        let mut node2 = Node::spawn(next_port(), vec![node1_port], |_, _| ()).await;
 
-        let _ = node2.wait_peers(1).await;
+        node2.wait_peers(1).await;
 
         let (response_tx, response_rx) = oneshot::channel();
         node2
@@ -210,7 +208,7 @@ mod tests {
         for _ in 0..3 {
             let handler = request_handler.clone();
             let receiver_port = next_port();
-            let receiver = Node::spawn(receiver_port, vec![], move |cmd_tx, event, _| {
+            let receiver = Node::spawn(receiver_port, vec![], move |cmd_tx, event| {
                 let mut handler = handler.lock().unwrap();
                 handler.handle(cmd_tx, event)
             })
@@ -221,11 +219,11 @@ mod tests {
         let mut sender = Node::spawn(
             next_port(),
             receivers.iter().map(|(port, _)| *port).collect(),
-            |_, _, _| (),
+            |_, _| (),
         )
         .await;
 
-        let _ = sender.wait_peers(3).await;
+        sender.wait_peers(3).await;
 
         let (response_tx, response_rx) = oneshot::channel();
         sender
@@ -247,7 +245,7 @@ mod tests {
         let request_received_cpy = request_received.clone();
 
         let node1_port = next_port();
-        let _node1 = Node::spawn(node1_port, vec![], move |mut cmd_tx, event, _| {
+        let _node1 = Node::spawn(node1_port, vec![], move |mut cmd_tx, event| {
             let response_channel = match event {
                 AdexBehaviourEvent::RequestResponse(RequestResponseBehaviourEvent::InboundRequest {
                     request,
@@ -266,9 +264,9 @@ mod tests {
         })
         .await;
 
-        let mut node2 = Node::spawn(next_port(), vec![node1_port], |_, _, _| ()).await;
+        let mut node2 = Node::spawn(next_port(), vec![node1_port], |_, _| ()).await;
 
-        let _ = node2.wait_peers(1).await;
+        node2.wait_peers(1).await;
 
         let (response_tx, response_rx) = oneshot::channel();
         node2
@@ -353,7 +351,7 @@ mod tests {
         )
         .await;
 
-        let _ = sender.wait_peers(3).await;
+        sender.wait_peers(3).await;
 
         let (response_tx, response_rx) = oneshot::channel();
         sender
@@ -453,58 +451,5 @@ mod tests {
         let addresses = result.get(&peer_id.into()).unwrap();
         assert_eq!(addresses.len(), 1);
         assert!(addresses.contains(&address));
-    }
-
-    #[tokio::test]
-    async fn test_peer_timestamp_difference() {
-        let _ = env_logger::try_init();
-
-        let event_fn = |mut cmd_tx: mpsc::Sender<AdexBehaviourCmd>, event, local_peer_id| {
-            if let AdexBehaviourEvent::RequestResponse(RequestResponseBehaviourEvent::InboundRequest {
-                request,
-                response_channel,
-                ..
-            }) = event
-            {
-                let response_channel = AdexResponseChannel(response_channel);
-                let request = decode_message::<P2PRequest>(&request.req).unwrap();
-                let result = match request {
-                    P2PRequest::NetworkInfo(NetworkInfoRequest::GetPeerUtcTimestamp) => {
-                        let timestamp = mock_timestamp::get_utc_timestamp_for_test(local_peer_id);
-                        let timestamp: u64 = timestamp.try_into().unwrap_or_else(|_| {
-                            panic!("`get_utc_timestamp_for_test` returned invalid data: {}", timestamp)
-                        });
-                        encode_message(&timestamp).map_err(|e| e.to_string()).map(Some)
-                    },
-                    _ => return,
-                };
-
-                let res = match result {
-                    Ok(Some(response)) => AdexResponse::Ok { response },
-                    Ok(None) => AdexResponse::None,
-                    Err(e) => AdexResponse::Err { error: e },
-                };
-
-                let cmd = AdexBehaviourCmd::SendResponse { res, response_channel };
-                cmd_tx.try_send(cmd).unwrap()
-            }
-        };
-
-        // check with time difference of 21s
-        let node1_port = next_port();
-        let mut node1 = Node::spawn(node1_port, vec![], event_fn).await;
-        let mut node2 = Node::spawn(next_port(), vec![node1_port], event_fn).await;
-
-        mock_timestamp::set_timestamp_offset_for_test(node2.peer_id, 21);
-        assert!(node1.wait_peers(1).await.is_err());
-        assert!(node2.wait_peers(1).await.is_err());
-
-        // check with no time difference
-        let node3_port = next_port();
-        let mut node3 = Node::spawn(node3_port, vec![], event_fn).await;
-        let mut node4 = Node::spawn(next_port(), vec![node3_port], event_fn).await;
-
-        assert!(node3.wait_peers(1).await.is_ok());
-        assert!(node4.wait_peers(1).await.is_ok());
     }
 }

@@ -237,12 +237,7 @@ pub async fn get_relay_mesh(mut cmd_tx: AdexCmdTx) -> Vec<String> {
     rx.await.expect("Tx should be present")
 }
 
-async fn validate_peer_time(
-    peer: PeerId,
-    mut response_tx: Sender<PeerId>,
-    rp_sender: RequestResponseSender,
-    #[cfg(test)] local_peer_id: PeerId,
-) {
+async fn validate_peer_time(peer: PeerId, mut response_tx: Sender<PeerId>, rp_sender: RequestResponseSender) {
     let request = P2PRequest::NetworkInfo(NetworkInfoRequest::GetPeerUtcTimestamp);
     let encoded_request = encode_message(&request)
         .expect("Static type `PeerInfoRequest::GetPeerUtcTimestamp` should never fail in serialization.");
@@ -250,10 +245,6 @@ async fn validate_peer_time(
     match request_one_peer(peer, encoded_request, rp_sender).await {
         PeerResponse::Ok { res } => {
             if let Ok(timestamp) = decode_message::<u64>(&res) {
-                #[cfg(test)]
-                let now = mock_timestamp::get_utc_timestamp_for_test(local_peer_id);
-
-                #[cfg(not(test))]
                 let now = common::get_utc_timestamp();
                 let now: u64 = now
                     .try_into()
@@ -842,8 +833,6 @@ fn start_gossipsub(
                             *peer_id,
                             timestamp_tx.clone(),
                             swarm.behaviour().core.request_response.sender(),
-                            #[cfg(test)]
-                            local_peer_id,
                         );
                         swarm.behaviour().spawn(future);
                     }
@@ -1259,32 +1248,4 @@ pub async fn spawn_gossipsub(
     // `Libp2p` must be spawned on the tokio runtime
     runtime_c.spawn(fut);
     result_rx.await.expect("Fatal error on starting gossipsub")
-}
-
-#[cfg(test)]
-pub mod mock_timestamp {
-    use crate::PeerId;
-    use chrono::Utc;
-    use lazy_static::lazy_static;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
-
-    lazy_static! {
-        static ref TIMESTAMP_OFFSET: Mutex<HashMap<PeerId, i64>> = Mutex::new(HashMap::new());
-    }
-
-    pub(crate) fn get_utc_timestamp_for_test(local_peer_id: PeerId) -> i64 {
-        Utc::now().timestamp()
-            + TIMESTAMP_OFFSET
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|(peer, _)| peer == &&local_peer_id)
-                .map(|(_, offset)| *offset)
-                .unwrap_or_default()
-    }
-
-    pub(crate) fn set_timestamp_offset_for_test(local_peer_id: PeerId, offset: i64) {
-        TIMESTAMP_OFFSET.lock().unwrap().insert(local_peer_id, offset);
-    }
 }
