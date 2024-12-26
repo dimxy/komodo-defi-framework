@@ -5481,35 +5481,21 @@ fn test_peer_time_sync_validation() {
         let (_ctx, _, bob_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN", 10.into());
         let (_ctx, _, alice_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN1", 10.into());
         let coins = json!([mycoin_conf(1000), mycoin1_conf(1000)]);
+        let bob_conf = Mm2TestConf::seednode(&hex::encode(bob_priv_key), &coins);
         let mut mm_bob = block_on(MarketMakerIt::start_with_envs(
-            json!({
-                "gui": "nogui",
-                "netid": 9000,
-                "dht": "on",  // Enable DHT without delay.
-                "passphrase": format!("0x{}", hex::encode(bob_priv_key)),
-                "coins": coins,
-                "rpc_password": "pass",
-                "i_am_seed": true,
-            }),
-            "pass".to_string(),
+            bob_conf.conf,
+            bob_conf.rpc_password,
             None,
             &[],
         ))
         .unwrap();
         let (_bob_dump_log, _bob_dump_dashboard) = mm_dump(&mm_bob.log_path);
         block_on(mm_bob.wait_for_log(22., |log| log.contains(">>>>>>>>> DEX stats "))).unwrap();
-
+        let alice_conf =
+            Mm2TestConf::light_node(&hex::encode(alice_priv_key), &coins, &[mm_bob.ip.to_string().as_str()]);
         let mut mm_alice = block_on(MarketMakerIt::start_with_envs(
-            json!({
-                "gui": "nogui",
-                "netid": 9000,
-                "dht": "on",  // Enable DHT without delay.
-                "passphrase": format!("0x{}", hex::encode(alice_priv_key)),
-                "coins": coins,
-                "rpc_password": "pass",
-                "seednodes": vec![format!("{}", mm_bob.ip)],
-            }),
-            "pass".to_string(),
+            alice_conf.conf,
+            alice_conf.rpc_password,
             None,
             &[("TEST_TIMESTAMP_OFFSET", offset.to_string().as_str())],
         ))
