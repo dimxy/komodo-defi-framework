@@ -605,48 +605,26 @@ pub(crate) async fn kickstart_swap_rpc(
     if swap.is_finished() {
         return MmError::err(KickStartSwapErr::AlreadyFinished);
     }
-    let maker_coin = match swap.maker_coin_ticker() {
-        Ok(coin) => match lp_coinfind(&ctx, &coin).await {
-            Ok(Some(coin)) => coin,
-            Ok(None) => {
-                return MmError::err(KickStartSwapErr::NeedsCoinActivation(format!(
-                    "Maker coin {} must be activated",
+    // Get the maker and taker coins.
+    let find_swap_coin = |ctx: MmArc, maybe_ticker: Result<String, String>, ticker_type: &'static str| async move {
+        match maybe_ticker {
+            Ok(coin) => match lp_coinfind(&ctx, &coin).await {
+                Ok(Some(coin)) => Ok(coin),
+                Ok(None) => MmError::err(KickStartSwapErr::NeedsCoinActivation(format!(
+                    "{ticker_type} coin {} must be activated",
                     coin
-                )));
+                ))),
+                Err(e) => MmError::err(KickStartSwapErr::Internal(format!(
+                    "Error trying to find {ticker_type} coin: {e}"
+                ))),
             },
-            Err(e) => {
-                return MmError::err(KickStartSwapErr::Internal(format!(
-                    "Error trying to find maker coin: {e}"
-                )))
-            },
-        },
-        Err(e) => {
-            return MmError::err(KickStartSwapErr::Internal(format!(
-                "Error getting maker ticker of swap: {e}"
-            )));
-        },
+            Err(e) => MmError::err(KickStartSwapErr::Internal(format!(
+                "Error getting {ticker_type} ticker of swap: {e}"
+            ))),
+        }
     };
-    let taker_coin = match swap.taker_coin_ticker() {
-        Ok(coin) => match lp_coinfind(&ctx, &coin).await {
-            Ok(Some(coin)) => coin,
-            Ok(None) => {
-                return MmError::err(KickStartSwapErr::NeedsCoinActivation(format!(
-                    "Taker coin {} must be activated",
-                    coin
-                )));
-            },
-            Err(e) => {
-                return MmError::err(KickStartSwapErr::Internal(format!(
-                    "Error trying to find taker coin: {e}"
-                )))
-            },
-        },
-        Err(e) => {
-            return MmError::err(KickStartSwapErr::Internal(format!(
-                "Error getting taker ticker of swap: {e}"
-            )));
-        },
-    };
+    let maker_coin = find_swap_coin(ctx.clone(), swap.maker_coin_ticker(), "maker").await?;
+    let taker_coin = find_swap_coin(ctx.clone(), swap.taker_coin_ticker(), "taker").await?;
     // Kickstart the swap. A new aborthandle will show up shortly for the swap.
     match swap {
         SavedSwap::Maker(saved_swap) => ctx.spawner().spawn(run_maker_swap(
