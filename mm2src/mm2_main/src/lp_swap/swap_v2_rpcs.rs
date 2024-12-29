@@ -8,7 +8,7 @@ use super::{active_swaps, run_maker_swap, run_taker_swap, MySwapsFilter, RunMake
             TAKER_SWAP_V2_TYPE};
 use coins::lp_coinfind;
 use common::executor::SpawnFuture;
-use common::log::{error, warn};
+use common::log::{error, info, warn};
 use common::{calc_total_pages, HttpStatusCode, PagingOptions};
 use derive_more::Display;
 use http::StatusCode;
@@ -537,6 +537,7 @@ pub(crate) async fn stop_swap_rpc(ctx: MmArc, req: StopSwapRequest) -> MmResult<
         return MmError::err(StopSwapErr::NotRunning);
     };
     let (_swap, _abort_handle) = running_swaps.swap_remove(position);
+    info!("Swap {} stopped via RPC", req.uuid);
     Ok(StopSwapResponse {
         result: "Success".to_string(),
     })
