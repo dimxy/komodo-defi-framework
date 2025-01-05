@@ -16,6 +16,7 @@ use common::{block_on, block_on_f01, executor::Timer, get_utc_timestamp, now_sec
 use crypto::privkey::key_pair_from_seed;
 use crypto::{CryptoCtx, DerivationPath, KeyPairPolicy};
 use http::StatusCode;
+use mm2_libp2p::behaviours::atomicdex::MAX_TIME_GAP_FOR_CONNECTED_PEER;
 use mm2_number::{BigDecimal, BigRational, MmNumber};
 use mm2_test_helpers::for_tests::{check_my_swap_status_amounts, disable_coin, disable_coin_err, enable_eth_coin,
                                   enable_eth_with_tokens_v2, erc20_dev_conf, eth_dev_conf, get_locked_amount,
@@ -25,6 +26,7 @@ use mm2_test_helpers::for_tests::{check_my_swap_status_amounts, disable_coin, di
 use mm2_test_helpers::{get_passphrase, structs::*};
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 use std::env;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -5474,8 +5476,8 @@ fn test_approve_erc20() {
 
 #[test]
 fn test_peer_time_sync_validation() {
-    const TIMEOFFSET_TOLERABLE: i64 = 19;
-    const TIMEOFFSET_TOO_BIG: i64 = 21;
+    let timeoffset_tolerable = TryInto::<i64>::try_into(MAX_TIME_GAP_FOR_CONNECTED_PEER).unwrap() - 1;
+    let timeoffset_too_big = TryInto::<i64>::try_into(MAX_TIME_GAP_FOR_CONNECTED_PEER).unwrap() + 1;
 
     let start_peers_with_time_offset = |offset: i64| -> (Json, Json) {
         let (_ctx, _, bob_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN", 10.into());
@@ -5529,7 +5531,7 @@ fn test_peer_time_sync_validation() {
     };
 
     // check with small time offset:
-    let (bob_peers, alice_peers) = start_peers_with_time_offset(TIMEOFFSET_TOLERABLE);
+    let (bob_peers, alice_peers) = start_peers_with_time_offset(timeoffset_tolerable);
     assert!(
         bob_peers["result"].as_object().unwrap().len() == 1,
         "bob must have one peer"
@@ -5540,7 +5542,7 @@ fn test_peer_time_sync_validation() {
     );
 
     // check with too big time offset:
-    let (bob_peers, alice_peers) = start_peers_with_time_offset(TIMEOFFSET_TOO_BIG);
+    let (bob_peers, alice_peers) = start_peers_with_time_offset(timeoffset_too_big);
     assert!(
         bob_peers["result"].as_object().unwrap().is_empty(),
         "bob must have no peers"
