@@ -366,7 +366,7 @@ impl ZCoin {
     }
 
     async fn get_one_kbyte_tx_fee(&self) -> UtxoRpcResult<BigDecimal> {
-        let fee = self.get_tx_fee().await?;
+        let fee = self.get_fee_per_kb().await?;
         match fee {
             ActualTxFee::Dynamic(fee) | ActualTxFee::FixedPerKb(fee) => {
                 Ok(big_decimal_from_sat_unsigned(fee, self.decimals()))
@@ -1799,7 +1799,7 @@ impl MmCoin for ZCoin {
 
 #[async_trait]
 impl UtxoTxGenerationOps for ZCoin {
-    async fn get_tx_fee(&self) -> UtxoRpcResult<ActualTxFee> { utxo_common::get_tx_fee(&self.utxo_arc).await }
+    async fn get_fee_per_kb(&self) -> UtxoRpcResult<ActualTxFee> { utxo_common::get_fee_per_kb(&self.utxo_arc).await }
 
     async fn calc_interest_if_required(
         &self,

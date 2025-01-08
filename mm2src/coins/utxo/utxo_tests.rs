@@ -703,7 +703,7 @@ fn test_withdraw_impl_sat_per_kb_fee_amount_equal_to_max() {
     let coin = utxo_coin_for_test(UtxoRpcClientEnum::Native(client), None, false);
 
     let withdraw_req = WithdrawRequest {
-        amount: "9.9789".parse().unwrap(),
+        amount: "9.9789".parse().unwrap(), // max amount to withdraw excluding tx_fee
         from: None,
         to: "RQq6fWoy8aGGMLjvRfMY5mBNVm2RQxJyLa".to_string(),
         coin: TEST_COIN_NAME.into(),
@@ -715,9 +715,9 @@ fn test_withdraw_impl_sat_per_kb_fee_amount_equal_to_max() {
         ibc_source_channel: None,
     };
     let tx_details = block_on_f01(coin.withdraw(withdraw_req)).unwrap();
-    // The resulting transaction size might be 210 or 211 bytes depending on signature size
-    // MM2 always expects the worst case during fee calculation
-    // 0.1 * 211 / 1000 = 0.0211
+    // The resulting transaction size might be 210 or 211 bytes (no change output) depending on signature size
+    // MM2 always expects the worst case during fee calculation:
+    // tx_fee = 0.1 * 211 / 1000 = 0.0211
     let expected_fee = Some(
         UtxoFeeDetails {
             coin: Some(TEST_COIN_NAME.into()),
@@ -1221,12 +1221,12 @@ fn test_generate_transaction_relay_fee_is_used_when_dynamic_fee_is_lower() {
         .with_fee(ActualTxFee::Dynamic(100));
 
     let generated = block_on(builder.build()).unwrap();
-    assert_eq!(generated.0.outputs.len(), 1);
+    assert_eq!(generated.0.outputs.len(), 2);
 
     // generated transaction fee must be equal to relay fee if calculated dynamic fee is lower than relay
-    assert_eq!(generated.1.fee_amount, 100000000);
+    assert_eq!(generated.1.fee_amount, 22000000);
     assert_eq!(generated.1.unused_change, 0);
-    assert_eq!(generated.1.received_by_me, 0);
+    assert_eq!(generated.1.received_by_me, 78000000);
     assert_eq!(generated.1.spent_by_me, 1000000000);
     assert!(unsafe { GET_RELAY_FEE_CALLED });
 }
@@ -1266,11 +1266,11 @@ fn test_generate_transaction_relay_fee_is_used_when_dynamic_fee_is_lower_and_ded
 
     let generated = block_on(tx_builder.build()).unwrap();
     assert_eq!(generated.0.outputs.len(), 1);
-    // `output (= 10.0) - fee_amount (= 1.0)`
-    assert_eq!(generated.0.outputs[0].value, 900000000);
+    // `output (= 10.0) - tx_fee (= 186 byte * 100000000 / 1000)`
+    assert_eq!(generated.0.outputs[0].value, 981400000);
 
-    // generated transaction fee must be equal to relay fee if calculated dynamic fee is lower than relay
-    assert_eq!(generated.1.fee_amount, 100000000);
+    // generated transaction fee must be equal to relay fee if calculated dynamic fee is lower than relay fee
+    assert_eq!(generated.1.fee_amount, 18600000);
     assert_eq!(generated.1.unused_change, 0);
     assert_eq!(generated.1.received_by_me, 0);
     assert_eq!(generated.1.spent_by_me, 1000000000);
@@ -3635,6 +3635,365 @@ fn test_split_qtum() {
     log!("Signed tx = {:?}", signed);
     let res = block_on(coin.broadcast_tx(&signed)).unwrap();
     log!("Res = {:?}", res);
+}
+
+#[test]
+fn test_raven_low_tx_fee_okay() {
+    let config = json!({
+        "coin": "RVN",
+        "name": "raven",
+        "fname": "RavenCoin",
+        "sign_message_prefix": "Raven Signed Message:\n",
+        "rpcport": 8766,
+        "pubtype": 60,
+        "p2shtype": 122,
+        "wiftype": 128,
+        "segwit": true,
+        "txfee": 1000000,
+        "mm2": 1,
+        "required_confirmations": 3,
+        "avg_blocktime": 60,
+        "protocol": {
+          "type": "UTXO"
+        },
+        "derivation_path": "m/44'/175'",
+        "trezor_coin": "Ravencoin",
+        "links": {
+          "github": "https://github.com/RavenProject/Ravencoin",
+          "homepage": "https://ravencoin.org"
+        }
+    });
+    let request = json!({
+        "method": "electrum",
+        "coin": "RVN",
+        "servers": [{"url": "electrum1.cipig.net:10060"},{"url": "electrum2.cipig.net:10060"},{"url": "electrum3.cipig.net:10060"}],
+    });
+    let ctx = MmCtxBuilder::default().into_mm_arc();
+    let params = UtxoActivationParams::from_legacy_req(&request).unwrap();
+
+    let priv_key = Secp256k1Secret::from([1; 32]);
+    let raven = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "RVN", &config, &params, priv_key,
+    ))
+    .unwrap();
+
+    let unspents = vec![
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("be3f13e94d4c58293c2fbee40dd70714c3f833a10ab05b6a328b558bb72c38a7").unwrap(),
+                index: 2,
+            },
+            value: 10618039482,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("2f2eb00dad863079fc20f0c5356bb72e18f3346c126cc3f2e3654360af930f85").unwrap(),
+                index: 0,
+            },
+            value: 15105673480,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("4a806e97f1fa33439d58ce5fad32c5be1e1f1a59d742050a42f237b33f2196ab").unwrap(),
+                index: 0,
+            },
+            value: 15376032861,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("c0f855886343247051bb42b39f75ff35690ad0fb67a08dba5e9f8b680f6fecf3").unwrap(),
+                index: 0,
+            },
+            value: 29999000000,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("0e75a62d6bb49c6312a5a1f3635d4bfc39c3d1549a35dc07b253ec1b1dd3b835").unwrap(),
+                index: 0,
+            },
+            value: 31916552049,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("921554ccd2e50729b521422d3ad22ae00b5721f888e35fca8d2c8ee7a7506490").unwrap(),
+                index: 0,
+            },
+            value: 33542311009,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("9df4256f2e3d0a65745402e7233f309767a2a629755cb3841ff0f47ce90553be").unwrap(),
+                index: 0,
+            },
+            value: 35133858231,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("bf3e69728fa9a41ab06da0e595da63bc0fbe055c04f0e7125c320b3255067a3b").unwrap(),
+                index: 0,
+            },
+            value: 46177879500,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("c62efa3598fec9332746d0657b7bd2a1974efe637da549ddeb84c952535e214b").unwrap(),
+                index: 2,
+            },
+            value: 155455117689,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("9b676bc6a81e4e801a37b48f11f3834c0b1fd49ff420e104563e0895f0517946").unwrap(),
+                index: 2,
+            },
+            value: 251289432230,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("210525a94adc033a745bfae158d931464a720b60bd708d00415fa38d7aa1bed1").unwrap(),
+                index: 0,
+            },
+            value: 260317094896,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("d78d731e8dfc9fc1591da45da7622b13a3e395a73fd3178e6b832cd30436ed14").unwrap(),
+                index: 0,
+            },
+            value: 460964136766,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("02143bce641ef1f70354085dfdff6f1031db019df561aa09b06835fbcf41b8a4").unwrap(),
+                index: 0,
+            },
+            value: 515274184960,
+            height: None,
+            script: Vec::new().into(),
+        },
+    ];
+    let outputs = vec![
+        TransactionOutput {
+            value: 1742160278745,
+            script_pubkey: "a9147484c59a11d053535314d5a1047005952f7fdf1e87".into(),
+        },
+        TransactionOutput {
+            value: 0,
+            script_pubkey: "6a140e7d2af72dc4363283f4b50e1cfe6775a1ad81c1".into(),
+        },
+        TransactionOutput {
+            value: 119006034408,
+            script_pubkey: "76a914124b0846223ef78130b8e544b9afc3b09988238688ac".into(),
+        },
+    ];
+    let builder = block_on(UtxoTxBuilder::new(&raven))
+        .add_available_inputs(unspents)
+        .add_outputs(outputs);
+    let (_, data) = block_on(builder.build()).unwrap();
+    let expected_fee = 3000000;
+    assert_eq!(expected_fee, data.fee_amount);
+}
+
+/// Test to validate fix for https://github.com/KomodoPlatform/komodo-defi-framework/issues/2313
+#[test]
+fn test_raven_low_tx_fee_error() {
+    let config = json!({
+        "coin": "RVN",
+        "name": "raven",
+        "fname": "RavenCoin",
+        "sign_message_prefix": "Raven Signed Message:\n",
+        "rpcport": 8766,
+        "pubtype": 60,
+        "p2shtype": 122,
+        "wiftype": 128,
+        "segwit": true,
+        "txfee": 1000000,
+        "mm2": 1,
+        "required_confirmations": 3,
+        "avg_blocktime": 60,
+        "protocol": {
+          "type": "UTXO"
+        },
+        "derivation_path": "m/44'/175'",
+        "trezor_coin": "Ravencoin",
+        "links": {
+          "github": "https://github.com/RavenProject/Ravencoin",
+          "homepage": "https://ravencoin.org"
+        }
+    });
+    let request = json!({
+        "method": "electrum",
+        "coin": "RVN",
+        "servers": [{"url": "electrum1.cipig.net:10060"},{"url": "electrum2.cipig.net:10060"},{"url": "electrum3.cipig.net:10060"}],
+    });
+    let ctx = MmCtxBuilder::default().into_mm_arc();
+    let params = UtxoActivationParams::from_legacy_req(&request).unwrap();
+
+    let priv_key = Secp256k1Secret::from([1; 32]);
+    let raven = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "RVN", &config, &params, priv_key,
+    ))
+    .unwrap();
+
+    let unspents = vec![
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("fde4ef4f23edc53085460559702783f7128d4b9bacd6898ffae2234576e7feb9").unwrap(),
+                index: 2,
+            },
+            value: 11014394719,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("2f2eb00dad863079fc20f0c5356bb72e18f3346c126cc3f2e3654360af930f85").unwrap(),
+                index: 0,
+            },
+            value: 15105673480,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("4a806e97f1fa33439d58ce5fad32c5be1e1f1a59d742050a42f237b33f2196ab").unwrap(),
+                index: 0,
+            },
+            value: 15376032861,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("c0f855886343247051bb42b39f75ff35690ad0fb67a08dba5e9f8b680f6fecf3").unwrap(),
+                index: 0,
+            },
+            value: 29999000000,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("0e75a62d6bb49c6312a5a1f3635d4bfc39c3d1549a35dc07b253ec1b1dd3b835").unwrap(),
+                index: 0,
+            },
+            value: 31916552049,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("921554ccd2e50729b521422d3ad22ae00b5721f888e35fca8d2c8ee7a7506490").unwrap(),
+                index: 0,
+            },
+            value: 33542311009,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("9df4256f2e3d0a65745402e7233f309767a2a629755cb3841ff0f47ce90553be").unwrap(),
+                index: 0,
+            },
+            value: 35133858231,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("bf3e69728fa9a41ab06da0e595da63bc0fbe055c04f0e7125c320b3255067a3b").unwrap(),
+                index: 0,
+            },
+            value: 46177879500,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("c62efa3598fec9332746d0657b7bd2a1974efe637da549ddeb84c952535e214b").unwrap(),
+                index: 2,
+            },
+            value: 155455117689,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("9b676bc6a81e4e801a37b48f11f3834c0b1fd49ff420e104563e0895f0517946").unwrap(),
+                index: 2,
+            },
+            value: 251289432230,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("210525a94adc033a745bfae158d931464a720b60bd708d00415fa38d7aa1bed1").unwrap(),
+                index: 0,
+            },
+            value: 260317094896,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("d78d731e8dfc9fc1591da45da7622b13a3e395a73fd3178e6b832cd30436ed14").unwrap(),
+                index: 0,
+            },
+            value: 460964136766,
+            height: None,
+            script: Vec::new().into(),
+        },
+        UnspentInfo {
+            outpoint: OutPoint {
+                hash: H256::from_str("02143bce641ef1f70354085dfdff6f1031db019df561aa09b06835fbcf41b8a4").unwrap(),
+                index: 0,
+            },
+            value: 515274184960,
+            height: None,
+            script: Vec::new().into(),
+        },
+    ];
+    let outputs = vec![
+        TransactionOutput {
+            value: 1752628943415,
+            script_pubkey: "a91417ad3c3cd6e32aede379ac0efa42e310ba30b81d87".into(),
+        },
+        TransactionOutput {
+            value: 0,
+            script_pubkey: "6a145786f27ae947255c21e47a3d3fe0d4e132f34e6c".into(),
+        },
+    ];
+    let builder = block_on(UtxoTxBuilder::new(&raven))
+        .add_available_inputs(unspents)
+        .add_outputs(outputs);
+    let (_, data) = block_on(builder.build()).unwrap();
+    let expected_fee = 3000000;
+    assert_eq!(expected_fee, data.fee_amount);
 }
 
 /// `QtumCoin` hasn't to check UTXO maturity if `check_utxo_maturity` is `false`.

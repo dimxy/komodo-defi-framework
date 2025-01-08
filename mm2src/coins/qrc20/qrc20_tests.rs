@@ -59,7 +59,7 @@ pub fn qrc20_coin_for_test(priv_key: [u8; 32], fallback_swap: Option<&str>) -> (
 }
 
 fn check_tx_fee(coin: &Qrc20Coin, expected_tx_fee: ActualTxFee) {
-    let actual_tx_fee = block_on(coin.get_tx_fee()).unwrap();
+    let actual_tx_fee = block_on(coin.get_fee_per_kb()).unwrap();
     assert_eq!(actual_tx_fee, expected_tx_fee);
 }
 

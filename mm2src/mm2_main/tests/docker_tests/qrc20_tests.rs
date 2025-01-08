@@ -851,10 +851,10 @@ fn test_check_balance_on_order_post_base_coin_locked() {
     let alice_priv_key = random_secp256k1_secret();
     let timeout = 30; // timeout if test takes more than 80 seconds to run
 
-    // fill the Bob address by 0.05 Qtum
+    // fill the Bob address by 0.08001 Qtum (including tx_fee of 1000 and gas_fee of 400000)
     let (_ctx, coin) = qrc20_coin_from_privkey("QICK", bob_priv_key);
     let my_address = coin.my_address().expect("!my_address");
-    fill_address(&coin, &my_address, BigDecimal::try_from(0.05).unwrap(), timeout);
+    fill_address(&coin, &my_address, BigDecimal::try_from(0.08001).unwrap(), timeout);
     // fill the Bob address by 10 MYCOIN
     let (_ctx, coin) = utxo_coin_from_privkey("MYCOIN", bob_priv_key);
     let my_address = coin.my_address().expect("!my_address");

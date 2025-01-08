@@ -279,9 +279,41 @@ pub enum TxFee {
 pub enum ActualTxFee {
     /// fee amount per Kbyte received from coin RPC
     Dynamic(u64),
-    /// Use specified amount per each 1 kb of transaction and also per each output less than amount.
+    /// Use specified fee amount per each 1 kb of transaction and also per each output less than the fee amount.
     /// Used by DOGE, but more coins might support it too.
     FixedPerKb(u64),
+}
+
+impl ActualTxFee {
+    fn get_tx_fee(&self, tx_size: u64) -> u64 {
+        match self {
+            ActualTxFee::Dynamic(fee_per_kb) => (fee_per_kb * tx_size) / KILO_BYTE,
+            // return fee_per_kb here as swap spend transaction size is always less than 1 kb
+            ActualTxFee::FixedPerKb(fee_per_kb) => {
+                let tx_size_kb = if tx_size % KILO_BYTE == 0 {
+                    tx_size / KILO_BYTE
+                } else {
+                    tx_size / KILO_BYTE + 1
+                };
+                fee_per_kb * tx_size_kb
+            },
+        }
+    }
+
+    /// Return extra tx fee for the change output as p2pkh
+    fn get_tx_fee_for_change(&self, tx_size: Option<u64>) -> u64 {
+        match self {
+            ActualTxFee::Dynamic(fee_per_kb) => (*fee_per_kb * P2PKH_OUTPUT_LEN) / KILO_BYTE,
+            ActualTxFee::FixedPerKb(fee_per_kb) => {
+                // take into account the change output if tx_size_kb(tx with change) > tx_size_kb(tx without change)
+                if tx_size.unwrap_or_default() % KILO_BYTE + P2PKH_OUTPUT_LEN > KILO_BYTE {
+                    *fee_per_kb
+                } else {
+                    0
+                }
+            },
+        }
+    }
 }
 
 /// Fee policy applied on transaction creation
@@ -840,7 +872,7 @@ pub trait UtxoTxBroadcastOps {
 #[async_trait]
 #[cfg_attr(test, mockable)]
 pub trait UtxoTxGenerationOps {
-    async fn get_tx_fee(&self) -> UtxoRpcResult<ActualTxFee>;
+    async fn get_fee_per_kb(&self) -> UtxoRpcResult<ActualTxFee>;
 
     /// Calculates interest if the coin is KMD
     /// Adds the value to existing output to my_script_pub or creates additional interest output
@@ -1741,7 +1773,6 @@ where
 {
     let my_address = try_tx_s!(coin.as_ref().derivation_method.single_addr_or_err().await);
     let key_pair = try_tx_s!(coin.as_ref().priv_key_policy.activated_key_or_err());
-
     let mut builder = UtxoTxBuilder::new(coin)
         .await
         .add_available_inputs(unspents)
