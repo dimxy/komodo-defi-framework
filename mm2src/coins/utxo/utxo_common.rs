@@ -547,7 +547,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             .fold(0u64, |required, output| required + output.value);
         match self.fee_policy {
             FeePolicy::SendExact => {
-                sum_output += self.tx_fee();
+                sum_output += self.total_tx_fee();
             },
             FeePolicy::DeductFromOutput(_) => {},
         };
@@ -595,8 +595,8 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
     /// Adds change output.
     /// Returns change value and dust change
     fn add_change(&mut self, change_script_pubkey: &Bytes) -> (u64, u64) {
-        if self.sum_inputs > self.sum_outputs + self.tx_fee() {
-            let change = self.sum_inputs - (self.sum_outputs + self.tx_fee());
+        if self.sum_inputs > self.sum_outputs + self.total_tx_fee() {
+            let change = self.sum_inputs - (self.sum_outputs + self.total_tx_fee());
             if change > self.dust() {
                 self.tx.outputs.push({
                     TransactionOutput {
@@ -634,7 +634,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         match self.fee_policy {
             FeePolicy::SendExact => Ok(0),
             FeePolicy::DeductFromOutput(i) => {
-                let tx_fee = self.tx_fee();
+                let tx_fee = self.total_tx_fee();
                 let min_output = tx_fee + self.dust();
                 let val = self.tx.outputs[i].value;
                 return_err_if_false!(val >= min_output, GenerateTxError::DeductFeeFromOutputFailed {
@@ -678,7 +678,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         }
     }
 
-    fn tx_fee(&self) -> u64 { self.tx_fee + self.gas_fee.unwrap_or(0u64) }
+    fn total_tx_fee(&self) -> u64 { self.tx_fee + self.gas_fee.unwrap_or(0u64) }
 
     /// Generates unsigned transaction (TransactionInputSigner) from specified utxos and outputs.
     /// sends the change (inputs amount - outputs amount) to the [`UtxoTxBuilder::from`] address.
@@ -738,13 +738,13 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             self.sum_outputs += change;
             unused_change = unused;
             self.update_tx_fee(from.addr_format(), &actual_fee_per_kb); // recalculate txfee with the change output, if added
-            if self.sum_inputs >= self.sum_outputs + self.tx_fee() {
+            if self.sum_inputs >= self.sum_outputs + self.total_tx_fee() {
                 break;
             }
         }
 
         let data = AdditionalTxData {
-            fee_amount: self.tx_fee(),
+            fee_amount: self.tx_fee, // we return only txfee here (w/o gas_fee)
             received_by_me: self.sum_received_by_me(&change_script_pubkey),
             spent_by_me: self.sum_inputs,
             unused_change,

@@ -584,6 +584,7 @@ impl Qrc20Coin {
         contract_outputs: Vec<ContractCallOutput>,
         stage: &FeeApproxStage,
     ) -> TradePreimageResult<BigDecimal> {
+        let decimals = self.as_ref().decimals;
         let mut gas_fee = 0;
         let mut outputs = Vec::with_capacity(contract_outputs.len());
         for output in contract_outputs {
@@ -594,7 +595,8 @@ impl Qrc20Coin {
         let miner_fee =
             UtxoCommonOps::preimage_trade_fee_required_to_send_outputs(self, outputs, fee_policy, Some(gas_fee), stage)
                 .await?;
-        Ok(miner_fee)
+        let gas_fee = big_decimal_from_sat(gas_fee as i64, decimals);
+        Ok(miner_fee + gas_fee)
     }
 }
 
