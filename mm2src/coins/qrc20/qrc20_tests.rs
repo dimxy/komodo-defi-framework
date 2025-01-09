@@ -150,7 +150,7 @@ fn test_withdraw_impl_fee_details() {
         // 1000 from satoshi,
         // where decimals = 8,
         //       1000 is fixed fee
-        "miner_fee": "0.00001",
+        "miner_fee": "1.00001",
         "gas_limit": 2_500_000,
         "gas_price": 40,
         // (gas_limit * gas_price) from satoshi in Qtum
