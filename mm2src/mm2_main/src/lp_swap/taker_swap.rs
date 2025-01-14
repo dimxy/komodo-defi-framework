@@ -520,20 +520,20 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
     );
     // Run the swap in an abortable task and wait for it to finish.
     //let (swap_ended_notifier, swap_ended_notification) = oneshot::channel();
-    let fut_with_touch = async move {
+    //let fut_with_touch = async move {
         select! {
             _swap = swap_fut => (), // swap finished normally
             _touch = touch_loop => unreachable!("Touch loop can not stop!"),
-        }
+        };
         //if swap_ended_notifier.send(()).is_err() {
         //    error!("Swap listener stopped listening!");
         //}
-    };
-    let (abortable, handle) = futures::future::abortable(fut_with_touch);
-    swap_ctx.running_swaps.lock().unwrap().push((weak_ref, handle.into()));
-    if let Err(futures::future::Aborted) = abortable.await {
-        info!("Swap uuid={} interrupted!", uuid2);
-    }
+    //};
+    //let (abortable, handle) = futures::future::abortable(fut_with_touch);
+    //swap_ctx.running_swaps.lock().unwrap().push((weak_ref, handle.into()));
+    //if let Err(futures::future::Aborted) = abortable.await {
+    //    info!("Swap uuid={} interrupted!", uuid2);
+    //}
     // Halt this function until the swap has finished (or interrupted, i.e. aborted/panic).
 
     //swap_ended_notification.await.error_log_with_msg("Swap interrupted!");
