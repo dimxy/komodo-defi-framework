@@ -466,9 +466,8 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
     let weak_ref = Arc::downgrade(&running_swap);
     let swap_ctx = SwapsContext::from_ctx(&ctx).unwrap();
     swap_ctx.init_msg_store(running_swap.uuid, running_swap.maker);
-    let mut swap_fut = Box::pin({
-        let uuid = uuid.clone();
-        async move {
+    let uuid2 = uuid.clone();
+    let mut swap_fut = Box::pin(async move {
             let mut events;
             
             loop {
@@ -517,9 +516,8 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                     },
                 }
             }
-        }
-        .fuse()
-    });
+        }.fuse(),
+    );
     // Run the swap in an abortable task and wait for it to finish.
     //let (swap_ended_notifier, swap_ended_notification) = oneshot::channel();
     let fut_with_touch = async move {
@@ -534,7 +532,7 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
     let (abortable, handle) = futures::future::abortable(fut_with_touch);
     swap_ctx.running_swaps.lock().unwrap().push((weak_ref, handle.into()));
     if let Err(futures::future::Aborted) = abortable.await {
-        info!("Swap uuid={} interrupted!", uuid);
+        info!("Swap uuid={} interrupted!", uuid2);
     }
     // Halt this function until the swap has finished (or interrupted, i.e. aborted/panic).
 
