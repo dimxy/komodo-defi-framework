@@ -205,7 +205,7 @@ pub const APPLICATION_GRPC_WEB_TEXT_PROTO: &str = "application/grpc-web-text+pro
 pub const SATOSHIS: u64 = 100_000_000;
 
 pub const DEX_FEE_ADDR_PUBKEY: &str = "03bc2c7ba671bae4a6fc835244c9762b41647b9827d4780a89a949b984a8ddcc06";
-pub const DEX_BURN_ADDR_PUBKEY: &str = "034777b18effce6f7a849b72de8e6810bf7a7e050274b3782e1b5a13d0263a44dc"; // TODO: fix for real pubkey
+pub const DEX_BURN_ADDR_PUBKEY: &str = "0369aa10c061cd9e085f4adb7399375ba001b54136145cb748eb4c48657be13153";
 
 pub const PROXY_REQUEST_EXPIRATION_SEC: i64 = 15;
 
