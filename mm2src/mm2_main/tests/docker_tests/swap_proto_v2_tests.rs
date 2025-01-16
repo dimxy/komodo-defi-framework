@@ -551,8 +551,8 @@ fn send_and_refund_maker_payment_timelock() {
             maker_secret_hash,
         },
         swap_unique_data: &[],
-        swap_contract_address: &None,
         watcher_reward: false,
+        amount: Default::default(),
     };
 
     let refund_tx = block_on(coin.refund_maker_payment_v2_timelock(refund_args)).unwrap();
@@ -614,6 +614,7 @@ fn send_and_refund_maker_payment_taker_secret() {
         swap_unique_data: &[],
         taker_secret,
         taker_pub,
+        amount: Default::default(),
     };
 
     let refund_tx = block_on(coin.refund_maker_payment_v2_secret(refund_args)).unwrap();
