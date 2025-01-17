@@ -1402,7 +1402,6 @@ impl TakerSwap {
 
         let tx_hash = transaction.tx_hash_as_bytes();
         info!("Taker fee tx hash {:02x}", tx_hash);
-        info!("Taker fee tx hex {:02x}", BytesJson::from(transaction.tx_hex()));
         let tx_ident = TransactionIdentifier {
             tx_hex: BytesJson::from(transaction.tx_hex()),
             tx_hash,
@@ -1787,7 +1786,6 @@ impl TakerSwap {
         let tx_hash = transaction.tx_hash_as_bytes();
         let tx_hex = BytesJson::from(transaction.tx_hex());
         info!("Taker payment tx hash {:02x}", tx_hash);
-        info!("Taker payment tx_hex {:02x}", tx_hex);
         let tx_ident = TransactionIdentifier {
             tx_hex: tx_hex.clone(),
             tx_hash,
