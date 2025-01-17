@@ -285,14 +285,11 @@ pub mod z_coin;
 use crate::coin_balance::{BalanceObjectOps, HDWalletBalanceObject};
 use z_coin::{ZCoin, ZcoinProtocolInfo};
 
-/// Default swap protocol version before version field added to NegotiationDataMsg
-pub const LEGACY_PROTOCOL_VERSION: u16 = 0;
+/// Current legacy swap messages version
+pub const LEGACY_SWAP_MSG_VERSION: u16 = 1;
 
-/// Current swap protocol version
-pub const SWAP_PROTOCOL_VERSION: u16 = 1;
-
-/// Minimal supported swap protocol version implemented by remote peer
-pub const MIN_SWAP_PROTOCOL_VERSION: u16 = LEGACY_PROTOCOL_VERSION;
+/// Minimal negotiated legacy swap messages version (that must be implemented by remote peer)
+pub const MIN_LEGACY_SWAP_MSG_VERSION: u16 = LEGACY_SWAP_MSG_VERSION;
 
 // TODO: add version field to the SWAP V2 negotiation protocol
 

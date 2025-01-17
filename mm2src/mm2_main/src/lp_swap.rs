@@ -62,8 +62,7 @@ use crate::lp_network::{broadcast_p2p_msg, Libp2pPeerId, P2PProcessError, P2PPro
 use crate::lp_swap::maker_swap_v2::{MakerSwapStateMachine, MakerSwapStorage};
 use crate::lp_swap::taker_swap_v2::{TakerSwapStateMachine, TakerSwapStorage};
 use bitcrypto::{dhash160, sha256};
-use coins::{lp_coinfind, lp_coinfind_or_err, CoinFindError, MmCoinEnum, TradeFee, TransactionEnum,
-            LEGACY_PROTOCOL_VERSION};
+use coins::{lp_coinfind, lp_coinfind_or_err, CoinFindError, MmCoinEnum, TradeFee, TransactionEnum};
 #[cfg(feature = "for-tests")] use common::env_var_as_bool;
 use common::log::{debug, warn};
 use common::now_sec;
@@ -83,7 +82,6 @@ use mm2_state_machine::storable_state_machine::StateMachineStorage;
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use secp256k1::{PublicKey, SecretKey, Signature};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{self as json, Value as Json};
 use std::collections::{HashMap, HashSet};
@@ -186,27 +184,12 @@ cfg_wasm32! {
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
 pub enum SwapMsg {
-    Negotiation(NegotiationDataMsg),
-    NegotiationReply(NegotiationDataMsg),
+    Negotiation(NegotiationDataMsgVersion),
+    NegotiationReply(NegotiationDataMsgVersion),
     Negotiated(bool),
     TakerFee(SwapTxDataMsg),
     MakerPayment(SwapTxDataMsg),
     TakerPayment(Vec<u8>),
-}
-
-// Extension to SwapMsg with version added to negotiation exchange
-#[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
-pub enum SwapMsgExt {
-    NegotiationVersioned(NegotiationDataMsgVersion),
-    NegotiationReplyVersioned(NegotiationDataMsgVersion),
-}
-
-/// Utility wrapper to allow manage both SwapMsg and SwapMsgExt as one entity
-#[derive(Clone, Debug, Serialize)]
-#[serde(untagged)]
-pub enum SwapMsgWrapper {
-    Legacy(SwapMsg),
-    Ext(SwapMsgExt),
 }
 
 #[derive(Debug, Default)]
@@ -227,11 +210,6 @@ impl SwapMsgStore {
             ..Default::default()
         }
     }
-}
-
-/// Process swap v1 or v1 extension messages
-pub trait ProcessSwapMsg {
-    fn swap_msg_to_store(self, msg_store: &mut SwapMsgStore);
 }
 
 /// Storage for P2P messages, which are exchanged during SwapV2 protocol execution.
@@ -365,23 +343,11 @@ pub fn broadcast_p2p_tx_msg(ctx: &MmArc, topic: String, msg: &TransactionEnum, p
     broadcast_p2p_msg(ctx, topic, encoded_msg, from);
 }
 
-impl ProcessSwapMsg for SwapMsg {
+impl SwapMsg {
     fn swap_msg_to_store(self, msg_store: &mut SwapMsgStore) {
         match self {
-            // build NegotiationDataMsgVersion from legacy NegotiationDataMsg with default version:
-            SwapMsg::Negotiation(data) => {
-                msg_store.negotiation = Some(NegotiationDataMsgVersion {
-                    version: LEGACY_PROTOCOL_VERSION,
-                    msg: data,
-                })
-            },
-            // build NegotiationDataMsgVersion from legacy NegotiationDataMsg with default version:
-            SwapMsg::NegotiationReply(data) => {
-                msg_store.negotiation_reply = Some(NegotiationDataMsgVersion {
-                    version: LEGACY_PROTOCOL_VERSION,
-                    msg: data,
-                })
-            },
+            SwapMsg::Negotiation(data) => msg_store.negotiation = Some(data),
+            SwapMsg::NegotiationReply(data) => msg_store.negotiation_reply = Some(data),
             SwapMsg::Negotiated(negotiated) => msg_store.negotiated = Some(negotiated),
             SwapMsg::TakerFee(data) => msg_store.taker_fee = Some(data),
             SwapMsg::MakerPayment(data) => msg_store.maker_payment = Some(data),
@@ -390,40 +356,10 @@ impl ProcessSwapMsg for SwapMsg {
     }
 }
 
-impl ProcessSwapMsg for SwapMsgExt {
-    fn swap_msg_to_store(self, msg_store: &mut SwapMsgStore) {
-        match self {
-            SwapMsgExt::NegotiationVersioned(data) => {
-                #[cfg(feature = "for-tests")]
-                {
-                    if env_var_as_bool("USE_NON_VERSIONED_TAKER") {
-                        // ignore versioned msg to emulate old taker not supporting it
-                        break;
-                    }
-                }
-                msg_store.negotiation = Some(data);
-            },
-            SwapMsgExt::NegotiationReplyVersioned(data) => {
-                #[cfg(feature = "for-tests")]
-                {
-                    if env_var_as_bool("USE_NON_VERSIONED_MAKER") {
-                        // ignore versioned reply to emulate old maker not supporting it
-                        break;
-                    }
-                }
-                msg_store.negotiation_reply = Some(data);
-            },
-        }
-    }
-}
-
-pub async fn process_swap_msg<SwapMsgT>(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequestResult<()>
-where
-    SwapMsgT: ProcessSwapMsg + DeserializeOwned + std::fmt::Debug,
-{
+pub async fn process_swap_msg(ctx: MmArc, topic: &str, msg: &[u8]) -> P2PRequestResult<()> {
     let uuid = Uuid::from_str(topic).map_to_mm(|e| P2PRequestError::DecodeError(e.to_string()))?;
 
-    let msg = match decode_signed::<SwapMsgT>(msg) {
+    let msg = match decode_signed::<SwapMsg>(msg) {
         Ok(m) => m,
         Err(swap_msg_err) => {
             #[cfg(not(target_arch = "wasm32"))]
@@ -467,7 +403,6 @@ where
 }
 
 pub fn swap_topic(uuid: &Uuid) -> String { pub_sub_topic(SWAP_PREFIX, &uuid.to_string()) }
-pub fn swap_ext_topic(uuid: &Uuid) -> String { pub_sub_topic(SWAP_PREFIX_EXT, &uuid.to_string()) }
 
 /// Formats and returns a topic format for `txhlp`.
 ///

@@ -15,19 +15,17 @@ use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::lp_swap::{broadcast_swap_message, swap_ext_topic, taker_payment_spend_duration, SwapMsgWrapper,
-                     MAX_STARTED_AT_DIFF};
-use crate::lp_swap::{NegotiationDataMsgVersion, SwapMsgExt};
+use crate::lp_swap::NegotiationDataMsgVersion;
+use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF};
 use coins::lp_price::fetch_swap_coins_price;
 use coins::swap_features::LegacySwapFeature;
-use coins::SWAP_PROTOCOL_VERSION;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_BURN_ADDR_RAW_PUBKEY;
 use coins::{dex_fee_from_taker_coin, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee,
             FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
             PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
             SwapTxTypeWithSecretHash, TradeFee, TradePreimageValue, TransactionEnum, ValidateFeeArgs,
-            ValidatePaymentInput, WatcherReward, MIN_SWAP_PROTOCOL_VERSION};
+            ValidatePaymentInput, WatcherReward, LEGACY_SWAP_MSG_VERSION, MIN_LEGACY_SWAP_MSG_VERSION};
 use common::log::{debug, error, info, warn};
 use common::{bits256, executor::Timer, now_ms};
 use common::{env_var_as_bool, now_sec, wait_until_sec};
@@ -128,8 +126,7 @@ async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSav
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TakerNegotiationData {
-    /// Protocol version supported by taker peer. Optional because it was added in new NegotiationDataMsgVersion
-    /// so it could be read as None from a saved swap if the swap started before upgrade to NegotiationDataMsgVersion
+    /// Swap message exchange version supported by remote taker peer. Optional because it is found at negotiation
     pub taker_version: Option<u16>,
     pub taker_payment_locktime: u64,
     pub taker_pubkey: H264Json,
@@ -165,7 +162,7 @@ pub struct MakerSwapData {
     pub maker_payment_lock: u64,
     /// Allows to recognize one SWAP from the other in the logs. #274.
     pub uuid: Uuid,
-    /// Swap protocol version that the remote taker supports. This field introduced with NegotiationDataMsgVersion message so is optional for old takers
+    /// Swap messages version that the remote taker supports. Optional because not known until negotiation
     pub taker_version: Option<u16>,
     pub started_at: u64,
     pub maker_coin_start_block: u64,
@@ -423,7 +420,7 @@ impl MakerSwap {
     }
 
     /// Creates initial negotiation messages. Creates new and old messages to try both until all nodes are upgraded to NegotiationDataMsgVersion
-    fn get_my_negotiation_data(&self) -> NegotiationDataMsg {
+    fn get_my_negotiation_data(&self) -> NegotiationDataMsgVersion {
         let r = self.r();
         let secret_hash = self.secret_hash();
         let maker_coin_swap_contract = self
@@ -438,7 +435,7 @@ impl MakerSwap {
         let equal = r.data.maker_coin_htlc_pubkey == r.data.taker_coin_htlc_pubkey;
         let same_as_persistent = r.data.maker_coin_htlc_pubkey == Some(r.data.my_persistent_pub);
 
-        if equal && same_as_persistent {
+        let negotiation_msg = if equal && same_as_persistent {
             NegotiationDataMsg::V2(NegotiationDataV2 {
                 started_at: r.data.started_at,
                 payment_locktime: r.data.maker_payment_lock,
@@ -457,6 +454,21 @@ impl MakerSwap {
                 maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
                 taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
             })
+        };
+
+        #[cfg(feature = "run-docker-tests")]
+        let version = if !env_var_as_bool("USE_OLD_VERSION_MAKER") {
+            LEGACY_SWAP_MSG_VERSION
+        } else {
+            0 // use old version for tests
+        };
+
+        #[cfg(not(feature = "run-docker-tests"))]
+        let version = LEGACY_SWAP_MSG_VERSION;
+
+        NegotiationDataMsgVersion {
+            version,
+            msg: negotiation_msg,
         }
     }
 
@@ -608,23 +620,8 @@ impl MakerSwap {
         let negotiation_data = self.get_my_negotiation_data();
         let mut msgs = vec![];
 
-        // Important to try the new versioned negotiation message first
-        if cfg!(not(feature = "for-tests")) || !env_var_as_bool("USE_NON_VERSIONED_MAKER") {
-            let maker_versioned_negotiation_msg = SwapMsgExt::NegotiationVersioned(NegotiationDataMsgVersion {
-                version: SWAP_PROTOCOL_VERSION,
-                msg: negotiation_data.clone(),
-            });
-            msgs.push((
-                swap_ext_topic(&self.uuid),
-                SwapMsgWrapper::Ext(maker_versioned_negotiation_msg),
-            ));
-        }
-
-        let maker_old_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
-        msgs.push((
-            swap_topic(&self.uuid),
-            SwapMsgWrapper::Legacy(maker_old_negotiation_msg),
-        ));
+        let maker_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
+        msgs.push((swap_topic(&self.uuid), maker_negotiation_msg));
 
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
@@ -655,15 +652,15 @@ impl MakerSwap {
         drop(send_abort_handle);
 
         let remote_version = taker_data.version();
-        // this check will work when we raise minimal swap protocol version
+        // this check will work when we raise minimal swap messages version
         #[allow(clippy::absurd_extreme_comparisons)]
-        if remote_version < MIN_SWAP_PROTOCOL_VERSION {
+        if remote_version < MIN_LEGACY_SWAP_MSG_VERSION {
             self.broadcast_negotiated_false();
             return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
                 ERRL!(
-                    "Remote taker protocol version {} too old, minimal version is {}",
+                    "Remote taker swap messages version {} too old, minimal version is {}",
                     remote_version,
-                    MIN_SWAP_PROTOCOL_VERSION
+                    MIN_LEGACY_SWAP_MSG_VERSION
                 )
                 .into(),
             )]));
@@ -2197,7 +2194,6 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
 
     let ctx = swap.ctx.clone();
     subscribe_to_topic(&ctx, swap_topic(&swap.uuid));
-    subscribe_to_topic(&ctx, swap_ext_topic(&swap.uuid));
     let mut status = ctx.log.status_handle();
     let uuid_str = swap.uuid.to_string();
     let to_broadcast = !(swap.maker_coin.is_privacy() || swap.taker_coin.is_privacy());
