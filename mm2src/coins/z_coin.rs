@@ -1252,7 +1252,7 @@ impl MarketCoinOps for ZCoin {
 
     fn is_privacy(&self) -> bool { true }
 
-    fn should_burn_dex_fee(&self) -> bool { true }
+    fn should_burn_dex_fee(&self) -> bool { false } // TODO: enable when burn z_address fixed
 
     fn is_trezor(&self) -> bool { self.as_ref().priv_key_policy.is_trezor() }
 }
