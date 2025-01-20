@@ -626,8 +626,6 @@ impl MakerSwap {
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
         debug!("Sending maker negotiation data: {:?}", msgs);
-        // Send both old and new negotiation data to determine whether the remote node is old (supports NegotiationDataMsg) or new (supports NegotiationDataMsgVersion).
-        // When all nodes upgrade to NegotiationDataMsgVersion we won't need to send both messages and will use 'version' field in NegotiationDataMsgVersion
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             msgs,
