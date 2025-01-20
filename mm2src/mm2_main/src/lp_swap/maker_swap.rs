@@ -618,17 +618,16 @@ impl MakerSwap {
 
     async fn negotiate(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         let negotiation_data = self.get_my_negotiation_data();
-        let mut msgs = vec![];
 
         let maker_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
-        msgs.push((swap_topic(&self.uuid), maker_negotiation_msg));
 
         const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
 
-        debug!("Sending maker negotiation data: {:?}", msgs);
+        debug!("Sending maker negotiation data: {:?}", maker_negotiation_msg);
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            msgs,
+            swap_topic(&self.uuid),
+            maker_negotiation_msg,
             NEGOTIATION_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -747,7 +746,8 @@ impl MakerSwap {
         let negotiated = SwapMsg::Negotiated(true);
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            vec![(swap_topic(&self.uuid), negotiated)],
+            swap_topic(&self.uuid),
+            negotiated,
             TAKER_FEE_RECV_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -1012,7 +1012,8 @@ impl MakerSwap {
         let msg = SwapMsg::MakerPayment(payment_data_msg);
         let abort_send_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            vec![(swap_topic(&self.uuid), msg)],
+            swap_topic(&self.uuid),
+            msg,
             PAYMENT_MSG_INTERVAL_SEC,
             self.p2p_privkey,
         );

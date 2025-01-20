@@ -273,22 +273,18 @@ pub fn p2p_private_and_peer_id_to_broadcast(ctx: &MmArc, p2p_privkey: Option<&Ke
     }
 }
 
-/// Spawns the loop that broadcasts group of messages every `interval` seconds returning the AbortOnDropHandle
+/// Spawns the loop that broadcasts message every `interval` seconds returning the AbortOnDropHandle
 /// to stop it
 pub fn broadcast_swap_msg_every<T: 'static + Serialize + Clone + Send>(
     ctx: MmArc,
-    msgs: Vec<(String, T)>, // topic and message
+    topic: String, // topic
+    msg: T,        // message
     interval_sec: f64,
     p2p_privkey: Option<KeyPair>,
 ) -> AbortOnDropHandle {
     let fut = async move {
         loop {
-            let msgs_cloned = msgs.clone();
-            for msg in msgs_cloned {
-                broadcast_swap_message(&ctx, msg.0, msg.1, &p2p_privkey);
-                // TODO: delete the sleep (and return to only one message instead of array) when all nodes are upgraded to support version in negotiation
-                Timer::sleep(5.0).await; // this a delay between tries of new and old requests (to ensure the receiver processes the new message first)
-            }
+            broadcast_swap_message(&ctx, topic.clone(), msg.clone(), &p2p_privkey);
             Timer::sleep(interval_sec).await;
         }
     };

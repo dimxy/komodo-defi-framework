@@ -1313,7 +1313,8 @@ impl TakerSwap {
         debug!("Sending taker negotiation data {:?}", taker_data);
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            vec![(topic, taker_data)],
+            topic,
+            taker_data,
             NEGOTIATE_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -1427,7 +1428,8 @@ impl TakerSwap {
         let msg = SwapMsg::TakerFee(payment_data_msg);
         let abort_send_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            vec![(swap_topic(&self.uuid), msg)],
+            swap_topic(&self.uuid),
+            msg,
             MAKER_PAYMENT_WAIT_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
@@ -1836,7 +1838,8 @@ impl TakerSwap {
         let msg = SwapMsg::TakerPayment(tx_hex.0.clone());
         let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
-            vec![(swap_topic(&self.uuid), msg)],
+            swap_topic(&self.uuid),
+            msg,
             BROADCAST_MSG_INTERVAL_SEC,
             self.p2p_privkey,
         );
