@@ -86,7 +86,7 @@ use crate::lp_swap::taker_swap::FailAt;
 
 pub use best_orders::{best_orders_rpc, best_orders_rpc_v2};
 pub use orderbook_depth::orderbook_depth_rpc;
-pub use orderbook_rpc::{orderbook_rpc, orderbook_rpc_v2};
+pub use orderbook_rpc::{orderbook_rpc, orderbook_rpc_v2, AggregatedOrderbookEntryV2};
 
 cfg_wasm32! {
     use mm2_db::indexed_db::{ConstructibleDb, DbLocked};
@@ -5645,7 +5645,7 @@ async fn subscribe_to_orderbook_topic(
     Ok(())
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RpcOrderbookEntryV2 {
     coin: String,
     address: OrderbookAddress,
@@ -5770,7 +5770,7 @@ fn choose_taker_confs_and_notas(
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "address_type", content = "address_data")]
 pub enum OrderbookAddress {
     Transparent(String),

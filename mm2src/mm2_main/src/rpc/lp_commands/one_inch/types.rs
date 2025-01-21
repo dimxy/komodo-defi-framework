@@ -125,17 +125,24 @@ pub struct ClassicSwapCreateRequest {
     pub use_permit2: Option<bool>,
 }
 
-/// Response for both classic swap quote or create swap calls
-#[derive(Serialize, Debug)]
-pub struct ClassicSwapResponse {
+/// Details to create classic swap calls
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ClassicSwapDetails {
     /// Destination token amount, in coins (with fraction)
     pub dst_amount: DetailedAmount,
     /// Source (base) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub src_token: Option<TokenInfo>,
+    /// Source (base) token name as it is defined in the coins file
+    pub kdf_src_token: Option<String>,
     /// Destination (rel) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dst_token: Option<TokenInfo>,
+    /// Destination (rel) token name as it is defined in the coins file. 
+    /// This is used to show route tokens in the GUI, like they are in the coin file.
+    /// However, route tokens can be missed in the coins file and therefore cannot be filled. 
+    /// In this case GUI may use TokenInfo::Address or TokenInfo::Symbol
+    pub kdf_dst_token: Option<String>,
     /// Used liquidity sources
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocols: Option<Vec<Vec<Vec<ProtocolInfo>>>>,
@@ -146,7 +153,10 @@ pub struct ClassicSwapResponse {
     pub gas: Option<u128>,
 }
 
-impl ClassicSwapResponse {
+/// Response for both classic swap quote or create swap calls
+pub type ClassicSwapResponse = ClassicSwapDetails;
+
+impl ClassicSwapDetails {
     pub(crate) fn from_api_classic_swap_data(
         data: one_inch_api::types::ClassicSwapData,
         decimals: u8,
@@ -154,7 +164,9 @@ impl ClassicSwapResponse {
         Ok(Self {
             dst_amount: MmNumber::from(u256_to_big_decimal(U256::from_dec_str(&data.dst_amount)?, decimals)?).into(),
             src_token: data.src_token,
+            kdf_src_token: todo!(),
             dst_token: data.dst_token,
+            kdf_dst_token: todo!(),
             protocols: data.protocols,
             tx: data
                 .tx
@@ -165,7 +177,7 @@ impl ClassicSwapResponse {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct TxFields {
     pub from: Address,
     pub to: Address,

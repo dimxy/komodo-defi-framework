@@ -4,3 +4,4 @@ pub(crate) mod one_inch;
 pub(crate) mod pubkey;
 pub(crate) mod tokens;
 pub(crate) mod trezor;
+pub(crate) mod lr_swap;
