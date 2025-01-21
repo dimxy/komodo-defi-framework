@@ -547,7 +547,7 @@ pub struct TakerSwapData {
     pub uuid: Uuid,
     pub started_at: u64,
     /// Swap message exchange version that the remote maker supports. Optional because not known until negotiation
-    pub maker_version: Option<u16>,
+    pub maker_msg_version: Option<u16>,
     pub maker_payment_wait: u64,
     pub maker_coin_start_block: u64,
     pub taker_coin_start_block: u64,
@@ -651,7 +651,7 @@ pub struct TakerPaymentSpentData {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MakerNegotiationData {
     /// Swap message exchange version supported by remote maker peer. Optional because it is found at negotiation
-    pub maker_version: Option<u16>,
+    pub maker_msg_version: Option<u16>,
     pub maker_payment_locktime: u64,
     pub maker_pubkey: H264Json,
     pub secret_hash: BytesJson,
@@ -835,7 +835,7 @@ impl TakerSwap {
             TakerSwapEvent::Negotiated(data) => {
                 self.maker_payment_lock
                     .store(data.maker_payment_locktime, Ordering::Relaxed);
-                self.w().data.maker_version = Some(get_maker_version(&data));
+                self.w().data.maker_msg_version = Some(get_maker_version(&data));
                 self.w().other_maker_coin_htlc_pub = data.other_maker_coin_htlc_pub();
                 self.w().other_taker_coin_htlc_pub = data.other_taker_coin_htlc_pub();
                 self.w().secret_hash = data.secret_hash;
@@ -1159,7 +1159,7 @@ impl TakerSwap {
             maker_coin: self.maker_coin.ticker().to_owned(),
             maker: self.maker.bytes.into(),
             started_at,
-            maker_version: None, // not yet known on start
+            maker_msg_version: None, // not yet known on start
             lock_duration: self.payment_locktime,
             maker_amount: self.maker_amount.to_decimal(),
             taker_amount: self.taker_amount.to_decimal(),
@@ -1343,7 +1343,7 @@ impl TakerSwap {
 
         Ok((Some(TakerSwapCommand::SendTakerFee), vec![TakerSwapEvent::Negotiated(
             MakerNegotiationData {
-                maker_version: Some(remote_version),
+                maker_msg_version: Some(remote_version),
                 maker_payment_locktime: maker_data.payment_locktime(),
                 // using default to avoid misuse of this field
                 // maker_coin_htlc_pubkey and taker_coin_htlc_pubkey must be used instead
@@ -1368,7 +1368,7 @@ impl TakerSwap {
         let remote_version = self
             .r()
             .data
-            .maker_version
+            .maker_msg_version
             .ok_or("No swap protocol version".to_owned())?;
         let is_burn_active = LegacySwapFeature::is_active(LegacySwapFeature::SendToPreBurnAccount, remote_version);
         let dex_fee = dex_fee_from_taker_coin(
@@ -2853,7 +2853,7 @@ pub fn max_taker_vol_from_available(
 /// Determine version from negotiation data if saved swap data does not store version
 /// (if the swap started before the upgrade to versioned negotiation message)
 /// In any case it is very undesirable to upgrade mm2 when any swaps are active
-fn get_maker_version(negotiation_data: &MakerNegotiationData) -> u16 { negotiation_data.maker_version.unwrap_or(0) }
+fn get_maker_version(negotiation_data: &MakerNegotiationData) -> u16 { negotiation_data.maker_msg_version.unwrap_or(0) }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod taker_swap_tests {

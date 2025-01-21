@@ -138,7 +138,7 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
         maker_payment_lock: negotiated_event.maker_payment_locktime,
         uuid: started_event.uuid,
         started_at: started_event.started_at,
-        taker_version: None,
+        taker_msg_version: None,
         maker_coin_start_block: started_event.maker_coin_start_block,
         taker_coin_start_block: started_event.taker_coin_start_block,
         // Don't set the fee since the value is used when we calculate locked by other swaps amount only.
@@ -159,7 +159,7 @@ fn recreate_maker_swap(ctx: MmArc, taker_swap: TakerSavedSwap) -> RecreateSwapRe
     // Generate `Negotiated` event
 
     let maker_negotiated_event = MakerSwapEvent::Negotiated(TakerNegotiationData {
-        taker_version: Some(LEGACY_SWAP_MSG_VERSION),
+        taker_msg_version: Some(LEGACY_SWAP_MSG_VERSION),
         taker_payment_locktime: started_event.taker_payment_lock,
         taker_pubkey: started_event.my_persistent_pub,
         maker_coin_swap_contract_addr: negotiated_event.maker_coin_swap_contract_addr,
@@ -337,7 +337,7 @@ async fn recreate_taker_swap(ctx: MmArc, maker_swap: MakerSavedSwap) -> Recreate
         taker_payment_lock: negotiated_event.taker_payment_locktime,
         uuid: started_event.uuid,
         started_at: started_event.started_at,
-        maker_version: None,
+        maker_msg_version: None,
         maker_payment_wait: wait_for_maker_payment_conf_until(started_event.started_at, started_event.lock_duration),
         maker_coin_start_block: started_event.maker_coin_start_block,
         taker_coin_start_block: started_event.taker_coin_start_block,
@@ -363,7 +363,7 @@ async fn recreate_taker_swap(ctx: MmArc, maker_swap: MakerSavedSwap) -> Recreate
         .or_mm_err(|| RecreateSwapError::NoSecretHash)?;
 
     let taker_negotiated_event = TakerSwapEvent::Negotiated(MakerNegotiationData {
-        maker_version: Some(LEGACY_SWAP_MSG_VERSION),
+        maker_msg_version: Some(LEGACY_SWAP_MSG_VERSION),
         maker_payment_locktime: started_event.maker_payment_lock,
         maker_pubkey: started_event.my_persistent_pub,
         secret_hash: secret_hash.clone(),
