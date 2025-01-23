@@ -557,27 +557,32 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
     fn add_tx_inputs(&mut self, amount: u64) -> u64 {
         self.tx.inputs.clear();
         let mut total = 0u64;
-        for utxo in self.required_inputs.clone() {
+        for utxo in &self.required_inputs {
             self.tx.inputs.push(UnsignedTransactionInput {
                 previous_output: utxo.outpoint,
-                prev_script: utxo.script,
+                prev_script: utxo.script.clone(),
                 sequence: SEQUENCE_FINAL,
                 amount: utxo.value,
             });
             total += utxo.value;
         }
-
-        for utxo in self.available_inputs.clone() {
+        if total >= amount {
+            return total;
+        }
+        for utxo in &self.available_inputs {
             if total >= amount {
                 break;
             }
             self.tx.inputs.push(UnsignedTransactionInput {
                 previous_output: utxo.outpoint,
-                prev_script: utxo.script,
+                prev_script: utxo.script.clone(),
                 sequence: SEQUENCE_FINAL,
                 amount: utxo.value,
             });
             total += utxo.value;
+            if total >= amount {
+                break;
+            }
         }
         total
     }
