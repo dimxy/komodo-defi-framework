@@ -267,16 +267,17 @@ pub struct AdditionalTxData {
 
 /// The fee set from coins config
 #[derive(Debug)]
-pub enum TxFee {
+pub enum FeeRate {
     /// Tell the coin that it should request the fee from daemon RPC and calculate it relying on tx size
     Dynamic(EstimateFeeMethod),
     /// Tell the coin that it has fixed tx fee per kb.
     FixedPerKb(u64),
 }
 
-/// The actual "runtime" fee that is received from RPC in case of dynamic calculation
+/// The actual "runtime" tx fee rate (per kb) that is received from RPC in case of dynamic calculation
+/// or fixed tx fee rate
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub enum ActualTxFee {
+pub enum ActualFeeRate {
     /// fee amount per Kbyte received from coin RPC
     Dynamic(u64),
     /// Use specified fee amount per each 1 kb of transaction and also per each output less than the fee amount.
@@ -284,30 +285,30 @@ pub enum ActualTxFee {
     FixedPerKb(u64),
 }
 
-impl ActualTxFee {
+impl ActualFeeRate {
     fn get_tx_fee(&self, tx_size: u64) -> u64 {
         match self {
-            ActualTxFee::Dynamic(fee_per_kb) => (fee_per_kb * tx_size) / KILO_BYTE,
-            // return fee_per_kb here as swap spend transaction size is always less than 1 kb
-            ActualTxFee::FixedPerKb(fee_per_kb) => {
+            ActualFeeRate::Dynamic(fee_rate) => (fee_rate * tx_size) / KILO_BYTE,
+            // return fee_rate here as swap spend transaction size is always less than 1 kb
+            ActualFeeRate::FixedPerKb(fee_rate) => {
                 let tx_size_kb = if tx_size % KILO_BYTE == 0 {
                     tx_size / KILO_BYTE
                 } else {
                     tx_size / KILO_BYTE + 1
                 };
-                fee_per_kb * tx_size_kb
+                fee_rate * tx_size_kb
             },
         }
     }
 
     /// Return extra tx fee for the change output as p2pkh
-    fn get_tx_fee_for_change(&self, tx_size: Option<u64>) -> u64 {
+    fn get_tx_fee_for_change(&self, tx_size: u64) -> u64 {
         match self {
-            ActualTxFee::Dynamic(fee_per_kb) => (*fee_per_kb * P2PKH_OUTPUT_LEN) / KILO_BYTE,
-            ActualTxFee::FixedPerKb(fee_per_kb) => {
+            ActualFeeRate::Dynamic(fee_rate) => (*fee_rate * P2PKH_OUTPUT_LEN) / KILO_BYTE,
+            ActualFeeRate::FixedPerKb(fee_rate) => {
                 // take into account the change output if tx_size_kb(tx with change) > tx_size_kb(tx without change)
-                if tx_size.unwrap_or_default() % KILO_BYTE + P2PKH_OUTPUT_LEN > KILO_BYTE {
-                    *fee_per_kb
+                if tx_size % KILO_BYTE + P2PKH_OUTPUT_LEN > KILO_BYTE {
+                    *fee_rate
                 } else {
                     0
                 }
@@ -610,7 +611,7 @@ pub struct UtxoCoinFields {
     /// Emercoin has 6
     /// Bitcoin Diamond has 7
     pub decimals: u8,
-    pub tx_fee: TxFee,
+    pub tx_fee: FeeRate,
     /// Minimum transaction value at which the value is not less than fee
     pub dust_amount: u64,
     /// RPC client
@@ -872,7 +873,7 @@ pub trait UtxoTxBroadcastOps {
 #[async_trait]
 #[cfg_attr(test, mockable)]
 pub trait UtxoTxGenerationOps {
-    async fn get_fee_per_kb(&self) -> UtxoRpcResult<ActualTxFee>;
+    async fn get_fee_rate(&self) -> UtxoRpcResult<ActualFeeRate>;
 
     /// Calculates interest if the coin is KMD
     /// Adds the value to existing output to my_script_pub or creates additional interest output

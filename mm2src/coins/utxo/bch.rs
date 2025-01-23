@@ -697,7 +697,7 @@ impl UtxoTxBroadcastOps for BchCoin {
 #[async_trait]
 #[cfg_attr(test, mockable)]
 impl UtxoTxGenerationOps for BchCoin {
-    async fn get_fee_per_kb(&self) -> UtxoRpcResult<ActualTxFee> { utxo_common::get_fee_per_kb(&self.utxo_arc).await }
+    async fn get_fee_rate(&self) -> UtxoRpcResult<ActualFeeRate> { utxo_common::get_fee_rate(&self.utxo_arc).await }
 
     async fn calc_interest_if_required(
         &self,

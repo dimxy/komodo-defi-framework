@@ -10,7 +10,7 @@ use crate::utxo::bch::BchCoin;
 use crate::utxo::bchd_grpc::{check_slp_transaction, validate_slp_utxos, ValidateSlpUtxosErr};
 use crate::utxo::rpc_clients::{UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcResult};
 use crate::utxo::utxo_common::{self, big_decimal_from_sat_unsigned, payment_script, UtxoTxBuilder};
-use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualTxFee, AdditionalTxData, BroadcastTxErr,
+use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualFeeRate, AdditionalTxData, BroadcastTxErr,
                   FeePolicy, GenerateTxError, RecentlySpentOutPointsGuard, UtxoCoinConf, UtxoCoinFields,
                   UtxoCommonOps, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput, DerivationMethod,
@@ -1078,7 +1078,7 @@ impl UtxoTxBroadcastOps for SlpToken {
 
 #[async_trait]
 impl UtxoTxGenerationOps for SlpToken {
-    async fn get_fee_per_kb(&self) -> UtxoRpcResult<ActualTxFee> { self.platform_coin.get_fee_per_kb().await }
+    async fn get_fee_rate(&self) -> UtxoRpcResult<ActualFeeRate> { self.platform_coin.get_fee_rate().await }
 
     async fn calc_interest_if_required(
         &self,
@@ -1674,11 +1674,11 @@ impl MmCoin for SlpToken {
             match req.fee {
                 Some(WithdrawFee::UtxoFixed { amount }) => {
                     let fixed = sat_from_big_decimal(&amount, platform_decimals)?;
-                    tx_builder = tx_builder.with_fee(ActualTxFee::FixedPerKb(fixed))
+                    tx_builder = tx_builder.with_fee(ActualFeeRate::FixedPerKb(fixed))
                 },
                 Some(WithdrawFee::UtxoPerKbyte { amount }) => {
                     let dynamic = sat_from_big_decimal(&amount, platform_decimals)?;
-                    tx_builder = tx_builder.with_fee(ActualTxFee::Dynamic(dynamic));
+                    tx_builder = tx_builder.with_fee(ActualFeeRate::Dynamic(dynamic));
                 },
                 Some(fee_policy) => {
                     let error = format!(

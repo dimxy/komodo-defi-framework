@@ -91,18 +91,18 @@ lazy_static! {
 
 pub const HISTORY_TOO_LARGE_ERR_CODE: i64 = -1;
 
-pub async fn get_fee_per_kb(coin: &UtxoCoinFields) -> UtxoRpcResult<ActualTxFee> {
+pub async fn get_fee_rate(coin: &UtxoCoinFields) -> UtxoRpcResult<ActualFeeRate> {
     let conf = &coin.conf;
     match &coin.tx_fee {
-        TxFee::Dynamic(method) => {
-            let fee = coin
+        FeeRate::Dynamic(method) => {
+            let fee_rate = coin
                 .rpc_client
                 .estimate_fee_sat(coin.decimals, method, &conf.estimate_fee_mode, conf.estimate_fee_blocks)
                 .compat()
                 .await?;
-            Ok(ActualTxFee::Dynamic(fee))
+            Ok(ActualFeeRate::Dynamic(fee_rate))
         },
-        TxFee::FixedPerKb(satoshis) => Ok(ActualTxFee::FixedPerKb(*satoshis)),
+        FeeRate::FixedPerKb(satoshis) => Ok(ActualFeeRate::FixedPerKb(*satoshis)),
     }
 }
 
@@ -272,20 +272,20 @@ pub async fn get_htlc_spend_fee<T: UtxoCommonOps>(
     tx_size: u64,
     stage: &FeeApproxStage,
 ) -> UtxoRpcResult<u64> {
-    let fee_per_kb = coin.get_fee_per_kb().await?;
-    let fee_per_kb = match fee_per_kb {
-        ActualTxFee::Dynamic(dynamic_fee) => {
+    let fee_rate = coin.get_fee_rate().await?;
+    let fee_rate = match fee_rate {
+        ActualFeeRate::Dynamic(dynamic_fee_rate) => {
             // increase dynamic fee for a chance if it grows in the swap
-            ActualTxFee::Dynamic(increase_dynamic_fee_by_stage(coin, dynamic_fee, stage))
+            ActualFeeRate::Dynamic(increase_dynamic_fee_by_stage(coin, dynamic_fee_rate, stage))
         },
-        ActualTxFee::FixedPerKb(_) => fee_per_kb,
+        ActualFeeRate::FixedPerKb(_) => fee_rate,
     };
-    let tx_fee = fee_per_kb.get_tx_fee(tx_size);
+    let tx_fee = fee_rate.get_tx_fee(tx_size);
     if coin.as_ref().conf.force_min_relay_fee {
-        let min_relay_fee_per_kb = coin.as_ref().rpc_client.get_relay_fee().compat().await?;
-        let min_relay_fee_per_kb = sat_from_big_decimal(&min_relay_fee_per_kb, coin.as_ref().decimals)?;
-        let min_relay_dynamic_fee = ActualTxFee::Dynamic(min_relay_fee_per_kb);
-        let min_relay_tx_fee = min_relay_dynamic_fee.get_tx_fee(tx_size);
+        let min_relay_fee_rate = coin.as_ref().rpc_client.get_relay_fee().compat().await?;
+        let min_relay_fee_rate = sat_from_big_decimal(&min_relay_fee_rate, coin.as_ref().decimals)?;
+        let min_relay_dynamic_fee_rate = ActualFeeRate::Dynamic(min_relay_fee_rate);
+        let min_relay_tx_fee = min_relay_dynamic_fee_rate.get_tx_fee(tx_size);
         if tx_fee < min_relay_tx_fee {
             return Ok(min_relay_tx_fee);
         }
@@ -465,13 +465,13 @@ pub struct UtxoTxBuilder<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> {
     available_inputs: Vec<UnspentInfo>,
     outputs: Vec<TransactionOutput>,
     fee_policy: FeePolicy,
-    fee: Option<ActualTxFee>,
+    fee: Option<ActualFeeRate>,
     gas_fee: Option<u64>,
     tx: TransactionInputSigner,
     sum_inputs: u64,
     sum_outputs: u64,
     tx_fee: u64,
-    min_relay_fee_per_kb: Option<u64>,
+    min_relay_fee_rate: Option<u64>,
     dust: Option<u64>,
 }
 
@@ -490,7 +490,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             sum_inputs: 0,
             sum_outputs: 0,
             tx_fee: 0,
-            min_relay_fee_per_kb: None,
+            min_relay_fee_rate: None,
             dust: None,
         }
     }
@@ -527,7 +527,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         self
     }
 
-    pub fn with_fee(mut self, fee: ActualTxFee) -> Self {
+    pub fn with_fee(mut self, fee: ActualFeeRate) -> Self {
         self.fee = Some(fee);
         self
     }
@@ -619,13 +619,13 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
 
     /// Recalculates tx fee for tx size.
     /// If needed, checks if tx fee is not less than min relay tx fee
-    fn update_tx_fee(&mut self, from_addr_format: &UtxoAddressFormat, fee_per_kb: &ActualTxFee) {
+    fn update_tx_fee(&mut self, from_addr_format: &UtxoAddressFormat, fee_rate: &ActualFeeRate) {
         let transaction = UtxoTx::from(self.tx.clone());
         let v_size = tx_size_in_v_bytes(from_addr_format, &transaction) as u64;
-        let mut tx_fee = fee_per_kb.get_tx_fee(v_size);
-        if let Some(min_relay_fee_per_kb) = self.min_relay_fee_per_kb {
-            let min_relay_dynamic_fee = ActualTxFee::Dynamic(min_relay_fee_per_kb);
-            let min_relay_tx_fee = min_relay_dynamic_fee.get_tx_fee(v_size);
+        let mut tx_fee = fee_rate.get_tx_fee(v_size);
+        if let Some(min_relay_fee_rate) = self.min_relay_fee_rate {
+            let min_relay_dynamic_fee_rate = ActualFeeRate::Dynamic(min_relay_fee_rate);
+            let min_relay_tx_fee = min_relay_dynamic_fee_rate.get_tx_fee(v_size);
             if tx_fee < min_relay_tx_fee {
                 tx_fee = min_relay_tx_fee;
             }
@@ -696,9 +696,9 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             .or_mm_err(|| GenerateTxError::Internal("'from' address is not specified".to_owned()))?;
         let change_script_pubkey = output_script(&from).map(|script| script.to_bytes())?;
 
-        let actual_fee_per_kb = match self.fee {
+        let actual_fee_rate = match self.fee {
             Some(fee) => fee,
-            None => coin.get_fee_per_kb().await?,
+            None => coin.get_fee_rate().await?,
         };
 
         return_err_if!(self.outputs.is_empty(), GenerateTxError::EmptyOutputs);
@@ -712,10 +712,10 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             }
         );
 
-        self.min_relay_fee_per_kb = if coin.as_ref().conf.force_min_relay_fee {
+        self.min_relay_fee_rate = if coin.as_ref().conf.force_min_relay_fee {
             let fee_dec = coin.as_ref().rpc_client.get_relay_fee().compat().await?;
-            let min_relay_fee_per_kb = sat_from_big_decimal(&fee_dec, coin.as_ref().decimals)?;
-            Some(min_relay_fee_per_kb)
+            let min_relay_fee_rate = sat_from_big_decimal(&fee_dec, coin.as_ref().decimals)?;
+            Some(min_relay_fee_rate)
         } else {
             None
         };
@@ -731,7 +731,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
 
             // try once tx_fee without the change output (if maybe txfee fits between total inputs and outputs)
             if !one_time_fee_update {
-                self.update_tx_fee(from.addr_format(), &actual_fee_per_kb);
+                self.update_tx_fee(from.addr_format(), &actual_fee_rate);
                 one_time_fee_update = true;
             }
             return_err_if!(self.sum_inputs < required_amount_0, GenerateTxError::NotEnoughUtxos {
@@ -746,7 +746,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             let (change, unused) = self.add_change(&change_script_pubkey);
             self.sum_outputs += change;
             unused_change = unused;
-            self.update_tx_fee(from.addr_format(), &actual_fee_per_kb); // recalculate txfee with the change output, if added
+            self.update_tx_fee(from.addr_format(), &actual_fee_rate); // recalculate txfee with the change output, if added
             if self.sum_inputs >= self.sum_outputs + self.total_tx_fee() {
                 break;
             }
@@ -3808,10 +3808,10 @@ pub fn get_trade_fee<T: UtxoCommonOps>(coin: T) -> Box<dyn Future<Item = TradeFe
     let ticker = coin.as_ref().conf.ticker.clone();
     let decimals = coin.as_ref().decimals;
     let fut = async move {
-        let fee = try_s!(coin.get_fee_per_kb().await);
+        let fee = try_s!(coin.get_fee_rate().await);
         let amount = match fee {
-            ActualTxFee::Dynamic(f) => f,
-            ActualTxFee::FixedPerKb(f) => f,
+            ActualFeeRate::Dynamic(f) => f,
+            ActualFeeRate::FixedPerKb(f) => f,
         };
         Ok(TradeFee {
             coin: ticker,
@@ -3846,27 +3846,27 @@ where
     T: UtxoCommonOps + GetUtxoListOps,
 {
     let decimals = coin.as_ref().decimals;
-    let fee_per_kb = coin.get_fee_per_kb().await?;
+    let fee_rate = coin.get_fee_rate().await?;
     // [`FeePolicy::DeductFromOutput`] is used if the value is [`TradePreimageValue::UpperBound`] only
     let is_amount_upper_bound = matches!(fee_policy, FeePolicy::DeductFromOutput(_));
     let my_address = coin.as_ref().derivation_method.single_addr_or_err().await?;
 
-    match fee_per_kb {
+    match fee_rate {
         // if it's a dynamic fee, we should generate a swap transaction to get an actual trade fee
-        ActualTxFee::Dynamic(fee) => {
-            // take into account that the dynamic tx fee may increase during the swap
-            let dynamic_fee = coin.increase_dynamic_fee_by_stage(fee, stage);
+        ActualFeeRate::Dynamic(fee_rate) => {
+            // take into account that the dynamic tx fee rate may increase during the swap
+            let dynamic_fee_rate = coin.increase_dynamic_fee_by_stage(fee_rate, stage);
 
             let outputs_count = outputs.len();
             let (unspents, _recently_sent_txs) = coin.get_unspent_ordered_list(&my_address).await?;
 
-            let actual_tx_fee = ActualTxFee::Dynamic(dynamic_fee);
+            let actual_fee_rate = ActualFeeRate::Dynamic(dynamic_fee_rate);
             let mut tx_builder = UtxoTxBuilder::new(coin)
                 .await
                 .add_available_inputs(unspents)
                 .add_outputs(outputs)
                 .with_fee_policy(fee_policy)
-                .with_fee(actual_tx_fee);
+                .with_fee(actual_fee_rate);
             if let Some(gas) = gas_fee {
                 tx_builder = tx_builder.with_gas_fee(gas);
             }
@@ -3878,14 +3878,14 @@ where
             // (If we do not do this then in a swap the change output may appear and we may not have sufficient balance to pay taker fee)
             let total_fee = if tx.outputs.len() == outputs_count {
                 // take into account the change output
-                data.fee_amount + actual_tx_fee.get_tx_fee_for_change(None)
+                data.fee_amount + actual_fee_rate.get_tx_fee_for_change(0)
             } else {
                 // the change output is included already
                 data.fee_amount
             };
             Ok(big_decimal_from_sat(total_fee as i64, decimals))
         },
-        ActualTxFee::FixedPerKb(_fee) => {
+        ActualFeeRate::FixedPerKb(_fee) => {
             let outputs_count = outputs.len();
             let (unspents, _recently_sent_txs) = coin.get_unspent_ordered_list(&my_address).await?;
             let mut tx_builder = UtxoTxBuilder::new(coin)
@@ -3893,7 +3893,7 @@ where
                 .add_available_inputs(unspents)
                 .add_outputs(outputs)
                 .with_fee_policy(fee_policy)
-                .with_fee(fee_per_kb);
+                .with_fee(fee_rate);
             if let Some(gas) = gas_fee {
                 tx_builder = tx_builder.with_gas_fee(gas);
             }
@@ -3907,7 +3907,7 @@ where
                 let tx = UtxoTx::from(tx);
                 let tx_bytes = serialize(&tx);
                 // take into account the change output
-                data.fee_amount + fee_per_kb.get_tx_fee_for_change(Some(tx_bytes.len() as u64))
+                data.fee_amount + fee_rate.get_tx_fee_for_change(tx_bytes.len() as u64)
             } else {
                 // the change output is included already
                 data.fee_amount

@@ -1218,7 +1218,7 @@ fn test_generate_transaction_relay_fee_is_used_when_dynamic_fee_is_lower() {
     let builder = block_on(UtxoTxBuilder::new(&coin))
         .add_available_inputs(unspents)
         .add_outputs(outputs)
-        .with_fee(ActualTxFee::Dynamic(100));
+        .with_fee(ActualFeeRate::Dynamic(100));
 
     let generated = block_on(builder.build()).unwrap();
     assert_eq!(generated.0.outputs.len(), 2);
@@ -1262,7 +1262,7 @@ fn test_generate_transaction_relay_fee_is_used_when_dynamic_fee_is_lower_and_ded
         .add_available_inputs(unspents)
         .add_outputs(outputs)
         .with_fee_policy(FeePolicy::DeductFromOutput(0))
-        .with_fee(ActualTxFee::Dynamic(100));
+        .with_fee(ActualFeeRate::Dynamic(100));
 
     let generated = block_on(tx_builder.build()).unwrap();
     assert_eq!(generated.0.outputs.len(), 1);
@@ -1310,7 +1310,7 @@ fn test_generate_tx_fee_is_correct_when_dynamic_fee_is_larger_than_relay() {
     let builder = block_on(UtxoTxBuilder::new(&coin))
         .add_available_inputs(unspents)
         .add_outputs(outputs)
-        .with_fee(ActualTxFee::Dynamic(1000));
+        .with_fee(ActualFeeRate::Dynamic(1000));
 
     let generated = block_on(builder.build()).unwrap();
 
@@ -2641,7 +2641,7 @@ fn test_get_sender_trade_fee_dynamic_tx_fee() {
         Some("bob passphrase max taker vol with dynamic trade fee"),
         false,
     );
-    coin_fields.tx_fee = TxFee::Dynamic(EstimateFeeMethod::Standard);
+    coin_fields.tx_fee = FeeRate::Dynamic(EstimateFeeMethod::Standard);
     let coin = utxo_coin_from_fields(coin_fields);
     let my_balance = block_on_f01(coin.my_spendable_balance()).expect("!my_balance");
     let expected_balance = BigDecimal::from_str("2.22222").expect("!BigDecimal::from_str");
