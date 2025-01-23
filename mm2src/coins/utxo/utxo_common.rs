@@ -74,9 +74,9 @@ pub const DEFAULT_SWAP_VOUT: usize = 0;
 pub const DEFAULT_SWAP_VIN: usize = 0;
 const MIN_BTC_TRADING_VOL: &str = "0.00777";
 
-macro_rules! return_err_if_false {
+macro_rules! return_err_if {
     ($cond: expr, $etype: expr) => {
-        if !$cond {
+        if $cond {
             return Err(MmError::new($etype));
         }
     };
@@ -641,7 +641,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
                 let tx_fee = self.total_tx_fee();
                 let min_output = tx_fee + self.dust();
                 let val = self.tx.outputs[i].value;
-                return_err_if_false!(val >= min_output, GenerateTxError::DeductFeeFromOutputFailed {
+                return_err_if!(val < min_output, GenerateTxError::DeductFeeFromOutputFailed {
                     output_idx: i,
                     output_value: val,
                     required: min_output,
@@ -656,7 +656,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         for output in self.outputs.iter() {
             let script: Script = output.script_pubkey.clone().into();
             if script.opcodes().next() != Some(Ok(Opcode::OP_RETURN)) {
-                return_err_if_false!(output.value >= self.dust(), GenerateTxError::OutputValueLessThanDust {
+                return_err_if!(output.value < self.dust(), GenerateTxError::OutputValueLessThanDust {
                     value: output.value,
                     dust: self.dust()
                 });
@@ -701,12 +701,12 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             None => coin.get_fee_per_kb().await?,
         };
 
-        return_err_if_false!(!self.outputs.is_empty(), GenerateTxError::EmptyOutputs);
+        return_err_if!(self.outputs.is_empty(), GenerateTxError::EmptyOutputs);
 
         self.validate_not_dust()?;
 
-        return_err_if_false!(
-            !self.available_inputs.is_empty() || !self.tx.inputs.is_empty(),
+        return_err_if!(
+            self.available_inputs.is_empty() && self.tx.inputs.is_empty(),
             GenerateTxError::EmptyUtxoSet {
                 required: self.required_amount()
             }
@@ -720,7 +720,9 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             None
         };
 
-        let mut unused_change;
+        #[allow(unused_assignments)]
+        let mut unused_change = 0u64;
+
         let mut one_time_fee_update = false;
         loop {
             let required_amount_0 = self.required_amount();
@@ -732,7 +734,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
                 self.update_tx_fee(from.addr_format(), &actual_fee_per_kb);
                 one_time_fee_update = true;
             }
-            return_err_if_false!(self.sum_inputs >= required_amount_0, GenerateTxError::NotEnoughUtxos {
+            return_err_if!(self.sum_inputs < required_amount_0, GenerateTxError::NotEnoughUtxos {
                 sum_utxos: self.sum_inputs,
                 required: self.required_amount(), // send updated required amount, with txfee
             });
@@ -773,8 +775,8 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             self.sum_outputs += output.value;
         }
 
-        return_err_if_false!(
-            !self.available_inputs.is_empty() || !self.tx.inputs.is_empty(),
+        return_err_if!(
+            self.available_inputs.is_empty() && self.tx.inputs.is_empty(),
             GenerateTxError::EmptyUtxoSet {
                 required: self.sum_outputs
             }
