@@ -280,14 +280,14 @@ pub async fn get_htlc_spend_fee<T: UtxoCommonOps>(
         },
         ActualTxFee::FixedPerKb(_) => fee_per_kb,
     };
-    let mut tx_fee = fee_per_kb.get_tx_fee(tx_size);
+    let tx_fee = fee_per_kb.get_tx_fee(tx_size);
     if coin.as_ref().conf.force_min_relay_fee {
         let min_relay_fee_per_kb = coin.as_ref().rpc_client.get_relay_fee().compat().await?;
         let min_relay_fee_per_kb = sat_from_big_decimal(&min_relay_fee_per_kb, coin.as_ref().decimals)?;
         let min_relay_dynamic_fee = ActualTxFee::Dynamic(min_relay_fee_per_kb);
         let min_relay_tx_fee = min_relay_dynamic_fee.get_tx_fee(tx_size);
         if tx_fee < min_relay_tx_fee {
-            tx_fee = min_relay_tx_fee;
+            return Ok(min_relay_tx_fee);
         }
     }
     Ok(tx_fee)
@@ -595,22 +595,21 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
     /// Adds change output.
     /// Returns change value and dust change
     fn add_change(&mut self, change_script_pubkey: &Bytes) -> (u64, u64) {
-        if self.sum_inputs > self.sum_outputs + self.total_tx_fee() {
-            let change = self.sum_inputs - (self.sum_outputs + self.total_tx_fee());
-            if change > self.dust() {
-                self.tx.outputs.push({
-                    TransactionOutput {
-                        value: change,
-                        script_pubkey: change_script_pubkey.clone(),
-                    }
-                });
-                (change, 0u64)
-            } else {
-                (0u64, change)
-            }
-        } else {
-            (0u64, 0u64)
+        let sum_output_with_fee = self.sum_outputs + self.total_tx_fee();
+        if self.sum_inputs < sum_output_with_fee {
+            return (0u64, 0u64);
         }
+        let change = self.sum_inputs - sum_output_with_fee;
+        if change < self.dust() {
+            return (0u64, change);
+        };
+        self.tx.outputs.push({
+            TransactionOutput {
+                value: change,
+                script_pubkey: change_script_pubkey.clone(),
+            }
+        });
+        (change, 0u64)
     }
 
     /// Recalculates tx fee for tx size.
@@ -630,7 +629,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
     }
 
     /// Deduct tx fee from output if requested by fee_policy
-    fn subtract_outputs_by_txfee(&mut self) -> MmResult<u64, GenerateTxError> {
+    fn deduct_txfee_from_output(&mut self) -> MmResult<u64, GenerateTxError> {
         match self.fee_policy {
             FeePolicy::SendExact => Ok(0),
             FeePolicy::DeductFromOutput(i) => {
@@ -648,7 +647,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         }
     }
 
-    fn validate_outputs(&self) -> MmResult<(), GenerateTxError> {
+    fn validate_not_dust(&self) -> MmResult<(), GenerateTxError> {
         for output in self.outputs.iter() {
             let script: Script = output.script_pubkey.clone().into();
             if script.opcodes().next() != Some(Ok(Opcode::OP_RETURN)) {
@@ -699,7 +698,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
 
         return_err_if_false!(!self.outputs.is_empty(), GenerateTxError::EmptyOutputs);
 
-        self.validate_outputs()?;
+        self.validate_not_dust()?;
 
         return_err_if_false!(
             !self.available_inputs.is_empty() || !self.tx.inputs.is_empty(),
@@ -733,7 +732,10 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
                 required: self.required_amount(), // send updated required amount, with txfee
             });
 
-            self.sum_outputs -= self.subtract_outputs_by_txfee()?;
+            self.sum_outputs = self
+                .sum_outputs
+                .checked_sub(self.deduct_txfee_from_output()?)
+                .or_mm_err(|| GenerateTxError::Internal("sum_outputs underflow".to_owned()))?;
             let (change, unused) = self.add_change(&change_script_pubkey);
             self.sum_outputs += change;
             unused_change = unused;
