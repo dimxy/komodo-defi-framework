@@ -4123,7 +4123,7 @@ pub mod tendermint_coin_tests {
             let mock_tx = mock_tx.clone();
             MockResult::Return(Box::pin(async move { Ok(mock_tx) }))
         });
-        
+
         let pubkey = fee_with_burn_tx.auth_info.as_ref().unwrap().signer_infos[0]
             .public_key
             .as_ref()
