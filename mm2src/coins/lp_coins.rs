@@ -3583,7 +3583,7 @@ impl MmCoinEnum {
             MmCoinEnum::Qrc20Coin(ref c) => c.as_ref().rpc_client.is_native(),
             MmCoinEnum::Bch(ref c) => c.as_ref().rpc_client.is_native(),
             MmCoinEnum::SlpToken(ref c) => c.as_ref().rpc_client.is_native(),
-            #[cfg(all(not(target_arch = "wasm32"), feature = "zhtlc"))]
+            #[cfg(not(target_arch = "wasm32"))]
             // TODO: we do not have such feature = "zhtlc" in toml. Remove this cfg part?
             MmCoinEnum::ZCoin(ref c) => c.as_ref().rpc_client.is_native(),
             _ => false,

@@ -39,8 +39,7 @@ use mm2_metrics::{mm_label, mm_timing};
 use serde::de;
 use std::net::ToSocketAddrs;
 
-use crate::{lp_healthcheck, lp_ordermatch, lp_stats,
-            lp_swap::{self}};
+use crate::{lp_healthcheck, lp_ordermatch, lp_stats, lp_swap};
 
 pub type P2PRequestResult<T> = Result<T, MmError<P2PRequestError>>;
 pub type P2PProcessResult<T> = Result<T, MmError<P2PProcessError>>;

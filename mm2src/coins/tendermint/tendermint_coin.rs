@@ -87,8 +87,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
-#[cfg(any(test, feature = "mocktopus"))]
-use mocktopus::macros::*;
+#[cfg(test)] use mocktopus::macros::*;
 
 // ABCI Request Paths
 const ABCI_GET_LATEST_BLOCK_PATH: &str = "/cosmos.base.tendermint.v1beta1.Service/GetLatestBlock";
@@ -641,7 +640,7 @@ impl TendermintCommons for TendermintCoin {
     }
 }
 
-#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
+#[cfg_attr(test, mockable)]
 impl TendermintCoin {
     #[allow(clippy::too_many_arguments)]
     pub async fn init(
