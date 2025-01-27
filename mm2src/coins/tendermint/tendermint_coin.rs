@@ -3601,6 +3601,15 @@ pub mod tendermint_coin_tests {
         }
     }
 
+    fn get_tx_signer_pubkey_unprefixed(tx: &Tx, i: usize) -> Vec<u8> {
+        tx.auth_info.as_ref().unwrap().signer_infos[i]
+            .public_key
+            .as_ref()
+            .unwrap()
+            .value[2..]
+            .to_vec()
+    }
+
     #[test]
     fn test_tx_hash_str_from_bytes() {
         let tx_hex = "0a97010a8f010a1c2f636f736d6f732e62616e6b2e763162657461312e4d736753656e64126f0a2d636f736d6f7331737661773061716334353834783832356a753775613033673578747877643061686c3836687a122d636f736d6f7331737661773061716334353834783832356a753775613033673578747877643061686c3836687a1a0f0a057561746f6d120631303030303018d998bf0512670a500a460a1f2f636f736d6f732e63727970746f2e736563703235366b312e5075624b657912230a2102000eef4ab169e7b26a4a16c47420c4176ab702119ba57a8820fb3e53c8e7506212040a020801180312130a0d0a057561746f6d12043130303010a08d061a4093e5aec96f7d311d129f5ec8714b21ad06a75e483ba32afab86354400b2ac8350bfc98731bbb05934bf138282750d71aadbe08ceb6bb195f2b55e1bbfdddaaad";
@@ -3976,20 +3985,8 @@ pub mod tendermint_coin_tests {
             let mock_tx = mock_tx.clone();
             MockResult::Return(Box::pin(async move { Ok(mock_tx) }))
         });
-        let pubkey = dex_fee_tx_response
-            .tx
-            .as_ref()
-            .unwrap()
-            .auth_info
-            .as_ref()
-            .unwrap()
-            .signer_infos[0]
-            .public_key
-            .as_ref()
-            .unwrap()
-            .value[2..]
-            .to_vec();
 
+        let pubkey = get_tx_signer_pubkey_unprefixed(dex_fee_tx_response.tx.as_ref().unwrap(), 0);
         let dex_fee_tx = TransactionEnum::CosmosTransaction(CosmosTransaction {
             data: TxRaw::decode(dex_fee_tx_response.tx.as_ref().unwrap().encode_to_vec().as_slice()).unwrap(),
         });
@@ -4050,20 +4047,7 @@ pub mod tendermint_coin_tests {
             MockResult::Return(Box::pin(async move { Ok(mock_tx) }))
         });
 
-        let pubkey = fee_with_memo_tx_response
-            .tx
-            .as_ref()
-            .unwrap()
-            .auth_info
-            .as_ref()
-            .unwrap()
-            .signer_infos[0]
-            .public_key
-            .as_ref()
-            .unwrap()
-            .value[2..]
-            .to_vec();
-
+        let pubkey = get_tx_signer_pubkey_unprefixed(fee_with_memo_tx_response.tx.as_ref().unwrap(), 0);
         let fee_with_memo_tx = TransactionEnum::CosmosTransaction(CosmosTransaction {
             data: TxRaw::decode(
                 fee_with_memo_tx_response
@@ -4124,13 +4108,7 @@ pub mod tendermint_coin_tests {
             MockResult::Return(Box::pin(async move { Ok(mock_tx) }))
         });
 
-        let pubkey = fee_with_burn_tx.auth_info.as_ref().unwrap().signer_infos[0]
-            .public_key
-            .as_ref()
-            .unwrap()
-            .value[2..]
-            .to_vec();
-
+        let pubkey = get_tx_signer_pubkey_unprefixed(&fee_with_burn_tx, 0);
         let fee_with_burn_cosmos_tx = TransactionEnum::CosmosTransaction(CosmosTransaction {
             data: TxRaw::decode(fee_with_burn_tx.encode_to_vec().as_slice()).unwrap(),
         });
