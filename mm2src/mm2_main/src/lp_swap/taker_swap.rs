@@ -14,21 +14,19 @@ use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::TakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
 use crate::lp_swap::taker_restart::get_command_based_on_maker_or_watcher_activity;
-use crate::lp_swap::NegotiationDataMsgVersion;
 use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, tx_helper_topic,
                      wait_for_maker_payment_conf_duration, TakerSwapWatcherData, MAX_STARTED_AT_DIFF};
 use coins::lp_price::fetch_swap_coins_price;
-use coins::swap_features::LegacySwapFeature;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_BURN_ADDR_RAW_PUBKEY;
 use coins::{dex_fee_from_taker_coin, lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput,
             DexFee, FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
             PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
             SwapTxTypeWithSecretHash, TradeFee, TradePreimageValue, TransactionEnum, ValidatePaymentInput,
-            WaitForHTLCTxSpendArgs, WatcherReward, LEGACY_SWAP_MSG_VERSION, MIN_LEGACY_SWAP_MSG_VERSION};
+            WaitForHTLCTxSpendArgs, WatcherReward};
 use common::executor::Timer;
 use common::log::{debug, error, info, warn};
-use common::{bits256, env_var_as_bool, now_ms, now_sec, wait_until_sec};
+use common::{bits256, now_ms, now_sec, wait_until_sec};
 use crypto::{privkey::SerializableSecp256k1Keypair, CryptoCtx};
 use futures::{compat::Future01CompatExt, future::try_join, select, FutureExt};
 use http::Response;
@@ -546,8 +544,6 @@ pub struct TakerSwapData {
     /// Allows to recognize one SWAP from the other in the logs. #274.
     pub uuid: Uuid,
     pub started_at: u64,
-    /// Swap message exchange version that the remote maker supports. Optional because not known until negotiation
-    pub maker_msg_version: Option<u16>,
     pub maker_payment_wait: u64,
     pub maker_coin_start_block: u64,
     pub taker_coin_start_block: u64,
@@ -650,8 +646,6 @@ pub struct TakerPaymentSpentData {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct MakerNegotiationData {
-    /// Swap message exchange version supported by remote maker peer. Optional because it is found at negotiation
-    pub maker_msg_version: Option<u16>,
     pub maker_payment_locktime: u64,
     pub maker_pubkey: H264Json,
     pub secret_hash: BytesJson,
@@ -835,7 +829,6 @@ impl TakerSwap {
             TakerSwapEvent::Negotiated(data) => {
                 self.maker_payment_lock
                     .store(data.maker_payment_locktime, Ordering::Relaxed);
-                self.w().data.maker_msg_version = Some(get_maker_version(&data));
                 self.w().other_maker_coin_htlc_pub = data.other_maker_coin_htlc_pub();
                 self.w().other_taker_coin_htlc_pub = data.other_taker_coin_htlc_pub();
                 self.w().secret_hash = data.secret_hash;
@@ -972,12 +965,12 @@ impl TakerSwap {
         secret_hash: Vec<u8>,
         maker_coin_swap_contract: Vec<u8>,
         taker_coin_swap_contract: Vec<u8>,
-    ) -> NegotiationDataMsgVersion {
+    ) -> NegotiationDataMsg {
         let r = self.r();
 
         let equal = r.data.maker_coin_htlc_pubkey == r.data.taker_coin_htlc_pubkey;
         let same_as_persistent = r.data.maker_coin_htlc_pubkey == Some(r.data.my_persistent_pub);
-        let negotiation_msg = if equal && same_as_persistent {
+        if equal && same_as_persistent {
             NegotiationDataMsg::V2(NegotiationDataV2 {
                 started_at: r.data.started_at,
                 secret_hash,
@@ -996,21 +989,6 @@ impl TakerSwap {
                 maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
                 taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
             })
-        };
-
-        #[cfg(feature = "run-docker-tests")]
-        let version = if !env_var_as_bool("USE_OLD_VERSION_TAKER") {
-            LEGACY_SWAP_MSG_VERSION
-        } else {
-            0 // use old version for tests
-        };
-
-        #[cfg(not(feature = "run-docker-tests"))]
-        let version = LEGACY_SWAP_MSG_VERSION;
-
-        NegotiationDataMsgVersion {
-            version,
-            msg: negotiation_msg,
         }
     }
 
@@ -1064,7 +1042,6 @@ impl TakerSwap {
             self.maker_coin.ticker(),
             &self.taker_amount,
             Some(&self.my_taker_coin_htlc_pub().0),
-            None, // None as we need only learn total dex fee amount
         );
         let preimage_value = TradePreimageValue::Exact(self.taker_amount.to_decimal());
 
@@ -1159,7 +1136,6 @@ impl TakerSwap {
             maker_coin: self.maker_coin.ticker().to_owned(),
             maker: self.maker.bytes.into(),
             started_at,
-            maker_msg_version: None, // not yet known on start
             lock_duration: self.payment_locktime,
             maker_amount: self.maker_amount.to_decimal(),
             taker_amount: self.taker_amount.to_decimal(),
@@ -1212,20 +1188,6 @@ impl TakerSwap {
         if time_dif > MAX_STARTED_AT_DIFF {
             return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
                 ERRL!("The time difference between you and the maker cannot be longer than 60 seconds. Current difference: {}. Please make sure that your system clock is synced to the correct time before starting another swap!", time_dif).into(),
-            )]));
-        }
-
-        let remote_version = maker_data.version();
-        // this check will work when we raise minimal swap messages version
-        #[allow(clippy::absurd_extreme_comparisons)]
-        if remote_version < MIN_LEGACY_SWAP_MSG_VERSION {
-            return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
-                ERRL!(
-                    "Remote maker swap messages version {} too old, minimal version is {}",
-                    remote_version,
-                    MIN_LEGACY_SWAP_MSG_VERSION
-                )
-                .into(),
             )]));
         }
 
@@ -1343,7 +1305,6 @@ impl TakerSwap {
 
         Ok((Some(TakerSwapCommand::SendTakerFee), vec![TakerSwapEvent::Negotiated(
             MakerNegotiationData {
-                maker_msg_version: Some(remote_version),
                 maker_payment_locktime: maker_data.payment_locktime(),
                 // using default to avoid misuse of this field
                 // maker_coin_htlc_pubkey and taker_coin_htlc_pubkey must be used instead
@@ -1365,18 +1326,11 @@ impl TakerSwap {
                 TakerSwapEvent::TakerFeeSendFailed(ERRL!("Timeout {} > {}", now, expire_at).into()),
             ]));
         }
-        let remote_version = self
-            .r()
-            .data
-            .maker_msg_version
-            .ok_or("No swap protocol version".to_owned())?;
-        let is_burn_active = LegacySwapFeature::is_active(LegacySwapFeature::SendToPreBurnAccount, remote_version);
         let dex_fee = dex_fee_from_taker_coin(
             self.taker_coin.deref(),
             &self.r().data.maker_coin,
             &self.taker_amount,
             Some(&self.my_taker_coin_htlc_pub().0),
-            Some(is_burn_active),
         );
         if matches!(dex_fee, DexFee::NoFee) {
             info!("Taker fee tx not sent for dex taker");
@@ -2476,7 +2430,6 @@ impl AtomicSwap for TakerSwap {
             &self.r().data.maker_coin,
             &self.taker_amount,
             Some(&self.my_taker_coin_htlc_pub().0),
-            None, // None as we need only learn total dex fee amount
         );
         let trade_fee = self.r().data.fee_to_send_taker_fee.clone().map(TradeFee::from);
         if self.r().taker_fee.is_none() {
@@ -2546,7 +2499,7 @@ pub async fn check_balance_for_taker_swap(
         Some(params) => params,
         None => {
             // Use None as taker_pubkey is okay because we just need to calculate max swap amount
-            let dex_fee = dex_fee_from_taker_coin(my_coin, other_coin.ticker(), &volume, None, None);
+            let dex_fee = dex_fee_from_taker_coin(my_coin, other_coin.ticker(), &volume, None);
             let fee_to_send_dex_fee = my_coin
                 .get_fee_to_send_taker_fee(dex_fee.clone(), stage)
                 .await
@@ -2640,7 +2593,6 @@ pub async fn taker_swap_trade_preimage(
         other_coin_ticker,
         &my_coin_volume,
         Some(&my_coin.derive_htlc_pubkey(&dummy_unique_data)), // use dummy_unique_data because we need only the permanent pubkey here (not derived from the unique data)
-        None,
     );
     let taker_fee = TradeFee {
         coin: my_coin_ticker.to_owned(),
@@ -2788,7 +2740,7 @@ pub async fn calc_max_taker_vol(
         // second case
         let max_possible_2 = &max_possible - &max_trade_fee.amount;
         // Use None as taker_pubkey is we need just to calc max volume
-        let max_dex_fee = dex_fee_from_taker_coin(coin.deref(), other_coin, &max_possible_2, None, None);
+        let max_dex_fee = dex_fee_from_taker_coin(coin.deref(), other_coin, &max_possible_2, None);
         let max_fee_to_send_taker_fee = coin
             .get_fee_to_send_taker_fee(max_dex_fee.clone(), stage)
             .await
@@ -2849,11 +2801,6 @@ pub fn max_taker_vol_from_available(
     }
     Ok(max_vol)
 }
-
-/// Determine version from negotiation data if saved swap data does not store version
-/// (if the swap started before the upgrade to versioned negotiation message)
-/// In any case it is very undesirable to upgrade mm2 when any swaps are active
-fn get_maker_version(negotiation_data: &MakerNegotiationData) -> u16 { negotiation_data.maker_msg_version.unwrap_or(0) }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod taker_swap_tests {
@@ -3286,7 +3233,7 @@ mod taker_swap_tests {
             let coin = TestCoin::new(base);
             let mock_min_tx_amount = min_tx_amount.clone();
             TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(mock_min_tx_amount.clone().into()));
-            let dex_fee = dex_fee_from_taker_coin(&coin, "MORTY", &max_taker_vol, None, None).total_spend_amount();
+            let dex_fee = dex_fee_from_taker_coin(&coin, "MORTY", &max_taker_vol, None).total_spend_amount();
             assert!(min_tx_amount < dex_fee);
             assert!(min_tx_amount <= max_taker_vol);
             assert_eq!(max_taker_vol + dex_fee, available);
@@ -3310,7 +3257,7 @@ mod taker_swap_tests {
             let coin = TestCoin::new(base);
             let mock_min_tx_amount = min_tx_amount.clone();
             TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(mock_min_tx_amount.clone().into()));
-            let dex_fee = dex_fee_from_taker_coin(&coin, "MORTY", &max_taker_vol, None, None).fee_amount(); // returns Standard dex_fee (default for TestCoin)
+            let dex_fee = dex_fee_from_taker_coin(&coin, "MORTY", &max_taker_vol, None).fee_amount(); // returns Standard dex_fee (default for TestCoin)
             println!(
                 "available={:?} max_taker_vol={:?} dex_fee={:?}",
                 available.to_decimal(),

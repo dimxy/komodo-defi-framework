@@ -15,20 +15,18 @@ use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
 use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
-use crate::lp_swap::NegotiationDataMsgVersion;
 use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF};
 use coins::lp_price::fetch_swap_coins_price;
-use coins::swap_features::LegacySwapFeature;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_BURN_ADDR_RAW_PUBKEY;
 use coins::{dex_fee_from_taker_coin, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee,
             FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
             PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
             SwapTxTypeWithSecretHash, TradeFee, TradePreimageValue, TransactionEnum, ValidateFeeArgs,
-            ValidatePaymentInput, WatcherReward, LEGACY_SWAP_MSG_VERSION, MIN_LEGACY_SWAP_MSG_VERSION};
+            ValidatePaymentInput, WatcherReward};
 use common::log::{debug, error, info, warn};
 use common::{bits256, executor::Timer, now_ms};
-use common::{env_var_as_bool, now_sec, wait_until_sec};
+use common::{now_sec, wait_until_sec};
 use crypto::privkey::SerializableSecp256k1Keypair;
 use crypto::CryptoCtx;
 use futures::{compat::Future01CompatExt, select, FutureExt};
@@ -126,8 +124,6 @@ async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSav
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TakerNegotiationData {
-    /// Swap message exchange version supported by remote taker peer. Optional because it is found at negotiation
-    pub taker_msg_version: Option<u16>,
     pub taker_payment_locktime: u64,
     pub taker_pubkey: H264Json,
     pub maker_coin_swap_contract_addr: Option<BytesJson>,
@@ -162,8 +158,6 @@ pub struct MakerSwapData {
     pub maker_payment_lock: u64,
     /// Allows to recognize one SWAP from the other in the logs. #274.
     pub uuid: Uuid,
-    /// Swap messages version that the remote taker supports. Optional because not known until negotiation
-    pub taker_msg_version: Option<u16>,
     pub started_at: u64,
     pub maker_coin_start_block: u64,
     pub taker_coin_start_block: u64,
@@ -301,7 +295,6 @@ impl MakerSwap {
             },
             MakerSwapEvent::StartFailed(err) => self.errors.lock().push(err),
             MakerSwapEvent::Negotiated(data) => {
-                self.w().data.taker_msg_version = Some(get_taker_version(&data));
                 self.taker_payment_lock
                     .store(data.taker_payment_locktime, Ordering::Relaxed);
                 self.w().other_maker_coin_htlc_pub = data.other_maker_coin_htlc_pub();
@@ -419,8 +412,7 @@ impl MakerSwap {
         }
     }
 
-    /// Creates initial negotiation messages. Creates new and old messages to try both until all nodes are upgraded to NegotiationDataMsgVersion
-    fn get_my_negotiation_data(&self) -> NegotiationDataMsgVersion {
+    fn get_my_negotiation_data(&self) -> NegotiationDataMsg {
         let r = self.r();
         let secret_hash = self.secret_hash();
         let maker_coin_swap_contract = self
@@ -435,7 +427,7 @@ impl MakerSwap {
         let equal = r.data.maker_coin_htlc_pubkey == r.data.taker_coin_htlc_pubkey;
         let same_as_persistent = r.data.maker_coin_htlc_pubkey == Some(r.data.my_persistent_pub);
 
-        let negotiation_msg = if equal && same_as_persistent {
+        if equal && same_as_persistent {
             NegotiationDataMsg::V2(NegotiationDataV2 {
                 started_at: r.data.started_at,
                 payment_locktime: r.data.maker_payment_lock,
@@ -454,21 +446,6 @@ impl MakerSwap {
                 maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
                 taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
             })
-        };
-
-        #[cfg(feature = "run-docker-tests")]
-        let version = if !env_var_as_bool("USE_OLD_VERSION_MAKER") {
-            LEGACY_SWAP_MSG_VERSION
-        } else {
-            0 // use old version for tests
-        };
-
-        #[cfg(not(feature = "run-docker-tests"))]
-        let version = LEGACY_SWAP_MSG_VERSION;
-
-        NegotiationDataMsgVersion {
-            version,
-            msg: negotiation_msg,
         }
     }
 
@@ -586,7 +563,6 @@ impl MakerSwap {
             taker: self.taker.bytes.into(),
             secret: self.secret.into(),
             secret_hash: Some(self.secret_hash().into()),
-            taker_msg_version: None, // not yet known before the negotiation stage
             started_at,
             lock_duration: self.payment_locktime,
             maker_amount: self.maker_amount.clone(),
@@ -647,21 +623,6 @@ impl MakerSwap {
             },
         };
         drop(send_abort_handle);
-
-        let remote_version = taker_data.version();
-        // this check will work when we raise minimal swap messages version
-        #[allow(clippy::absurd_extreme_comparisons)]
-        if remote_version < MIN_LEGACY_SWAP_MSG_VERSION {
-            self.broadcast_negotiated_false();
-            return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
-                ERRL!(
-                    "Remote taker swap messages version {} too old, minimal version is {}",
-                    remote_version,
-                    MIN_LEGACY_SWAP_MSG_VERSION
-                )
-                .into(),
-            )]));
-        }
 
         let time_dif = self.r().data.started_at.abs_diff(taker_data.started_at());
         if time_dif > MAX_STARTED_AT_DIFF {
@@ -728,7 +689,6 @@ impl MakerSwap {
 
         Ok((Some(MakerSwapCommand::WaitForTakerFee), vec![
             MakerSwapEvent::Negotiated(TakerNegotiationData {
-                taker_msg_version: Some(remote_version),
                 taker_payment_locktime: taker_data.payment_locktime(),
                 // using default to avoid misuse of this field
                 // maker_coin_htlc_pubkey and taker_coin_htlc_pubkey must be used instead
@@ -794,21 +754,14 @@ impl MakerSwap {
         swap_events.push(MakerSwapEvent::MakerPaymentInstructionsReceived(instructions));
 
         let taker_amount = MmNumber::from(self.taker_amount.clone());
-        let remote_version = self
-            .r()
-            .data
-            .taker_msg_version
-            .ok_or("No swap protocol version".to_owned())?;
-        let is_burn_active = LegacySwapFeature::is_active(LegacySwapFeature::SendToPreBurnAccount, remote_version);
         let dex_fee = dex_fee_from_taker_coin(
             self.taker_coin.deref(),
             &self.r().data.maker_coin,
             &taker_amount,
             Some(self.r().other_taker_coin_htlc_pub.to_vec().as_ref()),
-            Some(is_burn_active),
         );
         debug!(
-            "MakerSwap::wait_taker_fee remote_version={remote_version} is_burn_active={is_burn_active} dex_fee={:?} my_taker_coin_htlc_pub={}",
+            "MakerSwap::wait_taker_fee dex_fee={:?} my_taker_coin_htlc_pub={}",
             dex_fee,
             hex::encode(self.my_taker_coin_htlc_pub().0)
         );
@@ -1938,7 +1891,6 @@ impl MakerSavedSwap {
                     maker_payment_lock: 0,
                     uuid: Default::default(),
                     started_at: 0,
-                    taker_msg_version: None,
                     maker_coin_start_block: 0,
                     taker_coin_start_block: 0,
                     maker_payment_trade_fee: None,
@@ -2458,11 +2410,6 @@ pub async fn calc_max_maker_vol(
         locked_by_swaps,
     })
 }
-
-/// Determine version from negotiation data if saved swap data does not store version
-/// (if the swap started before the upgrade to versioned negotiation message)
-/// In any case it is very undesirable to upgrade mm2 when any swaps are active
-fn get_taker_version(negotiation_data: &TakerNegotiationData) -> u16 { negotiation_data.taker_msg_version.unwrap_or(0) }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod maker_swap_tests {

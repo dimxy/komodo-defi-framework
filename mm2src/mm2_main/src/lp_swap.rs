@@ -63,7 +63,6 @@ use crate::lp_swap::maker_swap_v2::{MakerSwapStateMachine, MakerSwapStorage};
 use crate::lp_swap::taker_swap_v2::{TakerSwapStateMachine, TakerSwapStorage};
 use bitcrypto::{dhash160, sha256};
 use coins::{lp_coinfind, lp_coinfind_or_err, CoinFindError, MmCoinEnum, TradeFee, TransactionEnum};
-#[cfg(feature = "for-tests")] use common::env_var_as_bool;
 use common::log::{debug, warn};
 use common::now_sec;
 use common::time_cache::DuplicateCache;
@@ -169,9 +168,6 @@ pub(crate) const INCLUDE_REFUND_FEE: bool = true;
 /// Do not add refund fee to calculate fee needed only to make a successful swap
 pub(crate) const NO_REFUND_FEE: bool = false;
 
-/// Sending part of dex fee to the pre-burn account is active
-pub const PRE_BURN_ACCOUNT_ACTIVE: bool = true;
-
 const MAX_STARTED_AT_DIFF: u64 = MAX_TIME_GAP_FOR_CONNECTED_PEER * 3;
 
 cfg_wasm32! {
@@ -184,8 +180,8 @@ cfg_wasm32! {
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
 pub enum SwapMsg {
-    Negotiation(NegotiationDataMsgVersion),
-    NegotiationReply(NegotiationDataMsgVersion),
+    Negotiation(NegotiationDataMsg),
+    NegotiationReply(NegotiationDataMsg),
     Negotiated(bool),
     TakerFee(SwapTxDataMsg),
     MakerPayment(SwapTxDataMsg),
@@ -194,8 +190,8 @@ pub enum SwapMsg {
 
 #[derive(Debug, Default)]
 pub struct SwapMsgStore {
-    negotiation: Option<NegotiationDataMsgVersion>,
-    negotiation_reply: Option<NegotiationDataMsgVersion>,
+    negotiation: Option<NegotiationDataMsg>,
+    negotiation_reply: Option<NegotiationDataMsg>,
     negotiated: Option<bool>,
     taker_fee: Option<SwapTxDataMsg>,
     maker_payment: Option<SwapTxDataMsg>,
@@ -904,31 +900,6 @@ impl NegotiationDataMsg {
             NegotiationDataMsg::V3(v3) => Some(&v3.taker_coin_swap_contract),
         }
     }
-}
-
-/// NegotiationDataMsg with version
-#[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
-pub struct NegotiationDataMsgVersion {
-    version: u16,
-    msg: NegotiationDataMsg,
-}
-
-impl NegotiationDataMsgVersion {
-    pub fn version(&self) -> u16 { self.version }
-
-    pub fn started_at(&self) -> u64 { self.msg.started_at() }
-
-    pub fn payment_locktime(&self) -> u64 { self.msg.payment_locktime() }
-
-    pub fn secret_hash(&self) -> &[u8] { self.msg.secret_hash() }
-
-    pub fn maker_coin_htlc_pub(&self) -> &[u8] { self.msg.maker_coin_htlc_pub() }
-
-    pub fn taker_coin_htlc_pub(&self) -> &[u8] { self.msg.taker_coin_htlc_pub() }
-
-    pub fn maker_coin_swap_contract(&self) -> Option<&[u8]> { self.msg.maker_coin_swap_contract() }
-
-    pub fn taker_coin_swap_contract(&self) -> Option<&[u8]> { self.msg.taker_coin_swap_contract() }
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
@@ -2349,30 +2320,10 @@ mod lp_swap_tests {
 
         let kmd = coins::TestCoin::new("KMD");
         TestCoin::should_burn_dex_fee.mock_safe(|_| MockResult::Return(true));
-        let (kmd_fee_amount, kmd_burn_amount) =
-            match dex_fee_from_taker_coin(&kmd, "ETH", &MmNumber::from(6150), None, Some(PRE_BURN_ACCOUNT_ACTIVE)) {
-                DexFee::Standard(_) | DexFee::NoFee => {
-                    panic!("Wrong variant returned for KMD from `dex_fee_from_taker_coin`.")
-                },
-                DexFee::WithBurn {
-                    fee_amount,
-                    burn_amount,
-                    ..
-                } => (fee_amount, burn_amount),
-            };
-        TestCoin::should_burn_dex_fee.clear_mock();
-
-        let mycoin = coins::TestCoin::new("MYCOIN");
-        TestCoin::should_burn_dex_fee.mock_safe(|_| MockResult::Return(true));
-        let (mycoin_fee_amount, mycoin_burn_amount) = match dex_fee_from_taker_coin(
-            &mycoin,
-            "ETH",
-            &MmNumber::from(6150),
-            None,
-            Some(PRE_BURN_ACCOUNT_ACTIVE),
-        ) {
+        let (kmd_fee_amount, kmd_burn_amount) = match dex_fee_from_taker_coin(&kmd, "ETH", &MmNumber::from(6150), None)
+        {
             DexFee::Standard(_) | DexFee::NoFee => {
-                panic!("Wrong variant returned for MYCOIN from `dex_fee_from_taker_coin`.")
+                panic!("Wrong variant returned for KMD from `dex_fee_from_taker_coin`.")
             },
             DexFee::WithBurn {
                 fee_amount,
@@ -2380,6 +2331,21 @@ mod lp_swap_tests {
                 ..
             } => (fee_amount, burn_amount),
         };
+        TestCoin::should_burn_dex_fee.clear_mock();
+
+        let mycoin = coins::TestCoin::new("MYCOIN");
+        TestCoin::should_burn_dex_fee.mock_safe(|_| MockResult::Return(true));
+        let (mycoin_fee_amount, mycoin_burn_amount) =
+            match dex_fee_from_taker_coin(&mycoin, "ETH", &MmNumber::from(6150), None) {
+                DexFee::Standard(_) | DexFee::NoFee => {
+                    panic!("Wrong variant returned for MYCOIN from `dex_fee_from_taker_coin`.")
+                },
+                DexFee::WithBurn {
+                    fee_amount,
+                    burn_amount,
+                    ..
+                } => (fee_amount, burn_amount),
+            };
         TestCoin::should_burn_dex_fee.clear_mock();
 
         let expected_mycoin_total_fee = &kmd_fee_amount / &MmNumber::from("0.75");
@@ -2398,7 +2364,7 @@ mod lp_swap_tests {
         let mycoin = coins::TestCoin::new("MYCOIN");
         TestCoin::should_burn_dex_fee.mock_safe(|_| MockResult::Return(true));
         let (mycoin_taker_fee, mycoin_burn_amount) =
-            match dex_fee_from_taker_coin(&mycoin, "", &MmNumber::from(6150), None, Some(PRE_BURN_ACCOUNT_ACTIVE)) {
+            match dex_fee_from_taker_coin(&mycoin, "", &MmNumber::from(6150), None) {
                 DexFee::Standard(_) | DexFee::NoFee => {
                     panic!("Wrong variant returned for MYCOIN from `dex_fee_from_taker_coin`.")
                 },
@@ -2412,22 +2378,17 @@ mod lp_swap_tests {
 
         let testcoin = coins::TestCoin::default();
         TestCoin::should_burn_dex_fee.mock_safe(|_| MockResult::Return(true));
-        let (testcoin_taker_fee, testcoin_burn_amount) = match dex_fee_from_taker_coin(
-            &testcoin,
-            "",
-            &MmNumber::from(6150),
-            None,
-            Some(PRE_BURN_ACCOUNT_ACTIVE),
-        ) {
-            DexFee::Standard(_) | DexFee::NoFee => {
-                panic!("Wrong variant returned for TEST coin from `dex_fee_from_taker_coin`.")
-            },
-            DexFee::WithBurn {
-                fee_amount,
-                burn_amount,
-                ..
-            } => (fee_amount, burn_amount),
-        };
+        let (testcoin_taker_fee, testcoin_burn_amount) =
+            match dex_fee_from_taker_coin(&testcoin, "", &MmNumber::from(6150), None) {
+                DexFee::Standard(_) | DexFee::NoFee => {
+                    panic!("Wrong variant returned for TEST coin from `dex_fee_from_taker_coin`.")
+                },
+                DexFee::WithBurn {
+                    fee_amount,
+                    burn_amount,
+                    ..
+                } => (fee_amount, burn_amount),
+            };
         TestCoin::should_burn_dex_fee.clear_mock();
         assert_eq!(testcoin_taker_fee * MmNumber::from("0.90"), mycoin_taker_fee);
         assert_eq!(testcoin_burn_amount * MmNumber::from("0.90"), mycoin_burn_amount);

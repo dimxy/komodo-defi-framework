@@ -4,8 +4,7 @@ use super::{swap_v2_topic, LockedAmount, LockedAmountInfo, SavedTradeFee, SwapsC
 use crate::lp_swap::maker_swap::MakerSwapPreparedParams;
 use crate::lp_swap::swap_lock::SwapLock;
 use crate::lp_swap::{broadcast_swap_v2_msg_every, check_balance_for_maker_swap, recv_swap_v2_msg, SecretHashAlgo,
-                     SwapConfirmationsSettings, TransactionIdentifier, MAKER_SWAP_V2_TYPE, MAX_STARTED_AT_DIFF,
-                     PRE_BURN_ACCOUNT_ACTIVE};
+                     SwapConfirmationsSettings, TransactionIdentifier, MAKER_SWAP_V2_TYPE, MAX_STARTED_AT_DIFF};
 use crate::lp_swap::{swap_v2_pb::*, NO_REFUND_FEE};
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
@@ -420,7 +419,6 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             self.maker_coin.ticker(),
             &self.taker_volume,
             Some(taker_pub),
-            Some(PRE_BURN_ACCOUNT_ACTIVE), // Always active for TPU
         )
     }
 }

@@ -1,4 +1,4 @@
-use super::{swap_v2_common::*, PRE_BURN_ACCOUNT_ACTIVE};
+use super::swap_v2_common::*;
 use super::{LockedAmount, LockedAmountInfo, SavedTradeFee, SwapsContext, TakerSwapPreparedParams,
             NEGOTIATE_SEND_INTERVAL, NEGOTIATION_TIMEOUT_SEC};
 use crate::lp_swap::swap_lock::SwapLock;
@@ -450,7 +450,6 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             self.maker_coin.ticker(),
             &self.taker_volume,
             Some(&taker_pub),
-            Some(PRE_BURN_ACCOUNT_ACTIVE), // Always active for TPU
         )
     }
 }
