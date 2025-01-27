@@ -815,7 +815,6 @@ impl WatcherOps for QtumCoin {
 }
 
 #[async_trait]
-#[cfg_attr(test, mockable)]
 impl MarketCoinOps for QtumCoin {
     fn ticker(&self) -> &str { &self.utxo_arc.conf.ticker }
 
