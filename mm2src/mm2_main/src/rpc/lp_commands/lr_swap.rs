@@ -16,9 +16,9 @@ pub mod types;
 /// There are orders available with that coin but User does not have tokens to fill those orders.
 /// User would like to find best swap path to fill one of those orders with his available tokens, with the use of LR.
 /// User calls this RPC with the order, desired coin name, amount to buy or sell and list of his tokens he would like to do LR with. 
-/// For the token in the provided order the RPC calls several 1inch classic swap queries 
-/// to find out the best route from the list of User's tokens into token from the order.
-/// The RPC returns best LR into the order, taking into account LR price and fees
+/// For the token in the User provided order the RPC calls several 1inch classic swap queries 
+/// to find out the best route from User's tokens into the order token (or backwards).
+/// The RPC returns best LR for the order, taking into account the LR price and fees
 pub async fn find_best_lr_swap_for_token_list_rpc(
     _ctx: MmArc,
     _req: LrSwapForMultipleOrdersRequest,
@@ -33,8 +33,8 @@ pub async fn find_best_lr_swap_for_token_list_rpc(
 /// There are orders available with that coin but User does not have tokens to fill those orders.
 /// User would like to find best swap path to fill several of those orders with one of his available tokens, with the use of LR.
 /// User calls this RPC with an order list, coin name and amount to buy or sell and the name of his token he would like to do LR with. 
-/// The RPC runs 1inch classic swap query requests to find out the best route from User's token into tokens from the orders from the list
-/// The RPC returns the most price-effective swap path, taking into account price in the orders, LR price and tx fees. 
+/// The RPC runs 1inch classic swap query requests to find out the best route from User's token into orders' tokens (or backwards).
+/// The RPC returns the most price-effective swap with LR, taking into account order prices, the LR price and tx fees. 
 pub async fn find_best_lr_swap_for_order_list_rpc(
     _ctx: MmArc,
     _req: LrSwapForMultipleOrdersRequest,
