@@ -1,7 +1,7 @@
 //? Errors for LR swaps rpc
 
-use common::{HttpStatusCode, StatusCode};
-use enum_derives::EnumFromStringify;
+//use common::{HttpStatusCode, StatusCode};
+//use enum_derives::EnumFromStringify;
 use ser_error_derive::SerializeErrorType;
 use serde::Serialize;
 
