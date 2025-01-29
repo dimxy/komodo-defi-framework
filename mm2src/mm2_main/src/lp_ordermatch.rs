@@ -3280,6 +3280,7 @@ pub async fn lp_ordermatch_loop(ctx: MmArc) {
 
         {
             let mut missing_uuids = Vec::new();
+            let mut to_cancel = Vec::new();
             {
                 let orderbook = ordermatch_ctx.orderbook.lock();
                 for (uuid, _) in ordermatch_ctx.maker_orders_ctx.lock().orders.iter() {
@@ -3289,7 +3290,6 @@ pub async fn lp_ordermatch_loop(ctx: MmArc) {
                 }
             }
 
-            let mut to_cancel = Vec::new();
             for uuid in missing_uuids {
                 let order_mutex = match ordermatch_ctx.maker_orders_ctx.lock().get_order(&uuid) {
                     Some(o) => o.clone(),
