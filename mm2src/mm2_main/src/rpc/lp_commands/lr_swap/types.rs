@@ -13,7 +13,7 @@ use mm2_rpc::data::legacy::{SellBuyRequest, SellBuyResponse};
 /// Request to find best swap path with LR for multiple orders.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LrSwapForMultipleOrdersRequest {
+pub struct FindBestLrSwapForMultipleOrdersRequest {
     /// Order base coin ticker.
     pub base: String,
     /// Swap amount in base coins to sell (with fraction)
@@ -27,7 +27,7 @@ pub struct LrSwapForMultipleOrdersRequest {
 /// Request to find best swap path with LR rpc for multiple tokens.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LrSwapForMultipleTokensRequest {
+pub struct FindBestLrSwapForMultipleTokensRequest {
     /// Order base coin ticker.
     pub base: String,
     /// Swap amount in base coins to sell (with fraction)

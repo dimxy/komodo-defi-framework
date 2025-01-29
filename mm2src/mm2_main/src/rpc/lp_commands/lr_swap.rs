@@ -2,7 +2,7 @@
 
 use mm2_err_handle::mm_error::{MmResult, MmError};
 use mm2_core::mm_ctx::MmArc;
-use types::{LrSwapForMultipleOrdersRequest, FindBestLrSwapResponse, FillOrderWithLrRequest, FillOrderWithLrResponse};
+use types::{FindBestLrSwapForMultipleOrdersRequest, FindBestLrSwapForMultipleTokensRequest, FindBestLrSwapResponse, FillOrderWithLrRequest, FillOrderWithLrResponse};
 use errors::LrSwapRpcError;
 
 pub mod errors;
@@ -21,7 +21,7 @@ pub mod types;
 /// The RPC returns best LR for the order, taking into account the LR price and fees
 pub async fn find_best_lr_swap_for_token_list_rpc(
     _ctx: MmArc,
-    _req: LrSwapForMultipleOrdersRequest,
+    _req: FindBestLrSwapForMultipleTokensRequest,
 ) -> MmResult<FindBestLrSwapResponse, LrSwapRpcError> {
     MmError::err(LrSwapRpcError::SomeError)
 }
@@ -37,12 +37,12 @@ pub async fn find_best_lr_swap_for_token_list_rpc(
 /// The RPC returns the most price-effective swap with LR, taking into account order prices, the LR price and tx fees. 
 pub async fn find_best_lr_swap_for_order_list_rpc(
     _ctx: MmArc,
-    _req: LrSwapForMultipleOrdersRequest,
+    _req: FindBestLrSwapForMultipleOrdersRequest,
 ) -> MmResult<FindBestLrSwapResponse, LrSwapRpcError> {
     MmError::err(LrSwapRpcError::SomeError)
 }
 
-/// Run a swap with LR part
+/// Run a swap with LR to fill a maker order
 pub async fn fill_order_with_lr_rpc(
     _ctx: MmArc,
     _req: FillOrderWithLrRequest,
