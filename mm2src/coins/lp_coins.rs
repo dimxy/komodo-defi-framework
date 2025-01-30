@@ -2452,6 +2452,10 @@ impl CoinBalance {
         }
     }
 
+    pub fn new_with_unspendable(spendable: BigDecimal, unspendable: BigDecimal) -> CoinBalance {
+        CoinBalance { spendable, unspendable }
+    }
+
     pub fn into_total(self) -> BigDecimal { self.spendable + self.unspendable }
 
     pub fn get_total(&self) -> BigDecimal { &self.spendable + &self.unspendable }
