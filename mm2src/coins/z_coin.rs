@@ -1259,12 +1259,9 @@ impl MarketCoinOps for ZCoin {
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         let z_fields = self.z_fields.clone();
         let tx_hex = input.payment_tx.clone();
-        Box::new(
-            utxo_common::wait_for_confirmations(self.as_ref(), input).map(move |res| {
-                z_fields.change_tracker.remove_change_notes(&tx_hex);
-                res
-            }),
-        )
+        Box::new(utxo_common::wait_for_confirmations(self.as_ref(), input).map(move |_| {
+            z_fields.change_tracker.remove_change_notes(&tx_hex);
+        }))
     }
 
     async fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionResult {
