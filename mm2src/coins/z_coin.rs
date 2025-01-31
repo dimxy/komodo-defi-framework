@@ -381,21 +381,30 @@ impl ZCoin {
         &self,
         total_required: &BigDecimal,
     ) -> MmResult<Vec<SpendableNote>, GenTxError> {
-        let changes = self.z_fields.change_tracker.change_notes_iter();
         let spendable_notes = self
             .spendable_notes_ordered()
             .await
             .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
+        let changes = self.z_fields.change_tracker.change_notes_iter();
+        let my_z_balance = self
+            .my_balance()
+            .compat()
+            .await
+            .mm_err(|err| GenTxError::Internal(err.to_string()))?;
 
         if changes.is_empty() {
             Ok(spendable_notes)
         } else {
-            let total_input_amount = spendable_notes
-                .iter()
-                .map(|note| big_decimal_from_sat_unsigned(note.note_value.into(), self.decimals()))
-                .sum::<BigDecimal>();
-
-            if &total_input_amount >= total_required {
+            if &my_z_balance.spendable < total_required
+                && my_z_balance.unspendable > (total_required - &my_z_balance.spendable)
+            {
+                return MmError::err(GenTxError::InsufficientBalance {
+                    coin: self.ticker().to_string(),
+                    available: my_z_balance.spendable,
+                    required: total_required.clone(),
+                });
+            }
+            if &my_z_balance.spendable >= total_required {
                 // return spendable notes if the total amount from spendable is upto or more
                 // than required amount needed to generate this tx.
                 Ok(spendable_notes)
@@ -405,10 +414,11 @@ impl ZCoin {
                 // needed to be mined to satisfy our required amount.
                 let mut temp_remaining = BigDecimal::from(0);
                 let mut tx_hex = Vec::with_capacity(changes.len());
+                let change_needed_to_gen_tx = total_required - my_z_balance.spendable;
                 for (hex, change) in changes {
                     temp_remaining += change;
                     tx_hex.push(hex);
-                    if temp_remaining >= total_required - &total_input_amount {
+                    if temp_remaining >= change_needed_to_gen_tx {
                         break;
                     }
                 }
@@ -546,6 +556,7 @@ impl ZCoin {
                 .tx_result?;
 
         if change > BigDecimal::from(0u8) {
+            debug!("found change for txs {change}!");
             // save change note amount for tracking.
             self.z_fields.change_tracker.add_change_note(tx.tx_hex(), change);
         }
@@ -1211,7 +1222,7 @@ impl MarketCoinOps for ZCoin {
                 ));
             };
 
-            Ok(CoinBalance::new_with_unspendable(balance - change.clone(), change))
+            Ok(CoinBalance::new_with_unspendable(&balance - &change, change))
         };
         Box::new(fut.boxed().compat())
     }
@@ -1260,6 +1271,7 @@ impl MarketCoinOps for ZCoin {
         let z_fields = self.z_fields.clone();
         let tx_hex = input.payment_tx.clone();
         Box::new(utxo_common::wait_for_confirmations(self.as_ref(), input).map(move |_| {
+            println!("Payment confirm!, removing note from list");
             z_fields.change_tracker.remove_change_notes(&tx_hex);
         }))
     }
@@ -1540,8 +1552,6 @@ impl SwapOps for ZCoin {
                         memo, expected_memo
                     )));
                 }
-
-                self.z_fields.change_tracker.remove_change_notes(&z_tx.tx_hex());
 
                 return Ok(());
             }
