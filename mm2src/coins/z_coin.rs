@@ -1271,7 +1271,7 @@ impl MarketCoinOps for ZCoin {
         let z_fields = self.z_fields.clone();
         let tx_hex = input.payment_tx.clone();
         Box::new(utxo_common::wait_for_confirmations(self.as_ref(), input).map(move |_| {
-            println!("Payment confirm!, removing note from list");
+            common::log::info!("Payment confirm!, removing note from list");
             z_fields.change_tracker.remove_change_notes(&tx_hex);
         }))
     }
@@ -1565,12 +1565,24 @@ impl SwapOps for ZCoin {
 
     #[inline]
     async fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
-        utxo_common::validate_maker_payment(self, input).await
+        let payment_hex = input.payment_tx.clone();
+        let z_fields = self.z_fields.clone();
+        utxo_common::validate_maker_payment(self, input).await?;
+        z_fields.change_tracker.remove_change_notes(&payment_hex);
+        common::log::info!("Maker Payment confirm!, removing note from list");
+
+        Ok(())
     }
 
     #[inline]
     async fn validate_taker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
-        utxo_common::validate_taker_payment(self, input).await
+        let payment_hex = input.payment_tx.clone();
+        let z_fields = self.z_fields.clone();
+        utxo_common::validate_taker_payment(self, input).await?;
+        z_fields.change_tracker.remove_change_notes(&payment_hex);
+        common::log::info!("Taker Payment confirm!, removing note from list");
+
+        Ok(())
     }
 
     #[inline]
