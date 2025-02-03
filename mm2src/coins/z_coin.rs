@@ -409,7 +409,7 @@ impl ZCoin {
                 // than required amount needed to generate this tx.
                 Ok(spendable_notes)
             } else {
-                debug!("Calculate pending tx change notes and wait for confirmation");
+                common::log!("Calculate pending tx change notes and wait for confirmation");
                 // else, we want to get, calculate the number of pending txs with change notes
                 // needed to be mined to satisfy our required amount.
                 let mut temp_remaining = BigDecimal::from(0);
@@ -432,8 +432,9 @@ impl ZCoin {
                     let requires_nota = self.requires_notarization();
                     // 5 minutes(probably will be changed)
                     let wait_until = 5 * 60;
+                    common::log::info!("Waiting for {tx:?} confirmations before next tx can be generated");
                     let input = ConfirmPaymentInput {
-                        payment_tx: tx,
+                        payment_tx: tx.clone(),
                         confirmations,
                         requires_nota,
                         wait_until,
@@ -443,9 +444,10 @@ impl ZCoin {
                         .compat()
                         .await
                         .map_to_mm(|_| GenTxError::NeededPrevTxConfirmed)?;
+                    common::log::info!("{tx:?} confirmed");
                 }
                 // Refetched spendable notes if we are able to get to this stage.
-                debug!("Refetching spendable notes after previous tx has been confirmed");
+                common::log::info!("Refetching spendable notes after previous tx has been confirmed");
                 let new_spendable_notes = self
                     .spendable_notes_ordered()
                     .await
@@ -1481,7 +1483,7 @@ impl SwapOps for ZCoin {
 
     async fn validate_fee(&self, validate_fee_args: ValidateFeeArgs<'_>) -> ValidatePaymentResult<()> {
         let z_tx = match validate_fee_args.fee_tx {
-            TransactionEnum::ZTransaction(t) => t.clone(),
+            TransactionEnum::ZTransaction(t) => t,
             fee_tx => {
                 return MmError::err(ValidatePaymentError::InternalError(format!(
                     "Invalid fee tx type. fee tx: {:?}",
@@ -1553,6 +1555,11 @@ impl SwapOps for ZCoin {
                     )));
                 }
 
+                common::log::info!("Fee Payment confirmed!, removing note from list");
+                let z_fields = self.z_fields.clone();
+                z_fields
+                    .change_tracker
+                    .remove_change_notes(&validate_fee_args.fee_tx.tx_hex());
                 return Ok(());
             }
         }
