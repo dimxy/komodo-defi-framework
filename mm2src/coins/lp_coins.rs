@@ -3721,13 +3721,11 @@ impl DexFee {
         let rate = Self::dex_fee_rate(taker_coin.ticker(), rel_ticker);
         let dex_fee = trade_amount * &rate;
         let min_tx_amount = MmNumber::from(taker_coin.min_tx_amount());
-        if dex_fee <= min_tx_amount {
-            return DexFee::Standard(min_tx_amount);
-        }
 
-        if taker_coin.is_kmd() {
+        let dex_fee = if taker_coin.is_kmd() {
             // use a special dex fee option for kmd
             let (fee_amount, burn_amount) = Self::calc_burn_amount_for_op_return(&dex_fee, &min_tx_amount);
+            // Note: allow zero burn opreturn for compatibility with old nodes
             return DexFee::WithBurn {
                 fee_amount,
                 burn_amount,
@@ -3744,7 +3742,10 @@ impl DexFee {
                     burn_destination: DexFeeBurnDestination::PreBurnAccount,
                 };
             }
-        }
+            fee_amount
+        } else {
+            dex_fee
+        };
         DexFee::Standard(dex_fee)
     }
 
@@ -3782,8 +3783,10 @@ impl DexFee {
             // Burn only the exceeding amount because fee after 25% cut is less than `min_tx_amount`.
             let burn_amount = dex_fee - min_tx_amount;
             (min_tx_amount.clone(), burn_amount)
+        } else if dex_fee <= min_tx_amount {
+            (min_tx_amount.clone(), 0.into())
         } else {
-            (dex_fee.clone(), MmNumber::from(0))
+            (dex_fee.clone(), 0.into())
         }
     }
 
@@ -3803,10 +3806,12 @@ impl DexFee {
         let burn_amount = dex_fee - min_tx_amount;
         if &new_fee < min_tx_amount && &burn_amount >= min_tx_amount {
             // actually currently burn_amount (25%) < new_fee (75%) so this never happens. Added for a case if 25/75 will ever change
-            return (min_tx_amount.clone(), burn_amount);
+            (min_tx_amount.clone(), burn_amount)
+        } else if dex_fee <= min_tx_amount {
+            (min_tx_amount.clone(), 0.into())
+        } else {
+            (dex_fee.clone(), 0.into())
         }
-        // Default case where burn_amount is considered dust
-        (dex_fee.clone(), 0.into())
     }
 
     /// Gets the fee amount associated with the dex fee.
