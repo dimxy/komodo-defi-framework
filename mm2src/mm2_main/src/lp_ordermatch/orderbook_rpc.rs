@@ -13,10 +13,10 @@ use serde_json::{self as json, Value as Json};
 use super::{addr_format_from_protocol_info, is_my_order, mm2_internal_pubkey_hex, orderbook_address,
             subscribe_to_orderbook_topic, OrdermatchContext, RpcOrderbookEntryV2};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AggregatedOrderbookEntryV2 {
     #[serde(flatten)]
-    entry: RpcOrderbookEntryV2,
+    pub entry: RpcOrderbookEntryV2,
     base_max_volume_aggr: MmNumberMultiRepr,
     rel_max_volume_aggr: MmNumberMultiRepr,
 }

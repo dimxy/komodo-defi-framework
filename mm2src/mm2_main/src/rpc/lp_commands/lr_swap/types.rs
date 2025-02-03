@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use mm2_number::MmNumber;
 use mm2_number::BigDecimal;
+use coins::Ticker;
 use crate::lp_ordermatch::AggregatedOrderbookEntryV2;
 use crate::rpc::lp_commands::one_inch::types::ClassicSwapDetails;
 use crate::lp_swap::TradePreimageResponse;
@@ -15,13 +16,13 @@ use mm2_rpc::data::legacy::{SellBuyRequest, SellBuyResponse};
 #[serde(deny_unknown_fields)]
 pub struct FindBestLrSwapForMultipleOrdersRequest {
     /// Order base coin ticker.
-    pub base: String,
+    pub base: Ticker,
     /// Swap amount in base coins to sell (with fraction)
     pub amount: MmNumber,
-    /// List of maker orders with rel tokens and order data, to find best swap path with LR
-    pub orderbook_entries: HashMap<String, AggregatedOrderbookEntryV2>,
+    /// List of maker orders with rel tokens and order entry, to select best swap path with LR
+    pub orderbook_entries: HashMap<Ticker, AggregatedOrderbookEntryV2>,
     /// User token to trade with LR 
-    pub my_token: String,
+    pub my_token: Ticker,
 }
 
 /// Request to find best swap path with LR rpc for multiple tokens.
@@ -29,13 +30,13 @@ pub struct FindBestLrSwapForMultipleOrdersRequest {
 #[serde(deny_unknown_fields)]
 pub struct FindBestLrSwapForMultipleTokensRequest {
     /// Order base coin ticker.
-    pub base: String,
+    pub base: Ticker,
     /// Swap amount in base coins to sell (with fraction)
     pub amount: MmNumber,
     /// Maker order's rel token and order data, to find best swap path with LR
-    pub orderbook_entry: (String, AggregatedOrderbookEntryV2),
+    pub orderbook_entry: (Ticker, AggregatedOrderbookEntryV2),
     /// List of user tokens to trade with LR 
-    pub my_tokens: Vec<String>,
+    pub my_tokens: Vec<Ticker>,
 }
 
 

@@ -160,12 +160,12 @@ impl ApiClient {
     }
 
     pub async fn call_swap_api<'l, T: DeserializeOwned>(
-        &self,
+        self,
         chain_id: u64,
         method: String,
         params: Option<QueryParams<'l>>,
     ) -> MmResult<T, ApiClientError> {
-        let mut builder = UrlBuilder::new(self, chain_id, method);
+        let mut builder = UrlBuilder::new(&self, chain_id, method);
         if let Some(params) = params {
             builder.with_query_params(params);
         }

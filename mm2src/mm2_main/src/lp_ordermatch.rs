@@ -5649,7 +5649,7 @@ async fn subscribe_to_orderbook_topic(
 pub struct RpcOrderbookEntryV2 {
     coin: String,
     address: OrderbookAddress,
-    price: MmNumberMultiRepr,
+    pub price: MmNumberMultiRepr,
     pubkey: String,
     uuid: Uuid,
     is_mine: bool,

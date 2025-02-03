@@ -37,6 +37,7 @@ pub enum ApiIntegrationRpcError {
     #[display(fmt = "1inch API error: {}", _0)]
     OneInchError(ApiClientError),
     ApiDataError(String),
+    SomeError(String),
 }
 
 impl HttpStatusCode for ApiIntegrationRpcError {
@@ -50,7 +51,8 @@ impl HttpStatusCode for ApiIntegrationRpcError {
             | ApiIntegrationRpcError::MyAddressError(_)
             | ApiIntegrationRpcError::InvalidParam(_)
             | ApiIntegrationRpcError::OutOfBounds { .. }
-            | ApiIntegrationRpcError::OneInchAllowanceNotEnough { .. } => StatusCode::BAD_REQUEST,
+            | ApiIntegrationRpcError::OneInchAllowanceNotEnough { .. }
+            | ApiIntegrationRpcError::SomeError(_) => StatusCode::BAD_REQUEST,
             ApiIntegrationRpcError::OneInchError(_) | ApiIntegrationRpcError::ApiDataError(_) => {
                 StatusCode::BAD_GATEWAY
             },

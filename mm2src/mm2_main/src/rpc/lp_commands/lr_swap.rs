@@ -1,16 +1,22 @@
 //? RPC implementation for swaps with liquidity routing (LR)
 
-use mm2_err_handle::mm_error::{MmResult, MmError};
+use coins::lp_coinfind_or_err;
+use mm2_err_handle::{map_mm_error::MapMmError, mm_error::{MmError, MmResult}};
 use mm2_core::mm_ctx::MmArc;
 use types::{FindBestLrSwapForMultipleOrdersRequest, FindBestLrSwapForMultipleTokensRequest, FindBestLrSwapResponse, FillOrderWithLrRequest, FillOrderWithLrResponse};
-use errors::LrSwapRpcError;
+use lr_impl::find_best_lr_buy_for_multiple_orders;
+use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 
-pub mod errors;
-pub mod types;
+use super::one_inch::types::ClassicSwapDetails;
+//use errors::LrSwapRpcError;
+
+mod errors;
+mod types;
+mod lr_impl;
 
 
 /// Find best swap with liquidity routing over EVM tokens for multiple user tokens.
-/// For the provided order RPC searches for the most price-effective swap path with LR for user tokens.
+/// For the provided order the RPC searches for the most price-effective swap path with LR for user tokens.
 /// More info:
 /// User is interested in buying or selling some coin. 
 /// There are orders available with that coin but User does not have tokens to fill those orders.
@@ -22,8 +28,8 @@ pub mod types;
 pub async fn find_best_lr_swap_for_token_list_rpc(
     _ctx: MmArc,
     _req: FindBestLrSwapForMultipleTokensRequest,
-) -> MmResult<FindBestLrSwapResponse, LrSwapRpcError> {
-    MmError::err(LrSwapRpcError::SomeError)
+) -> MmResult<FindBestLrSwapResponse, ApiIntegrationRpcError> {
+    MmError::err(ApiIntegrationRpcError::SomeError("unimplemented".to_owned()))
 }
 
 /// Find best swap with liquidity routing over EVM tokens for multiple orders.
@@ -36,18 +42,26 @@ pub async fn find_best_lr_swap_for_token_list_rpc(
 /// The RPC runs 1inch classic swap query requests to find out the best route from User's token into orders' tokens (or backwards).
 /// The RPC returns the most price-effective swap with LR, taking into account order prices, the LR price and tx fees. 
 pub async fn find_best_lr_swap_for_order_list_rpc(
-    _ctx: MmArc,
-    _req: FindBestLrSwapForMultipleOrdersRequest,
-) -> MmResult<FindBestLrSwapResponse, LrSwapRpcError> {
-    MmError::err(LrSwapRpcError::SomeError)
+    ctx: MmArc,
+    req: FindBestLrSwapForMultipleOrdersRequest,
+) -> MmResult<FindBestLrSwapResponse, ApiIntegrationRpcError> {
+    let coin = lp_coinfind_or_err(&ctx, &req.my_token).await?;
+    let (swap_data, best_order, total_price) = find_best_lr_buy_for_multiple_orders(&ctx, req.my_token, &req.orderbook_entries, &req.amount).await?;
+    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(swap_data, coin.decimals()).mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
+    Ok(FindBestLrSwapResponse {
+        lr_swap_details,
+        best_order,
+        total_price: todo!(),
+        trade_fee: todo!(),
+    })
 }
 
 /// Run a swap with LR to fill a maker order
 pub async fn fill_order_with_lr_rpc(
     _ctx: MmArc,
     _req: FillOrderWithLrRequest,
-) -> MmResult<FillOrderWithLrResponse, LrSwapRpcError> {
-    MmError::err(LrSwapRpcError::SomeError)
+) -> MmResult<FillOrderWithLrResponse, ApiIntegrationRpcError> {
+    MmError::err(ApiIntegrationRpcError::SomeError("unimplemented".to_owned()))
 }
 
 // TODO: Do we need to extend trade_preimage_rpc to include LR-part fee?
