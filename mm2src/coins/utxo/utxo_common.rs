@@ -1264,13 +1264,22 @@ async fn gen_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
             } else {
                 0
             };
-            let maker_value = args
+            let prev_value = args
                 .taker_tx
                 .first_output()
                 .map_to_mm(|e| TxGenError::PrevTxIsNotValid(e.to_string()))?
-                .value
-                - dex_fee_value
-                - tx_fee;
+                .value;
+            let maker_value = prev_value
+                .checked_sub(dex_fee_value)
+                .ok_or(TxGenError::PrevOutputTooLow(format!(
+                    "taker value too low: {}",
+                    prev_value
+                )))?
+                .checked_sub(tx_fee)
+                .ok_or(TxGenError::PrevOutputTooLow(format!(
+                    "taker value too low: {}",
+                    prev_value
+                )))?;
             // taker also adds maker output as we can't use SIGHASH_SINGLE with two outputs, dex fee and burn,
             // and both the maker and taker sign all outputs:
             outputs.push(TransactionOutput {
@@ -1547,7 +1556,7 @@ where
 
             let fee_amount = dex_fee
                 .fee_amount_as_u64(coin.as_ref().decimals)
-                .map_err(|err| err.get_inner().to_string())?;
+                .map_err(|err| err.to_string())?;
 
             let mut outputs = vec![TransactionOutput {
                 value: fee_amount,
@@ -1561,7 +1570,7 @@ where
             } = dex_fee
             {
                 let burn_amount_u64 = sat_from_big_decimal(&burn_amount.to_decimal(), coin.as_ref().decimals)
-                    .map_err(|err| err.get_inner().to_string())?;
+                    .map_err(|err| err.to_string())?;
                 match burn_destination {
                     DexFeeBurnDestination::KmdOpReturn => outputs.push(TransactionOutput {
                         value: burn_amount_u64,
@@ -2251,7 +2260,7 @@ fn validate_burn_output<T: UtxoCommonOps + SwapOps>(
         Some(out) => {
             if out.script_pubkey != burn_script_pubkey.to_bytes() {
                 return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                    "{}: Provided burn tx output script_pubkey doesn't match expected {:?} {:?}",
+                    "{}: Provided burn tx output script_pubkey {:?} doesn't match expected {:?}",
                     INVALID_RECEIVER_ERR_LOG,
                     out.script_pubkey,
                     burn_script_pubkey.to_bytes()
@@ -2260,14 +2269,14 @@ fn validate_burn_output<T: UtxoCommonOps + SwapOps>(
 
             if out.value < burn_amount_u64 {
                 return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                    "Provided burn tx output value is less than expected {:?} {:?}",
+                    "Provided burn tx output value {:?} is less than expected: {:?}",
                     out.value, burn_amount
                 )));
             }
         },
         None => {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                "Provided burn tx output {:?} does not have output {}",
+                "Provided burn tx {:?} does not have output {}",
                 tx, output_index
             )))
         },

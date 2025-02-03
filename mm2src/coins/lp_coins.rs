@@ -1418,6 +1418,8 @@ pub enum TxGenError {
     TxFeeTooHigh(String),
     /// Previous tx is not valid
     PrevTxIsNotValid(String),
+    /// Previous tx output value too low
+    PrevOutputTooLow(String),
     /// Other errors, can be used to return an error that can happen only in specific coin protocol implementation
     Other(String),
 }
