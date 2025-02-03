@@ -116,8 +116,8 @@ async fn run_lr_quotes(ctx: &MmArc, src_token_amounts: &Vec<TickerAmount>, dst_t
     result.mm_err(|cli_err| ApiIntegrationRpcError::from_api_error(cli_err, None))
 }
 
-/// Select best swap path, taking into account order price, LR quote price and fee
-/// Assuming, lr_swaps to orders relation is M:M 
+/// Select the best swap path, by total price (order and LR swap)
+/// Assuming lr_swaps to orders relation is M:M ensured at the RPC
 fn select_best_swap(
     src_token_amount: &TickerAmount,
     lr_swaps: &Vec<ClassicSwapData>,
@@ -138,6 +138,7 @@ fn select_best_swap(
     if lr_swaps.len() != orders.len() {
         return MmError::err(ApiIntegrationRpcError::SomeError("Internal Error (LR swap to orders combination)".to_owned()));
     }
+
     lr_swaps.iter()
         .zip(orders.iter())
         .map(|(lr_swap, order)| {
