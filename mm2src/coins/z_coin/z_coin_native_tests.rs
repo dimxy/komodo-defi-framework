@@ -37,7 +37,7 @@ use crate::{CoinProtocol, SwapTxTypeWithSecretHash};
 use crate::{DexFee, DexFeeBurnDestination};
 use mm2_number::MmNumber;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn zombie_coin_send_and_refund_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
@@ -102,7 +102,7 @@ async fn zombie_coin_send_and_refund_maker_payment() {
     log!("refund tx {}", hex::encode(refund_tx.tx_hash_as_bytes().0));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn zombie_coin_send_and_spend_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
@@ -171,7 +171,7 @@ async fn zombie_coin_send_and_spend_maker_payment() {
     log!("spend tx {}", hex::encode(spend_tx.tx_hash_as_bytes().0));
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn zombie_coin_send_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
@@ -198,7 +198,7 @@ async fn zombie_coin_send_dex_fee() {
     log!("dex fee tx {}", tx.txid());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn zombie_coin_send_standard_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
@@ -252,7 +252,7 @@ fn prepare_zombie_sapling_cache() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn zombie_coin_validate_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
