@@ -1834,7 +1834,7 @@ impl TendermintCoin {
 
         let msg = MsgSendProto::decode(tx_body.messages[0].value.as_slice())
             .map_to_mm(|e| ValidatePaymentError::TxDeserializationError(e.to_string()))?;
-        if msg.to_address != expected_dex_address.to_string() {
+        if msg.to_address != expected_dex_address.as_ref() {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Dex fee is sent to wrong address: {}, expected {}",
                 msg.to_address, expected_dex_address
@@ -1851,7 +1851,7 @@ impl TendermintCoin {
                 msg.amount[0], expected_dex_amount
             )));
         }
-        if msg.from_address != expected_sender_address.to_string() {
+        if msg.from_address != expected_sender_address.as_ref() {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Invalid sender: {}, expected {}",
                 msg.from_address, expected_sender_address
@@ -1902,7 +1902,7 @@ impl TendermintCoin {
         }
 
         // Validate dex fee output
-        if msg.outputs[0].address != expected_dex_address.to_string() {
+        if msg.outputs[0].address != expected_dex_address.as_ref() {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Dex fee is sent to wrong address: {}, expected {}",
                 msg.outputs[0].address, expected_dex_address
@@ -1921,7 +1921,7 @@ impl TendermintCoin {
         }
 
         // Validate burn output
-        if msg.outputs[1].address != expected_burn_address.to_string() {
+        if msg.outputs[1].address != expected_burn_address.as_ref() {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Burn fee is sent to wrong address: {}, expected {}",
                 msg.outputs[1].address, expected_burn_address
@@ -1945,7 +1945,7 @@ impl TendermintCoin {
         }
 
         // validate input
-        if msg.inputs[0].address != expected_sender_address.to_string() {
+        if msg.inputs[0].address != expected_sender_address.as_ref() {
             return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                 "Invalid sender: {}, expected {}",
                 msg.inputs[0].address, expected_sender_address
