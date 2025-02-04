@@ -39,6 +39,7 @@ use parking_lot::Mutex as PaMutex;
 use primitives::hash::{H256, H264};
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json, H264 as H264Json};
 use std::any::TypeId;
+use std::convert::TryInto;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -431,7 +432,7 @@ impl MakerSwap {
             NegotiationDataMsg::V2(NegotiationDataV2 {
                 started_at: r.data.started_at,
                 payment_locktime: r.data.maker_payment_lock,
-                persistent_pubkey: r.data.my_persistent_pub.0.to_vec(),
+                persistent_pubkey: r.data.my_persistent_pub,
                 secret_hash,
                 maker_coin_swap_contract,
                 taker_coin_swap_contract,
@@ -443,8 +444,8 @@ impl MakerSwap {
                 secret_hash,
                 maker_coin_swap_contract,
                 taker_coin_swap_contract,
-                maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
-                taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
+                maker_coin_htlc_pub: self.my_maker_coin_htlc_pub(),
+                taker_coin_htlc_pub: self.my_taker_coin_htlc_pub(),
             })
         }
     }
@@ -581,8 +582,8 @@ impl MakerSwap {
             taker_payment_spend_trade_fee: Some(SavedTradeFee::from(taker_payment_spend_trade_fee)),
             maker_coin_swap_contract_address,
             taker_coin_swap_contract_address,
-            maker_coin_htlc_pubkey: Some(maker_coin_htlc_pubkey.as_slice().into()),
-            taker_coin_htlc_pubkey: Some(taker_coin_htlc_pubkey.as_slice().into()),
+            maker_coin_htlc_pubkey: Some(maker_coin_htlc_pubkey.into()),
+            taker_coin_htlc_pubkey: Some(taker_coin_htlc_pubkey.into()),
             p2p_privkey: self.p2p_privkey.map(SerializableSecp256k1Keypair::from),
         };
 
@@ -672,7 +673,10 @@ impl MakerSwap {
         };
 
         // Validate maker_coin_htlc_pubkey realness
-        if let Err(err) = self.maker_coin.validate_other_pubkey(taker_data.maker_coin_htlc_pub()) {
+        if let Err(err) = self
+            .maker_coin
+            .validate_other_pubkey(&taker_data.maker_coin_htlc_pub().0)
+        {
             self.broadcast_negotiated_false();
             return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
                 ERRL!("!taker_data.maker_coin_htlc_pub {}", err).into(),
@@ -680,7 +684,10 @@ impl MakerSwap {
         };
 
         // Validate taker_coin_htlc_pubkey realness
-        if let Err(err) = self.taker_coin.validate_other_pubkey(taker_data.taker_coin_htlc_pub()) {
+        if let Err(err) = self
+            .taker_coin
+            .validate_other_pubkey(&taker_data.taker_coin_htlc_pub().0)
+        {
             self.broadcast_negotiated_false();
             return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
                 ERRL!("!taker_data.taker_coin_htlc_pub {}", err).into(),
@@ -695,8 +702,8 @@ impl MakerSwap {
                 taker_pubkey: H264Json::default(),
                 maker_coin_swap_contract_addr,
                 taker_coin_swap_contract_addr,
-                maker_coin_htlc_pubkey: Some(taker_data.maker_coin_htlc_pub().into()),
-                taker_coin_htlc_pubkey: Some(taker_data.taker_coin_htlc_pub().into()),
+                maker_coin_htlc_pubkey: Some(*taker_data.maker_coin_htlc_pub()),
+                taker_coin_htlc_pubkey: Some(*taker_data.taker_coin_htlc_pub()),
             }),
         ]))
     }
@@ -1400,7 +1407,9 @@ impl MakerSwap {
         taker.bytes = data.taker.0;
 
         let crypto_ctx = try_s!(CryptoCtx::from_ctx(&ctx));
-        let my_persistent_pub = H264::from(&**crypto_ctx.mm2_internal_key_pair().public());
+        let my_persistent_pub = H264::from(try_s!(TryInto::<[u8; 33]>::try_into(
+            crypto_ctx.mm2_internal_key_pair().public_slice()
+        )));
 
         let conf_settings = SwapConfirmationsSettings {
             maker_coin_confs: data.maker_payment_confirmations,
@@ -2154,10 +2163,14 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
         };
     }
     let running_swap = Arc::new(swap);
-    let weak_ref = Arc::downgrade(&running_swap);
     let swap_ctx = SwapsContext::from_ctx(&ctx).unwrap();
     swap_ctx.init_msg_store(running_swap.uuid, running_swap.taker);
-    swap_ctx.running_swaps.lock().unwrap().push(weak_ref);
+    // Register the swap in the running swaps map.
+    swap_ctx
+        .running_swaps
+        .lock()
+        .unwrap()
+        .insert(uuid, running_swap.clone());
     let mut swap_fut = Box::pin(
         async move {
             let mut events;
@@ -2221,6 +2234,8 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
         _swap = swap_fut => (), // swap finished normally
         _touch = touch_loop => unreachable!("Touch loop can not stop!"),
     };
+    // Remove the swap from the running swaps map.
+    swap_ctx.running_swaps.lock().unwrap().remove(&uuid);
 }
 
 pub struct MakerSwapPreparedParams {

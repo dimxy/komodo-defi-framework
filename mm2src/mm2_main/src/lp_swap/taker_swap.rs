@@ -39,6 +39,7 @@ use parking_lot::Mutex as PaMutex;
 use primitives::hash::H264;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json, H264 as H264Json};
 use serde_json::{self as json, Value as Json};
+use std::convert::TryInto;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -461,14 +462,17 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
     let ctx = swap.ctx.clone();
     subscribe_to_topic(&ctx, swap_topic(&swap.uuid));
     let mut status = ctx.log.status_handle();
-    let uuid = swap.uuid.to_string();
+    let uuid_str = uuid.to_string();
     let to_broadcast = !(swap.maker_coin.is_privacy() || swap.taker_coin.is_privacy());
     let running_swap = Arc::new(swap);
-    let weak_ref = Arc::downgrade(&running_swap);
     let swap_ctx = SwapsContext::from_ctx(&ctx).unwrap();
     swap_ctx.init_msg_store(running_swap.uuid, running_swap.maker);
-    swap_ctx.running_swaps.lock().unwrap().push(weak_ref);
-
+    // Register the swap in the running swaps map.
+    swap_ctx
+        .running_swaps
+        .lock()
+        .unwrap()
+        .insert(uuid, running_swap.clone());
     let mut swap_fut = Box::pin(
         async move {
             let mut events;
@@ -494,10 +498,10 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                     }
 
                     if event.is_error() {
-                        error!("[swap uuid={uuid}] {event:?}");
+                        error!("[swap uuid={uuid_str}] {event:?}");
                     }
 
-                    status.status(&[&"swap", &("uuid", uuid.as_str())], &event.status_str());
+                    status.status(&[&"swap", &("uuid", uuid_str.as_str())], &event.status_str());
                     running_swap.apply_event(event);
                 }
                 match res.0 {
@@ -506,12 +510,12 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                     },
                     None => {
                         if let Err(e) = mark_swap_as_finished(ctx.clone(), running_swap.uuid).await {
-                            error!("!mark_swap_finished({}): {}", uuid, e);
+                            error!("!mark_swap_finished({}): {}", uuid_str, e);
                         }
 
                         if to_broadcast {
                             if let Err(e) = broadcast_my_swap_status(&ctx, running_swap.uuid).await {
-                                error!("!broadcast_my_swap_status({}): {}", uuid, e);
+                                error!("!broadcast_my_swap_status({}): {}", uuid_str, e);
                             }
                         }
                         break;
@@ -525,6 +529,8 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
         _swap = swap_fut => (), // swap finished normally
         _touch = touch_loop => unreachable!("Touch loop can not stop!"),
     };
+    // Remove the swap from the running swaps map.
+    swap_ctx.running_swaps.lock().unwrap().remove(&uuid);
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
@@ -975,7 +981,7 @@ impl TakerSwap {
                 started_at: r.data.started_at,
                 secret_hash,
                 payment_locktime: r.data.taker_payment_lock,
-                persistent_pubkey: self.my_persistent_pub.to_vec(),
+                persistent_pubkey: self.my_persistent_pub.into(),
                 maker_coin_swap_contract,
                 taker_coin_swap_contract,
             })
@@ -986,8 +992,8 @@ impl TakerSwap {
                 secret_hash,
                 maker_coin_swap_contract,
                 taker_coin_swap_contract,
-                maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
-                taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
+                maker_coin_htlc_pub: self.my_maker_coin_htlc_pub(),
+                taker_coin_htlc_pub: self.my_taker_coin_htlc_pub(),
             })
         }
     }
@@ -1154,8 +1160,8 @@ impl TakerSwap {
             maker_payment_spend_trade_fee: Some(SavedTradeFee::from(maker_payment_spend_trade_fee)),
             maker_coin_swap_contract_address,
             taker_coin_swap_contract_address,
-            maker_coin_htlc_pubkey: Some(maker_coin_htlc_pubkey.as_slice().into()),
-            taker_coin_htlc_pubkey: Some(taker_coin_htlc_pubkey.as_slice().into()),
+            maker_coin_htlc_pubkey: Some(maker_coin_htlc_pubkey.into()),
+            taker_coin_htlc_pubkey: Some(taker_coin_htlc_pubkey.into()),
             p2p_privkey: self.p2p_privkey.map(SerializableSecp256k1Keypair::from),
         };
 
@@ -1238,14 +1244,20 @@ impl TakerSwap {
         };
 
         // Validate maker_coin_htlc_pubkey realness
-        if let Err(err) = self.maker_coin.validate_other_pubkey(maker_data.maker_coin_htlc_pub()) {
+        if let Err(err) = self
+            .maker_coin
+            .validate_other_pubkey(&maker_data.maker_coin_htlc_pub().0)
+        {
             return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
                 ERRL!("!maker_data.maker_coin_htlc_pub {}", err).into(),
             )]));
         };
 
         // Validate taker_coin_htlc_pubkey realness
-        if let Err(err) = self.taker_coin.validate_other_pubkey(maker_data.taker_coin_htlc_pub()) {
+        if let Err(err) = self
+            .taker_coin
+            .validate_other_pubkey(&maker_data.taker_coin_htlc_pub().0)
+        {
             return Ok((Some(TakerSwapCommand::Finish), vec![TakerSwapEvent::NegotiateFailed(
                 ERRL!("!maker_data.taker_coin_htlc_pub {}", err).into(),
             )]));
@@ -1312,8 +1324,8 @@ impl TakerSwap {
                 secret_hash: maker_data.secret_hash().into(),
                 maker_coin_swap_contract_addr,
                 taker_coin_swap_contract_addr,
-                maker_coin_htlc_pubkey: Some(maker_data.maker_coin_htlc_pub().into()),
-                taker_coin_htlc_pubkey: Some(maker_data.taker_coin_htlc_pub().into()),
+                maker_coin_htlc_pubkey: Some(*maker_data.maker_coin_htlc_pub()),
+                taker_coin_htlc_pubkey: Some(*maker_data.taker_coin_htlc_pub()),
             },
         )]))
     }
@@ -1846,7 +1858,7 @@ impl TakerSwap {
             .extract_secret(&secret_hash.0, &tx_ident.tx_hex, watcher_reward)
             .await
         {
-            Ok(bytes) => H256Json::from(bytes.as_slice()),
+            Ok(secret) => H256Json::from(secret),
             Err(e) => {
                 return Ok((Some(TakerSwapCommand::Finish), vec![
                     TakerSwapEvent::TakerPaymentWaitForSpendFailed(ERRL!("{}", e).into()),
@@ -2110,7 +2122,10 @@ impl TakerSwap {
         }
 
         let crypto_ctx = try_s!(CryptoCtx::from_ctx(&ctx));
-        let my_persistent_pub = H264::from(&**crypto_ctx.mm2_internal_key_pair().public());
+        let my_persistent_pub = {
+            let my_persistent_pub: [u8; 33] = try_s!(crypto_ctx.mm2_internal_key_pair().public_slice().try_into());
+            my_persistent_pub.into()
+        };
 
         let mut maker = bits256::from([0; 32]);
         maker.bytes = data.maker.0;
@@ -2928,7 +2943,7 @@ mod taker_swap_tests {
 
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
-        TestCoin::extract_secret.mock_safe(|_, _, _, _| MockResult::Return(Box::pin(async move { Ok(vec![]) })));
+        TestCoin::extract_secret.mock_safe(|_, _, _, _| MockResult::Return(Box::pin(async move { Ok([0; 32]) })));
 
         static mut MY_PAYMENT_SENT_CALLED: bool = false;
         TestCoin::check_if_my_payment_sent.mock_safe(|_, _| {
@@ -3055,7 +3070,7 @@ mod taker_swap_tests {
 
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
-        TestCoin::extract_secret.mock_safe(|_, _, _, _| MockResult::Return(Box::pin(async move { Ok(vec![]) })));
+        TestCoin::extract_secret.mock_safe(|_, _, _, _| MockResult::Return(Box::pin(async move { Ok([0; 32]) })));
 
         static mut SEARCH_TX_SPEND_CALLED: bool = false;
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
@@ -3365,8 +3380,7 @@ mod taker_swap_tests {
         .unwrap();
         let swaps_ctx = SwapsContext::from_ctx(&ctx).unwrap();
         let arc = Arc::new(swap);
-        let weak_ref = Arc::downgrade(&arc);
-        swaps_ctx.running_swaps.lock().unwrap().push(weak_ref);
+        swaps_ctx.running_swaps.lock().unwrap().insert(arc.uuid, arc);
 
         let actual = get_locked_amount(&ctx, "RICK");
         assert_eq!(actual, MmNumber::from(0));
