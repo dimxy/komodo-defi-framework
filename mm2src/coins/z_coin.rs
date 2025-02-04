@@ -684,7 +684,7 @@ impl ZCoin {
         block_height: BlockHeight,
         amount_sat: u64,
         expected_memo: &MemoBytes,
-    ) -> Result<bool, String> {
+    ) -> Result<(), String> {
         if let Some((note, address, memo)) =
             try_sapling_output_recovery(self.consensus_params_ref(), block_height, ovk, shielded_out)
         {
@@ -695,10 +695,11 @@ impl ZCoin {
                 if &memo != expected_memo {
                     return Err(format!("invalid memo {:?}, expected {:?}", memo, expected_memo));
                 }
-                return Ok(true);
+                return Ok(());
             }
+            return Err("wrong address".to_string());
         }
-        Ok(false)
+        Err("could not decrypt output".to_string())
     }
 }
 
@@ -1463,57 +1464,49 @@ impl SwapOps for ZCoin {
             None => H0,
         };
 
-        let mut fee_output_valid = false;
-        let mut burn_output_valid = false;
-        for shielded_out in z_tx.shielded_outputs.iter() {
-            if self
-                .validate_dex_fee_output(
-                    shielded_out,
-                    &DEX_FEE_OVK,
-                    &self.z_fields.dex_fee_addr,
-                    block_height,
-                    fee_amount_sat,
-                    &expected_memo,
-                )
-                .map_err(|err| {
-                    MmError::new(ValidatePaymentError::WrongPaymentTx(format!(
-                        "Bad dex fee output: {}",
-                        err
-                    )))
-                })?
-            {
-                fee_output_valid = true;
-            }
-            if let Some(burn_amount_sat) = burn_amount_sat {
-                if self
-                    .validate_dex_fee_output(
-                        shielded_out,
-                        &DEX_FEE_OVK,
-                        &self.z_fields.dex_burn_addr,
-                        block_height,
-                        burn_amount_sat,
-                        &expected_memo,
-                    )
-                    .map_err(|err| {
-                        MmError::new(ValidatePaymentError::WrongPaymentTx(format!(
-                            "Bad burn output: {}",
-                            err
-                        )))
-                    })?
-                {
-                    burn_output_valid = true;
-                }
-            }
+        let shielded_out = z_tx
+            .shielded_outputs
+            .get(0)
+            .ok_or(MmError::new(ValidatePaymentError::WrongPaymentTx(
+                "No dex fee output".to_string(),
+            )))?;
+        self.validate_dex_fee_output(
+            shielded_out,
+            &DEX_FEE_OVK,
+            &self.z_fields.dex_fee_addr,
+            block_height,
+            fee_amount_sat,
+            &expected_memo,
+        )
+        .map_err(|err| {
+            MmError::new(ValidatePaymentError::WrongPaymentTx(format!(
+                "Bad dex fee output: {}",
+                err
+            )))
+        })?;
+        if let Some(burn_amount_sat) = burn_amount_sat {
+            let shielded_out =
+                z_tx.shielded_outputs
+                    .get(1)
+                    .ok_or(MmError::new(ValidatePaymentError::WrongPaymentTx(
+                        "No burn output".to_string(),
+                    )))?;
+            self.validate_dex_fee_output(
+                shielded_out,
+                &DEX_FEE_OVK,
+                &self.z_fields.dex_burn_addr,
+                block_height,
+                burn_amount_sat,
+                &expected_memo,
+            )
+            .map_err(|err| {
+                MmError::new(ValidatePaymentError::WrongPaymentTx(format!(
+                    "Bad burn output: {}",
+                    err
+                )))
+            })?;
         }
-
-        if fee_output_valid && (burn_amount_sat.is_none() || burn_output_valid) {
-            return Ok(());
-        }
-
-        MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-            "The dex fee tx {:?} has no shielded outputs or outputs decryption failed",
-            z_tx
-        )))
+        Ok(())
     }
 
     #[inline]
