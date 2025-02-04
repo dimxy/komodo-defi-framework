@@ -65,7 +65,6 @@ use bitcrypto::{dhash160, sha256};
 use coins::{lp_coinfind, lp_coinfind_or_err, CoinFindError, MmCoinEnum, TradeFee, TransactionEnum};
 use common::log::{debug, warn};
 use common::now_sec;
-use common::time_cache::DuplicateCache;
 use common::{bits256, calc_total_pages,
              executor::{spawn_abortable, AbortOnDropHandle, SpawnFuture, Timer},
              log::{error, info},
@@ -79,7 +78,7 @@ use mm2_libp2p::{decode_signed, encode_and_sign, pub_sub_topic, PeerId, TopicPre
 use mm2_number::{BigDecimal, MmNumber, MmNumberMultiRepr};
 use mm2_state_machine::storable_state_machine::StateMachineStorage;
 use parking_lot::Mutex as PaMutex;
-use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
+use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json, H264};
 use secp256k1::{PublicKey, SecretKey, Signature};
 use serde::Serialize;
 use serde_json::{self as json, Value as Json};
@@ -88,8 +87,8 @@ use std::convert::TryFrom;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use timed_map::{MapKind, TimedMap};
 use uuid::Uuid;
 
 #[cfg(any(feature = "custom-swap-locktime", test, feature = "run-docker-tests"))]
@@ -531,12 +530,12 @@ struct LockedAmountInfo {
 }
 
 struct SwapsContext {
-    running_swaps: Mutex<Vec<Weak<dyn AtomicSwap>>>,
+    running_swaps: Mutex<HashMap<Uuid, Arc<dyn AtomicSwap>>>,
     active_swaps_v2_infos: Mutex<HashMap<Uuid, ActiveSwapV2Info>>,
     banned_pubkeys: Mutex<HashMap<H256Json, BanReason>>,
     swap_msgs: Mutex<HashMap<Uuid, SwapMsgStore>>,
     swap_v2_msgs: Mutex<HashMap<Uuid, SwapV2MsgStore>>,
-    taker_swap_watchers: PaMutex<DuplicateCache<Vec<u8>>>,
+    taker_swap_watchers: PaMutex<TimedMap<Vec<u8>, ()>>,
     locked_amounts: Mutex<HashMap<String, Vec<LockedAmountInfo>>>,
     #[cfg(target_arch = "wasm32")]
     swap_db: ConstructibleDb<SwapDb>,
@@ -547,14 +546,12 @@ impl SwapsContext {
     fn from_ctx(ctx: &MmArc) -> Result<Arc<SwapsContext>, String> {
         Ok(try_s!(from_ctx(&ctx.swaps_ctx, move || {
             Ok(SwapsContext {
-                running_swaps: Mutex::new(vec![]),
+                running_swaps: Mutex::new(HashMap::new()),
                 active_swaps_v2_infos: Mutex::new(HashMap::new()),
                 banned_pubkeys: Mutex::new(HashMap::new()),
                 swap_msgs: Mutex::new(HashMap::new()),
                 swap_v2_msgs: Mutex::new(HashMap::new()),
-                taker_swap_watchers: PaMutex::new(DuplicateCache::new(Duration::from_secs(
-                    TAKER_SWAP_ENTRY_TIMEOUT_SEC,
-                ))),
+                taker_swap_watchers: PaMutex::new(TimedMap::new_with_map_kind(MapKind::FxHashMap)),
                 locked_amounts: Mutex::new(HashMap::new()),
                 #[cfg(target_arch = "wasm32")]
                 swap_db: ConstructibleDb::new(ctx),
@@ -632,21 +629,21 @@ pub fn get_locked_amount(ctx: &MmArc, coin: &str) -> MmNumber {
     let swap_ctx = SwapsContext::from_ctx(ctx).unwrap();
     let swap_lock = swap_ctx.running_swaps.lock().unwrap();
 
-    let mut locked = swap_lock
-        .iter()
-        .filter_map(|swap| swap.upgrade())
-        .flat_map(|swap| swap.locked_amount())
-        .fold(MmNumber::from(0), |mut total_amount, locked| {
-            if locked.coin == coin {
-                total_amount += locked.amount;
-            }
-            if let Some(trade_fee) = locked.trade_fee {
-                if trade_fee.coin == coin && !trade_fee.paid_from_trading_vol {
-                    total_amount += trade_fee.amount;
+    let mut locked =
+        swap_lock
+            .values()
+            .flat_map(|swap| swap.locked_amount())
+            .fold(MmNumber::from(0), |mut total_amount, locked| {
+                if locked.coin == coin {
+                    total_amount += locked.amount;
                 }
-            }
-            total_amount
-        });
+                if let Some(trade_fee) = locked.trade_fee {
+                    if trade_fee.coin == coin && !trade_fee.paid_from_trading_vol {
+                        total_amount += trade_fee.amount;
+                    }
+                }
+                total_amount
+            });
     drop(swap_lock);
 
     let locked_amounts = swap_ctx.locked_amounts.lock().unwrap();
@@ -667,14 +664,12 @@ pub fn get_locked_amount(ctx: &MmArc, coin: &str) -> MmNumber {
     locked
 }
 
-/// Get number of currently running swaps
-pub fn running_swaps_num(ctx: &MmArc) -> u64 {
+/// Clear up all the running swaps.
+///
+/// This doesn't mean that these swaps will be stopped. They can only be stopped from the abortable systems they are running on top of.
+pub fn clear_running_swaps(ctx: &MmArc) {
     let swap_ctx = SwapsContext::from_ctx(ctx).unwrap();
-    let swaps = swap_ctx.running_swaps.lock().unwrap();
-    swaps.iter().fold(0, |total, swap| match swap.upgrade() {
-        Some(_) => total + 1,
-        None => total,
-    })
+    swap_ctx.running_swaps.lock().unwrap().clear();
 }
 
 /// Get total amount of selected coin locked by all currently ongoing swaps except the one with selected uuid
@@ -683,8 +678,7 @@ fn get_locked_amount_by_other_swaps(ctx: &MmArc, except_uuid: &Uuid, coin: &str)
     let swap_lock = swap_ctx.running_swaps.lock().unwrap();
 
     swap_lock
-        .iter()
-        .filter_map(|swap| swap.upgrade())
+        .values()
         .filter(|swap| swap.uuid() != except_uuid)
         .flat_map(|swap| swap.locked_amount())
         .fold(MmNumber::from(0), |mut total_amount, locked| {
@@ -704,11 +698,9 @@ pub fn active_swaps_using_coins(ctx: &MmArc, coins: &HashSet<String>) -> Result<
     let swap_ctx = try_s!(SwapsContext::from_ctx(ctx));
     let swaps = try_s!(swap_ctx.running_swaps.lock());
     let mut uuids = vec![];
-    for swap in swaps.iter() {
-        if let Some(swap) = swap.upgrade() {
-            if coins.contains(&swap.maker_coin().to_string()) || coins.contains(&swap.taker_coin().to_string()) {
-                uuids.push(*swap.uuid())
-            }
+    for swap in swaps.values() {
+        if coins.contains(&swap.maker_coin().to_string()) || coins.contains(&swap.taker_coin().to_string()) {
+            uuids.push(*swap.uuid())
         }
     }
     drop(swaps);
@@ -724,15 +716,13 @@ pub fn active_swaps_using_coins(ctx: &MmArc, coins: &HashSet<String>) -> Result<
 
 pub fn active_swaps(ctx: &MmArc) -> Result<Vec<(Uuid, u8)>, String> {
     let swap_ctx = try_s!(SwapsContext::from_ctx(ctx));
-    let swaps = swap_ctx.running_swaps.lock().unwrap();
-    let mut uuids = vec![];
-    for swap in swaps.iter() {
-        if let Some(swap) = swap.upgrade() {
-            uuids.push((*swap.uuid(), LEGACY_SWAP_TYPE))
-        }
-    }
-
-    drop(swaps);
+    let mut uuids: Vec<_> = swap_ctx
+        .running_swaps
+        .lock()
+        .unwrap()
+        .keys()
+        .map(|uuid| (*uuid, LEGACY_SWAP_TYPE))
+        .collect();
 
     let swaps_v2 = swap_ctx.active_swaps_v2_infos.lock().unwrap();
     uuids.extend(swaps_v2.iter().map(|(uuid, info)| (*uuid, info.swap_type)));
@@ -812,7 +802,7 @@ pub struct NegotiationDataV1 {
     started_at: u64,
     payment_locktime: u64,
     secret_hash: [u8; 20],
-    persistent_pubkey: Vec<u8>,
+    persistent_pubkey: H264,
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
@@ -820,7 +810,7 @@ pub struct NegotiationDataV2 {
     started_at: u64,
     payment_locktime: u64,
     secret_hash: Vec<u8>,
-    persistent_pubkey: Vec<u8>,
+    persistent_pubkey: H264,
     maker_coin_swap_contract: Vec<u8>,
     taker_coin_swap_contract: Vec<u8>,
 }
@@ -832,8 +822,8 @@ pub struct NegotiationDataV3 {
     secret_hash: Vec<u8>,
     maker_coin_swap_contract: Vec<u8>,
     taker_coin_swap_contract: Vec<u8>,
-    maker_coin_htlc_pub: Vec<u8>,
-    taker_coin_htlc_pub: Vec<u8>,
+    maker_coin_htlc_pub: H264,
+    taker_coin_htlc_pub: H264,
 }
 
 #[derive(Clone, Debug, Eq, Deserialize, PartialEq, Serialize)]
@@ -869,7 +859,7 @@ impl NegotiationDataMsg {
         }
     }
 
-    pub fn maker_coin_htlc_pub(&self) -> &[u8] {
+    pub fn maker_coin_htlc_pub(&self) -> &H264 {
         match self {
             NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
             NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
@@ -877,7 +867,7 @@ impl NegotiationDataMsg {
         }
     }
 
-    pub fn taker_coin_htlc_pub(&self) -> &[u8] {
+    pub fn taker_coin_htlc_pub(&self) -> &H264 {
         match self {
             NegotiationDataMsg::V1(v1) => &v1.persistent_pubkey,
             NegotiationDataMsg::V2(v2) => &v2.persistent_pubkey,
@@ -1980,14 +1970,14 @@ mod lp_swap_tests {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: [0; 20],
-            persistent_pubkey: vec![1; 33],
+            persistent_pubkey: [1; 33].into(),
         };
 
         let expected = NegotiationDataMsg::V1(NegotiationDataV1 {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: [0; 20],
-            persistent_pubkey: vec![1; 33],
+            persistent_pubkey: [1; 33].into(),
         });
 
         let serialized = rmp_serde::to_vec_named(&v1).unwrap();
@@ -2001,7 +1991,7 @@ mod lp_swap_tests {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: vec![0; 20],
-            persistent_pubkey: vec![1; 33],
+            persistent_pubkey: [1; 33].into(),
             maker_coin_swap_contract: vec![1; 20],
             taker_coin_swap_contract: vec![1; 20],
         });
@@ -2010,7 +2000,7 @@ mod lp_swap_tests {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: [0; 20],
-            persistent_pubkey: vec![1; 33],
+            persistent_pubkey: [1; 33].into(),
         };
 
         let serialized = rmp_serde::to_vec_named(&v2).unwrap();
@@ -2024,7 +2014,7 @@ mod lp_swap_tests {
             started_at: 0,
             payment_locktime: 0,
             secret_hash: vec![0; 20],
-            persistent_pubkey: vec![1; 33],
+            persistent_pubkey: [1; 33].into(),
             maker_coin_swap_contract: vec![1; 20],
             taker_coin_swap_contract: vec![1; 20],
         });
@@ -2041,8 +2031,8 @@ mod lp_swap_tests {
             secret_hash: vec![0; 20],
             maker_coin_swap_contract: vec![1; 20],
             taker_coin_swap_contract: vec![1; 20],
-            maker_coin_htlc_pub: vec![1; 33],
-            taker_coin_htlc_pub: vec![1; 33],
+            maker_coin_htlc_pub: [1; 33].into(),
+            taker_coin_htlc_pub: [1; 33].into(),
         });
 
         // v3 must be deserialized to v3, backward compatibility is not required
@@ -2256,7 +2246,7 @@ mod lp_swap_tests {
             taker_key_pair.public().compressed_unprefixed().unwrap().into(),
             maker_amount.clone(),
             taker_amount.clone(),
-            maker_key_pair.public_slice().into(),
+            <[u8; 33]>::try_from(maker_key_pair.public_slice()).unwrap().into(),
             uuid,
             None,
             conf_settings,
@@ -2277,7 +2267,7 @@ mod lp_swap_tests {
             maker_key_pair.public().compressed_unprefixed().unwrap().into(),
             maker_amount.into(),
             taker_amount.into(),
-            taker_key_pair.public_slice().into(),
+            <[u8; 33]>::try_from(taker_key_pair.public_slice()).unwrap().into(),
             uuid,
             None,
             conf_settings,

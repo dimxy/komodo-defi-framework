@@ -40,6 +40,7 @@ use secp256k1::Secp256k1;
 pub use secp256k1::{PublicKey, SecretKey};
 use serde_json::{self as json, Value as Json};
 pub use std::cell::Cell;
+use std::convert::TryFrom;
 use std::process::{Command, Stdio};
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 use std::str::FromStr;
@@ -304,7 +305,9 @@ impl BchDockerOps {
         let adex_slp = SlpToken::new(
             8,
             "ADEXSLP".into(),
-            slp_genesis_tx.tx_hash_as_bytes().as_slice().into(),
+            <&[u8; 32]>::try_from(slp_genesis_tx.tx_hash_as_bytes().as_slice())
+                .unwrap()
+                .into(),
             self.coin.clone(),
             1,
         )
@@ -320,7 +323,9 @@ impl BchDockerOps {
         };
         block_on_f01(self.coin.wait_for_confirmations(confirm_payment_input)).unwrap();
         *SLP_TOKEN_OWNERS.lock().unwrap() = slp_privkeys;
-        *SLP_TOKEN_ID.lock().unwrap() = slp_genesis_tx.tx_hash_as_bytes().as_slice().into();
+        *SLP_TOKEN_ID.lock().unwrap() = <[u8; 32]>::try_from(slp_genesis_tx.tx_hash_as_bytes().as_slice())
+            .unwrap()
+            .into();
     }
 }
 
@@ -883,7 +888,7 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
     let bob_priv_key = generate_and_fill_priv_key(base);
     let alice_priv_key = generate_and_fill_priv_key(rel);
     let alice_pubkey_str = hex::encode(
-        key_pair_from_secret(alice_priv_key.as_ref())
+        key_pair_from_secret(&alice_priv_key)
             .expect("valid test key pair")
             .public()
             .to_vec(),

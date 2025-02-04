@@ -637,7 +637,7 @@ fn test_v2_swap_utxo_utxo_impl() {
     let coins = json!([mycoin_conf(1000), mycoin1_conf(1000)]);
 
     let alice_pubkey_str = hex::encode(
-        key_pair_from_secret(alice_priv_key.as_ref())
+        key_pair_from_secret(&alice_priv_key)
             .expect("valid test key pair")
             .public()
             .to_vec(),

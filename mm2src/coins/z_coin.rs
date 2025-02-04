@@ -93,6 +93,8 @@ use zcash_primitives::{constants::mainnet as z_mainnet_constants, sapling::Payme
                        zip32::ExtendedFullViewingKey, zip32::ExtendedSpendingKey};
 use zcash_proofs::prover::LocalTxProver;
 
+use self::storage::store_change_output;
+
 cfg_native!(
     use common::{async_blocking, sha256_digest};
     use zcash_client_sqlite::error::SqliteClientError as ZcashClientError;
@@ -210,8 +212,8 @@ pub struct ZCoinFields {
     z_tx_prover: Arc<LocalTxProver>,
     light_wallet_db: WalletDbShared,
     consensus_params: ZcoinConsensusParams,
-    sync_state_connector: AsyncMutex<SaplingSyncConnector>,
     z_balance_event_handler: Option<ZBalanceEventHandler>,
+    sync_state_connector: AsyncMutex<SaplingSyncConnector>,
 }
 
 impl Transaction for ZTransaction {
@@ -476,6 +478,12 @@ impl ZCoin {
                 .await?
                 .tx_result?;
 
+        // Store any change outputs we created in this transaction by decrypting them with our keys
+        // and saving them to the wallet database for future spends
+        store_change_output(self.consensus_params_ref(), &self.z_fields.light_wallet_db, &tx)
+            .await
+            .map_to_mm(GenTxError::SaveChangeNotesError)?;
+
         let additional_data = AdditionalTxData {
             received_by_me,
             spent_by_me: sat_from_big_decimal(&total_input_amount, self.decimals())?,
@@ -534,7 +542,7 @@ impl ZCoin {
         }
 
         let mut transparent_input_amount = Amount::zero();
-        let hash = H256Json::from(tx_item.tx_hash.as_slice());
+        let hash = H256Json::from(tx_item.tx_hash);
         let z_tx = transactions.remove(&hash).or_mm_err(|| NoInfoAboutTx(hash))?;
         for input in z_tx.vin.iter() {
             let mut hash = H256Json::from(*input.prevout.hash());
@@ -624,7 +632,7 @@ impl ZCoin {
         let hashes_for_verbose = req_result
             .transactions
             .iter()
-            .map(|item| H256Json::from(item.tx_hash.as_slice()))
+            .map(|item| H256Json::from(item.tx_hash))
             .collect();
         let mut transactions = self.z_transactions_from_cache_or_rpc(hashes_for_verbose).await?;
 
@@ -1561,7 +1569,7 @@ impl SwapOps for ZCoin {
         secret_hash: &[u8],
         spend_tx: &[u8],
         _watcher_reward: bool,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<[u8; 32], String> {
         utxo_common::extract_secret(secret_hash, spend_tx)
     }
 
@@ -1590,12 +1598,16 @@ impl SwapOps for ZCoin {
         let signature = self.secp_keypair().private().sign(&message).expect("valid privkey");
 
         let key = secp_privkey_from_hash(dhash256(&signature));
-        key_pair_from_secret(key.as_slice()).expect("valid privkey")
+        key_pair_from_secret(&key.take()).expect("valid privkey")
     }
 
     #[inline]
-    fn derive_htlc_pubkey(&self, swap_unique_data: &[u8]) -> Vec<u8> {
-        self.derive_htlc_key_pair(swap_unique_data).public_slice().to_vec()
+    fn derive_htlc_pubkey(&self, swap_unique_data: &[u8]) -> [u8; 33] {
+        self.derive_htlc_key_pair(swap_unique_data)
+            .public_slice()
+            .to_vec()
+            .try_into()
+            .expect("valid pubkey length")
     }
 
     #[inline]
