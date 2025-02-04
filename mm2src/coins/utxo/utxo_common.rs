@@ -1539,21 +1539,8 @@ where
         DexFee::NoFee => Ok(vec![]),
         // TODO: return an error for DexFee::Standard like 'dex fee must contain burn amount' when nodes upgraded to this code
         DexFee::Standard(_) | DexFee::WithBurn { .. } => {
-            let dex_address = address_from_raw_pubkey(
-                coin.dex_pubkey(),
-                coin.as_ref().conf.address_prefixes.clone(),
-                coin.as_ref().conf.checksum_type,
-                coin.as_ref().conf.bech32_hrp.clone(),
-                coin.addr_format().clone(),
-            )?;
-            let burn_address = address_from_raw_pubkey(
-                coin.burn_pubkey(),
-                coin.as_ref().conf.address_prefixes.clone(),
-                coin.as_ref().conf.checksum_type,
-                coin.as_ref().conf.bech32_hrp.clone(),
-                coin.addr_format().clone(),
-            )?;
-
+            let dex_address = dex_address(coin)?;
+            let burn_address = burn_address(coin)?;
             let fee_amount = dex_fee
                 .fee_amount_as_u64(coin.as_ref().decimals)
                 .map_err(|err| err.to_string())?;
@@ -2130,7 +2117,6 @@ pub fn watcher_validate_taker_fee<T: UtxoCommonOps + SwapOps>(
     let taker_fee_hash = input.taker_fee_hash;
     let min_block_number = input.min_block_number;
     let lock_duration = input.lock_duration;
-    let dex_pubkey = coin.dex_pubkey().to_vec();
     let fut = async move {
         let mut attempts = 0;
         loop {
@@ -2179,18 +2165,10 @@ pub fn watcher_validate_taker_fee<T: UtxoCommonOps + SwapOps>(
                 )));
             }
 
-            let address = address_from_raw_pubkey(
-                &dex_pubkey,
-                coin.as_ref().conf.address_prefixes.clone(),
-                coin.as_ref().conf.checksum_type,
-                coin.as_ref().conf.bech32_hrp.clone(),
-                coin.addr_format().clone(),
-            )
-            .map_to_mm(ValidatePaymentError::TxDeserializationError)?;
-
+            let dex_address = dex_address(&coin).map_to_mm(ValidatePaymentError::TxDeserializationError)?;
             match taker_fee_tx.outputs.get(output_index) {
                 Some(out) => {
-                    let expected_script_pubkey = Builder::build_p2pkh(address.hash()).to_bytes();
+                    let expected_script_pubkey = Builder::build_p2pkh(dex_address.hash()).to_bytes();
                     if out.script_pubkey != expected_script_pubkey {
                         return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
                             "{}: Provided dex fee tx output script_pubkey doesn't match expected {:?} {:?}",
@@ -2292,23 +2270,8 @@ pub fn validate_fee<T: UtxoCommonOps + SwapOps>(
     dex_fee: DexFee,
     min_block_number: u64,
 ) -> ValidatePaymentFut<()> {
-    let dex_address = try_f!(address_from_raw_pubkey(
-        coin.dex_pubkey(),
-        coin.as_ref().conf.address_prefixes.clone(),
-        coin.as_ref().conf.checksum_type,
-        coin.as_ref().conf.bech32_hrp.clone(),
-        coin.addr_format().clone(),
-    )
-    .map_to_mm(ValidatePaymentError::InternalError));
-    let burn_address = try_f!(address_from_raw_pubkey(
-        coin.burn_pubkey(),
-        coin.as_ref().conf.address_prefixes.clone(),
-        coin.as_ref().conf.checksum_type,
-        coin.as_ref().conf.bech32_hrp.clone(),
-        coin.addr_format().clone(),
-    )
-    .map_to_mm(ValidatePaymentError::InternalError));
-
+    let dex_address = try_f!(dex_address(&coin).map_to_mm(ValidatePaymentError::InternalError));
+    let burn_address = try_f!(burn_address(&coin).map_to_mm(ValidatePaymentError::InternalError));
     let inputs_signed_by_pub = try_f!(check_all_utxo_inputs_signed_by_pub(&tx, sender_pubkey));
     if !inputs_signed_by_pub {
         return Box::new(futures01::future::err(
@@ -2743,6 +2706,26 @@ pub fn my_address<T: UtxoCommonOps>(coin: &T) -> MmResult<String, MyAddressError
             "'my_address' is deprecated for HD wallets".to_string(),
         )),
     }
+}
+
+pub fn dex_address<T: UtxoCommonOps + SwapOps>(coin: &T) -> Result<Address, String> {
+    address_from_raw_pubkey(
+        coin.dex_pubkey(),
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.checksum_type,
+        coin.as_ref().conf.bech32_hrp.clone(),
+        coin.addr_format().clone(),
+    )
+}
+
+pub fn burn_address<T: UtxoCommonOps + SwapOps>(coin: &T) -> Result<Address, String> {
+    address_from_raw_pubkey(
+        coin.burn_pubkey(),
+        coin.as_ref().conf.address_prefixes.clone(),
+        coin.as_ref().conf.checksum_type,
+        coin.as_ref().conf.bech32_hrp.clone(),
+        coin.addr_format().clone(),
+    )
 }
 
 /// Hash message for signature using Bitcoin's message signing format.
@@ -5327,14 +5310,7 @@ fn test_generate_taker_fee_tx_outputs_with_standard_dex_fee() {
     )
     .unwrap();
 
-    let dex_address = address_from_raw_pubkey(
-        coin.dex_pubkey(),
-        coin.as_ref().conf.address_prefixes.clone(),
-        coin.as_ref().conf.checksum_type,
-        coin.as_ref().conf.bech32_hrp.clone(),
-        coin.addr_format().clone(),
-    )
-    .unwrap();
+    let dex_address = dex_address(&coin).unwrap();
 
     assert_eq!(outputs.len(), 1);
     assert_eq!(outputs[0].value, fee_uamount);
@@ -5362,22 +5338,8 @@ fn test_generate_taker_fee_tx_outputs_with_non_kmd_burn() {
     )
     .unwrap();
 
-    let dex_address = address_from_raw_pubkey(
-        coin.dex_pubkey(),
-        coin.as_ref().conf.address_prefixes.clone(),
-        coin.as_ref().conf.checksum_type,
-        coin.as_ref().conf.bech32_hrp.clone(),
-        coin.addr_format().clone(),
-    )
-    .unwrap();
-    let burn_address = address_from_raw_pubkey(
-        coin.burn_pubkey(),
-        coin.as_ref().conf.address_prefixes.clone(),
-        coin.as_ref().conf.checksum_type,
-        coin.as_ref().conf.bech32_hrp.clone(),
-        coin.addr_format().clone(),
-    )
-    .unwrap();
+    let dex_address = dex_address(&coin).unwrap();
+    let burn_address = burn_address(&coin).unwrap();
 
     assert_eq!(outputs.len(), 2);
     assert_eq!(outputs[0].value, fee_uamount);
