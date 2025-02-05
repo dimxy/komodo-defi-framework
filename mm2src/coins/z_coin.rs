@@ -326,6 +326,7 @@ impl ZCoin {
 
     async fn my_balance_sat(&self) -> Result<u64, MmError<ZCoinBalanceError>> {
         let wallet_db = self.z_fields.light_wallet_db.clone();
+
         #[cfg(target_arch = "wasm32")]
         let balance_sat: u64 = wallet_db.db.get_balance(AccountId::default()).await?.into();
 
@@ -1172,11 +1173,19 @@ impl MarketCoinOps for ZCoin {
 
             let prev_change = coin.z_fields.previous_tx_with_change.lock().unwrap().clone();
             if let Some((_, change)) = prev_change {
+                if change > balance {
+                    return MmError::err(BalanceError::Internal(
+                        "change can't be greater than balance".to_owned(),
+                    ));
+                }
                 balance = &balance - &change;
                 unspendable = change;
             };
 
-            Ok(CoinBalance::new_with_unspendable(balance, unspendable))
+            Ok(CoinBalance {
+                spendable: balance,
+                unspendable,
+            })
         };
 
         Box::new(fut.boxed().compat())

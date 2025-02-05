@@ -1070,7 +1070,6 @@ mod wasm_test {
         }
     }
 
-    // Todo: Uncomment after improving tx creation time
     // https://github.com/KomodoPlatform/komodo-defi-framework/issues/2000
     #[wasm_bindgen_test]
     async fn test_create_to_address_fails_on_locked_notes() {
