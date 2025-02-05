@@ -211,6 +211,7 @@ pub struct ZCoinFields {
     consensus_params: ZcoinConsensusParams,
     z_balance_event_handler: Option<ZBalanceEventHandler>,
     sync_state_connector: AsyncMutex<SaplingSyncConnector>,
+    // Previous tx with change output in memory
     previous_tx_with_change: Arc<Mutex<PreviousTxWithChange>>,
 }
 
@@ -375,19 +376,23 @@ impl ZCoin {
         }
     }
 
+    /// Gets spendable notes for transaction generation, ensuring previous transactions are confirmed/mined.
+    ///
+    /// # Flow
+    /// 1. Checks for any previous transaction with change that needs confirmation
+    /// 2. If found, waits up to 30 minutes for required confirmations (checking every 15 seconds)
+    /// 3. Once confirmed or if no previous tx, returns ordered list of spendable notes
     async fn spendable_notes_required_for_tx(&self) -> MmResult<Vec<SpendableNote>, GenTxError> {
-        // check and wait for previous tx with change to be confirmed.
         let prev = self.z_fields.previous_tx_with_change.lock().unwrap().take();
         if let Some((tx, _)) = prev {
-            info!("Waiting for {tx:?} confirmations before next tx can be generated");
-            let confirmations = self.required_confirmations();
-            let requires_nota = self.requires_notarization();
-            // 30 minutes(probably will be changed)
+            info!("Waiting for {tx:?} to be confirmed before next tx can be generated");
+            // Wait up to 30 minutes for confirmations with 15 sec check interval
+            // (probably will be changed)
             let wait_until = now_sec() + (30 * 60);
             let input = ConfirmPaymentInput {
                 payment_tx: tx.clone(),
-                confirmations,
-                requires_nota,
+                confirmations: self.required_confirmations(),
+                requires_nota: self.requires_notarization(),
                 wait_until,
                 check_every: 15,
             };
@@ -395,15 +400,14 @@ impl ZCoin {
                 .compat()
                 .await
                 .map_to_mm(GenTxError::NeededPrevTxConfirmed)?;
-            info!("prev tx confirmed");
+
+            info!("Previous transaction confirmed");
         }
 
-        let new_spendable_notes = self
+        Ok(self
             .spendable_notes_ordered()
             .await
-            .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
-
-        Ok(new_spendable_notes)
+            .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?)
     }
 
     /// Generates a tx sending outputs from our address
@@ -1219,14 +1223,7 @@ impl MarketCoinOps for ZCoin {
     }
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
-        let z_fields = self.z_fields.clone();
-        Box::new(
-            utxo_common::wait_for_confirmations(self.as_ref(), input).and_then(move |_| {
-                // remove prev tx note after wait_for_confirmations is successful.
-                z_fields.previous_tx_with_change.lock().unwrap().take();
-                Ok(())
-            }),
-        )
+        utxo_common::wait_for_confirmations(self.as_ref(), input)
     }
 
     async fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionResult {
@@ -1241,7 +1238,12 @@ impl MarketCoinOps for ZCoin {
         .await?;
 
         // remove tx note after htlc spend is successful.
-        let _ = self.z_fields.previous_tx_with_change.lock().unwrap().take();
+        let mut prev = self.z_fields.previous_tx_with_change.lock().unwrap();
+        if let Some((tx, _)) = prev.as_ref() {
+            if tx.as_slice() == args.tx_bytes {
+                *prev = None;
+            }
+        };
 
         Ok(result)
     }

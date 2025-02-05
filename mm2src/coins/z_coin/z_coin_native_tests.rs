@@ -287,7 +287,7 @@ fn default_zcoin_activation_params() -> ZcoinActivationParams {
         required_confirmations: None,
         requires_notarization: None,
         zcash_params_path: None,
-        scan_blocks_per_iteration: 0,
+        scan_blocks_per_iteration: 1000,
         scan_interval_ms: 0,
         account: 0,
     }
