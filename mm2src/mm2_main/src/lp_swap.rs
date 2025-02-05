@@ -144,7 +144,6 @@ pub use taker_swap::{calc_max_taker_vol, check_balance_for_taker_swap, max_taker
 pub use trade_preimage::trade_preimage_rpc;
 
 pub const SWAP_PREFIX: TopicPrefix = "swap";
-pub const SWAP_PREFIX_EXT: TopicPrefix = "swapext";
 pub const SWAP_V2_PREFIX: TopicPrefix = "swapv2";
 pub const SWAP_FINISHED_LOG: &str = "Swap finished: ";
 pub const TX_HELPER_PREFIX: TopicPrefix = "txhlp";
@@ -272,8 +271,8 @@ pub fn p2p_private_and_peer_id_to_broadcast(ctx: &MmArc, p2p_privkey: Option<&Ke
 /// to stop it
 pub fn broadcast_swap_msg_every<T: 'static + Serialize + Clone + Send>(
     ctx: MmArc,
-    topic: String, // topic
-    msg: T,        // message
+    topic: String,
+    msg: T,
     interval_sec: f64,
     p2p_privkey: Option<KeyPair>,
 ) -> AbortOnDropHandle {
