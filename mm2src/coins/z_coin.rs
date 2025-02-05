@@ -198,6 +198,7 @@ impl Parameters for ZcoinConsensusParams {
     fn b58_script_address_prefix(&self) -> [u8; 2] { self.b58_script_address_prefix }
 }
 
+type PreviousTxWithChange = Option<(Vec<u8>, BigDecimal)>;
 #[allow(unused)]
 pub struct ZCoinFields {
     dex_fee_addr: PaymentAddress,
@@ -210,7 +211,7 @@ pub struct ZCoinFields {
     consensus_params: ZcoinConsensusParams,
     z_balance_event_handler: Option<ZBalanceEventHandler>,
     sync_state_connector: AsyncMutex<SaplingSyncConnector>,
-    previous_tx_with_change: Arc<Mutex<Option<(Vec<u8>, BigDecimal)>>>,
+    previous_tx_with_change: Arc<Mutex<PreviousTxWithChange>>,
 }
 
 impl Transaction for ZTransaction {
