@@ -1,4 +1,3 @@
-mod change_tracker;
 pub mod storage;
 mod z_balance_streaming;
 mod z_coin_errors;
@@ -46,9 +45,9 @@ use async_trait::async_trait;
 use bitcrypto::dhash256;
 use chain::constants::SEQUENCE_FINAL;
 use chain::{Transaction as UtxoTx, TransactionOutput};
-use common::calc_total_pages;
 use common::executor::{AbortableSystem, AbortedError};
-use common::log::debug;
+use common::log::{debug, info};
+use common::{calc_total_pages, now_sec};
 use common::{log, one_thousand_u32};
 use crypto::privkey::{key_pair_from_secret, secp_privkey_from_hash};
 use crypto::HDPathToCoin;
@@ -74,7 +73,7 @@ use std::convert::TryInto;
 use std::iter;
 use std::num::TryFromIntError;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 pub use z_coin_errors::*;
 use z_htlc::{z_p2sh_spend, z_send_dex_fee, z_send_htlc};
 use z_rpc::init_light_client;
@@ -94,8 +93,6 @@ use zcash_primitives::zip32::ChildIndex as Zip32Child;
 use zcash_primitives::{constants::mainnet as z_mainnet_constants, sapling::PaymentAddress,
                        zip32::ExtendedFullViewingKey, zip32::ExtendedSpendingKey};
 use zcash_proofs::prover::LocalTxProver;
-
-use self::change_tracker::ChangeNoteTracker;
 
 cfg_native!(
     use common::{async_blocking, sha256_digest};
@@ -213,7 +210,7 @@ pub struct ZCoinFields {
     consensus_params: ZcoinConsensusParams,
     z_balance_event_handler: Option<ZBalanceEventHandler>,
     sync_state_connector: AsyncMutex<SaplingSyncConnector>,
-    change_tracker: ChangeNoteTracker,
+    previous_tx_with_change: Arc<Mutex<Option<(Vec<u8>, BigDecimal)>>>,
 }
 
 impl Transaction for ZTransaction {
@@ -377,85 +374,35 @@ impl ZCoin {
         }
     }
 
-    async fn spendable_notes_required_for_tx(
-        &self,
-        total_required: &BigDecimal,
-    ) -> MmResult<Vec<SpendableNote>, GenTxError> {
-        let spendable_notes = self
+    async fn spendable_notes_required_for_tx(&self) -> MmResult<Vec<SpendableNote>, GenTxError> {
+        // check and wait for previous tx with change to be confirmed.
+        let prev = self.z_fields.previous_tx_with_change.lock().unwrap().take();
+        if let Some((tx, _)) = prev {
+            info!("Waiting for {tx:?} confirmations before next tx can be generated");
+            let confirmations = self.required_confirmations();
+            let requires_nota = self.requires_notarization();
+            // 30 minutes(probably will be changed)
+            let wait_until = now_sec() + (30 * 60);
+            let input = ConfirmPaymentInput {
+                payment_tx: tx.clone(),
+                confirmations,
+                requires_nota,
+                wait_until,
+                check_every: 15,
+            };
+            self.wait_for_confirmations(input)
+                .compat()
+                .await
+                .map_to_mm(GenTxError::NeededPrevTxConfirmed)?;
+            info!("prev tx confirmed");
+        }
+
+        let new_spendable_notes = self
             .spendable_notes_ordered()
             .await
             .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
-        let changes = self.z_fields.change_tracker.change_notes_iter();
-        let my_z_balance = self
-            .my_balance()
-            .compat()
-            .await
-            .mm_err(|err| GenTxError::Internal(err.to_string()))?;
 
-        if changes.is_empty() {
-            Ok(spendable_notes)
-        } else {
-            if &my_z_balance.spendable < total_required
-                && my_z_balance.unspendable > (total_required - &my_z_balance.spendable)
-            {
-                return MmError::err(GenTxError::InsufficientBalance {
-                    coin: self.ticker().to_string(),
-                    available: my_z_balance.spendable,
-                    required: total_required.clone(),
-                });
-            }
-            if &my_z_balance.spendable >= total_required {
-                // return spendable notes if the total amount from spendable is upto or more
-                // than required amount needed to generate this tx.
-                Ok(spendable_notes)
-            } else {
-                common::log!("Calculate pending tx change notes and wait for confirmation");
-                // else, we want to get, calculate the number of pending txs with change notes
-                // needed to be mined to satisfy our required amount.
-                let mut temp_remaining = BigDecimal::from(0);
-                let mut tx_hex = Vec::with_capacity(changes.len());
-                let change_needed_to_gen_tx = total_required - my_z_balance.spendable;
-                for (hex, change) in changes {
-                    temp_remaining += change;
-                    tx_hex.push(hex);
-                    if temp_remaining >= change_needed_to_gen_tx {
-                        break;
-                    }
-                }
-
-                // tx_hex can't be empty at this stage!,
-                for tx in tx_hex {
-                    // If we eventually get pending txs that are needed to be mined for this tx,
-                    // We now need to wait for tx_hex.len() txs confirmations so that this tx can
-                    // be somewhat guaranteed to be generated if it's due to change notes issues.
-                    let confirmations = self.required_confirmations();
-                    let requires_nota = self.requires_notarization();
-                    // 5 minutes(probably will be changed)
-                    let wait_until = 5 * 60;
-                    common::log::info!("Waiting for {tx:?} confirmations before next tx can be generated");
-                    let input = ConfirmPaymentInput {
-                        payment_tx: tx.clone(),
-                        confirmations,
-                        requires_nota,
-                        wait_until,
-                        check_every: 5,
-                    };
-                    self.wait_for_confirmations(input)
-                        .compat()
-                        .await
-                        .map_to_mm(|_| GenTxError::NeededPrevTxConfirmed)?;
-                    common::log::info!("{tx:?} confirmed");
-                }
-                // Refetched spendable notes if we are able to get to this stage.
-                common::log::info!("Refetching spendable notes after previous tx has been confirmed");
-                let new_spendable_notes = self
-                    .spendable_notes_ordered()
-                    .await
-                    .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
-
-                Ok(new_spendable_notes)
-            }
-        }
+        Ok(new_spendable_notes)
     }
 
     /// Generates a tx sending outputs from our address
@@ -472,7 +419,7 @@ impl ZCoin {
         let total_output_sat = t_output_sat + z_output_sat;
         let total_output = big_decimal_from_sat_unsigned(total_output_sat, self.utxo_arc.decimals);
         let total_required = &total_output + &tx_fee;
-        let spendable_notes = self.spendable_notes_required_for_tx(&total_required).await?;
+        let spendable_notes = self.spendable_notes_required_for_tx().await?;
 
         let mut total_input_amount = BigDecimal::from(0);
         let mut change = BigDecimal::from(0);
@@ -560,7 +507,7 @@ impl ZCoin {
         if change > BigDecimal::from(0u8) {
             debug!("found change for txs {change}!");
             // save change note amount for tracking.
-            self.z_fields.change_tracker.add_change_note(tx.tx_hex(), change);
+            *self.z_fields.previous_tx_with_change.lock().unwrap() = Some((tx.tx_hex(), change));
         }
 
         let additional_data = AdditionalTxData {
@@ -1035,7 +982,7 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
             consensus_params: self.protocol_info.consensus_params,
             sync_state_connector,
             z_balance_event_handler,
-            change_tracker: ChangeNoteTracker::new(),
+            previous_tx_with_change: Default::default(),
         });
 
         let zcoin = ZCoin { utxo_arc, z_fields };
@@ -1215,17 +1162,18 @@ impl MarketCoinOps for ZCoin {
                 .my_balance_sat()
                 .await
                 .mm_err(|e| BalanceError::WalletStorageError(e.to_string()))?;
-            let balance = big_decimal_from_sat_unsigned(balance_sat, coin.decimals());
-            let change = coin.z_fields.change_tracker.sum_all_change_notes();
+            let mut balance = big_decimal_from_sat_unsigned(balance_sat, coin.decimals());
+            let mut unspendable = BigDecimal::default();
 
-            if balance < change {
-                return MmError::err(BalanceError::WalletStorageError(
-                    "change can't be greater than balance".to_owned(),
-                ));
+            let prev_change = coin.z_fields.previous_tx_with_change.lock().unwrap().clone();
+            if let Some((_, change)) = prev_change {
+                balance = &balance - &change;
+                unspendable = change;
             };
 
-            Ok(CoinBalance::new_with_unspendable(&balance - &change, change))
+            Ok(CoinBalance::new_with_unspendable(balance, unspendable))
         };
+
         Box::new(fut.boxed().compat())
     }
 
@@ -1271,15 +1219,17 @@ impl MarketCoinOps for ZCoin {
 
     fn wait_for_confirmations(&self, input: ConfirmPaymentInput) -> Box<dyn Future<Item = (), Error = String> + Send> {
         let z_fields = self.z_fields.clone();
-        let tx_hex = input.payment_tx.clone();
-        Box::new(utxo_common::wait_for_confirmations(self.as_ref(), input).map(move |_| {
-            common::log::info!("Payment confirm!, removing note from list");
-            z_fields.change_tracker.remove_change_notes(&tx_hex);
-        }))
+        Box::new(
+            utxo_common::wait_for_confirmations(self.as_ref(), input).and_then(move |_| {
+                // remove prev tx note after wait_for_confirmations is successful.
+                z_fields.previous_tx_with_change.lock().unwrap().take();
+                Ok(())
+            }),
+        )
     }
 
     async fn wait_for_htlc_tx_spend(&self, args: WaitForHTLCTxSpendArgs<'_>) -> TransactionResult {
-        utxo_common::wait_for_output_spend(
+        let result = utxo_common::wait_for_output_spend(
             self.clone(),
             args.tx_bytes,
             utxo_common::DEFAULT_SWAP_VOUT,
@@ -1287,7 +1237,12 @@ impl MarketCoinOps for ZCoin {
             args.wait_until,
             args.check_every,
         )
-        .await
+        .await?;
+
+        // remove tx note after htlc spend is successful.
+        let _ = self.z_fields.previous_tx_with_change.lock().unwrap().take();
+
+        Ok(result)
     }
 
     fn tx_enum_from_bytes(&self, bytes: &[u8]) -> Result<TransactionEnum, MmError<TxMarshalingErr>> {
@@ -1555,11 +1510,6 @@ impl SwapOps for ZCoin {
                     )));
                 }
 
-                common::log::info!("Fee Payment confirmed!, removing note from list");
-                let z_fields = self.z_fields.clone();
-                z_fields
-                    .change_tracker
-                    .remove_change_notes(&validate_fee_args.fee_tx.tx_hex());
                 return Ok(());
             }
         }
@@ -1572,24 +1522,12 @@ impl SwapOps for ZCoin {
 
     #[inline]
     async fn validate_maker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
-        let payment_hex = input.payment_tx.clone();
-        let z_fields = self.z_fields.clone();
-        utxo_common::validate_maker_payment(self, input).await?;
-        z_fields.change_tracker.remove_change_notes(&payment_hex);
-        common::log::info!("Maker Payment confirm!, removing note from list");
-
-        Ok(())
+        utxo_common::validate_maker_payment(self, input).await
     }
 
     #[inline]
     async fn validate_taker_payment(&self, input: ValidatePaymentInput) -> ValidatePaymentResult<()> {
-        let payment_hex = input.payment_tx.clone();
-        let z_fields = self.z_fields.clone();
-        utxo_common::validate_taker_payment(self, input).await?;
-        z_fields.change_tracker.remove_change_notes(&payment_hex);
-        common::log::info!("Taker Payment confirm!, removing note from list");
-
-        Ok(())
+        utxo_common::validate_taker_payment(self, input).await
     }
 
     #[inline]

@@ -119,7 +119,7 @@ pub enum GenTxError {
     NumConversion(NumConversError),
     Rpc(UtxoRpcError),
     PrevTxNotConfirmed,
-    NeededPrevTxConfirmed,
+    NeededPrevTxConfirmed(String),
     TxBuilderError(ZTxBuilderError),
     #[display(fmt = "Failed to read ZCash tx from bytes {:?} with error {}", hex, err)]
     TxReadError {
@@ -171,7 +171,7 @@ impl From<GenTxError> for WithdrawError {
             GenTxError::DecryptedOutputNotFound
             | GenTxError::FailedToGetMerklePath
             | GenTxError::PrevTxNotConfirmed
-            | GenTxError::NeededPrevTxConfirmed
+            | GenTxError::NeededPrevTxConfirmed(_)
             | GenTxError::GetWitnessErr(_)
             | GenTxError::NumConversion(_)
             | GenTxError::TxBuilderError(_)
