@@ -1406,8 +1406,6 @@ pub enum TxGenError {
     Rpc(String),
     /// Error during conversion of BigDecimal amount to coin's specific monetary units (satoshis, wei, etc.).
     NumConversion(String),
-    /// Address derivation error.
-    AddressDerivation(String),
     /// Problem with tx preimage signing.
     Signing(String),
     /// Legacy error produced by usage of try_s/try_fus and other similar macros.
