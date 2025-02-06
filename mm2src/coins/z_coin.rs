@@ -383,9 +383,21 @@ impl ZCoin {
     /// 1. Checks for any previous transaction with change that needs confirmation
     /// 2. If found, waits up to 30 minutes for required confirmations (checking every 15 seconds)
     /// 3. Once confirmed or if no previous tx, returns ordered list of spendable notes
-    async fn spendable_notes_required_for_tx(&self) -> MmResult<Vec<SpendableNote>, GenTxError> {
+    async fn spendable_notes_required_for_tx(&self, required: &BigDecimal) -> MmResult<Vec<SpendableNote>, GenTxError> {
         let prev = self.z_fields.previous_tx_with_change.lock().unwrap().take();
-        if let Some((tx, _)) = prev {
+        let my_balance = self
+            .my_balance()
+            .compat()
+            .await
+            .mm_err(|err| GenTxError::Internal(err.to_string()))?;
+        if my_balance.spendable >= *required {
+            return Ok(self
+                .spendable_notes_ordered()
+                .await
+                .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?);
+        }
+
+        if let Some((tx, _)) = prev.as_ref() {
             info!("Waiting for {tx:?} to be confirmed before next tx can be generated");
             // Wait up to 30 minutes for confirmations with 15 sec check interval
             // (probably will be changed)
@@ -425,7 +437,7 @@ impl ZCoin {
         let total_output_sat = t_output_sat + z_output_sat;
         let total_output = big_decimal_from_sat_unsigned(total_output_sat, self.utxo_arc.decimals);
         let total_required = &total_output + &tx_fee;
-        let spendable_notes = self.spendable_notes_required_for_tx().await?;
+        let spendable_notes = self.spendable_notes_required_for_tx(&total_required).await?;
 
         let mut total_input_amount = BigDecimal::from(0);
         let mut change = BigDecimal::from(0);
