@@ -203,7 +203,9 @@ pub const APPLICATION_GRPC_WEB_TEXT_PROTO: &str = "application/grpc-web-text+pro
 
 pub const SATOSHIS: u64 = 100_000_000;
 
+/// Dex fee public key for chains where SECP256K1 is supported
 pub const DEX_FEE_ADDR_PUBKEY: &str = "03bc2c7ba671bae4a6fc835244c9762b41647b9827d4780a89a949b984a8ddcc06";
+/// Public key to collect the burn part of dex fee, for chains where SECP256K1 is supported
 pub const DEX_BURN_ADDR_PUBKEY: &str = "0369aa10c061cd9e085f4adb7399375ba001b54136145cb748eb4c48657be13153";
 
 pub const PROXY_REQUEST_EXPIRATION_SEC: i64 = 15;
