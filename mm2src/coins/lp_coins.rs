@@ -70,7 +70,7 @@ use mm2_number::BigRational;
 use mm2_number::{bigdecimal::{BigDecimal, ParseBigDecimalError, Zero},
                  BigUint, MmNumber, ParseBigIntError};
 use mm2_rpc::data::legacy::{EnabledCoin, GetEnabledResponse, Mm2RpcResult};
-#[cfg(any(test, feature = "mocktopus"))]
+#[cfg(any(test, feature = "for-tests"))]
 use mocktopus::macros::*;
 use parking_lot::Mutex as PaMutex;
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
@@ -257,7 +257,9 @@ use tendermint::{CosmosTransaction, TendermintCoin, TendermintFeeDetails, Tender
 
 #[doc(hidden)]
 #[allow(unused_variables)]
+#[cfg(any(test, feature = "for-tests"))]
 pub mod test_coin;
+#[cfg(any(test, feature = "for-tests"))]
 pub use test_coin::TestCoin;
 
 pub mod tx_history_storage;
@@ -1077,10 +1079,7 @@ pub enum WatcherRewardError {
 
 /// Swap operations (mostly based on the Hash/Time locked transactions implemented by coin wallets).
 #[async_trait]
-// Note: when you want to use mocked objects in this crate (like TestCoin, etc) from mm2_main crate
-// you also need to add cfg_attr feature = "mocktopus" to 'mockable' because mocktopus is marked as 'optional' in coins/Cargo.toml
-// otherwise mocks called from other crates won't work
-#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
+#[cfg_attr(any(test, feature = "for-tests"), mockable)]
 pub trait SwapOps {
     async fn send_taker_fee(&self, dex_fee: DexFee, uuid: &[u8], expire_at: u64) -> TransactionResult;
 
@@ -3500,6 +3499,7 @@ pub enum MmCoinEnum {
     LightningCoin(LightningCoin),
     #[cfg(feature = "enable-sia")]
     SiaCoin(SiaCoin),
+    #[cfg(any(test, feature = "for-tests"))]
     Test(TestCoin),
 }
 
@@ -3511,6 +3511,7 @@ impl From<EthCoin> for MmCoinEnum {
     fn from(c: EthCoin) -> MmCoinEnum { MmCoinEnum::EthCoin(c) }
 }
 
+#[cfg(any(test, feature = "for-tests"))]
 impl From<TestCoin> for MmCoinEnum {
     fn from(c: TestCoin) -> MmCoinEnum { MmCoinEnum::Test(c) }
 }

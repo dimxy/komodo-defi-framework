@@ -125,11 +125,11 @@ tokio = { version = "1.20", features = ["io-util", "rt-multi-thread", "net", "si
 winapi = "0.3"
 
 [dev-dependencies]
-coins = { path = "../coins", features = ["for-tests", "mocktopus"] }
+coins = { path = "../coins", features = ["for-tests"] }
 coins_activation = { path = "../coins_activation", features = ["for-tests"] }
 common = { path = "../common", features = ["for-tests"] }
 mm2_test_helpers = { path = "../mm2_test_helpers" }
-trading_api = { path = "../trading_api", features = ["mocktopus"] }
+trading_api = { path = "../trading_api", features = ["for-tests"] }
 mocktopus = "0.8.0"
 testcontainers = "0.15.0"
 web3 = { git = "https://github.com/KomodoPlatform/rust-web3", tag = "v0.20.0", default-features = false, features = ["http-rustls-tls"] }

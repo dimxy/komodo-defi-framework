@@ -7,10 +7,10 @@ use coins::coin_errors::ValidatePaymentError;
 use coins::eth::{checksum_address, EthCoin};
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::utxo::{dhash160, UtxoCommonOps};
-use coins::{DexFee, ConfirmPaymentInput, FoundSwapTxSpend, MarketCoinOps, MmCoin, MmCoinEnum,
-            RefundPaymentArgs, RewardTarget, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput,
-            SendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, TestCoin, ValidateWatcherSpendInput, WatcherOps,
-            WatcherSpendType, WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, EARLY_CONFIRMATION_ERR_LOG,
+use coins::{ConfirmPaymentInput, DexFee, FoundSwapTxSpend, MarketCoinOps, MmCoin, MmCoinEnum, RefundPaymentArgs,
+            RewardTarget, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput, SendPaymentArgs, SwapOps,
+            SwapTxTypeWithSecretHash, TestCoin, ValidateWatcherSpendInput, WatcherOps, WatcherSpendType,
+            WatcherValidatePaymentInput, WatcherValidateTakerFeeInput, EARLY_CONFIRMATION_ERR_LOG,
             INVALID_CONTRACT_ADDRESS_ERR_LOG, INVALID_PAYMENT_STATE_ERR_LOG, INVALID_RECEIVER_ERR_LOG,
             INVALID_REFUND_TX_ERR_LOG, INVALID_SCRIPT_ERR_LOG, INVALID_SENDER_ERR_LOG, INVALID_SWAP_ID_ERR_LOG,
             OLD_TRANSACTION_ERR_LOG};

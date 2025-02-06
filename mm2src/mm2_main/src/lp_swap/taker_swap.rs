@@ -19,11 +19,10 @@ use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, tx_
 use coins::lp_price::fetch_swap_coins_price;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_BURN_ADDR_RAW_PUBKEY;
-use coins::{lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput,
-            DexFee, FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
-            PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
-            SwapTxTypeWithSecretHash, TradeFee, TradePreimageValue, TransactionEnum, ValidatePaymentInput,
-            WaitForHTLCTxSpendArgs, WatcherReward};
+use coins::{lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage,
+            FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr,
+            RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash,
+            TradeFee, TradePreimageValue, TransactionEnum, ValidatePaymentInput, WaitForHTLCTxSpendArgs, WatcherReward};
 use common::executor::Timer;
 use common::log::{debug, error, info, warn};
 use common::{bits256, now_ms, now_sec, wait_until_sec};

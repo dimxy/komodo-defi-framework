@@ -10,11 +10,11 @@ use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_BURN_ADDR_RAW_PUBKEY;
-use coins::{CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage,
-            GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes,
-            RefundFundingSecretArgs, RefundTakerPaymentArgs, SendTakerFundingArgs, SpendMakerPaymentArgs,
-            SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2, ToBytes, TradeFee, TradePreimageValue, Transaction,
-            TxPreimageWithSig, ValidateMakerPaymentArgs};
+use coins::{CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, GenTakerFundingSpendArgs,
+            GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes, RefundFundingSecretArgs,
+            RefundTakerPaymentArgs, SendTakerFundingArgs, SpendMakerPaymentArgs, SwapTxTypeWithSecretHash,
+            TakerCoinSwapOpsV2, ToBytes, TradeFee, TradePreimageValue, Transaction, TxPreimageWithSig,
+            ValidateMakerPaymentArgs};
 use common::executor::abortable_queue::AbortableQueue;
 use common::executor::{AbortableSystem, Timer};
 use common::log::{debug, error, info, warn};
