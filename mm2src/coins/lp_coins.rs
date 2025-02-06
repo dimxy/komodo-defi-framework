@@ -2001,6 +2001,9 @@ pub trait CommonSwapOpsV2: ParseCoinAssocTypes + Send + Sync + 'static {
     fn derive_htlc_pubkey_v2(&self, swap_unique_data: &[u8]) -> Self::Pubkey;
 
     fn derive_htlc_pubkey_v2_bytes(&self, swap_unique_data: &[u8]) -> Vec<u8>;
+
+    /// Returns taker pubkey for non-private coins, for dex fee calculation
+    fn taker_pubkey_bytes(&self) -> Option<Vec<u8>>;
 }
 
 /// Operations that coins have independently from the MarketMaker.

@@ -887,6 +887,12 @@ impl CommonSwapOpsV2 for UtxoStandardCoin {
     fn derive_htlc_pubkey_v2_bytes(&self, swap_unique_data: &[u8]) -> Vec<u8> {
         self.derive_htlc_pubkey_v2(swap_unique_data).to_bytes()
     }
+
+    #[inline(always)]
+    fn taker_pubkey_bytes(&self) -> Option<Vec<u8>> {
+        let dummy_unique_data = []; // not used for non-private coins
+        Some(self.derive_htlc_pubkey_v2(&dummy_unique_data).to_bytes())
+    }
 }
 
 #[async_trait]

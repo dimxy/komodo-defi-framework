@@ -443,13 +443,12 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
     }
 
     fn dex_fee(&self) -> DexFee {
-        let dummy_unique_data = vec![];
-        let taker_pub = self.taker_coin.derive_htlc_pubkey_v2_bytes(&dummy_unique_data); // Using dummy swap data because we need only permanent taker pubkey for dex fee
+        let taker_pub = self.taker_coin.taker_pubkey_bytes(); // for dex fee calculation we need only permanent (non-derived for HTLC) taker pubkey here
         DexFee::new_from_taker_coin(
             &self.taker_coin,
             self.maker_coin.ticker(),
             &self.taker_volume,
-            Some(&taker_pub),
+            taker_pub.as_deref(),
         )
     }
 }
