@@ -19,7 +19,7 @@ use crate::lp_swap::{broadcast_p2p_tx_msg, broadcast_swap_msg_every_delayed, tx_
 use coins::lp_price::fetch_swap_coins_price;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_BURN_ADDR_RAW_PUBKEY;
-use coins::{dex_fee_from_taker_coin, lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput,
+use coins::{lp_coinfind, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput,
             DexFee, FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
             PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
             SwapTxTypeWithSecretHash, TradeFee, TradePreimageValue, TransactionEnum, ValidatePaymentInput,
@@ -1043,7 +1043,7 @@ impl TakerSwap {
 
         // do not use self.r().data here as it is not initialized at this step yet
         let stage = FeeApproxStage::StartSwap;
-        let dex_fee = dex_fee_from_taker_coin(
+        let dex_fee = DexFee::new_from_taker_coin(
             self.taker_coin.deref(),
             self.maker_coin.ticker(),
             &self.taker_amount,
@@ -1338,7 +1338,7 @@ impl TakerSwap {
                 TakerSwapEvent::TakerFeeSendFailed(ERRL!("Timeout {} > {}", now, expire_at).into()),
             ]));
         }
-        let dex_fee = dex_fee_from_taker_coin(
+        let dex_fee = DexFee::new_from_taker_coin(
             self.taker_coin.deref(),
             &self.r().data.maker_coin,
             &self.taker_amount,
@@ -2440,7 +2440,7 @@ impl AtomicSwap for TakerSwap {
         let mut result = Vec::new();
 
         // if taker fee is not sent yet it must be virtually locked
-        let taker_fee = dex_fee_from_taker_coin(
+        let taker_fee = DexFee::new_from_taker_coin(
             self.taker_coin.deref(),
             &self.r().data.maker_coin,
             &self.taker_amount,
@@ -2514,7 +2514,7 @@ pub async fn check_balance_for_taker_swap(
         Some(params) => params,
         None => {
             // Use None as taker_pubkey is okay because we just need to calculate max swap amount
-            let dex_fee = dex_fee_from_taker_coin(my_coin, other_coin.ticker(), &volume, None);
+            let dex_fee = DexFee::new_from_taker_coin(my_coin, other_coin.ticker(), &volume, None);
             let fee_to_send_dex_fee = my_coin
                 .get_fee_to_send_taker_fee(dex_fee.clone(), stage)
                 .await
@@ -2603,7 +2603,7 @@ pub async fn taker_swap_trade_preimage(
     };
 
     let dummy_unique_data = vec![];
-    let dex_fee = dex_fee_from_taker_coin(
+    let dex_fee = DexFee::new_from_taker_coin(
         my_coin.deref(),
         other_coin_ticker,
         &my_coin_volume,
@@ -2755,7 +2755,7 @@ pub async fn calc_max_taker_vol(
         // second case
         let max_possible_2 = &max_possible - &max_trade_fee.amount;
         // Use None as taker_pubkey is we need just to calc max volume
-        let max_dex_fee = dex_fee_from_taker_coin(coin.deref(), other_coin, &max_possible_2, None);
+        let max_dex_fee = DexFee::new_from_taker_coin(coin.deref(), other_coin, &max_possible_2, None);
         let max_fee_to_send_taker_fee = coin
             .get_fee_to_send_taker_fee(max_dex_fee.clone(), stage)
             .await
@@ -2823,7 +2823,7 @@ mod taker_swap_tests {
     use crate::lp_swap::get_locked_amount_by_other_swaps;
     use coins::eth::{addr_from_str, signed_eth_tx_from_bytes, SignedEthTx};
     use coins::utxo::UtxoTx;
-    use coins::{dex_fee_from_taker_coin, FoundSwapTxSpend, MarketCoinOps, MmCoin, SwapOps, TestCoin};
+    use coins::{FoundSwapTxSpend, MarketCoinOps, MmCoin, SwapOps, TestCoin};
     use common::{block_on, new_uuid};
     use mm2_test_helpers::for_tests::{mm_ctx_with_iguana, ETH_SEPOLIA_SWAP_CONTRACT};
     use mocktopus::mocking::*;
@@ -3248,7 +3248,7 @@ mod taker_swap_tests {
             let coin = TestCoin::new(base);
             let mock_min_tx_amount = min_tx_amount.clone();
             TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(mock_min_tx_amount.clone().into()));
-            let dex_fee = dex_fee_from_taker_coin(&coin, "MORTY", &max_taker_vol, None).total_spend_amount();
+            let dex_fee = DexFee::new_from_taker_coin(&coin, "MORTY", &max_taker_vol, None).total_spend_amount();
             assert!(min_tx_amount < dex_fee);
             assert!(min_tx_amount <= max_taker_vol);
             assert_eq!(max_taker_vol + dex_fee, available);
@@ -3272,7 +3272,7 @@ mod taker_swap_tests {
             let coin = TestCoin::new(base);
             let mock_min_tx_amount = min_tx_amount.clone();
             TestCoin::min_tx_amount.mock_safe(move |_| MockResult::Return(mock_min_tx_amount.clone().into()));
-            let dex_fee = dex_fee_from_taker_coin(&coin, "MORTY", &max_taker_vol, None).fee_amount(); // returns Standard dex_fee (default for TestCoin)
+            let dex_fee = DexFee::new_from_taker_coin(&coin, "MORTY", &max_taker_vol, None).fee_amount(); // returns Standard dex_fee (default for TestCoin)
             println!(
                 "available={:?} max_taker_vol={:?} dex_fee={:?}",
                 available.to_decimal(),

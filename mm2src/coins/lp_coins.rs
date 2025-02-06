@@ -3585,7 +3585,6 @@ impl MmCoinEnum {
             MmCoinEnum::Bch(ref c) => c.as_ref().rpc_client.is_native(),
             MmCoinEnum::SlpToken(ref c) => c.as_ref().rpc_client.is_native(),
             #[cfg(not(target_arch = "wasm32"))]
-            // TODO: we do not have such feature = "zhtlc" in toml. Remove this cfg part?
             MmCoinEnum::ZCoin(ref c) => c.as_ref().rpc_client.is_native(),
             _ => false,
         }
@@ -3642,17 +3641,6 @@ impl MmCoinStruct {
     }
 }
 
-/// Calculates DEX fee with a threshold based on min tx amount of the taker coin.
-/// taker_pubkey may be optional if it is not known yet but we need total dex fee amount
-pub fn dex_fee_from_taker_coin(
-    taker_coin: &dyn MmCoin,
-    maker_coin: &str,
-    trade_amount: &MmNumber,
-    taker_pubkey: Option<&[u8]>,
-) -> DexFee {
-    DexFee::new_from_taker_coin(taker_coin.deref(), maker_coin, trade_amount, taker_pubkey)
-}
-
 /// Represents how to burn part of dex fee.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DexFeeBurnDestination {
@@ -3704,8 +3692,9 @@ impl DexFee {
         }
     }
 
-    /// Creates a new `DexFee` for a taker coin to sell.
-    fn new_from_taker_coin(
+    /// Calculates DEX fee with a threshold based on min tx amount of the taker coin.
+    /// taker_pubkey may be optional if it is not known yet but we need total dex fee amount
+    pub fn new_from_taker_coin(
         taker_coin: &dyn MmCoin,
         rel_ticker: &str,
         trade_amount: &MmNumber,

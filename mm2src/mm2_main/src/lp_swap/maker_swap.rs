@@ -19,7 +19,7 @@ use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_S
 use coins::lp_price::fetch_swap_coins_price;
 #[cfg(feature = "run-docker-tests")]
 use coins::TEST_BURN_ADDR_RAW_PUBKEY;
-use coins::{dex_fee_from_taker_coin, CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee,
+use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee,
             FeeApproxStage, FoundSwapTxSpend, MmCoin, MmCoinEnum, PaymentInstructionArgs, PaymentInstructions,
             PaymentInstructionsErr, RefundPaymentArgs, SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs,
             SwapTxTypeWithSecretHash, TradeFee, TradePreimageValue, TransactionEnum, ValidateFeeArgs,
@@ -761,7 +761,7 @@ impl MakerSwap {
         swap_events.push(MakerSwapEvent::MakerPaymentInstructionsReceived(instructions));
 
         let taker_amount = MmNumber::from(self.taker_amount.clone());
-        let dex_fee = dex_fee_from_taker_coin(
+        let dex_fee = DexFee::new_from_taker_coin(
             self.taker_coin.deref(),
             &self.r().data.maker_coin,
             &taker_amount,
