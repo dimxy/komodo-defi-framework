@@ -45,8 +45,7 @@ use async_trait::async_trait;
 use base58::FromBase58Error;
 use bip32::ExtendedPrivateKey;
 use common::custom_futures::timeout::TimeoutError;
-use common::executor::{abortable_queue::{AbortableQueue, WeakSpawner},
-                       AbortSettings, AbortedError, SpawnAbortable, SpawnFuture};
+use common::executor::{abortable_queue::WeakSpawner, AbortedError, SpawnFuture};
 use common::log::{warn, LogOnError};
 use common::{calc_total_pages, now_sec, ten, HttpStatusCode};
 use crypto::{derive_secp256k1_secret, Bip32Error, Bip44Chain, CryptoCtx, CryptoCtxError, DerivationPath,
@@ -76,7 +75,6 @@ use std::array::TryFromSliceError;
 use std::cmp::Ordering;
 use std::collections::hash_map::{HashMap, RawEntryMut};
 use std::collections::HashSet;
-use std::future::Future as Future03;
 use std::num::{NonZeroUsize, TryFromIntError};
 use std::ops::{Add, AddAssign, Deref};
 use std::str::FromStr;
@@ -1119,7 +1117,7 @@ pub trait SwapOps {
         secret_hash: &[u8],
         spend_tx: &[u8],
         watcher_reward: bool,
-    ) -> Result<Vec<u8>, String>;
+    ) -> Result<[u8; 32], String>;
 
     fn check_tx_signed_by_pub(&self, tx: &[u8], expected_pub: &[u8]) -> Result<bool, MmError<ValidatePaymentError>>;
 
@@ -1151,7 +1149,7 @@ pub trait SwapOps {
     fn derive_htlc_key_pair(&self, swap_unique_data: &[u8]) -> KeyPair;
 
     /// Derives an HTLC key-pair and returns a public key corresponding to that key.
-    fn derive_htlc_pubkey(&self, swap_unique_data: &[u8]) -> Vec<u8>;
+    fn derive_htlc_pubkey(&self, swap_unique_data: &[u8]) -> [u8; 33];
 
     fn validate_other_pubkey(&self, raw_pubkey: &[u8]) -> MmResult<(), ValidateOtherPubKeyErr>;
 
@@ -2112,7 +2110,7 @@ pub trait GetWithdrawSenderAddress {
 /// Instead, accept a generic type from withdraw implementations.
 /// This way we won't have to update the payload for every platform when
 /// one of them requires specific addition.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 pub struct WithdrawRequest {
     coin: String,
     from: Option<WithdrawFrom>,
@@ -2135,7 +2133,7 @@ pub struct WithdrawRequest {
 #[serde(tag = "type")]
 pub enum StakingDetails {
     Qtum(QtumDelegationRequest),
-    Cosmos(Box<rpc_command::tendermint::staking::DelegatePayload>),
+    Cosmos(Box<rpc_command::tendermint::staking::DelegationPayload>),
 }
 
 #[allow(dead_code)]
@@ -2149,6 +2147,7 @@ pub struct AddDelegateRequest {
 #[derive(Deserialize)]
 pub struct RemoveDelegateRequest {
     pub coin: String,
+    pub staking_details: Option<StakingDetails>,
 }
 
 #[derive(Deserialize)]
@@ -2174,15 +2173,9 @@ impl WithdrawRequest {
     pub fn new_max(coin: String, to: String) -> WithdrawRequest {
         WithdrawRequest {
             coin,
-            from: None,
             to,
-            amount: 0.into(),
             max: true,
-            fee: None,
-            memo: None,
-            ibc_source_channel: None,
-            #[cfg(target_arch = "wasm32")]
-            broadcast: false,
+            ..Default::default()
         }
     }
 }
@@ -2764,6 +2757,24 @@ pub enum DelegationError {
     CoinDoesntSupportDelegation { coin: String },
     #[display(fmt = "No such coin {}", coin)]
     NoSuchCoin { coin: String },
+    #[display(
+        fmt = "Delegator '{}' does not have any delegation on validator '{}'.",
+        delegator_addr,
+        validator_addr
+    )]
+    CanNotUndelegate {
+        delegator_addr: String,
+        validator_addr: String,
+    },
+    #[display(
+        fmt = "Max available amount to undelegate is '{}' but '{}' was requested.",
+        available,
+        requested
+    )]
+    TooMuchToUndelegate {
+        available: BigDecimal,
+        requested: BigDecimal,
+    },
     #[display(fmt = "{}", _0)]
     CannotInteractWithSmartContract(String),
     #[from_stringify("ScriptHashTypeNotSupported")]
@@ -2775,6 +2786,8 @@ pub enum DelegationError {
     DelegationOpsNotSupported { reason: String },
     #[display(fmt = "Transport error: {}", _0)]
     Transport(String),
+    #[display(fmt = "Invalid payload: {}", reason)]
+    InvalidPayload { reason: String },
     #[from_stringify("MyAddressError")]
     #[display(fmt = "Internal error: {}", _0)]
     InternalError(String),
@@ -3292,8 +3305,8 @@ pub trait MmCoin:
     ///
     /// # Note
     ///
-    /// `CoinFutSpawner` doesn't prevent the spawned futures from being aborted.
-    fn spawner(&self) -> CoinFutSpawner;
+    /// `WeakSpawner` doesn't prevent the spawned futures from being aborted.
+    fn spawner(&self) -> WeakSpawner;
 
     fn withdraw(&self, req: WithdrawRequest) -> WithdrawFut;
 
@@ -3417,43 +3430,6 @@ pub trait MmCoin:
 
     /// For Handling the removal/deactivation of token on platform coin deactivation.
     fn on_token_deactivated(&self, ticker: &str);
-}
-
-/// The coin futures spawner. It's used to spawn futures that can be aborted immediately or after a timeout
-/// on the the coin deactivation.
-///
-/// # Note
-///
-/// `CoinFutSpawner` doesn't prevent the spawned futures from being aborted.
-#[derive(Clone)]
-pub struct CoinFutSpawner {
-    inner: WeakSpawner,
-}
-
-impl CoinFutSpawner {
-    pub fn new(system: &AbortableQueue) -> CoinFutSpawner {
-        CoinFutSpawner {
-            inner: system.weak_spawner(),
-        }
-    }
-}
-
-impl SpawnFuture for CoinFutSpawner {
-    fn spawn<F>(&self, f: F)
-    where
-        F: Future03<Output = ()> + Send + 'static,
-    {
-        self.inner.spawn(f)
-    }
-}
-
-impl SpawnAbortable for CoinFutSpawner {
-    fn spawn_with_settings<F>(&self, fut: F, settings: AbortSettings)
-    where
-        F: Future03<Output = ()> + Send + 'static,
-    {
-        self.inner.spawn_with_settings(fut, settings)
-    }
 }
 
 #[derive(Clone)]
@@ -3709,11 +3685,11 @@ impl CoinsContext {
                 platform_coin_tokens: PaMutex::new(HashMap::new()),
                 coins: AsyncMutex::new(HashMap::new()),
                 balance_update_handlers: AsyncMutex::new(vec![]),
-                account_balance_task_manager: AccountBalanceTaskManager::new_shared(),
-                create_account_manager: CreateAccountTaskManager::new_shared(),
-                get_new_address_manager: GetNewAddressTaskManager::new_shared(),
-                scan_addresses_manager: ScanAddressesTaskManager::new_shared(),
-                withdraw_task_manager: WithdrawTaskManager::new_shared(),
+                account_balance_task_manager: AccountBalanceTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                create_account_manager: CreateAccountTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                get_new_address_manager: GetNewAddressTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                scan_addresses_manager: ScanAddressesTaskManager::new_shared(ctx.event_stream_manager.clone()),
+                withdraw_task_manager: WithdrawTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 #[cfg(target_arch = "wasm32")]
                 tx_history_db: ConstructibleDb::new(ctx).into_shared(),
                 #[cfg(target_arch = "wasm32")]
@@ -4855,12 +4831,35 @@ pub async fn sign_raw_transaction(ctx: MmArc, req: SignRawTransactionRequest) ->
 
 pub async fn remove_delegation(ctx: MmArc, req: RemoveDelegateRequest) -> DelegationResult {
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
-    match coin {
-        MmCoinEnum::QtumCoin(qtum) => qtum.remove_delegation().compat().await,
-        _ => {
-            return MmError::err(DelegationError::CoinDoesntSupportDelegation {
-                coin: coin.ticker().to_string(),
-            })
+
+    match req.staking_details {
+        Some(StakingDetails::Cosmos(req)) => {
+            if req.withdraw_from.is_some() {
+                return MmError::err(DelegationError::InvalidPayload {
+                    reason: "Can't use `withdraw_from` field on 'remove_delegation' RPC for Cosmos.".to_owned(),
+                });
+            }
+
+            let MmCoinEnum::Tendermint(tendermint) = coin else {
+                return MmError::err(DelegationError::CoinDoesntSupportDelegation {
+                    coin: coin.ticker().to_string(),
+                });
+            };
+
+            tendermint.undelegate(*req).await
+        },
+
+        Some(StakingDetails::Qtum(_)) => MmError::err(DelegationError::InvalidPayload {
+            reason: "staking_details isn't supported for Qtum".into(),
+        }),
+
+        None => match coin {
+            MmCoinEnum::QtumCoin(qtum) => qtum.remove_delegation().compat().await,
+            _ => {
+                return MmError::err(DelegationError::CoinDoesntSupportDelegation {
+                    coin: coin.ticker().to_string(),
+                })
+            },
         },
     }
 }
@@ -4897,7 +4896,7 @@ pub async fn add_delegation(ctx: MmArc, req: AddDelegateRequest) -> DelegationRe
                 });
             };
 
-            tendermint.add_delegate(*req).await
+            tendermint.delegate(*req).await
         },
     }
 }
@@ -5690,7 +5689,7 @@ pub mod for_tests {
     use mm2_core::mm_ctx::MmArc;
     use mm2_err_handle::prelude::MmResult;
     use mm2_number::BigDecimal;
-    use rpc_task::RpcTaskStatus;
+    use rpc_task::{RpcInitReq, RpcTaskStatus};
     use std::str::FromStr;
 
     /// Helper to call init_withdraw and wait for completion
@@ -5702,17 +5701,18 @@ pub mod for_tests {
         from_derivation_path: Option<&str>,
         fee: Option<WithdrawFee>,
     ) -> MmResult<TransactionDetails, WithdrawError> {
-        let withdraw_req = WithdrawRequest {
-            amount: BigDecimal::from_str(amount).unwrap(),
-            from: from_derivation_path.map(|from_derivation_path| WithdrawFrom::DerivationPath {
-                derivation_path: from_derivation_path.to_owned(),
-            }),
-            to: to.to_owned(),
-            coin: ticker.to_owned(),
-            max: false,
-            fee,
-            memo: None,
-            ibc_source_channel: None,
+        let withdraw_req = RpcInitReq {
+            client_id: 0,
+            inner: WithdrawRequest {
+                amount: BigDecimal::from_str(amount).unwrap(),
+                from: from_derivation_path.map(|from_derivation_path| WithdrawFrom::DerivationPath {
+                    derivation_path: from_derivation_path.to_owned(),
+                }),
+                to: to.to_owned(),
+                coin: ticker.to_owned(),
+                fee,
+                ..Default::default()
+            },
         };
         let init = init_withdraw(ctx.clone(), withdraw_req).await.unwrap();
         let timeout = wait_until_ms(150000);
