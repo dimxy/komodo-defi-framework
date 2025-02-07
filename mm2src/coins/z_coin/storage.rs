@@ -12,8 +12,6 @@ pub use walletdb::*;
 pub(crate) use z_params::ZcashParamsWasmImpl;
 
 pub use walletdb::*;
-use zcash_extras::wallet::decrypt_and_store_transaction;
-use zcash_primitives::transaction::Transaction;
 
 use mm2_err_handle::mm_error::MmResult;
 #[cfg(target_arch = "wasm32")]

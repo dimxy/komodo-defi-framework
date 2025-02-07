@@ -992,7 +992,6 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
             light_wallet_db,
             consensus_params: self.protocol_info.consensus_params,
             sync_state_connector,
-            z_balance_event_handler,
             previous_tx_with_change: Default::default(),
         });
 
