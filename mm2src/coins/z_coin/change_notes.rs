@@ -8,7 +8,6 @@ pub struct ChangeNotes(Arc<Mutex<ChangeNoteMap>>);
 
 impl ChangeNotes {
     pub fn init() -> Self { Self(Default::default()) }
-    pub async fn save_note(&self, k: Vec<u8>, v: BigDecimal) -> Option<BigDecimal> { self.0.lock().await.insert(k, v) }
     pub async fn remove_note(&self, k: &Vec<u8>) -> Option<BigDecimal> { self.0.lock().await.remove(k) }
     pub async fn get_note(&self, k: &Vec<u8>) -> Option<BigDecimal> { self.0.lock().await.get(k).cloned() }
     pub async fn notes(&self) -> IntoIter<Vec<u8>, BigDecimal> { self.0.lock().await.clone().into_iter() }
