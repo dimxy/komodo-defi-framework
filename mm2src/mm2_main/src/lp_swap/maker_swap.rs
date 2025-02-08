@@ -2195,6 +2195,8 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                                 error!("!broadcast_my_swap_status({}): {}", uuid, e);
                             }
                         }
+
+                        running_swap.maker_coin.clean_up(running_swap.uuid).await;
                         break;
                     },
                 }
