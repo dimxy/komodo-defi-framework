@@ -7339,8 +7339,7 @@ impl CommonSwapOpsV2 for EthCoin {
 
     #[inline(always)]
     fn taker_pubkey_bytes(&self) -> Option<Vec<u8>> {
-        let dummy_unique_data = []; // not used for non-private coins
-        Some(self.derive_htlc_pubkey_v2(&dummy_unique_data).to_bytes())
+        Some(self.derive_htlc_pubkey_v2(&[]).to_bytes()) // unique_data not used for non-private coins
     }
 }
 

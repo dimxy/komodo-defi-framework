@@ -1242,7 +1242,7 @@ pub async fn sign_and_send_taker_funding_spend<T: UtxoCommonOps>(
     Ok(final_tx)
 }
 
-// Make tx preimage to spend taker payment for swaps V2
+/// Make tx preimage to spend taker payment for swaps V2
 async fn gen_taker_payment_spend_preimage<T: UtxoCommonOps + SwapOps>(
     coin: &T,
     args: &GenTakerPaymentSpendArgs<'_, T>,
@@ -1531,7 +1531,7 @@ where
     send_outputs_from_my_address(coin, outputs)
 }
 
-// Create dex fee (burn fee) outputs
+/// Create dex fee (and optionally burn fee) outputs
 fn generate_taker_fee_tx_outputs<T>(coin: &T, dex_fee: &DexFee) -> Result<Vec<TransactionOutput>, String>
 where
     T: UtxoCommonOps + SwapOps,

@@ -974,7 +974,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
         };
 
         let prepared_params = TakerSwapPreparedParams {
-            dex_fee: Default::default(), // TODO: is it correct to use 0 here? It's for calculating the needed balance. What if the actual dex_fee will be not 0?
+            dex_fee: state_machine.dex_fee().total_spend_amount(),
             fee_to_send_dex_fee: TradeFee {
                 coin: state_machine.taker_coin.ticker().into(),
                 amount: Default::default(),

@@ -2609,12 +2609,11 @@ pub async fn taker_swap_trade_preimage(
         TakerAction::Buy => rel_amount.clone(),
     };
 
-    let dummy_unique_data = vec![];
     let dex_fee = DexFee::new_from_taker_coin(
         my_coin.deref(),
         other_coin_ticker,
         &my_coin_volume,
-        Some(&my_coin.derive_htlc_pubkey(&dummy_unique_data)), // use dummy_unique_data because we need only the permanent pubkey here (not derived from the unique data)
+        Some(&my_coin.derive_htlc_pubkey(&[])), // passing empty unique_data because we need only the permanent pubkey here (not derived from the unique data)
     );
     let taker_fee = TradeFee {
         coin: my_coin_ticker.to_owned(),

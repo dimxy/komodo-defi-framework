@@ -681,20 +681,21 @@ impl ZCoin {
         amount_sat: u64,
         expected_memo: &MemoBytes,
     ) -> Result<bool, String> {
-        if let Some((note, address, memo)) =
+        let Some((note, address, memo)) =
             try_sapling_output_recovery(self.consensus_params_ref(), block_height, ovk, shielded_out)
-        {
-            if &address == expected_address {
-                if note.value != amount_sat {
-                    return Err(format!("invalid amount {}, expected {}", note.value, amount_sat));
-                }
-                if &memo != expected_memo {
-                    return Err(format!("invalid memo {:?}, expected {:?}", memo, expected_memo));
-                }
-                return Ok(true);
-            }
+        else {
+            return Ok(false);
+        };
+        if &address == expected_address {
+            return Ok(false);
         }
-        Ok(false)
+        if note.value != amount_sat {
+            return Err(format!("invalid amount {}, expected {}", note.value, amount_sat));
+        }
+        if &memo != expected_memo {
+            return Err(format!("invalid memo {:?}, expected {:?}", memo, expected_memo));
+        }
+        Ok(true)
     }
 }
 
