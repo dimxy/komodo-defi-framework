@@ -1185,7 +1185,7 @@ pub trait SwapOps {
 
     fn maker_locktime_multiplier(&self) -> f64 { 2.0 }
 
-    async fn clean_up(&self, _uuid: Uuid) {}
+    async fn clean_up(&self, _uuid: Uuid) -> MmResult<(), String> { Ok(()) }
 }
 
 /// Operations on maker coin from taker swap side

@@ -1,17 +1,17 @@
 use crate::z_coin::{ValidateBlocksError, ZcoinConsensusParams, ZcoinStorageError};
 use mm2_event_stream::StreamingManager;
 
-pub mod blockdb;
-pub use blockdb::*;
+pub(crate) mod blockdb;
+pub(crate) use blockdb::*;
 
-pub mod walletdb;
-pub use walletdb::*;
+pub(crate) mod walletdb;
+pub(crate) use walletdb::*;
 
 #[cfg(target_arch = "wasm32")] mod z_params;
 #[cfg(target_arch = "wasm32")]
 pub(crate) use z_params::ZcashParamsWasmImpl;
 
-pub use walletdb::*;
+pub(crate) mod z_change_notes;
 
 use mm2_err_handle::mm_error::MmResult;
 #[cfg(target_arch = "wasm32")]
