@@ -1,10 +1,11 @@
+use std::sync::Arc;
+
+use db_common::async_sql_conn::{AsyncConnError, AsyncConnection};
 use enum_derives::EnumFromStringify;
+use futures::lock::Mutex;
 
 cfg_native!(
     pub(crate) mod sqlite;
-
-    use db_common::sqlite::rusqlite::Connection;
-    use std::sync::{Arc, Mutex};
 );
 cfg_wasm32!(
     pub(crate) mod wasm;
@@ -21,7 +22,7 @@ pub(crate) struct ChangeNote {
 #[derive(Clone)]
 pub(crate) struct ChangeNoteStorage {
     #[cfg(not(target_arch = "wasm32"))]
-    pub db: Arc<Mutex<Connection>>,
+    pub db: Arc<Mutex<AsyncConnection>>,
     //     #[cfg(target_arch = "wasm32")]
     //     pub db: SharedDb<BlockDbInner>,
     address: String,
@@ -31,7 +32,7 @@ pub(crate) struct ChangeNoteStorage {
 pub(crate) enum ChangeNoteStorageError {
     #[cfg(not(target_arch = "wasm32"))]
     #[display(fmt = "Sqlite Error: {_0}")]
-    #[from_stringify("db_common::sqlite::rusqlite::Error")]
+    #[from_stringify("AsyncConnError", "db_common::sqlite::rusqlite::Error")]
     SqliteError(String),
     #[display(fmt = "Can't init from the storage: {_0}")]
     InitializationError(String),
