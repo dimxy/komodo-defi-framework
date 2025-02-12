@@ -54,7 +54,7 @@ impl ChangeNoteStorage {
         use futures::lock::Mutex;
 
         let test_conn = Arc::new(Mutex::new(AsyncConnection::open_in_memory().await.unwrap()));
-        let db = ctx.async_sqlite_connection.get().cloned().unwrap_or_else(|| test_conn);
+        let db = ctx.async_sqlite_connection.get().cloned().unwrap_or(test_conn);
         let db_clone = db.clone();
         let db_lock = db_clone.lock().await;
 
