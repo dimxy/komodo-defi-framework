@@ -16,8 +16,8 @@ fn create_change_note_table(for_addr: &str) -> Result<String, AsyncConnError> {
         "CREATE TABLE IF NOT EXISTS {table_name} (
             hex TEXT NOT NULL UNIQUE,
             hex_bytes BLOB NOT NULL UNIQUE,
-            change INTEGER NOT NULL,
-        );"
+            change INTEGER NOT NULL
+        )"
     );
 
     Ok(sql)
@@ -28,7 +28,7 @@ impl ChangeNoteStorage {
         let db = ctx
             .async_sqlite_connection
             .get()
-            .ok_or(MmError::new(ChangeNoteStorageError::InitializationError(
+            .ok_or(MmError::new(ChangeNoteStorageError::SqliteError(
                 "Unable to get sqlite connection from ctx".into(),
             )))?;
         {
@@ -106,8 +106,8 @@ impl ChangeNoteStorage {
         Ok(db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&format!("SELECT SUM(change) FROM {table_name};"))?;
-                let sum: u64 = stmt.query_row(params![], |row| row.get(0))?;
-                Ok(sum)
+                let sum: Option<u64> = stmt.query_row(params![], |row| row.get(0))?;
+                Ok(sum.unwrap_or_default())
             })
             .await?)
     }
