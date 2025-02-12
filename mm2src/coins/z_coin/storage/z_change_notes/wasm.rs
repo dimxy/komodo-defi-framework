@@ -28,10 +28,9 @@ impl TableSignature for ChangeNoteTable {
     fn on_upgrade_needed(upgrader: &DbUpgrader, old_version: u32, new_version: u32) -> OnUpgradeResult<()> {
         if let (0, 1) = (old_version, new_version) {
             let table = upgrader.create_table(Self::TABLE_NAME)?;
-            table.create_multi_index(Self::ADDRESS_HEX_BYTES_INDEX, &["address", "hex_bytes"], true)?;
+            table.create_multi_index(Self::ADDRESS_HEX_BYTES_INDEX, &["address", "hex"], true)?;
             table.create_index("address", false)?;
             table.create_index("hex", true)?;
-            table.create_index("hex_bytes", true)?;
         }
         Ok(())
     }
@@ -83,7 +82,7 @@ impl ChangeNoteStorage {
 
         let indexes = MultiIndex::new(ChangeNoteTable::ADDRESS_HEX_BYTES_INDEX)
             .with_value(&address)?
-            .with_value(&hex_bytes)?;
+            .with_value(&hex)?;
 
         let change_note = ChangeNoteTable {
             address,
@@ -98,18 +97,18 @@ impl ChangeNoteStorage {
             .map(|_| ())?)
     }
 
-    pub(crate) async fn remove_note(&self, hex_bytes: Vec<u8>) -> MmResult<(), ChangeNoteStorageError> {
+    pub(crate) async fn remove_note(&self, hex: String) -> MmResult<(), ChangeNoteStorageError> {
         let db = self.lockdb().await?;
         let transaction = db.get_inner().transaction().await?;
         let change_note_table = transaction.table::<ChangeNoteTable>().await?;
 
-        Ok(change_note_table
-            .delete_item_by_unique_index("hex_bytes", &hex_bytes)
+        change_note_table
+            .delete_item_by_unique_index("hex", &hex)
             .await?
             .map(|_| ())
             .ok_or(MmError::new(ChangeNoteStorageError::IndexedDbError(format!(
-                "change not found for tx bytes: {hex_bytes:?}"
-            ))))?)
+                "change not found for tx bytes: {hex:?}"
+            ))))
     }
 
     pub(crate) async fn load_all_notes(&self) -> MmResult<Vec<ChangeNote>, ChangeNoteStorageError> {
@@ -132,5 +131,7 @@ impl ChangeNoteStorage {
             .collect::<Vec<_>>())
     }
 
-    pub(crate) async fn sum_changes(&self) -> MmResult<u64, ChangeNoteStorageError> { todo!() }
+    pub(crate) async fn sum_changes(&self) -> MmResult<u64, ChangeNoteStorageError> {
+        Ok(self.load_all_notes().await?.into_iter().map(|c| c.change).sum())
+    }
 }

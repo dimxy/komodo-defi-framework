@@ -24,29 +24,48 @@ fn create_change_note_table(for_addr: &str) -> Result<String, AsyncConnError> {
 }
 
 impl ChangeNoteStorage {
+    #[cfg(not(test))]
     pub(crate) async fn new(ctx: MmArc, address: String) -> MmResult<Self, ChangeNoteStorageError> {
         let db = ctx
             .async_sqlite_connection
             .get()
             .ok_or(MmError::new(ChangeNoteStorageError::SqliteError(
                 "Unable to get sqlite connection from ctx".into(),
-            )))?;
-        {
-            let address = address.clone();
-            let db_clone = db.lock().await;
-            db_clone
-                .call(move |conn| {
-                    run_optimization_pragmas(conn)?;
-                    conn.execute(&create_change_note_table(&address)?, [])?;
-                    Ok(())
-                })
-                .await?;
-        }
+            )))?
+            .clone();
 
-        Ok(Self {
-            db: db.clone(),
-            address,
-        })
+        let db_clone = db.clone();
+        let db_lock = db_clone.lock().await;
+        Ok(db_lock
+            .call(move |conn| {
+                run_optimization_pragmas(conn)?;
+                conn.execute(&create_change_note_table(&address)?, [])?;
+
+                Ok(Self { db, address })
+            })
+            .await?)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn new(ctx: MmArc, address: String) -> MmResult<Self, ChangeNoteStorageError> {
+        use std::sync::Arc;
+
+        use db_common::async_sql_conn::AsyncConnection;
+        use futures::lock::Mutex;
+
+        let test_conn = Arc::new(Mutex::new(AsyncConnection::open_in_memory().await.unwrap()));
+        let db = ctx.async_sqlite_connection.get().cloned().unwrap_or_else(|| test_conn);
+        let db_clone = db.clone();
+        let db_lock = db_clone.lock().await;
+
+        Ok(db_lock
+            .call(move |conn| {
+                run_optimization_pragmas(conn)?;
+                conn.execute(&create_change_note_table(&address)?, [])?;
+
+                Ok(Self { db, address })
+            })
+            .await?)
     }
 
     pub(crate) async fn insert_note(
@@ -69,13 +88,13 @@ impl ChangeNoteStorage {
             .await?)
     }
 
-    pub(crate) async fn remove_note(&self, hash: Vec<u8>) -> MmResult<(), ChangeNoteStorageError> {
+    pub(crate) async fn remove_note(&self, hex: String) -> MmResult<(), ChangeNoteStorageError> {
         let table_name = table_name(&self.address);
         let db = self.db.lock().await;
         Ok(db
             .call(move |conn| {
-                conn.prepare(&format!("DELETE FROM {table_name} WHERE hash=?1"))?
-                    .execute(params![hash])?;
+                conn.prepare(&format!("DELETE FROM {table_name} WHERE hex=?"))?
+                    .execute(params![hex])?;
                 Ok(())
             })
             .await?)

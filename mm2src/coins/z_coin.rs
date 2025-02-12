@@ -434,7 +434,7 @@ impl ZCoin {
                 ))
             })?;
 
-            self.z_fields.change_note_db.remove_note(note.hex_bytes).await?;
+            self.z_fields.change_note_db.remove_note(note.hex).await?;
 
             if amount_collected >= amount_needed {
                 break;
@@ -1713,11 +1713,7 @@ impl SwapOps for ZCoin {
                     continue;
                 };
 
-                this.z_fields
-                    .change_note_db
-                    .remove_note(note.hex_bytes)
-                    .await
-                    .error_log();
+                this.z_fields.change_note_db.remove_note(note.hex).await.error_log();
             }
 
             debug!("[{uuid}] swap clean up completed successfully")
