@@ -425,6 +425,7 @@ impl ZCoin {
                 wait_until,
                 check_every: 15,
             };
+            info!("Confirming tx {:?}", note.hex);
             self.wait_for_confirmations(input).compat().await.map_to_mm(|e| {
                 GenTxError::NeededPrevTxConfirmed(format!(
                     "Error while waiting for tx confirmation needed to generate new tx: {e}"
@@ -571,10 +572,21 @@ impl ZCoin {
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes).expect("Write should not fail");
 
-        self.utxo_rpc_client()
+        if let Err(err) = self
+            .utxo_rpc_client()
             .send_raw_transaction(tx_bytes.into())
             .compat()
-            .await?;
+            .await
+        {
+            // !important: remove tx generated change output if sending tx fails.
+            self.z_fields
+                .change_note_db
+                .remove_note(tx.txid().to_string())
+                .await
+                .error_log();
+
+            return Err(err.into());
+        };
 
         sync_guard.respawn_guard.watch_for_tx(tx.txid());
         Ok(tx)
