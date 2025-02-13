@@ -388,7 +388,6 @@ impl ZCoin {
             .await
             .mm_err(|err| GenTxError::Internal(err.to_string()))?;
         if my_balance.spendable >= *required {
-            info!("Tx needed no change");
             return Ok(self
                 .spendable_notes_ordered()
                 .await
