@@ -10,7 +10,6 @@ use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
 use types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillOrderRequest, LrFillOrderResponse, LrQuotesForTokensRequest};
 
-mod errors;
 mod lr_impl;
 mod types;
 
@@ -78,7 +77,7 @@ pub async fn lr_quotes_for_tokens_rpc(
     _req: LrQuotesForTokensRequest,
 ) -> MmResult<LrBestQuoteResponse, ApiIntegrationRpcError> {
     // TODO: impl later
-    MmError::err(ApiIntegrationRpcError::SomeError("unimplemented".to_owned()))
+    MmError::err(ApiIntegrationRpcError::InternalError("unimplemented".to_owned()))
 }
 
 /// Run a swap with LR to fill a maker order
@@ -86,7 +85,7 @@ pub async fn lr_fill_order_rpc(
     _ctx: MmArc,
     _req: LrFillOrderRequest,
 ) -> MmResult<LrFillOrderResponse, ApiIntegrationRpcError> {
-    MmError::err(ApiIntegrationRpcError::SomeError("unimplemented".to_owned()))
+    MmError::err(ApiIntegrationRpcError::InternalError("unimplemented".to_owned()))
 }
 
 #[cfg(test)]

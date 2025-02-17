@@ -323,9 +323,7 @@ impl LrDataMap {
             })
             .min_by(|(_, _, price_0), (_, _, price_1)| price_0.cmp(price_1))
             .map(|(lr_swap_data, order, price)| (lr_swap_data, order, price))
-            .ok_or(MmError::new(ApiIntegrationRpcError::SomeError(
-                "Best swap not found".to_owned(),
-            )))
+            .ok_or(MmError::new(ApiIntegrationRpcError::LrSwapNotFound))
     }
 }
 
