@@ -213,7 +213,7 @@ impl LrDataMap {
             };
             let dst_amount = lr_data
                 .dst_amount
-                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?;
+                .ok_or(ApiIntegrationRpcError::InternalError("no dst_amount".to_owned()))?;
             let dst_amount = mm_number_from_u256(dst_amount);
             if let Some(src_amount) = &dst_amount.checked_div(dst_price) {
                 lr_data.src_amount = Some(mm_number_to_u256(src_amount)?);
