@@ -167,14 +167,30 @@ mod tests {
                 }
             }
         });
+        // CNC 0.136968 USD USD
+        let cnc_conf = json!({
+            "coin": "CNC-ERC20",
+            "name": "CNC token",
+            "derivation_path": "m/44'/1'",
+            "chain_id": 1,
+            "decimals": 18,
+            "protocol": {
+                "type": "ERC20",
+                "protocol_data": {
+                    "platform": "ETH",
+                    "contract_address": "0x9aE380F0272E2162340a5bB646c354271c0F5cFC"
+                }
+            }
+        });
 
         let base_ticker = base_conf["coin"].as_str().unwrap().to_owned();
         let weth_ticker = weth_conf["coin"].as_str().unwrap().to_owned();
         let bnb_ticker = bnb_conf["coin"].as_str().unwrap().to_owned();
         let aave_ticker = aave_conf["coin"].as_str().unwrap().to_owned();
+        let cnc_ticker = cnc_conf["coin"].as_str().unwrap().to_owned();
 
         let conf = json!({
-            "coins": [base_conf, platform_coin_conf, weth_conf, bnb_conf, aave_conf],
+            "coins": [base_conf, platform_coin_conf, weth_conf, bnb_conf, aave_conf, cnc_conf],
             "1inch_api": "https://api.1inch.dev"
         });
         let ctx = mm_ctx_with_custom_db_with_conf(Some(conf));
@@ -208,7 +224,8 @@ mod tests {
                 "erc20_tokens_requests": [
                     {"ticker": weth_ticker.clone()},
                     {"ticker": bnb_ticker.clone()},
-                    {"ticker": aave_ticker.clone()}
+                    {"ticker": aave_ticker.clone()},
+                    {"ticker": cnc_ticker.clone()}
                 ],
                 "priv_key_policy": "ContextPrivKey"
             }))
@@ -242,6 +259,19 @@ mod tests {
                 base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
                 rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("370.334")),
                 rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("37.0334")),
+                conf_settings: Default::default(),
+            },
+            RpcOrderbookEntryV2 {
+                coin: cnc_ticker,
+                address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
+                price: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
+                pubkey: "03de96cb66dcfaceaa8b3d4993ce8914cd5fe84e3fd53cefdae45add8032792a12".to_owned(),
+                uuid: Uuid::from_str("89ab019f-b2fe-4d89-9764-96ac4a3fbf8e").unwrap(),
+                is_mine: false,
+                base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
+                base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
+                rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
+                rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("69930.069")),
                 conf_settings: Default::default(),
             },
         ];
