@@ -6233,7 +6233,6 @@ fn signed_tx_from_web3_tx(transaction: Web3Transaction) -> Result<SignedEthTx, S
 pub fn valid_addr_from_str(addr_str: &str) -> Result<Address, String> {
     let addr = try_s!(addr_from_str(addr_str));
     if !is_valid_checksum_addr(addr_str) {
-        println!("valid_addr_from_str Invalid address checksum={}", addr_str);
         return ERR!("Invalid address checksum");
     }
     Ok(addr)
