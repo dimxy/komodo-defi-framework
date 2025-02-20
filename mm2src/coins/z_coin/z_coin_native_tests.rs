@@ -46,8 +46,16 @@ fn zombie_coin_send_and_refund_maker_payment() {
     .unwrap();
 
     let time_lock = now_sec() - 3600;
-    let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();
+    //let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();
     let secret_hash = [0; 20];
+
+    let maker_uniq_data = [3; 32];
+    let maker_key_pair = coin.derive_htlc_key_pair(maker_uniq_data.as_slice());
+    let maker_pub = maker_key_pair.public();
+
+    let taker_uniq_data = [5; 32];
+    let taker_key_pair = coin.derive_htlc_key_pair(taker_uniq_data.as_slice());
+    let taker_pub = taker_key_pair.public();
 
     let args = SendPaymentArgs {
         time_lock_duration: 0,
@@ -56,7 +64,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
         secret_hash: &secret_hash,
         amount: "0.01".parse().unwrap(),
         swap_contract_address: &None,
-        swap_unique_data: &[],
+        swap_unique_data: maker_uniq_data.as_slice(),
         payment_instructions: &None,
         watcher_reward: None,
         wait_for_confirmation_until: 0,
@@ -72,7 +80,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
             maker_secret_hash: &secret_hash,
         },
         swap_contract_address: &None,
-        swap_unique_data: pk_data.as_slice(),
+        swap_unique_data: maker_uniq_data.as_slice(),
         watcher_reward: false,
     };
     let refund_tx = block_on(coin.send_maker_refunds_payment(refund_args)).unwrap();
