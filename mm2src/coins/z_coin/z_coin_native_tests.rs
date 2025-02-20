@@ -116,7 +116,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
         secret_hash: secret_hash.as_slice(),
         amount: "0.01".parse().unwrap(),
         swap_contract_address: &None,
-        swap_unique_data: &[],
+        swap_unique_data: pk_data.clone().as_slice(),
         payment_instructions: &None,
         watcher_reward: None,
         wait_for_confirmation_until: 0,
