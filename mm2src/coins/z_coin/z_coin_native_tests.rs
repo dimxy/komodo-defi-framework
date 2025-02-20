@@ -124,7 +124,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
         secret_hash: secret_hash.as_slice(),
         amount: "0.01".parse().unwrap(),
         swap_contract_address: &None,
-        swap_unique_data: pk_data.as_slice(),
+        swap_unique_data: maker_uniq_data.as_slice(),
         payment_instructions: &None,
         watcher_reward: None,
         wait_for_confirmation_until: 0,
@@ -142,7 +142,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
         secret: &secret,
         secret_hash: &secret_hash.as_slice(),
         swap_contract_address: &None,
-        swap_unique_data: pk_data.as_slice(),
+        swap_unique_data: taker_uniq_data.as_slice(),
         watcher_reward: false,
     };
     let spend_tx = block_on(coin.send_taker_spends_maker_payment(spends_payment_args)).unwrap();
