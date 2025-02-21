@@ -574,6 +574,7 @@ impl ZCoin {
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
     ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
+        info!("send_outputs calling gen_tx...");
         let (tx, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
         info!("send_outputs tx created");
         let mut tx_bytes = Vec::with_capacity(1024);
@@ -1363,8 +1364,8 @@ impl SwapOps for ZCoin {
         let secret_hash = taker_payment_args.secret_hash.to_vec();
         let time_lock = try_tx_s!(taker_payment_args.time_lock.try_into());
         let amount = taker_payment_args.amount;
-        let utxo_tx = try_tx_s!(
-            z_send_htlc(
+        
+        let r = z_send_htlc(
                 self,
                 time_lock,
                 taker_keypair.public(),
@@ -1372,8 +1373,9 @@ impl SwapOps for ZCoin {
                 &secret_hash,
                 amount
             )
-            .await
-        );
+            .await;
+        info!("z_send_htlc result={:?}", r);
+        let utxo_tx = try_tx_s!(r);
         Ok(utxo_tx.into())
     }
 

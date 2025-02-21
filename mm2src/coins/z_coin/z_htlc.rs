@@ -60,10 +60,12 @@ pub async fn z_send_htlc(
 
     let amount_sat = sat_from_big_decimal(&amount, coin.utxo_arc.decimals)?;
     let address = htlc_address.to_string();
+    info!("z_send_htlc calling import_address...");
     if let UtxoRpcClientEnum::Native(native) = coin.utxo_rpc_client() {
         native.import_address(&address, &address, false).compat().await.unwrap();
     }
 
+    info!("z_send_htlc calling build_p2sh...");
     let htlc_script = ScriptBuilder::build_p2sh(&script_hash.into()).to_bytes().take();
     let htlc_output = TxOut {
         value: Amount::from_u64(amount_sat).map_err(|_| NumConversError::new("Invalid ZCash amount".into()))?,
@@ -79,6 +81,7 @@ pub async fn z_send_htlc(
         value: Amount::zero(),
         script_pubkey: ZCashScript(opret_script),
     };
+    info!("z_send_htlc calling send_outputs...");
     let r = coin.send_outputs(vec![htlc_output, op_return_out], vec![]).await;
     info!("z_send_htlc send_outputs result={:?}", r);
     let mm_tx = r?;
