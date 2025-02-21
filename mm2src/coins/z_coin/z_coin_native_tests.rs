@@ -49,7 +49,6 @@ fn zombie_coin_send_and_refund_maker_payment() {
     let secret_hash = [0; 20];
 
     let maker_uniq_data = [3; 32];
-    let maker_key_pair = coin.derive_htlc_key_pair(maker_uniq_data.as_slice());
 
     let taker_uniq_data = [5; 32];
     let taker_key_pair = coin.derive_htlc_key_pair(taker_uniq_data.as_slice());
