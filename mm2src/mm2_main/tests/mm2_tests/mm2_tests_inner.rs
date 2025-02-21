@@ -729,7 +729,7 @@ async fn trade_base_rel_electrum(
         let bob_zombie_cache_path = mm_bob.folder.join("DB").join(hex::encode(rmd)).join("ZOMBIE_CACHE.db");
         log!("Current directory: {}", env::current_dir().unwrap().display());
         log!("bob_zombie_cache_path {}", bob_zombie_cache_path.display());
-        std::fs::copy("../coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
+        let _ = std::fs::copy("../coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path);
 
         let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
         let rmd = rmd160_from_passphrase(&alice_passphrase);
@@ -740,7 +740,7 @@ async fn trade_base_rel_electrum(
             .join("ZOMBIE_CACHE.db");
         log!("alice_zombie_cache_path {}", alice_zombie_cache_path.display());
 
-        std::fs::copy("../coins/for_tests/ZOMBIE_CACHE.db", alice_zombie_cache_path).unwrap();
+        let _ = std::fs::copy("../coins/for_tests/ZOMBIE_CACHE.db", alice_zombie_cache_path);
 
         let zombie_bob = enable_z_coin(&mm_bob, "ZOMBIE").await;
         log!("enable ZOMBIE bob {:?}", zombie_bob);
