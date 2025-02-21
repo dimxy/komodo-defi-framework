@@ -1,9 +1,9 @@
 use bitcrypto::dhash160;
-use common::{block_on, now_sec};
+use common::now_sec;
+use common::executor::Timer;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::zombie_conf;
 use std::path::PathBuf;
-use std::time::Duration;
 use zcash_client_backend::encoding::decode_extended_spending_key;
 
 use super::{z_coin_from_conf_and_params_with_z_key, z_mainnet_constants, PrivKeyBuildPolicy, RefundPaymentArgs,
@@ -20,8 +20,8 @@ fn native_zcoin_activation_params() -> ZcoinActivationParams {
     }
 }
 
-#[test]
-fn zombie_coin_send_and_refund_maker_payment() {
+#[tokio::test(flavor = "multi_thread")]
+async fn zombie_coin_send_and_refund_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -33,7 +33,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -42,12 +42,18 @@ fn zombie_coin_send_and_refund_maker_payment() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
     let time_lock = now_sec() - 3600;
-    let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();
     let secret_hash = [0; 20];
+
+    let maker_uniq_data = [3; 32];
+
+    let taker_uniq_data = [5; 32];
+    let taker_key_pair = coin.derive_htlc_key_pair(taker_uniq_data.as_slice());
+    let taker_pub = taker_key_pair.public();
 
     let args = SendPaymentArgs {
         time_lock_duration: 0,
@@ -56,12 +62,12 @@ fn zombie_coin_send_and_refund_maker_payment() {
         secret_hash: &secret_hash,
         amount: "0.01".parse().unwrap(),
         swap_contract_address: &None,
-        swap_unique_data: &[],
+        swap_unique_data: maker_uniq_data.as_slice(),
         payment_instructions: &None,
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = block_on(coin.send_maker_payment(args)).unwrap();
+    let tx = coin.send_maker_payment(args).await.unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
 
     let refund_args = RefundPaymentArgs {
@@ -72,15 +78,15 @@ fn zombie_coin_send_and_refund_maker_payment() {
             maker_secret_hash: &secret_hash,
         },
         swap_contract_address: &None,
-        swap_unique_data: pk_data.as_slice(),
+        swap_unique_data: maker_uniq_data.as_slice(),
         watcher_reward: false,
     };
-    let refund_tx = block_on(coin.send_maker_refunds_payment(refund_args)).unwrap();
+    let refund_tx = coin.send_maker_refunds_payment(refund_args).await.unwrap();
     log!("refund tx {}", hex::encode(refund_tx.tx_hash_as_bytes().0));
 }
 
-#[test]
-fn zombie_coin_send_and_spend_maker_payment() {
+#[tokio::test(flavor = "multi_thread")]
+async fn zombie_coin_send_and_spend_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -92,7 +98,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -101,13 +107,21 @@ fn zombie_coin_send_and_spend_maker_payment() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
     let lock_time = now_sec() - 1000;
-    let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();
     let secret = [0; 32];
     let secret_hash = dhash160(&secret);
+
+    let maker_uniq_data = [3; 32];
+    let maker_key_pair = coin.derive_htlc_key_pair(maker_uniq_data.as_slice());
+    let maker_pub = maker_key_pair.public();
+
+    let taker_uniq_data = [5; 32];
+    let taker_key_pair = coin.derive_htlc_key_pair(taker_uniq_data.as_slice());
+    let taker_pub = taker_key_pair.public();
 
     let maker_payment_args = SendPaymentArgs {
         time_lock_duration: 0,
@@ -116,33 +130,30 @@ fn zombie_coin_send_and_spend_maker_payment() {
         secret_hash: secret_hash.as_slice(),
         amount: "0.01".parse().unwrap(),
         swap_contract_address: &None,
-        swap_unique_data: &[],
+        swap_unique_data: maker_uniq_data.as_slice(),
         payment_instructions: &None,
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
 
-    let tx = block_on(coin.send_maker_payment(maker_payment_args)).unwrap();
+    let tx = coin.send_maker_payment(maker_payment_args).await.unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
-
-    let maker_pub = taker_pub;
-
     let spends_payment_args = SpendPaymentArgs {
         other_payment_tx: &tx.tx_hex(),
         time_lock: lock_time,
         other_pubkey: maker_pub,
         secret: &secret,
-        secret_hash: &[],
+        secret_hash: &secret_hash.as_slice(),
         swap_contract_address: &None,
-        swap_unique_data: pk_data.as_slice(),
+        swap_unique_data: taker_uniq_data.as_slice(),
         watcher_reward: false,
     };
-    let spend_tx = block_on(coin.send_taker_spends_maker_payment(spends_payment_args)).unwrap();
+    let spend_tx = coin.send_taker_spends_maker_payment(spends_payment_args).await.unwrap();
     log!("spend tx {}", hex::encode(spend_tx.tx_hash_as_bytes().0));
 }
 
-#[test]
-fn zombie_coin_send_dex_fee() {
+#[tokio::test(flavor = "multi_thread")]
+async fn zombie_coin_send_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -154,7 +165,7 @@ fn zombie_coin_send_dex_fee() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -163,15 +174,16 @@ fn zombie_coin_send_dex_fee() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
-    let tx = block_on(z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16])).unwrap();
+    let tx = z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16]).await.unwrap();
     log!("dex fee tx {}", tx.txid());
 }
 
-#[test]
-fn prepare_zombie_sapling_cache() {
+#[tokio::test(flavor = "multi_thread")]
+async fn prepare_zombie_sapling_cache() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -183,7 +195,7 @@ fn prepare_zombie_sapling_cache() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -192,16 +204,17 @@ fn prepare_zombie_sapling_cache() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
-    while !block_on(coin.is_sapling_state_synced()) {
-        std::thread::sleep(Duration::from_secs(1));
+    while !coin.is_sapling_state_synced().await {
+        Timer::sleep(1.0).await;
     }
 }
 
-#[test]
-fn zombie_coin_validate_dex_fee() {
+#[tokio::test(flavor = "multi_thread")]
+async fn zombie_coin_validate_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -213,7 +226,7 @@ fn zombie_coin_validate_dex_fee() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -222,11 +235,12 @@ fn zombie_coin_validate_dex_fee() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
-    // https://zombie.explorer.lordofthechains.com/tx/ec620194c33eba004904f34c93f4f005a7544988771af1c5a527f65c08e4a4aa
-    let tx_hex = "0400008085202f89000000000000af330000e803000000000000015c3fc69c0eb25dc2b75593464af5b937da35816a2ffeb9b79f3da865c2187083a0b143011810109ab0ed410896aff77bcfbc8a8f5b9bfe0d273716095cfe401cbd97c66a999384aa12a571abc39508b113de0ad0816630fea67f18d68572c52be4364f812f9796e1084ee6c28d1419dac4767d12a7a33662536c2c1ffa7e221d843c9f2bf2601f34cc71a1e1c42041fab87e617ae00b796aa070280060e9cdc30e69e80367e6105e792bbefcd93f00c48ce8278c4eb36c8846cb94d5adcb273ce91decf79196461f7969d6a7031878c6c8e81edd4532a5c57bbaeeea4ed5f4440cef90f19020079c69e05325e63350e9cb9eac44a3d4937111a3c6dc00c79d4dfe72c1e73a6e00ad0aa1aded83f0b778ab92319fcdae19c2946c50c370d243fe6dfa4f92803dcec1992af0d91f0cda8ccbee2a5321f708fc0156d29b51a015b3fb70f543c7713b8547d24e6916caefca17edf1f4109099177498cb30f9305b5169ab1f2e3e4a83e789b5687f3f5f5013d917e2e6babc8ca4507cb349d1e5a30602f557bcbd6574c7fcb5779ce286bdd10fe5db58abadcacf5eaa9e5d3575e30e439d0c62494bc045456e7b6b03f5304a8ff8878f01883f8c473e066f8159bdc111a03d96670f4b29acd919d8b9674897e056c7ac6ef4da155ce7d923f2bedcd51f2198c2be360e03ef2373df94d1e63ba507effc2f9b2f1ccfed09f2f26b8c619415d4a90f556e4b9350099f58fb10a33986945a1512879fdae66e9ef94671764ecdc558ed2d760f7bd3ce2dedfdb4fc7e3aa26903288e16f34214632d8727f68d47389ff687f681b3b285896d3214b9eb60271d87f3223f20e4ddf39513c07fe3420eefa9e7372fff51c83468161d9ffe745533b02917e4ccf87a213c884042938511bb7ccbe6b54392897b1ba111d127ec2c16ba167bb5a65d7819295ceedc5b8faf493c71ed722b72578c62be7d59449bd218196e1f43c3a8bb4875c3bcce1adcb6c4afa6398a7276583c60dbe609c9819bf66385e6cff4b27090aa1dccd0a2f86ca3b3871f2077db44c17d57bba98f9809e6000676600ad70560cbf285354f979d24a5de6e8b0c65ee1a89e28f58f430d20988cae8b0a9690cf79519efc227d54ca739ce3dcde73ac6e624c00b120d6955b40b854b00b1b53dc18cc35cd4792716f3e0bc6552bf0ba4616d1b22900cebede31fbe4b722de1f11c0577abe2ca0614c9d6f24cb56e2b4c840b8573c503ca1d4bf9e671a583b04dd51af10cfc709e89965c5150d7fb6b8c924812e6c9d31025d30e8367defb39e71fda095a16c0e1a70b528799d8c4852b3adb700b113bf5de1d6ec6c7742a1ef678228930ec767e406b36a55fe4a8108236cf0487901e35b50312facad257fd9ba2be154fbc674b33240fffaffc149f26238c5b188107df049cc615289ab8ee6f12a868379f6e362b059ba7c3dde3f02a91a08316c194ad7e556d390d38e6442212502f84cb22fc7dbab262984d2155ebeee3e4109033e57e761e9ab701512cf2635fe92f12d42953ce33f020ad4606125477318f88f673517831f43e548c5ef1d6d4aef7d850fdc0d35bc38a69ac02ccc7436eb711c6303cd306b34931bf1a4cbaed6940ede588e2abf7835718e4afed606d71cdb48146598db31d024347ba9eb289f714bfa7a3670392b3a5e35b6359f6626ed07cca451f0389e4423bb531baf409c48279df489d0073ccf17676eb5c5caa732b104894c2bcf311774f1f8c0b8b6fa313437bc1209f29ee64ccb40a07bb0cf928c77ca6b6a4fe287b1dc6df678a32b8dda35876211d5f929f90a6cc772bd171d15f50da9de8f11a241be98d205b2c53a78a5ba1bce0e782ee88512c3fc815fe843c6b5ffae1b80f1bdd5132b84a813e5157d3096034011fec2f0543f9c30a119d87e8b66e9a857d833d45fe55352871f68aaf8757c03f3b82f1cbd13c56d1843b9d2ebf7fe42f41ab0493dc9491813456fd1e0466bfdfb87a684cba8944df2fd8d3703617383137613a853a3725b366079c3760bbce60f2a88fa2cc579a6ddc9813185cb26873e6c09e43b6db73e4a44d30eebdae38bdaae9f6f1c38941b342ba67822b039f35878e54aadc4b1861df8803494f739d07b0d8b7815d1b55932bcdda80f612f97e0a0c288a7daf3aee1eb0db33fa030082b439a6d0c8d1043a718747acc398913f89e09cb0c95be96fdc9b8aa01f8eba0bd543528035fb7442ce9c6fa5e5539d4dfe29f2a9400d2d122d61037b9df584c5738b851a0d8f6bb6cf553efbdeefc3db3718681a75cb90398fa54c8dd1e696de8dba5ec977c4e2909f4977fde39847f2c0d8f9f9927e9a6cc9466b90d7745e678baa32100cb1ca7d2969c6ec9f35b222f3f4126a7965c40e5da75f183f73d33d325f25a371f5767c6b5bca141c30ed409ffce5f8e073bfb0a85512d0594c96b80cd5d7b73ac3dca494aa9dc7085ad594b46eb28fd1df84afc8a71dd63bc5d23eaf21238706a205d643bd238fe01b32dcd50c93047498ed54bb01cf2108d326f7e3c0538a9e6cc79090ccee6cf47e7fd3cc5cf41aad6905c5d099cea22effdcd4bb7b8d85ba3e3d703c34863d2540936976c774e5c4cb020873873a186c3bab67b1a47c4029f2880cbadd1cd7d82a6c649b073aa0c938b5f28e9173a64c72c81745bc8df6706bf6e320b5e96820970322f21d633a2c28b23d79b8edbc8a13eafa2a5241d7bb59b341779fe6f5db2994567caefaec23b7b7c55a73dbc6614bb958bc1d62838c56197a3eceefeb1dc4f505645548f2dd8848e4046aca421548235f1945725f82f03b0ba5c774ddea6f9524cdcc302ee4712ef7d4bc1c16d7aa578d8fd8ceb680c16fcc6ca6a40afdcef6f89e81bd92f7d1f6e39c9c57f3239a1fcb23d649f8757348214572e53bc2c2c7ff8bce6d48df6e3c53ab7014a55c9296d05998a0d1b53749d9561541eb0cf6e1bfa65141ce9b6c30fe4f68cd8e869feba82675ec43bf953ab2994533d6d1af1705130243d9b9ee4088b635d6b4db5603b8784f4fe77d4b0d8a7935c06198d12fa0fc6e1ad2ddef96e7f9ab6103a2a29739ca3af9fe1736cdf49162e77d6f17d063f04dc2e1358af3da993fb3824e59575a9f15c7c429efd059477429be0c2a5b126078a8f8b1088d35aae59eac0897dfa4d45179947bad401c7417df2fac46f8782a2069f83cc18eda4d0070167878ad72f5d255e300a6368e0d390d3d0206aba68772b1e9d73c97406a0a5d80b7b8360502a9e7cb471fb5bd49ce9eee3a16f82aadca47327ccaa00a0575ed7191ffb710dd1ab7f801";
+    // https://zombie.explorer.lordofthechains.com/tx/462d2fe9494561f9fcf77b21d97add8e58845d24006c9b7f17525b3abb795679
+    let tx_hex = "0400008085202f89000000000000cc5a0c00e8030000000000000265068137314aacbdcc86318bf223b08b79b35a5a1851b3a1ce5e8d99edd26f2ac947a165e711641e1636178747da5bef80669fcecbc819bbf66659d18540674d9346389b223fa19d6043cf7fe31b9623427a14f988e6a7ec95dd4489e6ea818d3f11d930bc6c83e0fbf7b4e11ab943ebd8da926b5f6dfd0d45917620655a84919509172e7239dcbd3324af6f6ce333b2bb7ef39ee91b8e5cc44afb04dcb868d02e6f8c1bc79000c41d92359e9d2c6467a89dbf707a3c8b36e3dd0bc5e1a9dac5e7b3139b01c30c9245c4aba9e76ae404f6130a7a066e5f8f76a1ade89a966a49041c75b5664a1d9bd9bc931cad8f3a75930f023fe10a42e87e0d93d82522738488eb7875488b5496a419ff6188a892d4abcb421d483a0212b610f330082c6d497b4c474748ce7ac0617cff04ee5c920318aa40d9a9da09028a522fd17385d1eb72d26660c324b5594fd7197b74985e9ee1a79c8d55dd5cba42cd652321d8a34d3b0dce3f98a003864afb0b4fdcea800ce9fe1111013cb630ac7bf03b5ddfc009ad4eb1274a1bebf6a81015744d1066642a4eb01abd84ee161261877c85e6b9bec947a165e711641e1636178747da5bef80669fcecbc819bbf66659d18540674d3aebb412f20ad300cb255ea53de585f24c7e81cb7f8a5642403c8138fe6c27cb1251b91642107ad94db38933043ff9972a82e856a9955f0fc54aefab94ea7786868feefcc679d7c72b0070f1d2d2d1f32fb3820ab54705461085430eee85bdbb5cfb383cf2c5ed554f259199c4804b36abc9e7a0dcbfccb946035b2dd505b1a0f648d8013785ddf1dfed70a94d3524916f2dcfc59478a626528fd126e829d9ec0e3bd7ec6c46ae7c5b7b2844c39996ecf2f9be681be1aeb4120c78baa97a028da5d7e68f082b8fa39509321f8a7200ada073dd4c3998e8a21c93d795323147a0f9de305ed80dff240928e9d3ffe64e4f0d1563f970b542c37d420b68568f5c12e80aa31b84eae9a4cd562f1a9813d5e541bfd49f4a2af3054e3e61c4c966893b46a6fee01fd65a12b396f94010bc8e4a60dc14e14b7ab1111df20f57fbc2b203025c27fccdbebabe770357aabc019892bfa243ea338a35c5586099b63d905958385c781cdc4962bc96645ed2c957cf506d76983a535dddae99d22a70693f116c0a2fda38952c381169fa022de69b853348e2094baa022b65e838eef20c2315e51825c64a284414a686afde870a40b7fbaea80f074ec8c71217e48b32363112a716c626214b9b59500c1d9dc3891814f80979d9bd6b2a95a93fbdf680498f70dbbf0826627eb3257be25614744d32fe3062d8c2d3e52d12e889b9870cd4211aa03fc4c4b380128235021a6c7fb676633e54d1ad7e78388fc1592d1562158bc65bc0d7a4325649a5e91d79863c6e1244fcda26da8ed7d906d5eb2a841ea437e1a422eb8ab6bd66f42492316b2ca084c38ed789f6f2d210db961536e31d2c9a76ba73548617292546538d4b2b9fd0553b2166765a4f3d8d26ba1af98f033c086a9da4656c9ae04cb8394810bd7e3c742c58ae8a2b810eb45253f12061e18adcad69408e3668d6decf5b6d677c0529d83d5fc61f4ea9c334838a595a77b40559c73b166327c2ae94389dfe6187eb6924ee00dcad113c1778bb32be7cd0f56e70746489baa3cff0b72c0073decb59e6012744cde06b7187d90d69e56722c8ef34f3d232e9e2e3625ac509d17663ee449109744c7f6901c01510eae923cb837f26416d6ea307caf13e4d4eccd88b636915855f35ece043c5efdc306d7f25cb28fd311a6b3e14091ee15cb21aa94a44af344859ac5ba62d22083ab2e7b64cf28dff10501c942c19df655232956e5977442c556905306bcfd33e905a16ff88acc4ba184eb2ce0737cd4ec8d515c4b160e87e0a9fb3130268cde51873208b23d020a05a8af2b40739ee0f1bd59687e915f1349bef841ed173283e7bb2d18f069fde51fd4b84e802fbfc8ea52f1fc6d2112ba3b5d84af657aff4b68780785c005c7feda221904efef81fbfe8ebbdd7b0d54234b60a6b471318b9fce6252e8844147ca0c4dcb6a054941546d01dfd0966be19ccbc6c23b156728558378a0504249315c2ffeb986f35dddaa587f1c448194c88d056a91e7ff95528b7eae7f3f554973e6137c30c1150d03800da1d5c0f0a10e62ea83d7bace7e209db8583dc9eb48010fabbbc2692909aaea1a7bca5fae32f968a0bb29048e12fe694809e4c13b69e2b1ab9eb9e01d159dc0b856100d0d65aed1bd8279f1aab18ff05f75a4fceae78f003c405d3715da5af91ad8c7f241ee21330f3215c377730ad88ad84d08dbecbaaea8802c8417634d6a4631f05b1435496b0b809d8253b7546c6b4330645abf749614d80554984b3b79f46eb1017490232910ce26e97a1963128e81de675aabe389bb7d446a9a1a748d49bc2c0d8e511dbb38c5f3bdae5d047694c6b272d7d8e0bbfbf2065ba273c1261ef136110d171a36c4fcd2238c6c772e310203faebd8d3f1ee6b75a24906f3ca05327be04499c339362999426ac3c87831de94641741bdb29c7b25f1fc0b9e4c674b6ee8bcf3fd2f414e855792b00a37d22eb78b7c0955e2a14fb6f0b0d11037eebf98aec5a484bc238d6de5395aa9bae040a7fd00a4e67255abedac63d9fced90d74230ebda117847d4b3bc9b7ebd02c502bbe4740a9290572d694f7e7dcdcf9731d7c115a037042787949de2ef7f17fae5132044849fb84fd9a0fce1c010b71ba784a5927e16aeb3c4d159bc5199b0bf15309e1a56b86b3eda3ca8201372855c1db87e4970ddea25e81f04ad21ff398b027a1c906e1590d857497898ec908772a969dd96d6144efff93f90fb6fb87fe0567ee180ef9a1b9bf1c8590187fbf72cfb7c87743305dcaedfb1a0f9b2dac79ec55962db2ecb771fe5f998632425d843d96015495fbf78c243d437e5776a3ff49be16ad21ee8ed5697d28ec009c627cf9b451d09af654cbe76c191d3bcf35a1dc0b1908a7cab84e76a3805d17e092f90c6dee3518ef97d20858820697b70e0c5d87abb7ca0409044edd242a429054f6d0a3d8d455d1aa5c1d2ce07ca06bcc20b01f178fcb3815e3e432801874b9f55e2fa294477f8360647d58e2ab00605d1a988a0aca60c1e6472aff88103942b0c875832a0ef28ee3a7d77ce6cb79088711f046f84f029651cdb74a2907924a142d10b8fbf38cdb4cc94c728ad6f1f7802aa0c2337c47124a71c23c199aaf4d6c561ef1bf96298482b25278317a677e9065c42373ef5624e48bd7c02a704479c4d2306ba2ac26162f23e9a36d3258da66c67a1b4eff4ba478a75711a6b81457cf95c06b6d4279aa023d1f4214f6e4b55da29f7da145ae442c97e3ad3299679a8343246e3a9500af15152cc48681f7bc33b42a9684a97fdeabe361e98a98e6ae632871a93d0ce973da0f274cae06463c2e8548f9842916d2b68e62d85f0858723eee5768cd8ce569f9357e7d10610a581147620287a05d338b70bdc2016abfdac79304ae73cd134b0f0dc938511d3f81512556aec38d9076c33bf90281d3282deb0416771191f553aa26562afb0929f52563842db2bbd10c9ebb7f81e7747344633214539b149d70af8252f04bf249a5d50dfbc1b215fd6f0939588a0a84c1a6ec2ea25c366cc970a80e9e9bc9e0c799aa199f19ceafb7e7b6d90fba1343833ad11c4cb8e1f5bf005d1eee9643fa002d613166583eba224e2e5b1fc6a8c6a473b372de8c1100f9e8a79d95e042229cde7336ccf8e02467d75452cb9c0e0d4782576af52bed6e549bd89d0aa1743a64886ca62f796bf59aa33be8d2d59748645efabfcdcc660d";
     let tx_bytes = hex::decode(tx_hex).unwrap();
     let tx = ZTransaction::read(tx_bytes.as_slice()).unwrap();
     let tx = tx.into();
@@ -240,7 +254,7 @@ fn zombie_coin_validate_dex_fee() {
         uuid: &[1; 16],
     };
     // Invalid amount should return an error
-    let err = block_on(coin.validate_fee(validate_fee_args)).unwrap_err().into_inner();
+    let err = coin.validate_fee(validate_fee_args).await.unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid amount")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
@@ -255,7 +269,7 @@ fn zombie_coin_validate_dex_fee() {
         min_block_number: 12000,
         uuid: &[2; 16],
     };
-    let err = block_on(coin.validate_fee(validate_fee_args)).unwrap_err().into_inner();
+    let err = coin.validate_fee(validate_fee_args).await.unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid memo")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
@@ -267,10 +281,10 @@ fn zombie_coin_validate_dex_fee() {
         expected_sender: &[],
         fee_addr: &[],
         dex_fee: &DexFee::Standard(MmNumber::from("0.01")),
-        min_block_number: 14000,
+        min_block_number: 810617,
         uuid: &[1; 16],
     };
-    let err = block_on(coin.validate_fee(validate_fee_args)).unwrap_err().into_inner();
+    let err = coin.validate_fee(validate_fee_args).await.unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("confirmed before min block")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
@@ -285,5 +299,5 @@ fn zombie_coin_validate_dex_fee() {
         min_block_number: 12000,
         uuid: &[1; 16],
     };
-    block_on(coin.validate_fee(validate_fee_args)).unwrap();
+    coin.validate_fee(validate_fee_args).await.unwrap();
 }
