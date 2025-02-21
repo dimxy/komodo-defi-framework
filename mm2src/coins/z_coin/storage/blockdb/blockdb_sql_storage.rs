@@ -21,6 +21,7 @@ use zcash_extras::NoteId;
 use zcash_extras::WalletRead;
 use zcash_primitives::block::BlockHash;
 use zcash_primitives::consensus::BlockHeight;
+use common::log::info;
 
 impl From<ZcashClientError> for ZcoinStorageError {
     fn from(value: ZcashClientError) -> Self {
@@ -216,6 +217,7 @@ impl BlockDbImpl {
             let block = CompactBlock::parse_from_bytes(&cbr.data)
                 .map_err(|err| ZcoinStorageError::ChainError(err.to_string()))?;
 
+            info!("process_blocks_with_mode block={}", block.height());
             if block.height() != cbr.height {
                 return MmError::err(ZcoinStorageError::CorruptedData(format!(
                     "{ticker}, Block height {} did not match row's height field value {}",

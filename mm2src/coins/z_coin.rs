@@ -450,6 +450,7 @@ impl ZCoin {
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
     ) -> Result<(ZTransaction, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
+        info!("gen_tx wait_for_gen_tx_blockchain_sync...");
         let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
 
         info!("gen_tx enterred");
