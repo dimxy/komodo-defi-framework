@@ -452,6 +452,8 @@ impl ZCoin {
     ) -> Result<(ZTransaction, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
         let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
 
+        info!("gen_tx enterred");
+
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
         let t_output_sat: u64 = t_outputs.iter().fold(0, |cur, out| cur + u64::from(out.value));
         let z_output_sat: u64 = z_outputs.iter().fold(0, |cur, out| cur + u64::from(out.amount));
@@ -459,6 +461,7 @@ impl ZCoin {
         let total_output = big_decimal_from_sat_unsigned(total_output_sat, self.utxo_arc.decimals);
         let total_required = &total_output + &tx_fee;
         let spendable_notes = self.spendable_notes_required_for_tx(&total_required).await?;
+        info!("gen_tx spendable_notes found");
 
         let mut total_input_amount = BigDecimal::from(0);
         let mut change = BigDecimal::from(0);
@@ -490,7 +493,7 @@ impl ZCoin {
                 break;
             }
         }
-
+        info!("gen_tx spendable_notes added");
         if total_input_amount < total_required {
             return MmError::err(GenTxError::InsufficientBalance {
                 coin: self.ticker().into(),
@@ -530,6 +533,7 @@ impl ZCoin {
             tx_builder.add_tx_out(output);
         }
 
+        info!("gen_tx building tx...");
         #[cfg(not(target_arch = "wasm32"))]
         let (tx, _) = async_blocking({
             let prover = self.z_fields.z_tx_prover.clone();
@@ -545,6 +549,7 @@ impl ZCoin {
 
         if change > BigDecimal::from(0u8) {
             debug!("found change for txs {change}!");
+            info!("found change for txs {change}");
             // save change note amount for tracking.
             self.z_fields
                 .change_note_db

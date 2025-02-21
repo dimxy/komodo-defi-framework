@@ -44,6 +44,7 @@ pub async fn z_send_htlc(
     secret_hash: &[u8],
     amount: BigDecimal,
 ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
+    info!("z_send_htlc enterred");
     let payment_script = payment_script(time_lock, secret_hash, my_pub, other_pub);
     let script_hash = dhash160(&payment_script);
     let htlc_address = AddressBuilder::new(
@@ -79,6 +80,7 @@ pub async fn z_send_htlc(
     };
     let mm_tx = coin.send_outputs(vec![htlc_output, op_return_out], vec![]).await?;
 
+    info!("z_send_htlc return tx");
     Ok(mm_tx)
 }
 

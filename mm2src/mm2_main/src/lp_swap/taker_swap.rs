@@ -1636,6 +1636,7 @@ impl TakerSwap {
             ]));
         }
 
+        info!("check if Taker payment sent");
         // Extract values from the lock before async operations
         let taker_payment_lock = self.r().data.taker_payment_lock;
         let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
@@ -1669,6 +1670,7 @@ impl TakerSwap {
                 ]))
             },
         };
+        info!("check if Taker payment sent - passed");
 
         // If the payment is not yet sent, make sure we didn't miss the deadline for sending it.
         if maybe_existing_payment.is_none() {
@@ -1696,6 +1698,8 @@ impl TakerSwap {
             Some(tx) => tx,
             None => {
                 let lock_duration = self.r().data.lock_duration;
+                info!("sending Taker payment");
+
                 match self
                     .taker_coin
                     .send_taker_payment(SendPaymentArgs {
