@@ -3629,9 +3629,9 @@ pub async fn wait_for_swaps_finish_and_check_status(
         let wait_until = get_utc_timestamp() + 900;
         loop {
             let maker_status = my_swap_status(maker, uuid.as_ref()).await.unwrap();
-            println("maker_status = {maker_status}");
+            println!("maker_status = {maker_status}");
             let taker_status = my_swap_status(taker, uuid.as_ref()).await.unwrap();
-            println("taker_status = {taker_status}");
+            println!("taker_status = {taker_status}");
             if maker_status["result"]["is_finished"].as_bool().unwrap() && taker_status["result"]["is_finished"].as_bool().unwrap() {
                 break;
             }
