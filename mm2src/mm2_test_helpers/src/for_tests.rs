@@ -3626,8 +3626,20 @@ pub async fn wait_for_swaps_finish_and_check_status(
     maker_price: f64,
 ) {
     for uuid in uuids.iter() {
-        wait_for_swap_finished(maker, uuid.as_ref(), 900).await;
-        wait_for_swap_finished(taker, uuid.as_ref(), 900).await;
+        let wait_until = get_utc_timestamp() + 900;
+        loop {
+            let maker_status = my_swap_status(maker, uuid.as_ref()).await.unwrap();
+            println("maker_status = {maker_status}");
+            let taker_status = my_swap_status(taker, uuid.as_ref()).await.unwrap();
+            println("taker_status = {taker_status}");
+            if maker_status["result"]["is_finished"].as_bool().unwrap() && taker_status["result"]["is_finished"].as_bool().unwrap() {
+                break;
+            }
+            if get_utc_timestamp() > wait_until {
+                panic!("Timed out waiting for swap {} to finish", uuid);
+            }
+            Timer::sleep(0.5).await;
+        }
 
         log!("Checking taker status..");
         check_my_swap_status(

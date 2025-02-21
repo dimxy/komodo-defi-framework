@@ -794,8 +794,6 @@ async fn trade_base_rel_electrum(
         let alice_stat = wait_check_stats_swap_status(&mm_alice, uuid, 30).await;
         log!("alice status = {}", alice_stat);
 
-
-
         log!("Checking bob status..");
         let bob_stat = wait_check_stats_swap_status(&mm_bob, uuid, 30).await;
         log!("bob status = {}", alice_stat);
