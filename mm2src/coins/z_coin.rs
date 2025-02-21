@@ -540,6 +540,7 @@ impl ZCoin {
             move || tx_builder.build(BranchId::Sapling, prover.as_ref())
         })
         .await?;
+        info!("gen_tx builded tx");
 
         #[cfg(target_arch = "wasm32")]
         let (tx, _) =
@@ -564,6 +565,7 @@ impl ZCoin {
             unused_change: 0,
             kmd_rewards: None,
         };
+        info!("gen_tx return tx");
         Ok((tx, additional_data, sync_guard))
     }
 
