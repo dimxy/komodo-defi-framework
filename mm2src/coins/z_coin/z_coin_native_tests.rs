@@ -1,5 +1,6 @@
 use bitcrypto::dhash160;
-use common::{block_on, now_sec};
+use common::now_sec;
+use common::executor::Timer;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::zombie_conf;
 use std::path::PathBuf;
@@ -20,8 +21,8 @@ fn native_zcoin_activation_params() -> ZcoinActivationParams {
     }
 }
 
-#[test]
-fn zombie_coin_send_and_refund_maker_payment() {
+#[tokio::test(flavor = "multi_thread")]
+async fn zombie_coin_send_and_refund_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -33,7 +34,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -42,7 +43,8 @@ fn zombie_coin_send_and_refund_maker_payment() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
     let time_lock = now_sec() - 3600;
@@ -66,7 +68,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let tx = block_on(coin.send_maker_payment(args)).unwrap();
+    let tx = coin.send_maker_payment(args).await.unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
 
     let refund_args = RefundPaymentArgs {
@@ -80,12 +82,12 @@ fn zombie_coin_send_and_refund_maker_payment() {
         swap_unique_data: maker_uniq_data.as_slice(),
         watcher_reward: false,
     };
-    let refund_tx = block_on(coin.send_maker_refunds_payment(refund_args)).unwrap();
+    let refund_tx = coin.send_maker_refunds_payment(refund_args).await.unwrap();
     log!("refund tx {}", hex::encode(refund_tx.tx_hash_as_bytes().0));
 }
 
-#[test]
-fn zombie_coin_send_and_spend_maker_payment() {
+#[tokio::test(flavor = "multi_thread")]
+async fn zombie_coin_send_and_spend_maker_payment() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -97,7 +99,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -106,7 +108,8 @@ fn zombie_coin_send_and_spend_maker_payment() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
     let lock_time = now_sec() - 1000;
@@ -134,7 +137,7 @@ fn zombie_coin_send_and_spend_maker_payment() {
         wait_for_confirmation_until: 0,
     };
 
-    let tx = block_on(coin.send_maker_payment(maker_payment_args)).unwrap();
+    let tx = coin.send_maker_payment(maker_payment_args).await.unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
     let spends_payment_args = SpendPaymentArgs {
         other_payment_tx: &tx.tx_hex(),
@@ -146,12 +149,12 @@ fn zombie_coin_send_and_spend_maker_payment() {
         swap_unique_data: taker_uniq_data.as_slice(),
         watcher_reward: false,
     };
-    let spend_tx = block_on(coin.send_taker_spends_maker_payment(spends_payment_args)).unwrap();
+    let spend_tx = coin.send_taker_spends_maker_payment(spends_payment_args).await.unwrap();
     log!("spend tx {}", hex::encode(spend_tx.tx_hash_as_bytes().0));
 }
 
-#[test]
-fn zombie_coin_send_dex_fee() {
+#[tokio::test(flavor = "multi_thread")]
+async fn zombie_coin_send_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -163,7 +166,7 @@ fn zombie_coin_send_dex_fee() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -172,15 +175,16 @@ fn zombie_coin_send_dex_fee() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
-    let tx = block_on(z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16])).unwrap();
+    let tx = z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16]).await.unwrap();
     log!("dex fee tx {}", tx.txid());
 }
 
-#[test]
-fn prepare_zombie_sapling_cache() {
+#[tokio::test(flavor = "multi_thread")]
+async fn prepare_zombie_sapling_cache() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -192,7 +196,7 @@ fn prepare_zombie_sapling_cache() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -201,16 +205,17 @@ fn prepare_zombie_sapling_cache() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
-    while !block_on(coin.is_sapling_state_synced()) {
-        std::thread::sleep(Duration::from_secs(1));
+    while !coin.is_sapling_state_synced().await {
+        Timer::sleep(Duration::from_secs(1)).await;
     }
 }
 
-#[test]
-fn zombie_coin_validate_dex_fee() {
+#[tokio::test(flavor = "multi_thread")]
+async fn zombie_coin_validate_dex_fee() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
@@ -222,7 +227,7 @@ fn zombie_coin_validate_dex_fee() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = block_on(z_coin_from_conf_and_params_with_z_key(
+    let coin = z_coin_from_conf_and_params_with_z_key(
         &ctx,
         "ZOMBIE",
         &conf,
@@ -231,7 +236,8 @@ fn zombie_coin_validate_dex_fee() {
         db_dir,
         z_key,
         protocol_info,
-    ))
+    )
+    .await
     .unwrap();
 
     // https://zombie.explorer.lordofthechains.com/tx/462d2fe9494561f9fcf77b21d97add8e58845d24006c9b7f17525b3abb795679
@@ -249,7 +255,7 @@ fn zombie_coin_validate_dex_fee() {
         uuid: &[1; 16],
     };
     // Invalid amount should return an error
-    let err = block_on(coin.validate_fee(validate_fee_args)).unwrap_err().into_inner();
+    let err = coin.validate_fee(validate_fee_args).await.unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid amount")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
@@ -264,7 +270,7 @@ fn zombie_coin_validate_dex_fee() {
         min_block_number: 12000,
         uuid: &[2; 16],
     };
-    let err = block_on(coin.validate_fee(validate_fee_args)).unwrap_err().into_inner();
+    let err = coin.validate_fee(validate_fee_args).await.unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("Dex fee has invalid memo")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
@@ -279,7 +285,7 @@ fn zombie_coin_validate_dex_fee() {
         min_block_number: 810617,
         uuid: &[1; 16],
     };
-    let err = block_on(coin.validate_fee(validate_fee_args)).unwrap_err().into_inner();
+    let err = coin.validate_fee(validate_fee_args).await.unwrap_err().into_inner();
     match err {
         ValidatePaymentError::WrongPaymentTx(err) => assert!(err.contains("confirmed before min block")),
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
@@ -294,5 +300,5 @@ fn zombie_coin_validate_dex_fee() {
         min_block_number: 12000,
         uuid: &[1; 16],
     };
-    block_on(coin.validate_fee(validate_fee_args)).unwrap();
+    coin.validate_fee(validate_fee_args).await.unwrap();
 }
