@@ -79,7 +79,9 @@ pub async fn z_send_htlc(
         value: Amount::zero(),
         script_pubkey: ZCashScript(opret_script),
     };
-    let mm_tx = coin.send_outputs(vec![htlc_output, op_return_out], vec![]).await?;
+    let r = coin.send_outputs(vec![htlc_output, op_return_out], vec![]).await;
+    info!("z_send_htlc send_outputs result={:?}", r);
+    let mm_tx = r?;
 
     info!("z_send_htlc return tx");
     Ok(mm_tx)
