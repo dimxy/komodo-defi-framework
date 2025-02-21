@@ -3636,7 +3636,7 @@ pub async fn wait_for_swaps_finish_and_check_status(
                 break;
             }
             if get_utc_timestamp() > wait_until {
-                panic!("Timed out waiting for swap {} to finish", uuid);
+                panic!("Timed out waiting for swap {} to finish", .as_ref());
             }
             Timer::sleep(0.5).await;
         }
