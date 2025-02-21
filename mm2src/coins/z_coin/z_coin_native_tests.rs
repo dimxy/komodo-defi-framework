@@ -4,7 +4,6 @@ use common::executor::Timer;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::zombie_conf;
 use std::path::PathBuf;
-use std::time::Duration;
 use zcash_client_backend::encoding::decode_extended_spending_key;
 
 use super::{z_coin_from_conf_and_params_with_z_key, z_mainnet_constants, PrivKeyBuildPolicy, RefundPaymentArgs,
@@ -210,7 +209,7 @@ async fn prepare_zombie_sapling_cache() {
     .unwrap();
 
     while !coin.is_sapling_state_synced().await {
-        Timer::sleep(Duration::from_secs(1)).await;
+        Timer::sleep(1.0).await;
     }
 }
 
