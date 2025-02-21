@@ -283,7 +283,7 @@ fn zombie_coin_validate_dex_fee() {
         expected_sender: &[],
         fee_addr: &[],
         dex_fee: &DexFee::Standard(MmNumber::from("0.01")),
-        min_block_number: 14000,
+        min_block_number: 810617,
         uuid: &[1; 16],
     };
     let err = block_on(coin.validate_fee(validate_fee_args)).unwrap_err().into_inner();
