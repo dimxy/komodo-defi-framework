@@ -791,10 +791,14 @@ async fn trade_base_rel_electrum(
     #[cfg(all(not(target_arch = "wasm32"), not(feature = "zhtlc-native-tests")))]
     for uuid in uuids.iter() {
         log!("Checking alice status..");
-        wait_check_stats_swap_status(&mm_alice, uuid, 30).await;
+        let alice_stat = wait_check_stats_swap_status(&mm_alice, uuid, 30).await;
+        log!("alice status = {}", alice_stat);
+
+
 
         log!("Checking bob status..");
-        wait_check_stats_swap_status(&mm_bob, uuid, 30).await;
+        let bob_stat = wait_check_stats_swap_status(&mm_bob, uuid, 30).await;
+        log!("bob status = {}", alice_stat);
     }
 
     log!("Checking alice recent swaps..");
