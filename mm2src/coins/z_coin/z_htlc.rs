@@ -30,6 +30,7 @@ use zcash_primitives::transaction::builder::Error as ZTxBuilderError;
 use zcash_primitives::transaction::components::OutPoint as ZCashOutpoint;
 use zcash_primitives::transaction::components::{Amount, TxOut};
 use zcash_primitives::transaction::Transaction as ZTransaction;
+use common::log::info;
 
 cfg_native!(
     use common::async_blocking;
