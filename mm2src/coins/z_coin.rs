@@ -573,6 +573,7 @@ impl ZCoin {
         z_outputs: Vec<ZOutput>,
     ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
         let (tx, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
+        info!("send_outputs tx created");
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes).expect("Write should not fail");
 
@@ -582,6 +583,8 @@ impl ZCoin {
             .compat()
             .await
         {
+            info!("send_outputs send_raw_transaction err {:?}", err);
+
             // !important: remove tx generated change output if sending tx fails.
             self.z_fields
                 .change_note_db
@@ -592,7 +595,9 @@ impl ZCoin {
             return Err(err.into());
         };
 
+        info!("send_outputs watch_for_tx...");
         sync_guard.respawn_guard.watch_for_tx(tx.txid());
+        info!("send_outputs watch_for_tx ended");
         Ok(tx)
     }
 
