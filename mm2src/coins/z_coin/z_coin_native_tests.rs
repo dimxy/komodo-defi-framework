@@ -46,12 +46,10 @@ fn zombie_coin_send_and_refund_maker_payment() {
     .unwrap();
 
     let time_lock = now_sec() - 3600;
-    //let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();
     let secret_hash = [0; 20];
 
     let maker_uniq_data = [3; 32];
     let maker_key_pair = coin.derive_htlc_key_pair(maker_uniq_data.as_slice());
-    let maker_pub = maker_key_pair.public();
 
     let taker_uniq_data = [5; 32];
     let taker_key_pair = coin.derive_htlc_key_pair(taker_uniq_data.as_slice());
@@ -113,7 +111,6 @@ fn zombie_coin_send_and_spend_maker_payment() {
     .unwrap();
 
     let lock_time = now_sec() - 1000;
-    //let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();
     let secret = [0; 32];
     let secret_hash = dhash160(&secret);
 
@@ -140,9 +137,6 @@ fn zombie_coin_send_and_spend_maker_payment() {
 
     let tx = block_on(coin.send_maker_payment(maker_payment_args)).unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
-
-    //let maker_pub = taker_pub;
-
     let spends_payment_args = SpendPaymentArgs {
         other_payment_tx: &tx.tx_hex(),
         time_lock: lock_time,
