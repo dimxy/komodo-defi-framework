@@ -18,7 +18,7 @@ use mm2_test_helpers::for_tests::{account_balance, btc_segwit_conf, btc_with_spv
                                   get_wallet_names, mm_spat, morty_conf, my_balance, rick_conf, sign_message,
                                   start_swaps, tbtc_conf, tbtc_segwit_conf, tbtc_with_spv_conf,
                                   test_qrc20_history_impl, tqrc20_conf, verify_message,
-                                  wait_for_swaps_finish_and_check_status, wait_till_history_has_records,
+                                  wait_for_swaps_finish_and_check_status, wait_till_history_has_records, zombie_conf,
                                   MarketMakerIt, Mm2InitPrivKeyPolicy, Mm2TestConf, Mm2TestConfForSwap, RaiiDump,
                                   DOC_ELECTRUM_ADDRS, ETH_MAINNET_NODES, ETH_MAINNET_SWAP_CONTRACT, ETH_SEPOLIA_NODES,
                                   ETH_SEPOLIA_SWAP_CONTRACT, MARTY_ELECTRUM_ADDRS, MORTY, QRC20_ELECTRUMS, RICK,
@@ -693,11 +693,7 @@ async fn trade_base_rel_electrum(
     taker_price: f64,
     volume: f64,
 ) {
-    let coins = json!([
-        rick_conf(),
-        morty_conf(),
-        {"coin":"ZOMBIE","asset":"ZOMBIE","fname":"ZOMBIE (TESTCOIN)","txversion":4,"overwintered":1,"mm2":1,"protocol":{"type":"ZHTLC"},"required_confirmations":0},
-    ]);
+    let coins = json!([rick_conf(), morty_conf(), zombie_conf()]);
 
     let bob_conf = Mm2TestConfForSwap::bob_conf_with_policy(&bob_priv_key_policy, &coins);
     let mut mm_bob = MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, None)
@@ -731,8 +727,9 @@ async fn trade_base_rel_electrum(
         Timer::sleep(1.).await;
         let rmd = rmd160_from_passphrase(&bob_passphrase);
         let bob_zombie_cache_path = mm_bob.folder.join("DB").join(hex::encode(rmd)).join("ZOMBIE_CACHE.db");
+        log!("Current directory: {}", env::current_dir().unwrap().display());
         log!("bob_zombie_cache_path {}", bob_zombie_cache_path.display());
-        std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
+        std::fs::copy("../coins/for_tests/ZOMBIE_CACHE.db", bob_zombie_cache_path).unwrap();
 
         let alice_passphrase = get_passphrase!(".env.client", "ALICE_PASSPHRASE").unwrap();
         let rmd = rmd160_from_passphrase(&alice_passphrase);
@@ -743,7 +740,7 @@ async fn trade_base_rel_electrum(
             .join("ZOMBIE_CACHE.db");
         log!("alice_zombie_cache_path {}", alice_zombie_cache_path.display());
 
-        std::fs::copy("./mm2src/coins/for_tests/ZOMBIE_CACHE.db", alice_zombie_cache_path).unwrap();
+        std::fs::copy("../coins/for_tests/ZOMBIE_CACHE.db", alice_zombie_cache_path).unwrap();
 
         let zombie_bob = enable_z_coin(&mm_bob, "ZOMBIE").await;
         log!("enable ZOMBIE bob {:?}", zombie_bob);
