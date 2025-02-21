@@ -2502,7 +2502,7 @@ pub async fn check_my_swap_status_amounts(
     assert_eq!(taker_amount, actual_taker_amount);
 }
 
-pub async fn wait_check_stats_swap_status(mm: &MarketMakerIt, uuid: &str, timeout: i64) {
+pub async fn wait_check_stats_swap_status(mm: &MarketMakerIt, uuid: &str, timeout: i64) -> Json {
     let wait_until = get_utc_timestamp() + timeout;
     loop {
         let response = mm
@@ -2519,14 +2519,14 @@ pub async fn wait_check_stats_swap_status(mm: &MarketMakerIt, uuid: &str, timeou
 
         // Perform the checks only if the maker and taker stats are available.
         // Sometimes they are slow to propagate so we need to wait a bit.
-        if status_response["result"]["maker"].is_null() || status_response["result"]["taker"].is_null() {
+        if status_response["result"]["Maker"].is_null() || status_response["result"]["Taker"].is_null() {
             Timer::sleep(1.).await;
             if get_utc_timestamp() > wait_until {
                 panic!("Timed out waiting for swap stats status uuid={}", uuid);
             }
         } else {
-            let maker_events_array = status_response["result"]["maker"]["events"].as_array().unwrap();
-            let taker_events_array = status_response["result"]["taker"]["events"].as_array().unwrap();
+            let maker_events_array = status_response["result"]["events"].as_array().unwrap();
+            let taker_events_array = status_response["result"]["events"].as_array().unwrap();
             let maker_actual_events = maker_events_array
                 .iter()
                 .map(|item| item["event"]["type"].as_str().unwrap());
@@ -2542,7 +2542,7 @@ pub async fn wait_check_stats_swap_status(mm: &MarketMakerIt, uuid: &str, timeou
                     || taker_actual_events.as_slice() == TAKER_ACTUAL_EVENTS_WATCHER_SPENDS_MAKER_PAYMENT
                     || taker_actual_events.as_slice() == TAKER_ACTUAL_EVENTS_TAKER_SPENDS_MAKER_PAYMENT
             );
-            return;
+            return status_response;
         }
     }
 }
