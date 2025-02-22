@@ -924,9 +924,11 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
         }
 
         if let Ok(Some(sender)) = sync_handle.on_tx_gen_watcher.try_next() {
+            info!("light_wallet_db_sync_loop received sender");
             match sender.send((sync_handle, client)) {
-                Ok(_) => break,
+                Ok(_) => { info!("light_wallet_db_sync_loop sent sync_handle okay"); break},
                 Err((handle_from_channel, rpc_from_channel)) => {
+                    info!("light_wallet_db_sync_loop sent sync_handle error");
                     sync_handle = handle_from_channel;
                     client = rpc_from_channel;
                 },
@@ -935,6 +937,7 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
 
         Timer::sleep(10.).await;
     }
+    info!("exiting light_wallet_db_sync_loop");
 }
 
 type SyncWatcher = AsyncReceiver<SyncStatus>;
@@ -978,9 +981,11 @@ impl SaplingSyncConnector {
         &mut self,
     ) -> Result<SaplingSyncRespawnGuard, MmError<BlockchainScanStopped>> {
         let (sender, receiver) = oneshot_channel();
+        info!("wait_for_gen_tx_blockchain_sync sending sender");
         self.on_tx_gen_notifier
             .try_send(sender)
             .map_to_mm(|_| BlockchainScanStopped {})?;
+        info!("wait_for_gen_tx_blockchain_sync waiting on receiver");
         receiver
             .await
             .map(|(handle, rpc)| SaplingSyncRespawnGuard {
