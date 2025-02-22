@@ -477,10 +477,13 @@ impl ZRpcOps for NativeClient {
     async fn check_tx_existence(&self, tx_id: TxId) -> bool {
         let mut attempts = 0;
         loop {
-            match self.get_raw_transaction_bytes(&H256Json::from(tx_id.0)).compat().await {
+            // NOTE: zcash_primitives::transaction::TxId keeps the transaction hash like a low-endian number 
+            // (i.e. in reversed order) like it is done in bitcoin or zcash code,
+            // whereas H256Json keeps it as is, so we need to reverse:
+            match self.get_raw_transaction_bytes(&H256Json::from(tx_id.0).reversed()).compat().await {
                 Ok(_) => break,
                 Err(e) => {
-                    let h = H256Json::from(tx_id.0);
+                    let h = H256Json::from(tx_id.0).reversed();
                     error!("Error on getting tx {} 0={:02x} last={:02x} h={} h0={:02x} hlast={:02x} {}", 
                         tx_id, 
                         tx_id.0[0], tx_id.0[31], 
