@@ -893,12 +893,14 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
     );
 
     loop {
+        info!("light_wallet_db_sync_loop loop starting");
         if let Err(e) = sync_handle.update_blocks_cache(client.as_ref()).await {
             error!("Error {} on blocks cache update", e);
             sync_handle.notify_on_error(e.to_string());
             Timer::sleep(10.).await;
             continue;
         }
+        info!("light_wallet_db_sync_loop update_blocks_cache finished");
 
         if let Err(e) = sync_handle.scan_validate_and_update_blocks().await {
             error!("Error {} on scan_blocks", e);
@@ -907,10 +909,13 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
             continue;
         }
 
+        info!("light_wallet_db_sync_loop scan_validate_and_update_blocks finished");
         sync_handle.notify_sync_finished();
 
+        info!("light_wallet_db_sync_loop notify_sync_finished finished");
         sync_handle.check_watch_for_tx_existence(client.as_ref()).await;
 
+        info!("light_wallet_db_sync_loop check_watch_for_tx_existence finished");
         if let Some(tx_id) = sync_handle.watch_for_tx {
             let walletdb = &sync_handle.wallet_db;
             if let Ok(is_tx_imported) = walletdb.is_tx_imported(tx_id).await {
@@ -923,6 +928,7 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
             sync_handle.watch_for_tx = None;
         }
 
+        info!("light_wallet_db_sync_loop watch_for_tx finished");
         if let Ok(Some(sender)) = sync_handle.on_tx_gen_watcher.try_next() {
             info!("light_wallet_db_sync_loop received sender");
             match sender.send((sync_handle, client)) {
