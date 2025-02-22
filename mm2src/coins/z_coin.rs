@@ -314,7 +314,9 @@ impl ZCoin {
     }
 
     async fn wait_for_gen_tx_blockchain_sync(&self) -> Result<SaplingSyncGuard<'_>, MmError<BlockchainScanStopped>> {
+        info!("wait_for_gen_tx_blockchain_sync waiting on sync_state_connector.lock...");
         let mut connector_guard = self.z_fields.sync_state_connector.lock().await;
+        info!("wait_for_gen_tx_blockchain_sync waiting on wait_for_gen_tx_blockchain_sync...");
         let sync_respawn_guard = connector_guard.wait_for_gen_tx_blockchain_sync().await?;
         Ok(SaplingSyncGuard {
             _connector_guard: connector_guard,

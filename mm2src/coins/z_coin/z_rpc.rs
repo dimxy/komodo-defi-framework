@@ -396,7 +396,7 @@ impl ZRpcOps for NativeClient {
     ) -> Result<(), MmError<UpdateBlocksCacheErr>> {
         for height in start_block..=last_block {
             let block = self.get_block_by_height(height).await?;
-            debug!("Got block {:?}", block);
+            //debug!("Got block {:?}", block);
             info!("Got block {:?} last_block={}", height, last_block);
             let mut compact_txs = Vec::with_capacity(block.tx.len());
             // By default, CompactBlocks only contain CompactTxs for transactions that contain Sapling spends or outputs.
