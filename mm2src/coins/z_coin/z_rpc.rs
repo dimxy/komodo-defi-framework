@@ -480,7 +480,12 @@ impl ZRpcOps for NativeClient {
             match self.get_raw_transaction_bytes(&H256Json::from(tx_id.0)).compat().await {
                 Ok(_) => break,
                 Err(e) => {
-                    error!("Error on getting tx {} 0={:02x} last={:02x} {}", tx_id, tx_id.0[0], tx_id.0[31], e.to_string());
+                    let h = H256Json::from(tx_id.0);
+                    error!("Error on getting tx {} 0={:02x} last={:02x} h={} h0={:02x} hlast={:02x} {}", 
+                        tx_id, 
+                        tx_id.0[0], tx_id.0[31], 
+                        h.to_string(), h.0[0], h.0[31],
+                        e.to_string());
                     if e.to_string().contains(NO_TX_ERROR_CODE) {
                         if attempts >= 3 {
                             return false;
