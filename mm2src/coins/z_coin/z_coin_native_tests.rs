@@ -143,7 +143,7 @@ async fn zombie_coin_send_and_spend_maker_payment() {
         time_lock: lock_time,
         other_pubkey: maker_pub,
         secret: &secret,
-        secret_hash: &secret_hash.as_slice(),
+        secret_hash: secret_hash.as_slice(),
         swap_contract_address: &None,
         swap_unique_data: taker_uniq_data.as_slice(),
         watcher_reward: false,
