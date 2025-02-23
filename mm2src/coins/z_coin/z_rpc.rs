@@ -1,5 +1,4 @@
 use super::{z_coin_errors::*, BlockDbImpl, CheckPointBlockInfo, WalletDbShared, ZCoinBuilder, ZcoinConsensusParams};
-use crate::utxo::rpc_clients::NO_TX_ERROR_CODE;
 use crate::utxo::utxo_builder::{UtxoCoinBuilderCommonOps, DAY_IN_SECONDS};
 use crate::z_coin::storage::{BlockProcessingMode, DataConnStmtCacheWrapper};
 use crate::z_coin::SyncStartPoint;
@@ -338,14 +337,12 @@ impl ZRpcOps for LightRpcClient {
                 });
                 match client.get_transaction(request).await {
                     Ok(_) => break,
-                    Err(e) => {
+                    Err(_e) => {
                         error!("Error on getting tx {}", tx_id);
-                        if e.message().contains(NO_TX_ERROR_CODE) {
-                            if attempts >= 3 {
-                                return false;
-                            }
-                            attempts += 1;
+                        if attempts >= 3 {
+                            return false;
                         }
+                        attempts += 1;
                         Timer::sleep(30.).await;
                     },
                 }
@@ -476,19 +473,21 @@ impl ZRpcOps for NativeClient {
     async fn check_tx_existence(&self, tx_id: TxId) -> bool {
         let mut attempts = 0;
         loop {
-            // NOTE: zcash_primitives::transaction::TxId keeps the transaction hash like a low-endian number 
+            // NOTE: zcash_primitives::transaction::TxId keeps the transaction hash like a low-endian number
             // (i.e. in reversed order) like it is done in bitcoin or zcash code,
             // whereas H256Json keeps it as is, so we need to reverse:
-            match self.get_raw_transaction_bytes(&H256Json::from(tx_id.0).reversed()).compat().await {
+            match self
+                .get_raw_transaction_bytes(&H256Json::from(tx_id.0).reversed())
+                .compat()
+                .await
+            {
                 Ok(_) => break,
-                Err(e) => {
+                Err(_e) => {
                     error!("Error on getting tx {}", tx_id);
-                    if e.to_string().contains(NO_TX_ERROR_CODE) {
-                        if attempts >= 3 {
-                            return false;
-                        }
-                        attempts += 1;
+                    if attempts >= 3 {
+                        return false;
                     }
+                    attempts += 1;
                     Timer::sleep(30.).await;
                 },
             }
