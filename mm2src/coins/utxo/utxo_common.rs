@@ -569,9 +569,6 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             });
             total += utxo.value;
         }
-        if total >= amount {
-            return total;
-        }
         for utxo in &self.available_inputs {
             if total >= amount {
                 break;
@@ -583,9 +580,6 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
                 amount: utxo.value,
             });
             total += utxo.value;
-            if total >= amount {
-                break;
-            }
         }
         total
     }
