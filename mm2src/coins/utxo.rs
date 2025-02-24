@@ -878,13 +878,10 @@ pub trait UtxoTxGenerationOps {
     /// Calculates interest if the coin is KMD
     /// Adds the value to existing output to my_script_pub or creates additional interest output
     /// returns transaction and data as is if the coin is not KMD
-    async fn calc_interest_if_required(
-        &self,
-        mut unsigned: TransactionInputSigner,
-        mut data: AdditionalTxData,
-        my_script_pub: Bytes,
-        dust: u64,
-    ) -> UtxoRpcResult<(TransactionInputSigner, AdditionalTxData)>;
+    async fn calc_interest_if_required(&self, unsigned: &mut TransactionInputSigner) -> UtxoRpcResult<u64>;
+
+    /// Is KMD coin
+    fn is_kmd(&self) -> bool;
 }
 
 /// The UTXO address balance scanner.

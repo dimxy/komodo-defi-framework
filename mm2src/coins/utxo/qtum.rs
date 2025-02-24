@@ -317,15 +317,11 @@ impl UtxoTxBroadcastOps for QtumCoin {
 impl UtxoTxGenerationOps for QtumCoin {
     async fn get_fee_rate(&self) -> UtxoRpcResult<ActualFeeRate> { utxo_common::get_fee_rate(&self.utxo_arc).await }
 
-    async fn calc_interest_if_required(
-        &self,
-        unsigned: TransactionInputSigner,
-        data: AdditionalTxData,
-        my_script_pub: Bytes,
-        dust: u64,
-    ) -> UtxoRpcResult<(TransactionInputSigner, AdditionalTxData)> {
-        utxo_common::calc_interest_if_required(self, unsigned, data, my_script_pub, dust).await
+    async fn calc_interest_if_required(&self, unsigned: &mut TransactionInputSigner) -> UtxoRpcResult<u64> {
+        utxo_common::calc_interest_if_required(self, unsigned).await
     }
+
+    fn is_kmd(&self) -> bool { utxo_common::is_kmd(self) }
 }
 
 #[async_trait]

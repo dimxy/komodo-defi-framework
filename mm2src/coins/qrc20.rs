@@ -11,11 +11,10 @@ use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoi
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
                                 UtxoFieldsWithIguanaSecretBuilder};
 use crate::utxo::utxo_common::{self, big_decimal_from_sat, check_all_utxo_inputs_signed_by_pub, UtxoTxBuilder};
-use crate::utxo::{qtum, ActualFeeRate, AdditionalTxData, AddrFromStrError, BroadcastTxErr, FeePolicy, GenerateTxError,
-                  GetUtxoListOps, HistoryUtxoTx, HistoryUtxoTxMap, MatureUnspentList, RecentlySpentOutPointsGuard,
-                  UnsupportedAddr, UtxoActivationParams, UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps,
-                  UtxoFromLegacyReqErr, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom,
-                  UTXO_LOCK};
+use crate::utxo::{qtum, ActualFeeRate, AddrFromStrError, BroadcastTxErr, FeePolicy, GenerateTxError, GetUtxoListOps,
+                  HistoryUtxoTx, HistoryUtxoTxMap, MatureUnspentList, RecentlySpentOutPointsGuard, UnsupportedAddr,
+                  UtxoActivationParams, UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps, UtxoFromLegacyReqErr,
+                  UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom, UTXO_LOCK};
 use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput,
             DexFee, Eip1559Ops, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, IguanaPrivKey, MakerSwapTakerCoin,
             MarketCoinOps, MmCoin, MmCoinEnum, NegotiateSwapContractAddrErr, PaymentInstructionArgs,
@@ -615,15 +614,11 @@ impl UtxoTxGenerationOps for Qrc20Coin {
     /// Get only QTUM transaction fee.
     async fn get_fee_rate(&self) -> UtxoRpcResult<ActualFeeRate> { utxo_common::get_fee_rate(&self.utxo).await }
 
-    async fn calc_interest_if_required(
-        &self,
-        unsigned: TransactionInputSigner,
-        data: AdditionalTxData,
-        my_script_pub: ScriptBytes,
-        dust: u64,
-    ) -> UtxoRpcResult<(TransactionInputSigner, AdditionalTxData)> {
-        utxo_common::calc_interest_if_required(self, unsigned, data, my_script_pub, dust).await
+    async fn calc_interest_if_required(&self, unsigned: &mut TransactionInputSigner) -> UtxoRpcResult<u64> {
+        utxo_common::calc_interest_if_required(self, unsigned).await
     }
+
+    fn is_kmd(&self) -> bool { utxo_common::is_kmd(self) }
 }
 
 #[async_trait]

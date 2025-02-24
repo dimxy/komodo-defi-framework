@@ -10,9 +10,9 @@ use crate::utxo::bch::BchCoin;
 use crate::utxo::bchd_grpc::{check_slp_transaction, validate_slp_utxos, ValidateSlpUtxosErr};
 use crate::utxo::rpc_clients::{UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcResult};
 use crate::utxo::utxo_common::{self, big_decimal_from_sat_unsigned, payment_script, UtxoTxBuilder};
-use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualFeeRate, AdditionalTxData, BroadcastTxErr,
-                  FeePolicy, GenerateTxError, RecentlySpentOutPointsGuard, UtxoCoinConf, UtxoCoinFields,
-                  UtxoCommonOps, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps};
+use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualFeeRate, BroadcastTxErr, FeePolicy,
+                  GenerateTxError, RecentlySpentOutPointsGuard, UtxoCoinConf, UtxoCoinFields, UtxoCommonOps, UtxoTx,
+                  UtxoTxBroadcastOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, CoinFutSpawner, ConfirmPaymentInput, DerivationMethod,
             DexFee, FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MakerSwapTakerCoin, MarketCoinOps, MmCoin,
             MmCoinEnum, NegotiateSwapContractAddrErr, NumConversError, PaymentInstructionArgs, PaymentInstructions,
@@ -1080,17 +1080,11 @@ impl UtxoTxBroadcastOps for SlpToken {
 impl UtxoTxGenerationOps for SlpToken {
     async fn get_fee_rate(&self) -> UtxoRpcResult<ActualFeeRate> { self.platform_coin.get_fee_rate().await }
 
-    async fn calc_interest_if_required(
-        &self,
-        unsigned: TransactionInputSigner,
-        data: AdditionalTxData,
-        my_script_pub: Bytes,
-        dust: u64,
-    ) -> UtxoRpcResult<(TransactionInputSigner, AdditionalTxData)> {
-        self.platform_coin
-            .calc_interest_if_required(unsigned, data, my_script_pub, dust)
-            .await
+    async fn calc_interest_if_required(&self, unsigned: &mut TransactionInputSigner) -> UtxoRpcResult<u64> {
+        self.platform_coin.calc_interest_if_required(unsigned).await
     }
+
+    fn is_kmd(&self) -> bool { self.platform_coin.is_kmd() }
 }
 
 #[async_trait]

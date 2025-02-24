@@ -473,6 +473,7 @@ pub struct UtxoTxBuilder<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> {
     tx_fee: u64,
     min_relay_fee_rate: Option<u64>,
     dust: Option<u64>,
+    interest: u64,
 }
 
 impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
@@ -492,6 +493,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             tx_fee: 0,
             min_relay_fee_rate: None,
             dust: None,
+            interest: 0,
         }
     }
 
@@ -597,16 +599,26 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         total
     }
 
+    fn make_kmd_rewards_data(coin: &T, interest: u64) -> Option<KmdRewardsDetails> {
+        let rewards_amount = big_decimal_from_sat_unsigned(interest, coin.as_ref().decimals);
+        if coin.is_kmd() {
+            Some(KmdRewardsDetails::claimed_by_me(rewards_amount))
+        } else {
+            None
+        }
+    }
+
     /// Adds change output.
     /// Returns change value and dust change
-    fn add_change(&mut self, change_script_pubkey: &Bytes) -> (u64, u64) {
+    async fn add_change(&mut self, coin: &T, change_script_pubkey: &Bytes) -> UtxoRpcResult<(u64, u64)> {
         let sum_output_with_fee = self.sum_outputs + self.total_tx_fee();
         if self.sum_inputs < sum_output_with_fee {
-            return (0u64, 0u64);
+            return Ok((0u64, 0u64));
         }
-        let change = self.sum_inputs - sum_output_with_fee;
+        self.interest = coin.calc_interest_if_required(&mut self.tx).await?;
+        let change = self.sum_inputs + self.interest - sum_output_with_fee;
         if change < self.dust() {
-            return (0u64, change);
+            return Ok((0u64, change));
         };
         self.tx.outputs.push({
             TransactionOutput {
@@ -614,7 +626,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
                 script_pubkey: change_script_pubkey.clone(),
             }
         });
-        (change, 0u64)
+        Ok((change, 0u64))
     }
 
     /// Recalculates tx fee for tx size.
@@ -689,7 +701,6 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
     /// Also returns additional transaction data
     pub async fn build(mut self) -> GenerateTxResult {
         let coin = self.coin;
-        let dust: u64 = self.dust();
         let from = self
             .from
             .clone()
@@ -722,7 +733,6 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
 
         #[allow(unused_assignments)]
         let mut unused_change = 0u64;
-
         let mut one_time_fee_update = false;
         loop {
             let required_amount_0 = self.required_amount();
@@ -743,11 +753,11 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
                 .sum_outputs
                 .checked_sub(self.deduct_txfee_from_output()?)
                 .or_mm_err(|| GenerateTxError::Internal("sum_outputs underflow".to_owned()))?;
-            let (change, unused) = self.add_change(&change_script_pubkey);
-            self.sum_outputs += change;
+            let (change, unused) = self.add_change(coin, &change_script_pubkey).await?;
             unused_change = unused;
+            self.sum_outputs += change;
             self.update_tx_fee(from.addr_format(), &actual_fee_rate); // recalculate txfee with the change output, if added
-            if self.sum_inputs >= self.sum_outputs + self.total_tx_fee() {
+            if self.sum_inputs + self.interest >= self.sum_outputs + self.total_tx_fee() {
                 break;
             }
         }
@@ -758,12 +768,10 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             spent_by_me: self.sum_inputs,
             unused_change,
             // will be changed if the ticker is KMD
-            kmd_rewards: None,
+            kmd_rewards: Self::make_kmd_rewards_data(coin, self.interest),
         };
 
-        Ok(coin
-            .calc_interest_if_required(self.tx, data, change_script_pubkey, dust)
-            .await?)
+        Ok((self.tx, data))
     }
 
     /// Generates unsigned transaction (TransactionInputSigner) from specified utxos and outputs.
@@ -815,13 +823,10 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
 /// returns transaction and data as is if the coin is not KMD
 pub async fn calc_interest_if_required<T: UtxoCommonOps>(
     coin: &T,
-    mut unsigned: TransactionInputSigner,
-    mut data: AdditionalTxData,
-    my_script_pub: Bytes,
-    dust: u64,
-) -> UtxoRpcResult<(TransactionInputSigner, AdditionalTxData)> {
-    if coin.as_ref().conf.ticker != "KMD" {
-        return Ok((unsigned, data));
+    unsigned: &mut TransactionInputSigner,
+) -> UtxoRpcResult<u64> {
+    if !coin.is_kmd() {
+        return Ok(0);
     }
     unsigned.lock_time = coin.get_current_mtp().await?;
     let mut interest = 0;
@@ -839,38 +844,14 @@ pub async fn calc_interest_if_required<T: UtxoCommonOps>(
             interest += output_interest;
         };
     }
-    if interest > 0 {
-        data.received_by_me += interest;
-        let mut output_to_me = unsigned
-            .outputs
-            .iter_mut()
-            .find(|out| out.script_pubkey == my_script_pub);
-        // add calculated interest to existing output to my address
-        // or create the new one if it's not found
-        match output_to_me {
-            Some(ref mut output) => output.value += interest,
-            None => {
-                let maybe_change_output_value = interest + data.unused_change;
-                if maybe_change_output_value > dust {
-                    let change_output = TransactionOutput {
-                        script_pubkey: my_script_pub,
-                        value: maybe_change_output_value,
-                    };
-                    unsigned.outputs.push(change_output);
-                    data.unused_change = 0;
-                } else {
-                    data.unused_change += interest;
-                }
-            },
-        };
-    } else {
+    if interest == 0 {
         // if interest is zero attempt to set the lowest possible lock_time to claim it later
         unsigned.lock_time = now_sec_u32() - 3600 + 777 * 2;
     }
-    let rewards_amount = big_decimal_from_sat_unsigned(interest, coin.as_ref().decimals);
-    data.kmd_rewards = Some(KmdRewardsDetails::claimed_by_me(rewards_amount));
-    Ok((unsigned, data))
+    Ok(interest)
 }
+
+pub fn is_kmd<T: UtxoCommonOps>(coin: &T) -> bool { &coin.as_ref().conf.ticker == "KMD" }
 
 pub struct P2SHSpendingTxInput<'a> {
     prev_transaction: UtxoTx,
@@ -3773,7 +3754,7 @@ pub async fn calc_interest_of_tx<T: UtxoCommonOps>(
     tx: &UtxoTx,
     input_transactions: &mut HistoryUtxoTxMap,
 ) -> UtxoRpcResult<u64> {
-    if coin.as_ref().conf.ticker != "KMD" {
+    if !coin.is_kmd() {
         let error = format!("Expected KMD ticker, found {}", coin.as_ref().conf.ticker);
         return MmError::err(UtxoRpcError::Internal(error));
     }
