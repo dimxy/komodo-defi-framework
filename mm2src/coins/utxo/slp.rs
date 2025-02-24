@@ -10,9 +10,9 @@ use crate::utxo::bch::BchCoin;
 use crate::utxo::bchd_grpc::{check_slp_transaction, validate_slp_utxos, ValidateSlpUtxosErr};
 use crate::utxo::rpc_clients::{UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcResult};
 use crate::utxo::utxo_common::{self, big_decimal_from_sat_unsigned, payment_script, UtxoTxBuilder};
-use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualTxFee, AdditionalTxData, BroadcastTxErr,
-                  FeePolicy, GenerateTxError, RecentlySpentOutPointsGuard, UtxoCoinConf, UtxoCoinFields,
-                  UtxoCommonOps, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps};
+use crate::utxo::{generate_and_send_tx, sat_from_big_decimal, ActualFeeRate, BroadcastTxErr, FeePolicy,
+                  GenerateTxError, RecentlySpentOutPointsGuard, UtxoCoinConf, UtxoCoinFields, UtxoCommonOps, UtxoTx,
+                  UtxoTxBroadcastOps, UtxoTxGenerationOps};
 use crate::{BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, ConfirmPaymentInput, DerivationMethod, DexFee,
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, MarketCoinOps, MmCoin, NegotiateSwapContractAddrErr,
             NumConversError, PrivKeyPolicyNotAllowed, RawTransactionFut, RawTransactionRequest, RawTransactionResult,

@@ -11,11 +11,10 @@ use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuildResult, UtxoCoi
                                 UtxoFieldsWithGlobalHDBuilder, UtxoFieldsWithHardwareWalletBuilder,
                                 UtxoFieldsWithIguanaSecretBuilder};
 use crate::utxo::utxo_common::{self, big_decimal_from_sat, check_all_utxo_inputs_signed_by_pub, UtxoTxBuilder};
-use crate::utxo::{qtum, ActualTxFee, AdditionalTxData, AddrFromStrError, BroadcastTxErr, FeePolicy, GenerateTxError,
-                  GetUtxoListOps, HistoryUtxoTx, HistoryUtxoTxMap, MatureUnspentList, RecentlySpentOutPointsGuard,
-                  UnsupportedAddr, UtxoActivationParams, UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps,
-                  UtxoFromLegacyReqErr, UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom,
-                  UTXO_LOCK};
+use crate::utxo::{qtum, ActualFeeRate, AddrFromStrError, BroadcastTxErr, FeePolicy, GenerateTxError, GetUtxoListOps,
+                  HistoryUtxoTx, HistoryUtxoTxMap, MatureUnspentList, RecentlySpentOutPointsGuard, UnsupportedAddr,
+                  UtxoActivationParams, UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps, UtxoFromLegacyReqErr,
+                  UtxoTx, UtxoTxBroadcastOps, UtxoTxGenerationOps, VerboseTransactionFrom, UTXO_LOCK};
 use crate::{BalanceError, BalanceFut, CheckIfMyPaymentSentArgs, CoinBalance, ConfirmPaymentInput, DexFee, Eip1559Ops,
             FeeApproxStage, FoundSwapTxSpend, HistorySyncState, IguanaPrivKey, MarketCoinOps, MmCoin,
             NegotiateSwapContractAddrErr, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed, RawTransactionFut,
