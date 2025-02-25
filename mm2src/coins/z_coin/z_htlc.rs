@@ -55,6 +55,7 @@ pub async fn z_send_htlc(
     .as_sh(script_hash.into())
     .build()
     .map_to_mm(SendOutputsErr::InternalError)?;
+    println!("address: {htlc_address:?}");
 
     let amount_sat = sat_from_big_decimal(&amount, coin.utxo_arc.decimals)?;
     let address = htlc_address.to_string();

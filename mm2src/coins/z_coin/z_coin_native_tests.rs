@@ -1,5 +1,5 @@
 use bitcrypto::dhash160;
-use common::{block_on, now_sec};
+use common::{block_on, now_sec, Future01CompatExt};
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::zombie_conf;
 use std::path::PathBuf;
@@ -9,8 +9,8 @@ use zcash_client_backend::encoding::decode_extended_spending_key;
 use super::{z_coin_from_conf_and_params_with_z_key, z_mainnet_constants, PrivKeyBuildPolicy, RefundPaymentArgs,
             SendPaymentArgs, SpendPaymentArgs, SwapOps, ValidateFeeArgs, ValidatePaymentError, ZTransaction};
 use crate::z_coin::{z_htlc::z_send_dex_fee, ZcoinActivationParams, ZcoinRpcMode};
-use crate::DexFee;
 use crate::{CoinProtocol, SwapTxTypeWithSecretHash};
+use crate::{DexFee, MarketCoinOps};
 use mm2_number::MmNumber;
 
 #[test]
@@ -20,7 +20,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
     let params = default_zcoin_activation_params();
     let pk_data = [1; 32];
     let db_dir = PathBuf::from("./for_tests");
-    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").unwrap().unwrap();
+    let z_key = decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, "secret-extended-key-main1q0st6zl3q5qqpqysyg8d8fyhd2wk882nhu222vqtdlvnrptnpg0mucu55v46gggkfljfftt944vdr2c85qj08yns9mgv6vsv6j58gjye8xxhc8htqnaqtyeedn457xtx05hkuk3vewv4sqtj4m7rzfgd795974pqrf540fsd9n4n4re70zanedum0cc5fz28ky28m0jnlsxal97fszxys2wvh6t8kjc3wv44kk892fp7dmfmd7ntycyxl262swm676gzwapesfvppfgqrzg6j").unwrap().unwrap();
     let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
         CoinProtocol::ZHTLC(protocol_info) => protocol_info,
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
@@ -28,7 +28,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
 
     let coin = block_on(z_coin_from_conf_and_params_with_z_key(
         &ctx,
-        "ZOMBIE",
+        "PIRATE",
         &conf,
         &params,
         PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
@@ -54,6 +54,8 @@ fn zombie_coin_send_and_refund_maker_payment() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
+    let balance = block_on(coin.my_balance().compat()).unwrap();
+    println!("balance: {balance:?}");
     let tx = block_on(coin.send_maker_payment(args)).unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
 

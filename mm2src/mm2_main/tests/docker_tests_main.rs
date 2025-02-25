@@ -65,17 +65,21 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
             remove_docker_containers(image);
         }
 
-        let runtime_dir = prepare_runtime_dir().unwrap();
+        // let runtime_dir = prepare_runtime_dir().unwrap();
 
-        let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
-        let atom_node = atom_node(&docker, runtime_dir.clone());
-        let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
+        // let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
+        // let atom_node = atom_node(&docker, runtime_dir.clone());
+        // let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
+        let pirate_node = pirate_asset_docker_node(&docker, "PIRATE", 7080);
         let utxo_node = utxo_asset_docker_node(&docker, "MYCOIN", 7000);
         let utxo_node1 = utxo_asset_docker_node(&docker, "MYCOIN1", 8000);
         let qtum_node = qtum_docker_node(&docker, 9000);
         let for_slp_node = utxo_asset_docker_node(&docker, "FORSLP", 10000);
         let geth_node = geth_docker_node(&docker, "ETH", 8545);
 
+        let runtime_dir = prepare_runtime_dir().unwrap();
+        let pirate_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
+        let utxo_ops = UtxoAssetDockerOps::from_ticker("PIRATE");
         let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
         let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
         let qtum_ops = QtumDockerOps::new();
@@ -85,24 +89,26 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         qtum_ops.initialize_contracts();
         for_slp_ops.wait_ready(4);
         for_slp_ops.initialize_slp();
+        pirate_ops.wait_ready(4);
         utxo_ops.wait_ready(4);
         utxo_ops1.wait_ready(4);
 
         wait_for_geth_node_ready();
         init_geth_node();
-        prepare_ibc_channels(ibc_relayer_node.container.id());
+        // prepare_ibc_channels(ibc_relayer_node.container.id());
 
         thread::sleep(Duration::from_secs(10));
-        wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
+        // wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
 
+        containers.push(pirate_node);
         containers.push(utxo_node);
         containers.push(utxo_node1);
         containers.push(qtum_node);
         containers.push(for_slp_node);
         containers.push(geth_node);
-        containers.push(nucleus_node);
-        containers.push(atom_node);
-        containers.push(ibc_relayer_node);
+        // containers.push(nucleus_node);
+        // containers.push(atom_node);
+        // containers.push(ibc_relayer_node);
     }
     // detect if docker is installed
     // skip the tests that use docker if not installed
@@ -174,27 +180,4 @@ fn remove_docker_containers(name: &str) {
             .status()
             .expect("Failed to execute docker command");
     }
-}
-
-fn prepare_runtime_dir() -> std::io::Result<PathBuf> {
-    let project_root = {
-        let mut current_dir = std::env::current_dir().unwrap();
-        current_dir.pop();
-        current_dir.pop();
-        current_dir
-    };
-
-    let containers_state_dir = project_root.join(".docker/container-state");
-    assert!(containers_state_dir.exists());
-    let containers_runtime_dir = project_root.join(".docker/container-runtime");
-
-    // Remove runtime directory if it exists to copy containers files to a clean directory
-    if containers_runtime_dir.exists() {
-        std::fs::remove_dir_all(&containers_runtime_dir).unwrap();
-    }
-
-    // Copy container files to runtime directory
-    mm2_io::fs::copy_dir_all(&containers_state_dir, &containers_runtime_dir).unwrap();
-
-    Ok(containers_runtime_dir)
 }

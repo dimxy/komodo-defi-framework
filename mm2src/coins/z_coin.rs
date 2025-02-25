@@ -228,7 +228,7 @@ impl Transaction for ZTransaction {
 
 #[derive(Clone)]
 pub struct ZCoin {
-    utxo_arc: UtxoArc,
+    pub utxo_arc: UtxoArc,
     z_fields: Arc<ZCoinFields>,
 }
 
@@ -489,7 +489,9 @@ impl ZCoin {
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
     ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
+        println!("before gen_tx");
         let (tx, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
+        println!("after gen_tx");
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes).expect("Write should not fail");
 
@@ -1050,7 +1052,6 @@ impl<'a> ZCoinBuilder<'a> {
             .await
             .mm_err(|err| ZCoinBuildError::ZCashParamsError(err.to_string()))?
         {
-            // save params
             params_db
                 .download_and_save_params()
                 .await
@@ -1070,7 +1071,7 @@ impl<'a> ZCoinBuilder<'a> {
 /// Initialize `ZCoin` with a forced `z_spending_key`.
 #[cfg(all(test, feature = "zhtlc-native-tests"))]
 #[allow(clippy::too_many_arguments)]
-async fn z_coin_from_conf_and_params_with_z_key(
+pub async fn z_coin_from_conf_and_params_with_z_key(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
@@ -1080,6 +1081,37 @@ async fn z_coin_from_conf_and_params_with_z_key(
     z_spending_key: ExtendedSpendingKey,
     protocol_info: ZcoinProtocolInfo,
 ) -> Result<ZCoin, MmError<ZCoinBuildError>> {
+    let builder = ZCoinBuilder::new(
+        ctx,
+        ticker,
+        conf,
+        params,
+        priv_key_policy,
+        db_dir_path,
+        Some(z_spending_key),
+        protocol_info,
+    );
+    builder.build().await
+}
+
+/// Initialize `ZCoin` with a forced `z_spending_key`.
+#[allow(clippy::too_many_arguments)]
+pub async fn z_coin_from_conf_and_params_with_docker(
+    ctx: &MmArc,
+    ticker: &str,
+    conf: &Json,
+    params: &ZcoinActivationParams,
+    priv_key_policy: PrivKeyBuildPolicy,
+    db_dir_path: PathBuf,
+    protocol_info: ZcoinProtocolInfo,
+    spending_key: &str,
+) -> Result<ZCoin, MmError<ZCoinBuildError>> {
+    use zcash_client_backend::encoding::decode_extended_spending_key;
+    let z_spending_key =
+        decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, spending_key)
+            .unwrap()
+            .unwrap();
+
     let builder = ZCoinBuilder::new(
         ctx,
         ticker,

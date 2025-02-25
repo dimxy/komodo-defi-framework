@@ -1,3 +1,4 @@
+use coins::z_coin::{z_coin_from_conf_and_params_with_docker, ZCoin, ZcoinActivationParams, ZcoinRpcMode};
 pub use common::{block_on, block_on_f01, now_ms, now_sec, wait_until_ms, wait_until_sec, DEX_FEE_ADDR_RAW_PUBKEY};
 pub use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::BalanceResponse;
@@ -6,6 +7,7 @@ pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, 
                                       jst_sepolia_conf, mm_dump, wait_check_stats_swap_status, MarketMakerIt,
                                       MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS,
                                       TAKER_SUCCESS_EVENTS};
+use mm2_test_helpers::for_tests::{pirate_conf, zombie_conf};
 
 use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, swap_contract};
 use bitcrypto::{dhash160, ChecksumType};
@@ -21,7 +23,7 @@ use coins::utxo::utxo_common::send_outputs_from_my_address;
 use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use coins::utxo::{coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path, UtxoActivationParams,
                   UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps};
-use coins::{ConfirmPaymentInput, MarketCoinOps, Transaction};
+use coins::{CoinProtocol, ConfirmPaymentInput, MarketCoinOps, PrivKeyBuildPolicy, Transaction};
 use crypto::privkey::key_pair_from_seed;
 use crypto::Secp256k1Secret;
 use ethabi::Token;
@@ -55,6 +57,7 @@ lazy_static! {
     static ref MY_COIN1_LOCK: Mutex<()> = Mutex::new(());
     static ref QTUM_LOCK: Mutex<()> = Mutex::new(());
     static ref FOR_SLP_LOCK: Mutex<()> = Mutex::new(());
+    static ref PIRATE_LOCK: Mutex<()> = Mutex::new(());
     pub static ref SLP_TOKEN_ID: Mutex<H256> = Mutex::new(H256::default());
     // Private keys supplied with 1000 SLP tokens on tests initialization.
     // Due to the SLP protocol limitations only 19 outputs (18 + change) can be sent in one transaction, which is sufficient for now though.
@@ -154,6 +157,29 @@ pub const NFT_MAKER_SWAP_V2_BYTES: &str =
 pub const MAKER_SWAP_V2_BYTES: &str = include_str!("../../../mm2_test_helpers/contract_bytes/maker_swap_v2_bytes");
 /// https://github.com/KomodoPlatform/etomic-swap/blob/5e15641cbf41766cd5b37b4d71842c270773f788/contracts/EtomicSwapTakerV2.sol
 pub const TAKER_SWAP_V2_BYTES: &str = include_str!("../../../mm2_test_helpers/contract_bytes/taker_swap_v2_bytes");
+
+pub(crate) fn prepare_runtime_dir() -> std::io::Result<PathBuf> {
+    let project_root = {
+        let mut current_dir = std::env::current_dir().unwrap();
+        current_dir.pop();
+        current_dir.pop();
+        current_dir
+    };
+
+    let containers_state_dir = project_root.join(".docker/container-state");
+    assert!(containers_state_dir.exists());
+    let containers_runtime_dir = project_root.join(".docker/container-runtime");
+
+    // Remove runtime directory if it exists to copy containers files to a clean directory
+    if containers_runtime_dir.exists() {
+        std::fs::remove_dir_all(&containers_runtime_dir).unwrap();
+    }
+
+    // Copy container files to runtime directory
+    mm2_io::fs::copy_dir_all(&containers_state_dir, &containers_runtime_dir).unwrap();
+
+    Ok(containers_runtime_dir)
+}
 
 pub trait CoinDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum;
@@ -451,6 +477,51 @@ pub fn ibc_relayer_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_>
     }
 }
 
+pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u16) -> DockerNode<'a> {
+    let mut image = GenericImage::new(UTXO_ASSET_DOCKER_IMAGE, "multiarch")
+        .with_volume(zcash_params_path().display().to_string(), "/root/.zcash-params")
+        .with_env_var("CLIENTS", "2")
+        .with_env_var("CHAIN", "PIRATE")
+        .with_env_var("TEST_ADDY", "RP2UeJtzvhbVkkSfFDWf4jBGLj8dJMmmvL")
+        .with_env_var("TEST_WIF", "UrH3dCEgKh8SHL7ZizYTiEj3NasNReDaRPBApUA2GYziNmLwArgJ")
+        .with_env_var(
+            "TEST_PUBKEY",
+            "03f136aed70ba8cb2c8d8b131fe2ac6006e3d8402c52e35f11bd8c5e591fb1d849",
+        )
+        .with_env_var("DAEMON_URL", "http://test:test@127.0.0.1:7080")
+        .with_env_var("COIN", "Komodo")
+        .with_env_var("COIN_RPC_PORT", port.to_string())
+        .with_env_var("KOMODOD_ARGS", "-ac_name=PIRATE -ac_supply=0 -ac_reward=25600000000 -ac_halving=388885 -ac_private=1 -ac_sapling=1 -ac_cc=2 -testnode=1")  // Added PIRATE-specific args
+        .with_wait_for(WaitFor::message_on_stdout("config is ready"));
+
+    // If ticker is different from "PIRATE", use it for configuration files
+    let config_ticker = if ticker != "PIRATE" { ticker } else { "PIRATE" };
+
+    let image = RunnableImage::from(image).with_mapped_port((port, port));
+    let container = docker.run(image);
+    let mut conf_path = coin_daemon_data_dir(config_ticker, true);
+    std::fs::create_dir_all(&conf_path).unwrap();
+    conf_path.push(format!("{}.conf", config_ticker));
+    Command::new("docker")
+        .arg("cp")
+        .arg(format!("{}:/data/node_0/{}.conf", container.id(), "PIRATE")) // Always copy PIRATE.conf
+        .arg(&conf_path)
+        .status()
+        .expect("Failed to execute docker command");
+    let timeout = wait_until_ms(3000);
+    loop {
+        if conf_path.exists() {
+            break;
+        };
+        assert!(now_ms() < timeout, "Test timed out");
+    }
+    DockerNode {
+        container,
+        ticker: config_ticker.into(),
+        port,
+    }
+}
+
 pub fn rmd160_from_priv(privkey: Secp256k1Secret) -> H160 {
     let secret = SecretKey::from_slice(privkey.as_slice()).unwrap();
     let public = PublicKey::from_secret_key(&Secp256k1::new(), &secret);
@@ -470,6 +541,7 @@ where
         "MYCOIN1" => &*MY_COIN1_LOCK,
         "QTUM" | "QICK" | "QORTY" => &*QTUM_LOCK,
         "FORSLP" => &*FOR_SLP_LOCK,
+        "PIRATE" => &*PIRATE_LOCK,
         ticker => panic!("Unknown ticker {}", ticker),
     };
     let _lock = mutex.lock().unwrap();
@@ -1601,4 +1673,41 @@ pub fn init_geth_node() {
         // 100 ETH
         fill_eth(bob_eth_addr, U256::from(10).pow(U256::from(20)));
     }
+}
+
+fn native_zcoin_activation_params() -> ZcoinActivationParams {
+    ZcoinActivationParams {
+        mode: ZcoinRpcMode::Native,
+        ..Default::default()
+    }
+}
+
+/// Build asset `ZCoin` from ticker and spendingkey str without filling the balance.
+pub fn z_coin_from_spending_key(ticker: &str, spending_key: &str) -> (MmArc, ZCoin) {
+    let ctx = MmCtxBuilder::new().into_mm_arc();
+    let mut conf = pirate_conf();
+    let params = native_zcoin_activation_params();
+    let pk_data = [1; 32];
+    println!("before runtime");
+    let db_dir = prepare_runtime_dir().unwrap();
+    let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
+        CoinProtocol::ZHTLC(protocol_info) => protocol_info,
+        other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
+    };
+
+    println!("before z-coinf");
+    let coin = block_on(z_coin_from_conf_and_params_with_docker(
+        &ctx,
+        "PIRATE",
+        &conf,
+        &params,
+        PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
+        db_dir,
+        protocol_info,
+        spending_key,
+    ))
+    .unwrap();
+    println!("after z-coinf");
+
+    (ctx, coin)
 }
