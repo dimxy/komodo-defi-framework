@@ -281,17 +281,8 @@ pub async fn get_htlc_spend_fee<T: UtxoCommonOps>(
         },
         ActualFeeRate::FixedPerKb(_) => fee_rate,
     };
-    let tx_fee = fee_rate.get_tx_fee(tx_size);
-    if coin.as_ref().conf.force_min_relay_fee {
-        let min_relay_fee_rate = coin.as_ref().rpc_client.get_relay_fee().compat().await?;
-        let min_relay_fee_rate = sat_from_big_decimal(&min_relay_fee_rate, coin.as_ref().decimals)?;
-        let min_relay_dynamic_fee_rate = ActualFeeRate::Dynamic(min_relay_fee_rate);
-        let min_relay_tx_fee = min_relay_dynamic_fee_rate.get_tx_fee(tx_size);
-        if tx_fee < min_relay_tx_fee {
-            return Ok(min_relay_tx_fee);
-        }
-    }
-    Ok(tx_fee)
+    let min_relay_fee_rate = get_min_relay_rate(coin).await?;
+    Ok(get_tx_fee_with_relay_fee(&fee_rate, tx_size, min_relay_fee_rate))
 }
 
 pub fn addresses_from_script<T: UtxoCommonOps>(coin: &T, script: &Script) -> Result<Vec<Address>, String> {
@@ -471,7 +462,7 @@ pub struct UtxoTxBuilder<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> {
     tx: TransactionInputSigner,
     sum_inputs: u64,
     sum_outputs: u64,
-    tx_fee: u64,
+    tx_fee_needed: u64,
     min_relay_fee_rate: Option<u64>,
     dust: Option<u64>,
     interest: u64,
@@ -491,7 +482,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             gas_fee: None,
             sum_inputs: 0,
             sum_outputs: 0,
-            tx_fee: 0,
+            tx_fee_needed: 0,
             min_relay_fee_rate: None,
             dust: None,
             interest: 0,
@@ -550,7 +541,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             .fold(0u64, |required, output| required + output.value);
         match self.fee_policy {
             FeePolicy::SendExact => {
-                sum_output += self.total_tx_fee();
+                sum_output += self.total_tx_fee_needed();
             },
             FeePolicy::DeductFromOutput(_) => {},
         };
@@ -605,15 +596,14 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
 
     /// Adds change output.
     /// Returns change value and dust change
-    async fn add_change(&mut self, coin: &T, change_script_pubkey: &Bytes) -> UtxoRpcResult<(u64, u64)> {
-        let sum_output_with_fee = self.sum_outputs + self.total_tx_fee();
+    fn add_change(&mut self, change_script_pubkey: &Bytes) -> u64 {
+        let sum_output_with_fee = self.sum_outputs + self.total_tx_fee_needed();
         if self.sum_inputs < sum_output_with_fee {
-            return Ok((0u64, 0u64));
+            return 0u64;
         }
-        self.interest = coin.calc_interest_if_required(&mut self.tx).await?;
         let change = self.sum_inputs + self.interest - sum_output_with_fee;
         if change < self.dust() {
-            return Ok((0u64, change));
+            return 0u64;
         };
         self.tx.outputs.push({
             TransactionOutput {
@@ -621,7 +611,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
                 script_pubkey: change_script_pubkey.clone(),
             }
         });
-        Ok((change, 0u64))
+        change
     }
 
     /// Recalculates tx fee for tx size.
@@ -629,15 +619,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
     fn update_tx_fee(&mut self, from_addr_format: &UtxoAddressFormat, fee_rate: &ActualFeeRate) {
         let transaction = UtxoTx::from(self.tx.clone());
         let v_size = tx_size_in_v_bytes(from_addr_format, &transaction) as u64;
-        let mut tx_fee = fee_rate.get_tx_fee(v_size);
-        if let Some(min_relay_fee_rate) = self.min_relay_fee_rate {
-            let min_relay_dynamic_fee_rate = ActualFeeRate::Dynamic(min_relay_fee_rate);
-            let min_relay_tx_fee = min_relay_dynamic_fee_rate.get_tx_fee(v_size);
-            if tx_fee < min_relay_tx_fee {
-                tx_fee = min_relay_tx_fee;
-            }
-        }
-        self.tx_fee = tx_fee;
+        self.tx_fee_needed = get_tx_fee_with_relay_fee(fee_rate, v_size, self.min_relay_fee_rate);
     }
 
     /// Deduct tx fee from output if requested by fee_policy
@@ -645,7 +627,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         match self.fee_policy {
             FeePolicy::SendExact => Ok(0),
             FeePolicy::DeductFromOutput(i) => {
-                let tx_fee = self.total_tx_fee();
+                let tx_fee = self.total_tx_fee_needed();
                 let min_output = tx_fee + self.dust();
                 let val = self.tx.outputs[i].value;
                 return_err_if!(val < min_output, GenerateTxError::DeductFeeFromOutputFailed {
@@ -689,7 +671,15 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
         }
     }
 
-    fn total_tx_fee(&self) -> u64 { self.tx_fee + self.gas_fee.unwrap_or(0u64) }
+    fn total_tx_fee_needed(&self) -> u64 { self.tx_fee_needed + self.gas_fee.unwrap_or(0u64) }
+
+    fn tx_fee_fact(&self) -> MmResult<u64, GenerateTxError> {
+        (self.sum_inputs + self.interest)
+            .checked_sub(self.gas_fee.unwrap_or_default())
+            .or_mm_err(|| GenerateTxError::Internal("gas_fee underflow".to_owned()))?
+            .checked_sub(self.sum_outputs)
+            .or_mm_err(|| GenerateTxError::Internal("sum_outputs underflow".to_owned()))
+    }
 
     /// Generates unsigned transaction (TransactionInputSigner) from specified utxos and outputs.
     /// sends the change (inputs amount - outputs amount) to the [`UtxoTxBuilder::from`] address.
@@ -718,21 +708,14 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             }
         );
 
-        self.min_relay_fee_rate = if coin.as_ref().conf.force_min_relay_fee {
-            let fee_dec = coin.as_ref().rpc_client.get_relay_fee().compat().await?;
-            let min_relay_fee_rate = sat_from_big_decimal(&fee_dec, coin.as_ref().decimals)?;
-            Some(min_relay_fee_rate)
-        } else {
-            None
-        };
+        self.min_relay_fee_rate = get_min_relay_rate(coin).await?;
 
-        #[allow(unused_assignments)]
-        let mut unused_change = 0u64;
         let mut one_time_fee_update = false;
         loop {
             let required_amount_0 = self.required_amount();
             self.sum_inputs = self.add_tx_inputs(required_amount_0);
             self.sum_outputs = self.add_tx_outputs();
+            self.interest = coin.calc_interest_if_required(&mut self.tx).await?;
 
             // try once tx_fee without the change output (if maybe txfee fits between total inputs and outputs)
             if !one_time_fee_update {
@@ -748,20 +731,19 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
                 .sum_outputs
                 .checked_sub(self.deduct_txfee_from_output()?)
                 .or_mm_err(|| GenerateTxError::Internal("sum_outputs underflow".to_owned()))?;
-            let (change, unused) = self.add_change(coin, &change_script_pubkey).await?;
-            unused_change = unused;
+            let change = self.add_change(&change_script_pubkey);
             self.sum_outputs += change;
             self.update_tx_fee(from.addr_format(), &actual_fee_rate); // recalculate txfee with the change output, if added
-            if self.sum_inputs + self.interest >= self.sum_outputs + self.total_tx_fee() {
+            if self.sum_inputs + self.interest >= self.sum_outputs + self.total_tx_fee_needed() {
                 break;
             }
         }
 
         let data = AdditionalTxData {
-            fee_amount: self.tx_fee, // we return only txfee here (w/o gas_fee)
+            fee_amount: self.tx_fee_fact()?, // we return only txfee here (w/o gas_fee)
             received_by_me: self.sum_received_by_me(&change_script_pubkey),
             spent_by_me: self.sum_inputs,
-            unused_change,
+            unused_change: 0u64, // Not used anymore as fee_amount contains the total txfee value
             // will be changed if the ticker is KMD
             kmd_rewards: Self::make_kmd_rewards_data(coin, self.interest),
         };
@@ -847,6 +829,30 @@ pub async fn calc_interest_if_required<T: UtxoCommonOps>(
 }
 
 pub fn is_kmd<T: UtxoCommonOps>(coin: &T) -> bool { &coin.as_ref().conf.ticker == "KMD" }
+
+/// Helper to get min relay fee rate and convert to sat
+async fn get_min_relay_rate<T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps>(coin: &T) -> UtxoRpcResult<Option<u64>> {
+    if coin.as_ref().conf.force_min_relay_fee {
+        let fee_dec = coin.as_ref().rpc_client.get_relay_fee().compat().await?;
+        let min_relay_fee_rate = sat_from_big_decimal(&fee_dec, coin.as_ref().decimals)?;
+        Ok(Some(min_relay_fee_rate))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Helper to get tx fee if min relay rate is known
+fn get_tx_fee_with_relay_fee(fee_rate: &ActualFeeRate, tx_size: u64, min_relay_fee_rate: Option<u64>) -> u64 {
+    let tx_fee = fee_rate.get_tx_fee(tx_size);
+    if let Some(min_relay_fee_rate) = min_relay_fee_rate {
+        let min_relay_dynamic_fee_rate = ActualFeeRate::Dynamic(min_relay_fee_rate);
+        let min_relay_tx_fee = min_relay_dynamic_fee_rate.get_tx_fee(tx_size);
+        if tx_fee < min_relay_tx_fee {
+            return min_relay_tx_fee;
+        }
+    }
+    tx_fee
+}
 
 pub struct P2SHSpendingTxInput<'a> {
     prev_transaction: UtxoTx,
