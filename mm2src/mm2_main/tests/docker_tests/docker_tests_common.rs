@@ -250,11 +250,11 @@ pub struct ZCoinAssetDockerOps {
 impl CoinDockerOps for ZCoinAssetDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
     fn wait_ready(&self, expected_tx_version: i32) {
-        let timeout = wait_until_ms(200000);
+        let timeout = wait_until_ms(150000);
+        log!("Waiting for ZOMBIE coinbase tx");
         loop {
             match block_on_f01(self.rpc_client().get_block_count()) {
                 Ok(n) => {
-                    println!("BLOCK {n}");
                     if n > 1 {
                         if let UtxoRpcClientEnum::Native(client) = self.rpc_client() {
                             let hash = block_on_f01(client.get_block_hash(n)).unwrap();
