@@ -17,12 +17,7 @@ pub async fn z_coin_from_spending_key(spending_key: &str) -> (MmArc, ZCoin) {
     let mut conf = zombie_conf();
     let params = ZcoinActivationParams {
         mode: ZcoinRpcMode::Native,
-        required_confirmations: Some(0),
-        requires_notarization: None,
-        zcash_params_path: None,
-        scan_blocks_per_iteration: 1000,
-        scan_interval_ms: 0,
-        account: 0,
+        ..Default::default()
     };
     let pk_data = [1; 32];
     let db_dir = prepare_runtime_dir().unwrap();

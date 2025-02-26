@@ -9,6 +9,7 @@ use wasm_bindgen_test::*;
 // use crate::z_coin::tx_history_events::ZCoinTxHistoryEventStreamer;
 // use crate::z_coin::z_coin_from_conf_and_params;
 // use crate::z_coin::z_send_dex_fee;
+// use crate::z_coin::z_htlc::z_send_dex_fee;
 // use crate::PrivKeyBuildPolicy;
 // use crate::{CoinProtocol, MarketCoinOps, MmCoin};
 
