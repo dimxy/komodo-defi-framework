@@ -250,7 +250,7 @@ pub struct ZCoinAssetDockerOps {
 impl CoinDockerOps for ZCoinAssetDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
     fn wait_ready(&self, expected_tx_version: i32) {
-        let timeout = wait_until_ms(150000);
+        let timeout = wait_until_ms(120000);
         log!("Waiting for ZOMBIE coinbase tx");
         loop {
             match block_on_f01(self.rpc_client().get_block_count()) {
@@ -262,7 +262,7 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
                             let coinbase = block_on_f01(client.get_verbose_transaction(&block.tx[0])).unwrap();
                             log!("Coinbase tx {:?} in block {}", coinbase, n);
                             if coinbase.version == expected_tx_version {
-                                //send funds to our shielded address.
+                                //send funds to test shielded address.
                                 let _ =block_on(client.z_shieldcoinbase(
                                     &coinbase.vout[0].script.addresses[0],
                                     "zs10hvyxf3ajm82e4gvxem3zjlf9xf3yxhjww9fvz3mfqza9zwumvluzy735e29c3x5aj2nu0ua6n0"
@@ -281,7 +281,7 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
 }
 
 impl ZCoinAssetDockerOps {
-    pub fn from_ticker(ticker: &str) -> ZCoinAssetDockerOps {
+    pub fn from_ticker(_ticker: &str) -> ZCoinAssetDockerOps {
         let ctx = MmCtxBuilder::new().into_mm_arc();
         let mut conf = zombie_conf();
         let params = native_zcoin_activation_params();
@@ -303,8 +303,6 @@ impl ZCoinAssetDockerOps {
 "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe",
         ))
         .unwrap();
-
-        println!("z_addr: {}", coin.my_z_address_encoded());
 
         ZCoinAssetDockerOps { ctx, coin }
     }
@@ -549,7 +547,7 @@ pub fn ibc_relayer_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_>
 }
 
 pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u16) -> DockerNode<'a> {
-    let mut image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "latest")
+    let image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "latest")
         .with_volume(zcash_params_path().display().to_string(), "/root/.zcash-params")
         .with_env_var("CLIENTS", "2")
         .with_env_var("COIN_RPC_PORT", port.to_string())
