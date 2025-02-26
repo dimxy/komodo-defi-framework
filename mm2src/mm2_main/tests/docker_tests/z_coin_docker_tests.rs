@@ -7,7 +7,7 @@ use common::{block_on, now_sec, Future01CompatExt};
 #[test]
 fn zombie_coin_send_and_refund_maker_payment() {
     println!("creating coin");
-    let (ctx, coin) = z_coin_from_spending_key("PIRATE", "secret-extended-key-main1q0st6zl3q5qqpqysyg8d8fyhd2wk882nhu222vqtdlvnrptnpg0mucu55v46gggkfljfftt944vdr2c85qj08yns9mgv6vsv6j58gjye8xxhc8htqnaqtyeedn457xtx05hkuk3vewv4sqtj4m7rzfgd795974pqrf540fsd9n4n4re70zanedum0cc5fz28ky28m0jnlsxal97fszxys2wvh6t8kjc3wv44kk892fp7dmfmd7ntycyxl262swm676gzwapesfvppfgqrzg6j");
+    let (ctx, coin) = z_coin_from_spending_key("ZOMBIE", "secret-extended-key-main1q0st6zl3q5qqpqysyg8d8fyhd2wk882nhu222vqtdlvnrptnpg0mucu55v46gggkfljfftt944vdr2c85qj08yns9mgv6vsv6j58gjye8xxhc8htqnaqtyeedn457xtx05hkuk3vewv4sqtj4m7rzfgd795974pqrf540fsd9n4n4re70zanedum0cc5fz28ky28m0jnlsxal97fszxys2wvh6t8kjc3wv44kk892fp7dmfmd7ntycyxl262swm676gzwapesfvppfgqrzg6j");
     println!("created coin");
     let time_lock = now_sec() - 3600;
     let taker_pub = coin.utxo_arc.priv_key_policy.activated_key_or_err().unwrap().public();

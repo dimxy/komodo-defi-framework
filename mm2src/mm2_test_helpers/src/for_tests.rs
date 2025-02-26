@@ -463,8 +463,8 @@ pub enum Mm2InitPrivKeyPolicy {
 
 pub fn zombie_conf() -> Json {
     json!({
-        "coin":"PIRATE",
-        "asset":"PIRATE",
+        "coin":"ZOMBIE",
+        "asset":"ZOMBIE",
         "txversion":4,
         "overwintered":1,
         "mm2":1,

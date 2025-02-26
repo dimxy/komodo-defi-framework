@@ -58,6 +58,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
             NUCLEUS_IMAGE,
             ATOM_IMAGE_WITH_TAG,
             IBC_RELAYER_IMAGE_WITH_TAG,
+            ZOMBIE_ASSET_DOCKER_IMAGE,
         ];
 
         for image in IMAGES {
@@ -70,7 +71,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         // let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
         // let atom_node = atom_node(&docker, runtime_dir.clone());
         // let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
-        let pirate_node = pirate_asset_docker_node(&docker, "PIRATE", 7080);
+        let pirate_node = pirate_asset_docker_node(&docker, "ZOMBIE", 7701);
         let utxo_node = utxo_asset_docker_node(&docker, "MYCOIN", 7000);
         let utxo_node1 = utxo_asset_docker_node(&docker, "MYCOIN1", 8000);
         let qtum_node = qtum_docker_node(&docker, 9000);
@@ -78,18 +79,18 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         let geth_node = geth_docker_node(&docker, "ETH", 8545);
 
         let runtime_dir = prepare_runtime_dir().unwrap();
-        let pirate_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
-        let utxo_ops = UtxoAssetDockerOps::from_ticker("PIRATE");
+        let pirate_ops = ZCoinAssetDockerOps::from_ticker("ZOMBIE");
+        let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
         let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
         let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
         let qtum_ops = QtumDockerOps::new();
         let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
 
+        pirate_ops.wait_ready(4);
         qtum_ops.wait_ready(2);
         qtum_ops.initialize_contracts();
         for_slp_ops.wait_ready(4);
         for_slp_ops.initialize_slp();
-        pirate_ops.wait_ready(4);
         utxo_ops.wait_ready(4);
         utxo_ops1.wait_ready(4);
 

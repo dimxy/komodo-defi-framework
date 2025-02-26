@@ -1,4 +1,5 @@
 use coins::z_coin::{z_coin_from_conf_and_params_with_docker, ZCoin, ZcoinActivationParams, ZcoinRpcMode};
+use common::temp_dir;
 pub use common::{block_on, block_on_f01, now_ms, now_sec, wait_until_ms, wait_until_sec, DEX_FEE_ADDR_RAW_PUBKEY};
 pub use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::BalanceResponse;
@@ -7,7 +8,7 @@ pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, 
                                       jst_sepolia_conf, mm_dump, wait_check_stats_swap_status, MarketMakerIt,
                                       MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS,
                                       TAKER_SUCCESS_EVENTS};
-use mm2_test_helpers::for_tests::{pirate_conf, zombie_conf};
+use mm2_test_helpers::for_tests::{pirate_conf, zombie_conf, zombie_regtest_conf};
 
 use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, swap_contract};
 use bitcrypto::{dhash160, ChecksumType};
@@ -57,7 +58,7 @@ lazy_static! {
     static ref MY_COIN1_LOCK: Mutex<()> = Mutex::new(());
     static ref QTUM_LOCK: Mutex<()> = Mutex::new(());
     static ref FOR_SLP_LOCK: Mutex<()> = Mutex::new(());
-    static ref PIRATE_LOCK: Mutex<()> = Mutex::new(());
+    static ref ZOMBIE_LOCK: Mutex<()> = Mutex::new(());
     pub static ref SLP_TOKEN_ID: Mutex<H256> = Mutex::new(H256::default());
     // Private keys supplied with 1000 SLP tokens on tests initialization.
     // Due to the SLP protocol limitations only 19 outputs (18 + change) can be sent in one transaction, which is sufficient for now though.
@@ -117,6 +118,7 @@ pub static GETH_RPC_URL: &str = "http://127.0.0.1:8545";
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 pub static SEPOLIA_RPC_URL: &str = "https://ethereum-sepolia-rpc.publicnode.com";
 
+pub const ZOMBIE_ASSET_DOCKER_IMAGE: &str = "docker.io/borngraced/zombietestrunner";
 pub const UTXO_ASSET_DOCKER_IMAGE: &str = "docker.io/artempikulin/testblockchain";
 pub const UTXO_ASSET_DOCKER_IMAGE_WITH_TAG: &str = "docker.io/artempikulin/testblockchain:multiarch";
 pub const GETH_DOCKER_IMAGE: &str = "docker.io/ethereum/client-go";
@@ -208,7 +210,7 @@ pub trait CoinDockerOps {
                         }
                     }
                 },
-                Err(e) => log!("{:?}", e),
+                Err(e) => error!("{:?}", e),
             }
             assert!(now_ms() < timeout, "Test timed out");
             thread::sleep(Duration::from_secs(1));
@@ -236,6 +238,44 @@ impl UtxoAssetDockerOps {
 
         let coin = block_on(utxo_standard_coin_with_priv_key(&ctx, ticker, &conf, &params, priv_key)).unwrap();
         UtxoAssetDockerOps { ctx, coin }
+    }
+}
+
+pub struct ZCoinAssetDockerOps {
+    #[allow(dead_code)]
+    ctx: MmArc,
+    coin: ZCoin,
+}
+
+impl CoinDockerOps for ZCoinAssetDockerOps {
+    fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
+}
+
+impl ZCoinAssetDockerOps {
+    pub fn from_ticker(ticker: &str) -> ZCoinAssetDockerOps {
+        let ctx = MmCtxBuilder::new().into_mm_arc();
+        let mut conf = zombie_regtest_conf();
+        let params = native_zcoin_activation_params();
+        let pk_data = [1; 32];
+        let db_dir = prepare_runtime_dir().unwrap();
+        let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
+            CoinProtocol::ZHTLC(protocol_info) => protocol_info,
+            other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
+        };
+
+        let coin = block_on(z_coin_from_conf_and_params_with_docker(
+            &ctx,
+            "ZOMBIE",
+            &conf,
+            &params,
+            PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
+            db_dir,
+            protocol_info,
+"secret-extended-key-main1q0st6zl3q5qqpqysyg8d8fyhd2wk882nhu222vqtdlvnrptnpg0mucu55v46gggkfljfftt944vdr2c85qj08yns9mgv6vsv6j58gjye8xxhc8htqnaqtyeedn457xtx05hkuk3vewv4sqtj4m7rzfgd795974pqrf540fsd9n4n4re70zanedum0cc5fz28ky28m0jnlsxal97fszxys2wvh6t8kjc3wv44kk892fp7dmfmd7ntycyxl262swm676gzwapesfvppfgqrzg6j",
+        ))
+        .unwrap();
+
+        ZCoinAssetDockerOps { ctx, coin }
     }
 }
 
@@ -478,24 +518,22 @@ pub fn ibc_relayer_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_>
 }
 
 pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u16) -> DockerNode<'a> {
-    let mut image = GenericImage::new(UTXO_ASSET_DOCKER_IMAGE, "multiarch")
+    let mut image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "latest")
         .with_volume(zcash_params_path().display().to_string(), "/root/.zcash-params")
         .with_env_var("CLIENTS", "2")
-        .with_env_var("CHAIN", "PIRATE")
+        .with_env_var("CHAIN", "ZOMBIE")
         .with_env_var("TEST_ADDY", "RP2UeJtzvhbVkkSfFDWf4jBGLj8dJMmmvL")
         .with_env_var("TEST_WIF", "UrH3dCEgKh8SHL7ZizYTiEj3NasNReDaRPBApUA2GYziNmLwArgJ")
         .with_env_var(
             "TEST_PUBKEY",
             "03f136aed70ba8cb2c8d8b131fe2ac6006e3d8402c52e35f11bd8c5e591fb1d849",
         )
-        .with_env_var("DAEMON_URL", "http://test:test@127.0.0.1:7080")
+        .with_env_var("DAEMON_URL", "http://test:test@127.0.0.1:7001")
         .with_env_var("COIN", "Komodo")
         .with_env_var("COIN_RPC_PORT", port.to_string())
-        .with_env_var("KOMODOD_ARGS", "-ac_name=PIRATE -ac_supply=0 -ac_reward=25600000000 -ac_halving=388885 -ac_private=1 -ac_sapling=1 -ac_cc=2 -testnode=1")  // Added PIRATE-specific args
         .with_wait_for(WaitFor::message_on_stdout("config is ready"));
-
-    // If ticker is different from "PIRATE", use it for configuration files
-    let config_ticker = if ticker != "PIRATE" { ticker } else { "PIRATE" };
+    // If ticker is different from "ZOMBIE", use it for configuration files
+    let config_ticker = if ticker != "ZOMBIE" { ticker } else { "ZOMBIE" };
 
     let image = RunnableImage::from(image).with_mapped_port((port, port));
     let container = docker.run(image);
@@ -504,7 +542,7 @@ pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port:
     conf_path.push(format!("{}.conf", config_ticker));
     Command::new("docker")
         .arg("cp")
-        .arg(format!("{}:/data/node_0/{}.conf", container.id(), "PIRATE")) // Always copy PIRATE.conf
+        .arg(format!("{}:/data/node_0/{}.conf", container.id(), "ZOMBIE"))
         .arg(&conf_path)
         .status()
         .expect("Failed to execute docker command");
@@ -515,6 +553,7 @@ pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port:
         };
         assert!(now_ms() < timeout, "Test timed out");
     }
+
     DockerNode {
         container,
         ticker: config_ticker.into(),
@@ -541,7 +580,6 @@ where
         "MYCOIN1" => &*MY_COIN1_LOCK,
         "QTUM" | "QICK" | "QORTY" => &*QTUM_LOCK,
         "FORSLP" => &*FOR_SLP_LOCK,
-        "PIRATE" => &*PIRATE_LOCK,
         ticker => panic!("Unknown ticker {}", ticker),
     };
     let _lock = mutex.lock().unwrap();
@@ -1685,20 +1723,18 @@ fn native_zcoin_activation_params() -> ZcoinActivationParams {
 /// Build asset `ZCoin` from ticker and spendingkey str without filling the balance.
 pub fn z_coin_from_spending_key(ticker: &str, spending_key: &str) -> (MmArc, ZCoin) {
     let ctx = MmCtxBuilder::new().into_mm_arc();
-    let mut conf = pirate_conf();
+    let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
     let pk_data = [1; 32];
-    println!("before runtime");
-    let db_dir = prepare_runtime_dir().unwrap();
+    let mut db_dir = temp_dir().join("ZOMBIE");
     let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
         CoinProtocol::ZHTLC(protocol_info) => protocol_info,
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    println!("before z-coinf");
     let coin = block_on(z_coin_from_conf_and_params_with_docker(
         &ctx,
-        "PIRATE",
+        "ZOMBIE",
         &conf,
         &params,
         PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
@@ -1707,7 +1743,6 @@ pub fn z_coin_from_spending_key(ticker: &str, spending_key: &str) -> (MmArc, ZCo
         spending_key,
     ))
     .unwrap();
-    println!("after z-coinf");
 
     (ctx, coin)
 }
