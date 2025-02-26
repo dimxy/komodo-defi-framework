@@ -507,7 +507,7 @@ pub fn zombie_conf() -> Json {
 pub fn pirate_conf() -> Json {
     json!({
         "coin":"ARRR",
-        "asset":"ARRR",
+        "asset":"PIRATE",
         "txversion":4,
         "overwintered":1,
         "mm2":1,
