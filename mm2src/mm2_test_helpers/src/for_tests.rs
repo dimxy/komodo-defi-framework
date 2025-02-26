@@ -506,8 +506,8 @@ pub fn zombie_conf() -> Json {
 
 pub fn pirate_conf() -> Json {
     json!({
-        "coin":"PIRATE",
-        "asset":"PIRATE",
+        "coin":"ARRR",
+        "asset":"ARRR",
         "txversion":4,
         "overwintered":1,
         "mm2":1,
@@ -829,8 +829,6 @@ pub fn eth_testnet_conf_trezor() -> Json {
 
 /// ETH configuration used for dockerized Geth dev node
 pub fn eth_dev_conf() -> Json { eth_conf("ETH") }
-
-pub fn eth1_dev_conf() -> Json { eth_conf("ETH1") }
 
 pub fn eth1_dev_conf() -> Json { eth_conf("ETH1") }
 
