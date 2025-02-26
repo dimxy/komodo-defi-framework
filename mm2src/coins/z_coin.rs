@@ -283,9 +283,10 @@ impl ZCoin {
     /// Otherwise, it returns `false`.
     #[inline]
     pub async fn is_sapling_state_synced(&self) -> bool {
-        let state = self.sync_status().await;
-        println!("{state:?}");
-        matches!(state, Ok(SyncStatus::Finished { block_number: _, .. }))
+        matches!(
+            self.sync_status().await,
+            Ok(SyncStatus::Finished { block_number: _, .. })
+        )
     }
 
     #[inline]
@@ -488,9 +489,7 @@ impl ZCoin {
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
     ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
-        println!("before gen_tx");
         let (tx, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
-        println!("after gen_tx");
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes).expect("Write should not fail");
 

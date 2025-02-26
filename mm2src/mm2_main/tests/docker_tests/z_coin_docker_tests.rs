@@ -26,7 +26,7 @@ fn zombie_coin_send_and_refund_maker_payment() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    println!("before my balance");
+    println!("z_addr: {}", coin.my_z_address_encoded());
     let balance = block_on(coin.my_balance().compat()).unwrap();
     println!("balance: {balance:?}");
     println!("before send maker payement");

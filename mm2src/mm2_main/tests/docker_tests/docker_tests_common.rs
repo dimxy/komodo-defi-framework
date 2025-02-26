@@ -250,12 +250,12 @@ pub struct ZCoinAssetDockerOps {
 impl CoinDockerOps for ZCoinAssetDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
     fn wait_ready(&self, expected_tx_version: i32) {
-        let timeout = wait_until_ms(120000);
+        let timeout = wait_until_ms(200000);
         loop {
             match block_on_f01(self.rpc_client().get_block_count()) {
                 Ok(n) => {
                     println!("BLOCK {n}");
-                    if n >= 1 {
+                    if n > 1 {
                         if let UtxoRpcClientEnum::Native(client) = self.rpc_client() {
                             let hash = block_on_f01(client.get_block_hash(n)).unwrap();
                             let block = block_on_f01(client.get_block(hash)).unwrap();
@@ -263,11 +263,10 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
                             log!("Coinbase tx {:?} in block {}", coinbase, n);
                             if coinbase.version == expected_tx_version {
                                 //send funds to our shielded address.
-                                block_on(client.z_shieldcoinbase(
+                                let _ =block_on(client.z_shieldcoinbase(
                                     &coinbase.vout[0].script.addresses[0],
                                     "zs10hvyxf3ajm82e4gvxem3zjlf9xf3yxhjww9fvz3mfqza9zwumvluzy735e29c3x5aj2nu0ua6n0"
-                                ).compat())
-                                .unwrap();
+                                ).compat());
                                 break;
                             }
                         }
@@ -304,6 +303,8 @@ impl ZCoinAssetDockerOps {
 "secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe",
         ))
         .unwrap();
+
+        println!("z_addr: {}", coin.my_z_address_encoded());
 
         ZCoinAssetDockerOps { ctx, coin }
     }
@@ -551,10 +552,6 @@ pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port:
     let mut image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "latest")
         .with_volume(zcash_params_path().display().to_string(), "/root/.zcash-params")
         .with_env_var("CLIENTS", "2")
-        .with_env_var(
-            "TEST_PUBKEY",
-            "03f136aed70ba8cb2c8d8b131fe2ac6006e3d8402c52e35f11bd8c5e591fb1d849",
-        )
         .with_env_var("COIN_RPC_PORT", port.to_string())
         .with_wait_for(WaitFor::message_on_stdout("config is ready"));
     // If ticker is different from "ZOMBIE", use it for configuration files
