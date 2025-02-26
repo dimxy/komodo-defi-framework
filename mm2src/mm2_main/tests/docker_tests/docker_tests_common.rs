@@ -1,6 +1,6 @@
 use coins::z_coin::{z_coin_from_conf_and_params_with_docker, ZCoin, ZcoinActivationParams, ZcoinRpcMode};
-use common::temp_dir;
 pub use common::{block_on, block_on_f01, now_ms, now_sec, wait_until_ms, wait_until_sec, DEX_FEE_ADDR_RAW_PUBKEY};
+use common::{temp_dir, Future01CompatExt};
 pub use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::BalanceResponse;
 pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, enable_eth_coin, enable_native,
@@ -8,7 +8,7 @@ pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, 
                                       jst_sepolia_conf, mm_dump, wait_check_stats_swap_status, MarketMakerIt,
                                       MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS,
                                       TAKER_SUCCESS_EVENTS};
-use mm2_test_helpers::for_tests::{pirate_conf, zombie_conf, zombie_regtest_conf};
+use mm2_test_helpers::for_tests::{pirate_conf, zombie_conf};
 
 use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, swap_contract};
 use bitcrypto::{dhash160, ChecksumType};
@@ -210,7 +210,7 @@ pub trait CoinDockerOps {
                         }
                     }
                 },
-                Err(e) => error!("{:?}", e),
+                Err(e) => println!("{:?}", e),
             }
             assert!(now_ms() < timeout, "Test timed out");
             thread::sleep(Duration::from_secs(1));
@@ -249,12 +249,42 @@ pub struct ZCoinAssetDockerOps {
 
 impl CoinDockerOps for ZCoinAssetDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
+    fn wait_ready(&self, expected_tx_version: i32) {
+        let timeout = wait_until_ms(120000);
+        loop {
+            match block_on_f01(self.rpc_client().get_block_count()) {
+                Ok(n) => {
+                    println!("BLOCK {n}");
+                    if n >= 1 {
+                        if let UtxoRpcClientEnum::Native(client) = self.rpc_client() {
+                            let hash = block_on_f01(client.get_block_hash(n)).unwrap();
+                            let block = block_on_f01(client.get_block(hash)).unwrap();
+                            let coinbase = block_on_f01(client.get_verbose_transaction(&block.tx[0])).unwrap();
+                            log!("Coinbase tx {:?} in block {}", coinbase, n);
+                            if coinbase.version == expected_tx_version {
+                                //send funds to our shielded address.
+                                block_on(client.z_shieldcoinbase(
+                                    &coinbase.vout[0].script.addresses[0],
+                                    "zs10hvyxf3ajm82e4gvxem3zjlf9xf3yxhjww9fvz3mfqza9zwumvluzy735e29c3x5aj2nu0ua6n0"
+                                ).compat())
+                                .unwrap();
+                                break;
+                            }
+                        }
+                    }
+                },
+                Err(e) => println!("{:?}", e),
+            }
+            assert!(now_ms() < timeout, "Test timed out");
+            thread::sleep(Duration::from_secs(1));
+        }
+    }
 }
 
 impl ZCoinAssetDockerOps {
     pub fn from_ticker(ticker: &str) -> ZCoinAssetDockerOps {
         let ctx = MmCtxBuilder::new().into_mm_arc();
-        let mut conf = zombie_regtest_conf();
+        let mut conf = zombie_conf();
         let params = native_zcoin_activation_params();
         let pk_data = [1; 32];
         let db_dir = prepare_runtime_dir().unwrap();
@@ -271,7 +301,7 @@ impl ZCoinAssetDockerOps {
             PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
             db_dir,
             protocol_info,
-"secret-extended-key-main1q0st6zl3q5qqpqysyg8d8fyhd2wk882nhu222vqtdlvnrptnpg0mucu55v46gggkfljfftt944vdr2c85qj08yns9mgv6vsv6j58gjye8xxhc8htqnaqtyeedn457xtx05hkuk3vewv4sqtj4m7rzfgd795974pqrf540fsd9n4n4re70zanedum0cc5fz28ky28m0jnlsxal97fszxys2wvh6t8kjc3wv44kk892fp7dmfmd7ntycyxl262swm676gzwapesfvppfgqrzg6j",
+"secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe",
         ))
         .unwrap();
 
@@ -521,15 +551,10 @@ pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port:
     let mut image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "latest")
         .with_volume(zcash_params_path().display().to_string(), "/root/.zcash-params")
         .with_env_var("CLIENTS", "2")
-        .with_env_var("CHAIN", "ZOMBIE")
-        .with_env_var("TEST_ADDY", "RP2UeJtzvhbVkkSfFDWf4jBGLj8dJMmmvL")
-        .with_env_var("TEST_WIF", "UrH3dCEgKh8SHL7ZizYTiEj3NasNReDaRPBApUA2GYziNmLwArgJ")
         .with_env_var(
             "TEST_PUBKEY",
             "03f136aed70ba8cb2c8d8b131fe2ac6006e3d8402c52e35f11bd8c5e591fb1d849",
         )
-        .with_env_var("DAEMON_URL", "http://test:test@127.0.0.1:7001")
-        .with_env_var("COIN", "Komodo")
         .with_env_var("COIN_RPC_PORT", port.to_string())
         .with_wait_for(WaitFor::message_on_stdout("config is ready"));
     // If ticker is different from "ZOMBIE", use it for configuration files
@@ -1726,7 +1751,7 @@ pub fn z_coin_from_spending_key(ticker: &str, spending_key: &str) -> (MmArc, ZCo
     let mut conf = zombie_conf();
     let params = native_zcoin_activation_params();
     let pk_data = [1; 32];
-    let mut db_dir = temp_dir().join("ZOMBIE");
+    let db_dir = prepare_runtime_dir().unwrap();
     let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
         CoinProtocol::ZHTLC(protocol_info) => protocol_info,
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),

@@ -321,6 +321,7 @@ impl ZRpcOps for LightRpcClient {
             .map_to_mm(UpdateBlocksCacheErr::GrpcError)?
             .into_inner();
         while let Some(block) = response.next().await {
+            println!("CACHED BLOCK: {block:?}");
             handle_block_cache_update(db, handler, block, last_block).await?;
         }
 

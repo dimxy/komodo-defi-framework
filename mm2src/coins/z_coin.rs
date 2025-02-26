@@ -283,10 +283,9 @@ impl ZCoin {
     /// Otherwise, it returns `false`.
     #[inline]
     pub async fn is_sapling_state_synced(&self) -> bool {
-        matches!(
-            self.sync_status().await,
-            Ok(SyncStatus::Finished { block_number: _, .. })
-        )
+        let state = self.sync_status().await;
+        println!("{state:?}");
+        matches!(state, Ok(SyncStatus::Finished { block_number: _, .. }))
     }
 
     #[inline]

@@ -71,7 +71,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         // let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
         // let atom_node = atom_node(&docker, runtime_dir.clone());
         // let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
-        let pirate_node = pirate_asset_docker_node(&docker, "ZOMBIE", 7701);
+        let pirate_node = pirate_asset_docker_node(&docker, "ZOMBIE", 7090);
         let utxo_node = utxo_asset_docker_node(&docker, "MYCOIN", 7000);
         let utxo_node1 = utxo_asset_docker_node(&docker, "MYCOIN1", 8000);
         let qtum_node = qtum_docker_node(&docker, 9000);
