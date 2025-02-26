@@ -1,4 +1,4 @@
-//? Types for LR swaps rpc
+//! Types for LR swaps rpc
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::one_inch::types::ClassicSwapDetails;

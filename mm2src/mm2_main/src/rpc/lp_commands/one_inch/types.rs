@@ -1,6 +1,7 @@
 use crate::rpc::lp_commands::one_inch::errors::FromApiValueError;
-use coins::eth::find_token_by_address;
+use coins::eth::erc20::{get_erc20_ticker_by_contract_address, get_platform_ticker};
 use coins::eth::{u256_to_big_decimal, wei_to_gwei_decimal};
+use coins::Ticker;
 use common::true_f;
 use ethereum_types::{Address, U256};
 use mm2_core::mm_ctx::MmArc;
@@ -11,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use trading_api::one_inch_api::{self,
-                                classic_swap_types::{ProtocolImage, ProtocolInfo, TokenInfo},
+                                classic_swap_types::{ProtocolImage, ProtocolInfo, TokenInfo as LrTokenInfo},
                                 client::ApiClient};
 
 construct_detailed!(DetailedAmount, amount);
@@ -25,9 +26,9 @@ pub struct AggregationContractRequest {}
 #[serde(deny_unknown_fields)]
 pub struct ClassicSwapQuoteRequest {
     /// Base coin ticker
-    pub base: String,
+    pub base: Ticker,
     /// Rel coin ticker
-    pub rel: String,
+    pub rel: Ticker,
     /// Swap amount in coins (with fraction)
     pub amount: MmNumber,
     /// Partner fee, percentage of src token amount will be sent to referrer address, min: 0; max: 3.
@@ -70,9 +71,9 @@ pub struct ClassicSwapQuoteRequest {
 #[serde(deny_unknown_fields)]
 pub struct ClassicSwapCreateRequest {
     /// Base coin ticker
-    pub base: String,
+    pub base: Ticker,
     /// Rel coin ticker
-    pub rel: String,
+    pub rel: Ticker,
     /// Swap amount in coins (with fraction)
     pub amount: MmNumber,
     /// Allowed slippage, min: 0; max: 50
@@ -136,17 +137,17 @@ pub struct ClassicSwapDetails {
     pub dst_amount: DetailedAmount,
     /// Source (base) token info
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub src_token: Option<TokenInfo>,
+    pub src_token: Option<LrTokenInfo>,
     /// Source (base) token name as it is defined in the coins file
-    pub src_token_kdf: Option<String>,
+    pub src_token_kdf: Option<Ticker>,
     /// Destination (rel) token info
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dst_token: Option<TokenInfo>,
+    pub dst_token: Option<LrTokenInfo>,
     /// Destination (rel) token name as it is defined in the coins file.
     /// This is used to show route tokens in the GUI, like they are in the coin file.
     /// However, route tokens can be missed in the coins file and therefore cannot be filled.
-    /// In this case GUI may use TokenInfo::Address or TokenInfo::Symbol
-    pub dst_token_kdf: Option<String>,
+    /// In this case GUI may use LrTokenInfo::Address or LrTokenInfo::Symbol
+    pub dst_token_kdf: Option<Ticker>,
     /// Used liquidity sources
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocols: Option<Vec<Vec<Vec<ProtocolInfo>>>>,
@@ -162,18 +163,16 @@ pub type ClassicSwapResponse = ClassicSwapDetails;
 
 impl ClassicSwapDetails {
     /// Get token name as it is defined in the coins file by contract address  
-    async fn token_name_kdf(ctx: &MmArc, chain_id: u64, token_info: &TokenInfo) -> Option<String> {
-        //let ctx = self.ctx.lock().await;
-        //let coin_ctx = CoinsContext::from_ctx(&ctx).unwrap();
-
+    async fn token_name_kdf(ctx: &MmArc, chain_id: u64, token_info: &LrTokenInfo) -> Option<Ticker> {
         let special_contract =
             Address::from_str(ApiClient::eth_special_contract()).expect("1inch special address must be valid"); // TODO: must call 1inch to get it, instead of burned consts
-        let token_address = if token_info.address == special_contract {
-            None
+
+        let platform_ticker = get_platform_ticker(ctx, chain_id)?;
+        if token_info.address == special_contract {
+            Some(platform_ticker)
         } else {
-            Some(token_info.address)
-        };
-        find_token_by_address(ctx, chain_id, token_address).await
+            get_erc20_ticker_by_contract_address(ctx, &platform_ticker, &token_info.address)
+        }
     }
 
     pub(crate) async fn from_api_classic_swap_data(
@@ -244,5 +243,5 @@ pub struct ClassicSwapTokensRequest {
 
 #[derive(Serialize)]
 pub struct ClassicSwapTokensResponse {
-    pub tokens: HashMap<String, TokenInfo>,
+    pub tokens: HashMap<Ticker, LrTokenInfo>,
 }

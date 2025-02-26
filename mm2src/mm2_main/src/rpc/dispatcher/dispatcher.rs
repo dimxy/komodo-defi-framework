@@ -242,9 +242,9 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
             handle_mmrpc(ctx, request, one_inch_v6_0_classic_swap_liquidity_sources_rpc).await
         },
         "1inch_v6_0_classic_swap_tokens" => handle_mmrpc(ctx, request, one_inch_v6_0_classic_swap_tokens_rpc).await,
-        "lr_best_quote" => handle_mmrpc(ctx, request, lr_best_quote_rpc).await,
-        "lr_quotes_for_tokens" => handle_mmrpc(ctx, request, lr_quotes_for_tokens_rpc).await,
-        "lr_fill_order" => handle_mmrpc(ctx, request, lr_fill_order_rpc).await,
+        "preview::lr_best_quote" => handle_mmrpc(ctx, request, lr_best_quote_rpc).await,
+        "preview::lr_quotes_for_tokens" => handle_mmrpc(ctx, request, lr_quotes_for_tokens_rpc).await,
+        "preview::lr_fill_order" => handle_mmrpc(ctx, request, lr_fill_order_rpc).await,
         _ => MmError::err(DispatcherError::NoSuchMethod),
     }
 }
