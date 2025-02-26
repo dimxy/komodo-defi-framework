@@ -162,3 +162,16 @@ pub struct DelegationPayload {
     #[serde(default)]
     pub max: bool,
 }
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ClaimRewardsPayload {
+    pub validator_address: String,
+    pub fee: Option<WithdrawFee>,
+    #[serde(default)]
+    pub memo: String,
+    /// If transaction fee exceeds the reward amount users will be
+    /// prevented from claiming their rewards as it will not be profitable.
+    /// Setting `force` to `true` disables this logic.
+    #[serde(default)]
+    pub force: bool,
+}

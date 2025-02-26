@@ -218,7 +218,7 @@ pub mod coins_tests;
 
 pub mod eth;
 use eth::erc20::get_erc20_ticker_by_contract_address;
-use eth::eth_swap_v2::{PaymentStatusErr, PrepareTxDataError, ValidatePaymentV2Err};
+use eth::eth_swap_v2::{PrepareTxDataError, ValidatePaymentV2Err};
 use eth::{eth_coin_from_conf_and_request, get_eth_address, EthCoin, EthGasDetailsErr, EthTxFeeDetails,
           GetEthAddressError, GetValidEthWithdrawAddError, SignedEthTx};
 
@@ -1532,20 +1532,9 @@ impl From<UtxoRpcError> for ValidateSwapV2TxError {
     fn from(err: UtxoRpcError) -> Self { ValidateSwapV2TxError::Rpc(err.to_string()) }
 }
 
-impl From<PaymentStatusErr> for ValidateSwapV2TxError {
-    fn from(err: PaymentStatusErr) -> Self {
-        match err {
-            PaymentStatusErr::Internal(e) => ValidateSwapV2TxError::Internal(e),
-            PaymentStatusErr::Transport(e) => ValidateSwapV2TxError::Rpc(e),
-            PaymentStatusErr::ABIError(e) | PaymentStatusErr::InvalidData(e) => ValidateSwapV2TxError::InvalidData(e),
-        }
-    }
-}
-
 impl From<ValidatePaymentV2Err> for ValidateSwapV2TxError {
     fn from(err: ValidatePaymentV2Err) -> Self {
         match err {
-            ValidatePaymentV2Err::UnexpectedPaymentState(e) => ValidateSwapV2TxError::UnexpectedPaymentState(e),
             ValidatePaymentV2Err::WrongPaymentTx(e) => ValidateSwapV2TxError::WrongPaymentTx(e),
         }
     }
@@ -1555,6 +1544,7 @@ impl From<PrepareTxDataError> for ValidateSwapV2TxError {
     fn from(err: PrepareTxDataError) -> Self {
         match err {
             PrepareTxDataError::ABIError(e) | PrepareTxDataError::Internal(e) => ValidateSwapV2TxError::Internal(e),
+            PrepareTxDataError::InvalidData(e) => ValidateSwapV2TxError::InvalidData(e),
         }
     }
 }
@@ -1909,22 +1899,12 @@ impl From<WaitForOutputSpendErr> for FindPaymentSpendError {
     }
 }
 
-impl From<PaymentStatusErr> for FindPaymentSpendError {
-    fn from(e: PaymentStatusErr) -> Self {
-        match e {
-            PaymentStatusErr::ABIError(e) => Self::ABIError(e),
-            PaymentStatusErr::Transport(e) => Self::Transport(e),
-            PaymentStatusErr::Internal(e) => Self::Internal(e),
-            PaymentStatusErr::InvalidData(e) => Self::InvalidData(e),
-        }
-    }
-}
-
 impl From<PrepareTxDataError> for FindPaymentSpendError {
     fn from(e: PrepareTxDataError) -> Self {
         match e {
             PrepareTxDataError::ABIError(e) => Self::ABIError(e),
             PrepareTxDataError::Internal(e) => Self::Internal(e),
+            PrepareTxDataError::InvalidData(e) => Self::InvalidData(e),
         }
     }
 }
@@ -1964,7 +1944,7 @@ impl<T: ParseCoinAssocTypes + ?Sized> fmt::Debug for FundingTxSpend<T> {
 }
 
 /// Enum representing errors that can occur during the search for funding spend.
-#[derive(Debug)]
+#[derive(Debug, EnumFromStringify)]
 pub enum SearchForFundingSpendErr {
     /// Variant indicating an invalid input transaction error with additional information.
     InvalidInputTx(String),
@@ -1974,6 +1954,7 @@ pub enum SearchForFundingSpendErr {
     Rpc(String),
     /// Variant indicating an error during conversion of the `from_block` argument with associated `TryFromIntError`.
     FromBlockConversionErr(TryFromIntError),
+    #[from_stringify("ethabi::Error")]
     Internal(String),
 }
 
@@ -2229,18 +2210,28 @@ pub enum StakingDetails {
     Cosmos(Box<rpc_command::tendermint::staking::DelegationPayload>),
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct AddDelegateRequest {
     pub coin: String,
     pub staking_details: StakingDetails,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct RemoveDelegateRequest {
     pub coin: String,
     pub staking_details: Option<StakingDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub enum ClaimingDetails {
+    Cosmos(rpc_command::tendermint::staking::ClaimRewardsPayload),
+}
+
+#[derive(Deserialize)]
+pub struct ClaimStakingRewardsRequest {
+    pub coin: String,
+    pub claiming_details: ClaimingDetails,
 }
 
 #[derive(Deserialize)]
@@ -2369,6 +2360,7 @@ impl KmdRewardsDetails {
 pub enum TransactionType {
     StakingDelegation,
     RemoveDelegation,
+    ClaimDelegationRewards,
     #[default]
     StandardTransfer,
     TokenTransfer(BytesJson),
@@ -2868,6 +2860,14 @@ pub enum DelegationError {
         available: BigDecimal,
         requested: BigDecimal,
     },
+    #[display(
+        fmt = "Fee ({}) exceeds reward ({}) which makes this unprofitable. Set 'force' to true in the request to bypass this check.",
+        fee,
+        reward
+    )]
+    UnprofitableReward { reward: BigDecimal, fee: BigDecimal },
+    #[display(fmt = "There is no reward for {} to claim.", coin)]
+    NothingToClaim { coin: String },
     #[display(fmt = "{}", _0)]
     CannotInteractWithSmartContract(String),
     #[from_stringify("ScriptHashTypeNotSupported")]
@@ -5015,6 +5015,22 @@ pub async fn add_delegation(ctx: MmArc, req: AddDelegateRequest) -> DelegationRe
             };
 
             tendermint.delegate(*req).await
+        },
+    }
+}
+
+pub async fn claim_staking_rewards(ctx: MmArc, req: ClaimStakingRewardsRequest) -> DelegationResult {
+    match req.claiming_details {
+        ClaimingDetails::Cosmos(r) => {
+            let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
+
+            let MmCoinEnum::Tendermint(tendermint) = coin else {
+                return MmError::err(DelegationError::InvalidPayload {
+                    reason: format!("{} is not a Cosmos coin", req.coin)
+                });
+            };
+
+            tendermint.claim_staking_rewards(r).await
         },
     }
 }

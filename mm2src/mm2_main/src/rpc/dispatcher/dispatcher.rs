@@ -47,9 +47,9 @@ use coins::utxo::qtum::QtumCoin;
 use coins::utxo::slp::SlpToken;
 use coins::utxo::utxo_standard::UtxoStandardCoin;
 use coins::z_coin::ZCoin;
-use coins::{add_delegation, get_my_address, get_raw_transaction, get_staking_infos, get_swap_transaction_fee_policy,
-            nft, remove_delegation, set_swap_transaction_fee_policy, sign_message, sign_raw_transaction,
-            verify_message, withdraw};
+use coins::{add_delegation, claim_staking_rewards, get_my_address, get_raw_transaction, get_staking_infos,
+            get_swap_transaction_fee_policy, nft, remove_delegation, set_swap_transaction_fee_policy, sign_message,
+            sign_raw_transaction, verify_message, withdraw};
 use coins_activation::{cancel_init_l2, cancel_init_platform_coin_with_tokens, cancel_init_standalone_coin,
                        cancel_init_token, enable_platform_coin_with_tokens, enable_token, init_l2, init_l2_status,
                        init_l2_user_action, init_platform_coin_with_tokens, init_platform_coin_with_tokens_status,
@@ -177,6 +177,7 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
         "approve_token" => handle_mmrpc(ctx, request, approve_token_rpc).await,
         "get_token_allowance" => handle_mmrpc(ctx, request, get_token_allowance_rpc).await,
         "best_orders" => handle_mmrpc(ctx, request, best_orders_rpc_v2).await,
+        "claim_staking_rewards" => handle_mmrpc(ctx, request, claim_staking_rewards).await,
         "clear_nft_db" => handle_mmrpc(ctx, request, clear_nft_db).await,
         "enable_bch_with_tokens" => handle_mmrpc(ctx, request, enable_platform_coin_with_tokens::<BchCoin>).await,
         "enable_slp" => handle_mmrpc(ctx, request, enable_token::<SlpToken>).await,
