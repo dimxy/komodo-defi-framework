@@ -88,7 +88,7 @@ pub async fn lr_fill_order_rpc(
     MmError::err(ApiIntegrationRpcError::InternalError("unimplemented".to_owned()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use crate::lp_ordermatch::{OrderbookAddress, RpcOrderbookEntryV2};
     use crate::rpc::lp_commands::legacy::electrum;
