@@ -53,12 +53,12 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         const IMAGES: &[&str] = &[
             UTXO_ASSET_DOCKER_IMAGE_WITH_TAG,
             QTUM_REGTEST_DOCKER_IMAGE_WITH_TAG,
+            ZOMBIE_ASSET_DOCKER_IMAGE,
+            ZOMBIE_ASSET_DOCKER_IMAGE_WITH_TAG,
             GETH_DOCKER_IMAGE_WITH_TAG,
             NUCLEUS_IMAGE,
             ATOM_IMAGE_WITH_TAG,
             IBC_RELAYER_IMAGE_WITH_TAG,
-            ZOMBIE_ASSET_DOCKER_IMAGE,
-            ZOMBIE_ASSET_DOCKER_IMAGE_WITH_TAG,
         ];
 
         for image in IMAGES {
@@ -82,7 +82,6 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
         let qtum_ops = QtumDockerOps::new();
         let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
-        let zombie_ops = ZCoinAssetDockerOps::new();
 
         qtum_ops.wait_ready(2);
         qtum_ops.initialize_contracts();
@@ -90,7 +89,6 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         for_slp_ops.initialize_slp();
         utxo_ops.wait_ready(4);
         utxo_ops1.wait_ready(4);
-        zombie_ops.wait_ready(4);
 
         wait_for_geth_node_ready();
         init_geth_node();
@@ -99,15 +97,19 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         thread::sleep(Duration::from_secs(10));
         wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
 
+        // zombie can taker longer(not long) than other utxos to initialize.
+        let zombie_ops = ZCoinAssetDockerOps::new();
+        zombie_ops.wait_ready(4);
+
         containers.push(utxo_node);
         containers.push(utxo_node1);
         containers.push(qtum_node);
         containers.push(for_slp_node);
+        containers.push(zombie_node);
         containers.push(geth_node);
         containers.push(nucleus_node);
         containers.push(atom_node);
         containers.push(ibc_relayer_node);
-        containers.push(zombie_node);
     }
     // detect if docker is installed
     // skip the tests that use docker if not installed

@@ -269,6 +269,8 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
                                     &coinbase.vout[0].script.addresses[0],
                                     "zs10hvyxf3ajm82e4gvxem3zjlf9xf3yxhjww9fvz3mfqza9zwumvluzy735e29c3x5aj2nu0ua6n0"
                                 ).compat());
+
+                                log!("ZOMBIE node is ready");
                                 break;
                             }
                         }
