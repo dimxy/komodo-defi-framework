@@ -119,6 +119,7 @@ pub static GETH_RPC_URL: &str = "http://127.0.0.1:8545";
 pub static SEPOLIA_RPC_URL: &str = "https://ethereum-sepolia-rpc.publicnode.com";
 
 pub const ZOMBIE_ASSET_DOCKER_IMAGE: &str = "docker.io/borngraced/zombietestrunner";
+pub const ZOMBIE_ASSET_DOCKER_IMAGE_WITH_TAG: &str = "docker.io/borngraced/zombietestrunner:multiarch";
 pub const UTXO_ASSET_DOCKER_IMAGE: &str = "docker.io/artempikulin/testblockchain";
 pub const UTXO_ASSET_DOCKER_IMAGE_WITH_TAG: &str = "docker.io/artempikulin/testblockchain:multiarch";
 pub const GETH_DOCKER_IMAGE: &str = "docker.io/ethereum/client-go";
@@ -547,7 +548,7 @@ pub fn ibc_relayer_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_>
 }
 
 pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u16) -> DockerNode<'a> {
-    let image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "latest")
+    let image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "multiarch")
         .with_volume(zcash_params_path().display().to_string(), "/root/.zcash-params")
         .with_env_var("CLIENTS", "2")
         .with_env_var("COIN_RPC_PORT", port.to_string())

@@ -59,6 +59,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
             ATOM_IMAGE_WITH_TAG,
             IBC_RELAYER_IMAGE_WITH_TAG,
             ZOMBIE_ASSET_DOCKER_IMAGE,
+            ZOMBIE_ASSET_DOCKER_IMAGE_WITH_TAG,
         ];
 
         for image in IMAGES {
