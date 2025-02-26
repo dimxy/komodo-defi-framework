@@ -212,7 +212,7 @@ pub trait CoinDockerOps {
                         }
                     }
                 },
-                Err(e) => println!("{:?}", e),
+                Err(e) => log!("{:?}", e),
             }
             assert!(now_ms() < timeout, "Test timed out");
             thread::sleep(Duration::from_secs(1));
@@ -283,7 +283,7 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
 }
 
 impl ZCoinAssetDockerOps {
-    pub fn from_ticker(_ticker: &str) -> ZCoinAssetDockerOps {
+    pub fn new() -> ZCoinAssetDockerOps {
         let (ctx, coin) = block_on(z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe"));
 
         ZCoinAssetDockerOps { ctx, coin }
@@ -532,26 +532,27 @@ pub fn ibc_relayer_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_>
     }
 }
 
-pub fn pirate_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u16) -> DockerNode<'a> {
+pub fn zombie_asset_docker_node(docker: &Cli, port: u16) -> DockerNode<'_> {
     let image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "multiarch")
         .with_volume(zcash_params_path().display().to_string(), "/root/.zcash-params")
         .with_env_var("CLIENTS", "2")
         .with_env_var("COIN_RPC_PORT", port.to_string())
         .with_wait_for(WaitFor::message_on_stdout("config is ready"));
-    // If ticker is different from "ZOMBIE", use it for configuration files
-    let config_ticker = if ticker != "ZOMBIE" { ticker } else { "ZOMBIE" };
 
     let image = RunnableImage::from(image).with_mapped_port((port, port));
     let container = docker.run(image);
+    let config_ticker = "ZOMBIE";
     let mut conf_path = coin_daemon_data_dir(config_ticker, true);
+
     std::fs::create_dir_all(&conf_path).unwrap();
     conf_path.push(format!("{}.conf", config_ticker));
     Command::new("docker")
         .arg("cp")
-        .arg(format!("{}:/data/node_0/{}.conf", container.id(), "ZOMBIE"))
+        .arg(format!("{}:/data/node_0/{}.conf", container.id(), config_ticker))
         .arg(&conf_path)
         .status()
         .expect("Failed to execute docker command");
+
     let timeout = wait_until_ms(3000);
     loop {
         if conf_path.exists() {

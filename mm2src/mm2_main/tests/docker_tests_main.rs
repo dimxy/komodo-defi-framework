@@ -76,13 +76,13 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         let qtum_node = qtum_docker_node(&docker, 9000);
         let for_slp_node = utxo_asset_docker_node(&docker, "FORSLP", 10000);
         let geth_node = geth_docker_node(&docker, "ETH", 8545);
-        let pirate_node = pirate_asset_docker_node(&docker, "ZOMBIE", 7090);
+        let zombie_node = zombie_asset_docker_node(&docker, 7090);
 
         let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
         let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
         let qtum_ops = QtumDockerOps::new();
         let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
-        let pirate_ops = ZCoinAssetDockerOps::from_ticker("ZOMBIE");
+        let zombie_ops = ZCoinAssetDockerOps::new();
 
         qtum_ops.wait_ready(2);
         qtum_ops.initialize_contracts();
@@ -90,7 +90,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         for_slp_ops.initialize_slp();
         utxo_ops.wait_ready(4);
         utxo_ops1.wait_ready(4);
-        pirate_ops.wait_ready(4);
+        zombie_ops.wait_ready(4);
 
         wait_for_geth_node_ready();
         init_geth_node();
@@ -107,7 +107,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         containers.push(nucleus_node);
         containers.push(atom_node);
         containers.push(ibc_relayer_node);
-        containers.push(pirate_node);
+        containers.push(zombie_node);
     }
     // detect if docker is installed
     // skip the tests that use docker if not installed
