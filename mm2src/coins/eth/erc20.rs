@@ -72,7 +72,7 @@ pub async fn get_erc20_token_info(coin: &EthCoin, token_addr: Address) -> Result
     Ok(Erc20TokenInfo { symbol, decimals })
 }
 
-/// Finds if an ERC20 token is in coins config by its contract address and returns its ticker.
+/// Finds eth platfrom coin in coins config by chain_id and returns its ticker.
 pub fn get_platform_ticker(ctx: &MmArc, chain_id: u64) -> Option<String> {
     ctx.conf["coins"].as_array()?.iter().find_map(|coin| {
         let protocol = coin.get("protocol")?;
