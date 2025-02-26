@@ -1,8 +1,6 @@
 pub mod storage;
 mod z_balance_streaming;
 mod z_coin_errors;
-#[cfg(all(test, feature = "zhtlc-native-tests"))]
-mod z_coin_native_tests;
 mod z_htlc;
 mod z_rpc;
 mod z_tx_history;
@@ -74,7 +72,8 @@ use std::num::TryFromIntError;
 use std::path::PathBuf;
 use std::sync::Arc;
 pub use z_coin_errors::*;
-use z_htlc::{z_p2sh_spend, z_send_dex_fee, z_send_htlc};
+pub use z_htlc::z_send_dex_fee;
+use z_htlc::{z_p2sh_spend, z_send_htlc};
 use z_rpc::init_light_client;
 pub use z_rpc::{FirstSyncBlock, SyncStatus};
 use z_rpc::{SaplingSyncConnector, SaplingSyncGuard};

@@ -25,7 +25,6 @@ extern crate serde_json;
 use common::custom_futures::timeout::FutureTimerExt;
 use std::env;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use test::{test_main, StaticBenchFn, StaticTestFn, TestDescAndFn};
@@ -79,7 +78,6 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         let geth_node = geth_docker_node(&docker, "ETH", 8545);
         let pirate_node = pirate_asset_docker_node(&docker, "ZOMBIE", 7090);
 
-        let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
         let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
         let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
         let qtum_ops = QtumDockerOps::new();

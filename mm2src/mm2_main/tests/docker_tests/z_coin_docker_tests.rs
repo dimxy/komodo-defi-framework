@@ -1,14 +1,51 @@
-use std::path::PathBuf;
-
-use crate::docker_tests::docker_tests_common::z_coin_from_spending_key;
-use coins::{MarketCoinOps, RefundPaymentArgs, SendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash};
-use common::{block_on, now_sec, Future01CompatExt};
-
+use crate::common::Future01CompatExt;
 use bitcrypto::dhash160;
-use coins::{coin_errors::ValidatePaymentError, z_coin::z_send_dex_fee, DexFee, MarketCoinOps, RefundPaymentArgs,
-            SendPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, ValidateFeeArgs};
-use common::{executor::Timer, now_sec, Future01CompatExt};
+use coins::z_coin::{z_coin_from_conf_and_params_with_docker, z_send_dex_fee, ZCoin, ZcoinActivationParams,
+                    ZcoinRpcMode};
+use coins::{coin_errors::ValidatePaymentError, CoinProtocol, DexFee, MarketCoinOps, PrivKeyBuildPolicy,
+            RefundPaymentArgs, SendPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, ValidateFeeArgs};
+use common::{executor::Timer, now_sec};
+use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::MmNumber;
+use mm2_test_helpers::for_tests::zombie_conf;
+
+use super::docker_tests_common::prepare_runtime_dir;
+
+/// Build asset `ZCoin` from ticker and spendingkey str without filling the balance.
+pub async fn z_coin_from_spending_key(spending_key: &str) -> (MmArc, ZCoin) {
+    let ctx = MmCtxBuilder::new().into_mm_arc();
+    let mut conf = zombie_conf();
+    let params = ZcoinActivationParams {
+        mode: ZcoinRpcMode::Native,
+        required_confirmations: Some(0),
+        requires_notarization: None,
+        zcash_params_path: None,
+        scan_blocks_per_iteration: 1000,
+        scan_interval_ms: 0,
+        account: 0,
+    };
+    let pk_data = [1; 32];
+    let db_dir = prepare_runtime_dir().unwrap();
+    let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
+        CoinProtocol::ZHTLC(protocol_info) => protocol_info,
+        other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
+    };
+
+    let coin = z_coin_from_conf_and_params_with_docker(
+        &ctx,
+        "ZOMBIE",
+        &conf,
+        &params,
+        PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
+        db_dir,
+        protocol_info,
+        spending_key,
+    )
+    .await
+    .unwrap();
+
+    (ctx, coin)
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn zombie_coin_send_and_refund_maker_payment() {
@@ -34,11 +71,8 @@ async fn zombie_coin_send_and_refund_maker_payment() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
-    let balance = block_on(coin.my_balance().compat()).unwrap();
-    println!("balance: {balance:?}");
-    let tx = block_on(coin.send_maker_payment(args)).unwrap();
+    let tx = coin.send_maker_payment(args).await.unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
-    println!("after send maker payment");
 
     let refund_args = RefundPaymentArgs {
         payment_tx: &tx.tx_hex(),
@@ -51,7 +85,7 @@ async fn zombie_coin_send_and_refund_maker_payment() {
         swap_unique_data: maker_uniq_data.as_slice(),
         watcher_reward: false,
     };
-    let refund_tx = block_on(coin.send_maker_refunds_payment(refund_args)).unwrap();
+    let refund_tx = coin.send_maker_refunds_payment(refund_args).await.unwrap();
     log!("refund tx {}", hex::encode(refund_tx.tx_hash_as_bytes().0));
 }
 

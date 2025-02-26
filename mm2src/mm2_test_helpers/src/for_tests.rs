@@ -821,7 +821,7 @@ pub fn eth1_dev_conf() -> Json { eth_conf("ETH1") }
 
 fn eth_conf(coin: &str) -> Json {
     json!({
-        "coin": "ETH",
+        "coin": coin,
         "name": "ethereum",
         "mm2": 1,
         "chain_id": 1337,

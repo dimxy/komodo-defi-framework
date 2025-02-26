@@ -1,6 +1,6 @@
-use coins::z_coin::{z_coin_from_conf_and_params_with_docker, ZCoin, ZcoinActivationParams, ZcoinRpcMode};
+use coins::z_coin::ZCoin;
+use common::Future01CompatExt;
 pub use common::{block_on, block_on_f01, now_ms, now_sec, wait_until_ms, wait_until_sec, DEX_FEE_ADDR_RAW_PUBKEY};
-use common::{temp_dir, Future01CompatExt};
 pub use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::BalanceResponse;
 pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, enable_eth_coin, enable_native,
@@ -8,9 +8,9 @@ pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, 
                                       jst_sepolia_conf, mm_dump, wait_check_stats_swap_status, MarketMakerIt,
                                       MAKER_ERROR_EVENTS, MAKER_SUCCESS_EVENTS, TAKER_ERROR_EVENTS,
                                       TAKER_SUCCESS_EVENTS};
-use mm2_test_helpers::for_tests::{pirate_conf, zombie_conf};
 
 use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, swap_contract};
+use super::z_coin_docker_tests::z_coin_from_spending_key;
 use bitcrypto::{dhash160, ChecksumType};
 use chain::TransactionOutput;
 use coins::eth::addr_from_raw_pubkey;
@@ -24,7 +24,7 @@ use coins::utxo::utxo_common::send_outputs_from_my_address;
 use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
 use coins::utxo::{coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path, UtxoActivationParams,
                   UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps};
-use coins::{CoinProtocol, ConfirmPaymentInput, MarketCoinOps, PrivKeyBuildPolicy, Transaction};
+use coins::{ConfirmPaymentInput, MarketCoinOps, Transaction};
 use crypto::privkey::key_pair_from_seed;
 use crypto::Secp256k1Secret;
 use ethabi::Token;
@@ -283,27 +283,7 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
 
 impl ZCoinAssetDockerOps {
     pub fn from_ticker(_ticker: &str) -> ZCoinAssetDockerOps {
-        let ctx = MmCtxBuilder::new().into_mm_arc();
-        let mut conf = zombie_conf();
-        let params = native_zcoin_activation_params();
-        let pk_data = [1; 32];
-        let db_dir = prepare_runtime_dir().unwrap();
-        let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
-            CoinProtocol::ZHTLC(protocol_info) => protocol_info,
-            other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
-        };
-
-        let coin = block_on(z_coin_from_conf_and_params_with_docker(
-            &ctx,
-            "ZOMBIE",
-            &conf,
-            &params,
-            PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
-            db_dir,
-            protocol_info,
-"secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe",
-        ))
-        .unwrap();
+        let (ctx, coin) = block_on(z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe"));
 
         ZCoinAssetDockerOps { ctx, coin }
     }
@@ -1732,38 +1712,4 @@ pub fn init_geth_node() {
         // 100 ETH
         fill_eth(bob_eth_addr, U256::from(10).pow(U256::from(20)));
     }
-}
-
-fn native_zcoin_activation_params() -> ZcoinActivationParams {
-    ZcoinActivationParams {
-        mode: ZcoinRpcMode::Native,
-        ..Default::default()
-    }
-}
-
-/// Build asset `ZCoin` from ticker and spendingkey str without filling the balance.
-pub fn z_coin_from_spending_key(ticker: &str, spending_key: &str) -> (MmArc, ZCoin) {
-    let ctx = MmCtxBuilder::new().into_mm_arc();
-    let mut conf = zombie_conf();
-    let params = native_zcoin_activation_params();
-    let pk_data = [1; 32];
-    let db_dir = prepare_runtime_dir().unwrap();
-    let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
-        CoinProtocol::ZHTLC(protocol_info) => protocol_info,
-        other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
-    };
-
-    let coin = block_on(z_coin_from_conf_and_params_with_docker(
-        &ctx,
-        "ZOMBIE",
-        &conf,
-        &params,
-        PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
-        db_dir,
-        protocol_info,
-        spending_key,
-    ))
-    .unwrap();
-
-    (ctx, coin)
 }
