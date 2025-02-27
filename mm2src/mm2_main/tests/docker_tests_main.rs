@@ -22,7 +22,6 @@ extern crate serde_json;
 #[cfg(test)] extern crate ser_error_derive;
 #[cfg(test)] extern crate test;
 
-use coins::utxo::{coin_daemon_data_dir, zcash_params_path};
 use common::custom_futures::timeout::FutureTimerExt;
 use std::env;
 use std::io::{BufRead, BufReader};

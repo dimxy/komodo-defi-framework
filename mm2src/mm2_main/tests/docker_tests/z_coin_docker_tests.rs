@@ -1,9 +1,8 @@
-use crate::common::Future01CompatExt;
 use bitcrypto::dhash160;
 use coins::z_coin::{z_coin_from_conf_and_params_with_docker, z_send_dex_fee, ZCoin, ZcoinActivationParams,
                     ZcoinRpcMode};
-use coins::{coin_errors::ValidatePaymentError, CoinProtocol, DexFee, MarketCoinOps, PrivKeyBuildPolicy,
-            RefundPaymentArgs, SendPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, ValidateFeeArgs};
+use coins::{coin_errors::ValidatePaymentError, CoinProtocol, DexFee, PrivKeyBuildPolicy, RefundPaymentArgs,
+            SendPaymentArgs, SpendPaymentArgs, SwapOps, SwapTxTypeWithSecretHash, ValidateFeeArgs};
 use common::{executor::Timer, now_sec};
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::MmNumber;
