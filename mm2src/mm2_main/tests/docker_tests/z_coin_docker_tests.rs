@@ -7,9 +7,9 @@ use coins::{coin_errors::ValidatePaymentError, CoinProtocol, DexFee, MarketCoinO
 use common::{executor::Timer, now_sec};
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::MmNumber;
-use mm2_test_helpers::for_tests::zombie_conf;
-
-use super::docker_tests_common::prepare_runtime_dir;
+use mm2_test_helpers::for_tests::{new_mm2_temp_folder_path, zombie_conf};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 
 /// Build asset `ZCoin` from ticker and spendingkey str without filling the balance.
 pub async fn z_coin_from_spending_key(spending_key: &str) -> (MmArc, ZCoin) {
@@ -20,7 +20,13 @@ pub async fn z_coin_from_spending_key(spending_key: &str) -> (MmArc, ZCoin) {
         ..Default::default()
     };
     let pk_data = [1; 32];
-    let db_dir = prepare_runtime_dir().unwrap();
+    let salt: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(4)
+        .map(char::from)
+        .collect();
+    let db_folder = new_mm2_temp_folder_path(None).join(format!("ZOMBIE_DB_{}", salt));
+    std::fs::create_dir_all(&db_folder).unwrap();
     let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
         CoinProtocol::ZHTLC(protocol_info) => protocol_info,
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
@@ -32,7 +38,7 @@ pub async fn z_coin_from_spending_key(spending_key: &str) -> (MmArc, ZCoin) {
         &conf,
         &params,
         PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
-        db_dir,
+        db_folder,
         protocol_info,
         spending_key,
     )
@@ -152,8 +158,7 @@ async fn zombie_coin_send_dex_fee() {
 async fn zombie_coin_validate_dex_fee() {
     let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").await;
 
-    let balance = coin.my_balance().compat().await;
-    println!("BALANCE: {balance:?}");
+    // let balance = coin.my_balance().compat().await;
 
     let tx = z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16]).await.unwrap();
     log!("dex fee tx {}", tx.txid());
@@ -204,7 +209,6 @@ async fn zombie_coin_validate_dex_fee() {
         _ => panic!("Expected `WrongPaymentTx`: {:?}", err),
     }
 
-    println!("LAST STAGE");
     // Success validation
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,

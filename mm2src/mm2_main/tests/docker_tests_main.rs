@@ -22,9 +22,11 @@ extern crate serde_json;
 #[cfg(test)] extern crate ser_error_derive;
 #[cfg(test)] extern crate test;
 
+use coins::utxo::{coin_daemon_data_dir, zcash_params_path};
 use common::custom_futures::timeout::FutureTimerExt;
 use std::env;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 use test::{test_main, StaticBenchFn, StaticTestFn, TestDescAndFn};
@@ -82,6 +84,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
         let qtum_ops = QtumDockerOps::new();
         let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
+        let zombie_ops = ZCoinAssetDockerOps::new();
 
         qtum_ops.wait_ready(2);
         qtum_ops.initialize_contracts();
@@ -94,11 +97,9 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         init_geth_node();
         prepare_ibc_channels(ibc_relayer_node.container.id());
 
-        thread::sleep(Duration::from_secs(10));
+        thread::sleep(Duration::from_secs(12));
         wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
 
-        // zombie can taker longer(not long) than other utxos to initialize.
-        let zombie_ops = ZCoinAssetDockerOps::new();
         zombie_ops.wait_ready(4);
 
         containers.push(utxo_node);
@@ -181,4 +182,27 @@ fn remove_docker_containers(name: &str) {
             .status()
             .expect("Failed to execute docker command");
     }
+}
+
+fn prepare_runtime_dir() -> std::io::Result<PathBuf> {
+    let project_root = {
+        let mut current_dir = std::env::current_dir().unwrap();
+        current_dir.pop();
+        current_dir.pop();
+        current_dir
+    };
+
+    let containers_state_dir = project_root.join(".docker/container-state");
+    assert!(containers_state_dir.exists());
+    let containers_runtime_dir = project_root.join(".docker/container-runtime");
+
+    // Remove runtime directory if it exists to copy containers files to a clean directory
+    if containers_runtime_dir.exists() {
+        std::fs::remove_dir_all(&containers_runtime_dir).unwrap();
+    }
+
+    // Copy container files to runtime directory
+    mm2_io::fs::copy_dir_all(&containers_state_dir, &containers_runtime_dir).unwrap();
+
+    Ok(containers_runtime_dir)
 }

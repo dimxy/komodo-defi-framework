@@ -49,6 +49,7 @@ use crypto::HDPathToCoin;
 use crypto::{Bip32DerPathOps, GlobalHDAccountArc};
 use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
+use futures::StreamExt;
 use futures::{FutureExt, TryFutureExt};
 use futures01::Future;
 use keys::hash::H256;
@@ -279,10 +280,14 @@ impl ZCoin {
     /// Otherwise, it returns `false`.
     #[inline]
     pub async fn is_sapling_state_synced(&self) -> bool {
-        matches!(
-            self.sync_status().await,
-            Ok(SyncStatus::Finished { block_number: _, .. })
-        )
+        let mut watcher = self.z_fields.sync_state_connector.lock().await;
+        while let Some(sync) = watcher.sync_watcher.next().await {
+            if matches!(sync, SyncStatus::Finished { block_number: _, .. }) {
+                return true;
+            }
+        }
+
+        false
     }
 
     #[inline]

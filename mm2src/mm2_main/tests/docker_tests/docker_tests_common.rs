@@ -162,29 +162,6 @@ pub const MAKER_SWAP_V2_BYTES: &str = include_str!("../../../mm2_test_helpers/co
 /// https://github.com/KomodoPlatform/etomic-swap/blob/5e15641cbf41766cd5b37b4d71842c270773f788/contracts/EtomicSwapTakerV2.sol
 pub const TAKER_SWAP_V2_BYTES: &str = include_str!("../../../mm2_test_helpers/contract_bytes/taker_swap_v2_bytes");
 
-pub(crate) fn prepare_runtime_dir() -> std::io::Result<PathBuf> {
-    let project_root = {
-        let mut current_dir = std::env::current_dir().unwrap();
-        current_dir.pop();
-        current_dir.pop();
-        current_dir
-    };
-
-    let containers_state_dir = project_root.join(".docker/container-state");
-    assert!(containers_state_dir.exists());
-    let containers_runtime_dir = project_root.join(".docker/container-runtime");
-
-    // Remove runtime directory if it exists to copy containers files to a clean directory
-    if containers_runtime_dir.exists() {
-        std::fs::remove_dir_all(&containers_runtime_dir).unwrap();
-    }
-
-    // Copy container files to runtime directory
-    mm2_io::fs::copy_dir_all(&containers_state_dir, &containers_runtime_dir).unwrap();
-
-    Ok(containers_runtime_dir)
-}
-
 pub trait CoinDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum;
 
@@ -276,7 +253,7 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
                         }
                     }
                 },
-                Err(e) => println!("{:?}", e),
+                Err(e) => log!("{:?}", e),
             }
             assert!(now_ms() < timeout, "Test timed out");
             thread::sleep(Duration::from_secs(1));
@@ -537,7 +514,6 @@ pub fn ibc_relayer_node(docker: &'_ Cli, runtime_dir: PathBuf) -> DockerNode<'_>
 pub fn zombie_asset_docker_node(docker: &Cli, port: u16) -> DockerNode<'_> {
     let image = GenericImage::new(ZOMBIE_ASSET_DOCKER_IMAGE, "multiarch")
         .with_volume(zcash_params_path().display().to_string(), "/root/.zcash-params")
-        .with_env_var("CLIENTS", "2")
         .with_env_var("COIN_RPC_PORT", port.to_string())
         .with_wait_for(WaitFor::message_on_stdout("config is ready"));
 
