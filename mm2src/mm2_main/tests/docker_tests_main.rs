@@ -85,6 +85,7 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
         let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
         let zombie_ops = ZCoinAssetDockerOps::new();
 
+        zombie_ops.wait_ready(4);
         qtum_ops.wait_ready(2);
         qtum_ops.initialize_contracts();
         for_slp_ops.wait_ready(4);
@@ -98,8 +99,6 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
 
         thread::sleep(Duration::from_secs(12));
         wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
-
-        zombie_ops.wait_ready(4);
 
         containers.push(utxo_node);
         containers.push(utxo_node1);
