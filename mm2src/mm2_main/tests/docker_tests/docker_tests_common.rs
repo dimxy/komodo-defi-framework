@@ -46,6 +46,7 @@ use std::convert::TryFrom;
 use std::process::{Command, Stdio};
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 use std::str::FromStr;
+use std::thread::sleep;
 pub use std::{env, thread};
 use std::{path::PathBuf, sync::Mutex, time::Duration};
 use testcontainers::{clients::Cli, core::WaitFor, Container, GenericImage, RunnableImage};
@@ -241,12 +242,6 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
                             let coinbase = block_on_f01(client.get_verbose_transaction(&block.tx[0])).unwrap();
                             log!("Coinbase tx {:?} in block {}", coinbase, n);
                             if coinbase.version == expected_tx_version {
-                                //send funds to test shielded address.
-                                let _ =block_on(client.z_shieldcoinbase(
-                                    &coinbase.vout[0].script.addresses[0],
-                                    "zs10hvyxf3ajm82e4gvxem3zjlf9xf3yxhjww9fvz3mfqza9zwumvluzy735e29c3x5aj2nu0ua6n0"
-                                ).compat());
-
                                 log!("ZOMBIE node is ready");
                                 break;
                             }
