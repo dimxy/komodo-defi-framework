@@ -1,5 +1,4 @@
 use coins::z_coin::ZCoin;
-use common::Future01CompatExt;
 pub use common::{block_on, block_on_f01, now_ms, now_sec, wait_until_ms, wait_until_sec, DEX_FEE_ADDR_RAW_PUBKEY};
 pub use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::BalanceResponse;
@@ -46,7 +45,6 @@ use std::convert::TryFrom;
 use std::process::{Command, Stdio};
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 use std::str::FromStr;
-use std::thread::sleep;
 pub use std::{env, thread};
 use std::{path::PathBuf, sync::Mutex, time::Duration};
 use testcontainers::{clients::Cli, core::WaitFor, Container, GenericImage, RunnableImage};
