@@ -539,8 +539,10 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             .outputs
             .iter()
             .fold(0u64, |required, output| required + output.value);
+        //println!("required_amount sum_output={}", sum_output);
         match self.fee_policy {
             FeePolicy::SendExact => {
+                //println!("required_amount total_tx_fee_needed={}", self.total_tx_fee_needed());
                 sum_output += self.total_tx_fee_needed();
             },
             FeePolicy::DeductFromOutput(_) => {},

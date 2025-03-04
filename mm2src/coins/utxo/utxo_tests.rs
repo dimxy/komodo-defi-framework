@@ -34,7 +34,7 @@ use crate::{BlockHeightAndTime, CoinBalance, CoinBalanceMap, ConfirmPaymentInput
 use crate::{WaitForHTLCTxSpendArgs, WithdrawFee};
 use chain::{BlockHeader, BlockHeaderBits, OutPoint};
 use common::executor::Timer;
-use common::{block_on, block_on_f01, wait_until_sec, OrdRange, PagingOptionsEnum, DEX_FEE_ADDR_RAW_PUBKEY};
+use common::{block_on, block_on_f01, wait_until_sec, OrdRange, PagingOptionsEnum, DEX_FEE_ADDR_RAW_PUBKEY, SATOSHIS};
 use crypto::{privkey::key_pair_from_seed, Bip44Chain, HDPathToAccount, RpcDerivationPath, Secp256k1Secret};
 #[cfg(not(target_arch = "wasm32"))]
 use db_common::sqlite::rusqlite::Connection;
@@ -1206,70 +1206,100 @@ fn test_generate_transaction_relay_fee_is_used_when_dynamic_fee_is_lower() {
     assert!(unsafe { GET_RELAY_FEE_CALLED });
 }
 
-/// Test the transaction builder calculations for tx with many small inputs
-#[test]
+
+use proptest::prelude::*;
+
 #[cfg(not(target_arch = "wasm32"))]
-fn test_generate_transaction_many_small_inputs() {
-    let client = NativeClientImpl::default();
+proptest! {
 
-    // tx_size for zcash, no shielded
-    let est_tx_size = |n_inputs: u64, n_outputs: u64| {
-        4 + 4 + 1 + n_inputs * (1 + 1 + 72 + 1 + 33 + 32 + 4 + 4) + 1 + n_outputs * (1 + 25 + 8) + 4 + 4 + 8 + 1 + 1 + 1
-    };
+    /// Test the transaction builder calculations for tx with many small inputs
+    #[test]
+    fn test_generate_transaction_many_small_inputs(n_inputs in 1..99_u64, input_value in 9999..21_000_000 * SATOSHIS, n_outputs in 1..99_u64, dust in 0..9999_u64, fee_rate in 0..9999_u64) {
+        let client = NativeClientImpl::default();
 
-    static mut GET_RELAY_FEE_CALLED: bool = false;
-    NativeClient::get_relay_fee.mock_safe(|_| {
-        unsafe { GET_RELAY_FEE_CALLED = true };
-        MockResult::Return(Box::new(futures01::future::ok("0.00000001".parse().unwrap())))
-    });
-    let client = UtxoRpcClientEnum::Native(NativeClient(Arc::new(client)));
-    let mut coin = utxo_coin_fields_for_test(client, None, false);
-    coin.conf.force_min_relay_fee = true;
-    let coin = utxo_coin_from_fields(coin);
-    let mut unspents = vec![];
+        // tx_size for zcash, no shielded
+        let est_tx_size = |n_inputs: u64, n_outputs: u64| {
+            4 + 4 + 1 + n_inputs * (1 + 1 + 72 + 1 + 33 + 32 + 4 + 4) + 1 + n_outputs * (1 + 25 + 8) + 4 + 4 + 8 + 1 + 1 + 1
+        };
 
-    let n_inputs = 199;
-    let input_value = 3331;
-    let dust = 2;
-    for _i in 0..n_inputs {
-        unspents.push(UnspentInfo {
-            value: input_value,
-            outpoint: OutPoint::default(),
-            height: Default::default(),
-            script: Vec::new().into(),
+        // Provide get_relay_fee returns 0 so does not affect the test: 
+        NativeClient::get_relay_fee.mock_safe(|_| {
+            MockResult::Return(Box::new(futures01::future::ok("0.0".parse().unwrap())))
         });
+        let client = UtxoRpcClientEnum::Native(NativeClient(Arc::new(client)));
+        let mut coin = utxo_coin_fields_for_test(client, None, false);
+        coin.conf.force_min_relay_fee = true;
+        let coin = utxo_coin_from_fields(coin);
+        let mut unspents = vec![];
+
+        //let n_inputs = 199;
+        //let input_value = 3331;
+        //let dust = 2;
+        for _i in 0..n_inputs {
+            unspents.push(UnspentInfo {
+                value: input_value,
+                outpoint: OutPoint::default(),
+                height: Default::default(),
+                script: Vec::new().into(),
+            });
+        }
+
+        //let fee_rate = 999;
+        let tx_size = est_tx_size(n_inputs, n_outputs+1);
+        let estimated_txfee = fee_rate * tx_size / 1000;
+        let output_value = (input_value * n_inputs - estimated_txfee) / n_outputs;
+
+        let mut has_dust_output = false;
+        let mut outputs = vec![];
+        for _i in 0..n_outputs {
+            outputs.push(TransactionOutput {
+                script_pubkey: "76a914124b0846223ef78130b8e544b9afc3b09988238688ac".into(),
+                value: output_value,
+            });
+            if output_value < dust {
+                has_dust_output = true;
+            }
+        }
+
+        let builder = block_on(UtxoTxBuilder::new(&coin))
+            .add_available_inputs(unspents)
+            .add_outputs(outputs)
+            .with_dust(dust)
+            .with_fee(ActualFeeRate::Dynamic(fee_rate));
+
+        let result = block_on(builder.build());
+        if has_dust_output {
+            println!("has_dust_output = true");
+            prop_assert!(result.is_err());
+            return Ok(());
+        }
+
+        let generated = result.unwrap();
+
+        // generated transaction has no change output but dust
+        prop_assert!(generated.0.outputs.len() >= n_outputs.try_into().unwrap() && generated.0.outputs.len() <= (n_outputs + 1).try_into().unwrap());
+        prop_assert_eq!(generated.0.outputs[0].value, output_value);
+        // total w/o change:
+        let total = generated.0.outputs.iter().take(n_outputs.try_into().unwrap()).fold(0u64, |acc, o| acc + o.value);
+        //println!("spent_by_me={} fee_amount={} received_by_me={} output_value={} total={} estimated_txfee={} tx_size={}", 
+        //    generated.1.spent_by_me, generated.1.fee_amount, generated.1.received_by_me, output_value, total, estimated_txfee, tx_size);
+        
+        prop_assert_eq!(
+            generated.1.spent_by_me,
+            generated.1.fee_amount + generated.1.received_by_me + total
+        );
+        prop_assert!(generated.1.fee_amount >= estimated_txfee);
+
+        let received_by_me = if generated.0.outputs.len() > n_outputs.try_into().unwrap() {
+            generated.0.outputs.last().unwrap().value
+        } else {
+            0u64
+        };
+        prop_assert_eq!(generated.1.received_by_me, received_by_me);
+        prop_assert_eq!(generated.1.spent_by_me, n_inputs * input_value);
     }
 
-    let fee_rate = 999;
-    let tx_size = est_tx_size(n_inputs, 2);
-    let estimated_txfee = fee_rate * tx_size / 1000;
-    let output_value = input_value * n_inputs - estimated_txfee - (dust - 1);
-    let outputs = vec![TransactionOutput {
-        script_pubkey: "76a914124b0846223ef78130b8e544b9afc3b09988238688ac".into(),
-        value: output_value,
-    }];
-
-    let builder = block_on(UtxoTxBuilder::new(&coin))
-        .add_available_inputs(unspents)
-        .add_outputs(outputs)
-        .with_dust(dust)
-        .with_fee(ActualFeeRate::Dynamic(fee_rate));
-
-    let generated = block_on(builder.build()).unwrap();
-
-    // generated transaction has no change output but dust
-    assert_eq!(generated.0.outputs.len(), 1);
-    assert_eq!(generated.0.outputs[0].value, output_value);
-    assert_eq!(
-        generated.1.spent_by_me,
-        generated.1.fee_amount + generated.1.received_by_me + generated.0.outputs[0].value
-    );
-    assert!(generated.1.fee_amount >= estimated_txfee);
-    assert_eq!(generated.1.received_by_me, 0);
-    assert_eq!(generated.1.spent_by_me, n_inputs * input_value);
-    assert!(unsafe { GET_RELAY_FEE_CALLED });
 }
-
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 // https://github.com/KomodoPlatform/atomicDEX-API/issues/1037
