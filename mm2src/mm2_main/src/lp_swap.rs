@@ -101,12 +101,12 @@ mod my_swaps_storage;
 mod pubkey_banning;
 mod recreate_swap_data;
 mod saved_swap;
-mod swap_lock;
+pub(crate) mod swap_lock;
 #[path = "lp_swap/komodefi.swap_v2.pb.rs"]
 #[rustfmt::skip]
 mod swap_v2_pb;
 pub(crate) mod swap_events;
-mod swap_v2_common;
+pub(crate) mod swap_v2_common;
 pub(crate) mod swap_v2_rpcs;
 pub(crate) mod swap_watcher;
 pub(crate) mod taker_restart;
@@ -517,7 +517,7 @@ struct LockedAmountInfo {
     locked_amount: LockedAmount,
 }
 
-struct SwapsContext {
+pub(crate) struct SwapsContext {
     running_swaps: Mutex<HashMap<Uuid, Arc<dyn AtomicSwap>>>,
     active_swaps_v2_infos: Mutex<HashMap<Uuid, ActiveSwapV2Info>>,
     banned_pubkeys: Mutex<HashMap<H256Json, BanReason>>,

@@ -22,8 +22,8 @@ pub enum ApiIntegrationRpcError {
     DifferentChains,
     #[from_stringify("coins::UnexpectedDerivationMethod")]
     MyAddressError(String),
-    #[from_stringify("ethereum_types::FromDecStrErr", "coins::NumConversError")]
-    NumberError(String),
+    #[from_stringify("ethereum_types::FromDecStrErr", "coins::NumConversError", "hex::FromHexError")]
+    ConversionError(String),
     InvalidParam(String),
     #[display(fmt = "Parameter {param} out of bounds, value: {value}, min: {min} max: {max}")]
     OutOfBounds {
@@ -43,6 +43,15 @@ pub enum ApiIntegrationRpcError {
     InternalError(String),
     #[display(fmt = "liquidity routing swap not found")]
     LrSwapNotFound,
+    #[from_stringify("serde_json::Error")]
+    ResponseParseError(String),
+    #[from_stringify("coins::TransactionErr")]
+    #[display(fmt = "Transaction error {}", _0)]
+    TransactionError(String),
+    #[from_stringify("coins::RawTransactionError")]
+    #[display(fmt = "Sign transaction error {}", _0)]
+    SignTransactionError(String),
+    
 }
 
 impl HttpStatusCode for ApiIntegrationRpcError {
@@ -58,10 +67,13 @@ impl HttpStatusCode for ApiIntegrationRpcError {
             | ApiIntegrationRpcError::OutOfBounds { .. }
             | ApiIntegrationRpcError::OneInchAllowanceNotEnough { .. }
             | ApiIntegrationRpcError::InternalError { .. }
-            | ApiIntegrationRpcError::NumberError(_)
+            | ApiIntegrationRpcError::ConversionError(_)
             | ApiIntegrationRpcError::LrSwapNotFound => StatusCode::BAD_REQUEST,
-            ApiIntegrationRpcError::OneInchError(_) | ApiIntegrationRpcError::ApiDataError(_) => {
+            ApiIntegrationRpcError::OneInchError(_) | ApiIntegrationRpcError::ApiDataError(_) | ApiIntegrationRpcError::TransactionError(_) => {
                 StatusCode::BAD_GATEWAY
+            },
+            ApiIntegrationRpcError::ResponseParseError(_) | ApiIntegrationRpcError::SignTransactionError(_) => {
+                StatusCode::INTERNAL_SERVER_ERROR
             },
         }
     }

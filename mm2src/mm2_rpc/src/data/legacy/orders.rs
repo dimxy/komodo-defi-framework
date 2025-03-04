@@ -6,7 +6,8 @@ use uuid::Uuid;
 use common::true_f;
 use mm2_number::{construct_detailed, BigDecimal, BigRational, Fraction, MmNumber};
 
-#[derive(Deserialize, Serialize, Debug)]
+// TODO: remove Default
+#[derive(Clone, Default, Deserialize, Serialize, Debug)]
 pub struct SellBuyRequest {
     pub base: String,
     pub rel: String,

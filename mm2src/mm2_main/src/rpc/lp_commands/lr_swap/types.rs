@@ -1,7 +1,7 @@
 //! Types for LR swaps rpc
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
-use crate::rpc::lp_commands::one_inch::types::ClassicSwapDetails;
+use crate::rpc::lp_commands::one_inch::types::{ClassicSwapCreateRequest, ClassicSwapDetails};
 use coins::Ticker;
 use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::{SellBuyRequest, SellBuyResponse};
@@ -77,9 +77,12 @@ pub struct LrFillOrderRequest {
     #[serde(flatten)]
     pub fill_req: SellBuyRequest,
 
-    /// Tx data to create one inch swap (from 1inch quote)
+    /// Params to create 1inch LR swap (from 1inch quote)
     /// TODO: make this an enum to allow other LR providers
-    pub lr_swap_details: ClassicSwapDetails,
+    pub lr_swap_0: ClassicSwapCreateRequest,
+
+    /// Params to create 1inch LR swap (from 1inch quote)
+    pub lr_swap_1: ClassicSwapCreateRequest,
 }
 
 /// Response to sell or buy order with LR
