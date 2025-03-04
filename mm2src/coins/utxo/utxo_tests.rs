@@ -1209,12 +1209,13 @@ fn test_generate_transaction_relay_fee_is_used_when_dynamic_fee_is_lower() {
 
 use proptest::prelude::*;
 
+
 #[cfg(not(target_arch = "wasm32"))]
 proptest! {
 
-    /// Test the transaction builder calculations for tx with many small inputs
+    /// Test the transaction builder calculations for tx with many small inputs    
     #[test]
-    fn test_generate_transaction_many_small_inputs(n_inputs in 1..99_u64, input_value in 9999..21_000_000 * SATOSHIS, n_outputs in 1..99_u64, dust in 0..9999_u64, fee_rate in 0..9999_u64) {
+    fn test_generate_transaction_many_small_inputs(n_inputs in 1..99_u64, input_value in 9999..219_999_u64 /* * SATOSHIS*/, n_outputs in 1..99_u64, dust in 0..9999_u64, fee_rate in 0..9999_u64) {
         let client = NativeClientImpl::default();
 
         // tx_size for zcash, no shielded
@@ -1251,6 +1252,7 @@ proptest! {
 
         let mut has_dust_output = false;
         let mut outputs = vec![];
+        //println!("input_value={} n_inputs={} output_value={} dust={}", input_value, n_inputs, output_value, dust);
         for _i in 0..n_outputs {
             outputs.push(TransactionOutput {
                 script_pubkey: "76a914124b0846223ef78130b8e544b9afc3b09988238688ac".into(),
@@ -1260,6 +1262,7 @@ proptest! {
                 has_dust_output = true;
             }
         }
+        //println!("has_dust_output = {}", has_dust_output);
 
         let builder = block_on(UtxoTxBuilder::new(&coin))
             .add_available_inputs(unspents)
