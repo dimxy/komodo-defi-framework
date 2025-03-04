@@ -544,10 +544,9 @@ impl Qrc20Coin {
             self.utxo.conf.fork_id,
         )?;
 
-        let miner_fee = data.fee_amount + data.unused_change;
         Ok(GenerateQrc20TxResult {
             signed,
-            miner_fee,
+            miner_fee: data.fee_amount,
             gas_fee,
         })
     }

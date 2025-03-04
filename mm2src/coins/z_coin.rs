@@ -482,7 +482,6 @@ impl ZCoin {
             received_by_me,
             spent_by_me: sat_from_big_decimal(&total_input_amount, self.decimals())?,
             fee_amount: sat_from_big_decimal(&tx_fee, self.decimals())?,
-            unused_change: 0,
             kmd_rewards: None,
         };
         Ok((tx, additional_data, sync_guard))

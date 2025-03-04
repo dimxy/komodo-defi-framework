@@ -743,7 +743,6 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             fee_amount: self.tx_fee_fact()?, // we return only txfee here (w/o gas_fee)
             received_by_me: self.sum_received_by_me(&change_script_pubkey),
             spent_by_me: self.sum_inputs,
-            unused_change: 0u64, // Not used anymore as fee_amount contains the total txfee value
             // will be changed if the ticker is KMD
             kmd_rewards: Self::make_kmd_rewards_data(coin, self.interest),
         };
