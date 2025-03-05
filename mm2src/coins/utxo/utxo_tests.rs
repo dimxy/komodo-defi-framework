@@ -1221,7 +1221,7 @@ prop_compose! {
 #[cfg(not(target_arch = "wasm32"))]
 proptest! {
 
-    #![proptest_config(ProptestConfig::with_cases(1000))]
+    #![proptest_config(ProptestConfig::with_cases(10000))]
 
     /// Test the transaction builder calculations for tx with many small inputs
     #[test]
@@ -1276,7 +1276,7 @@ proptest! {
 
         let result = block_on(builder.build());
         if has_dust_output {
-            println!("has_dust_output = true");
+            //println!("has_dust_output = true");
             let is_err_dust = matches!(result.unwrap_err().get_inner(), GenerateTxError::OutputValueLessThanDust { value: _, dust: _ });
             prop_assert!(is_err_dust);
             return Ok(());
@@ -1318,7 +1318,9 @@ proptest! {
 
         let tx_size = est_tx_size(generated.0.inputs.len(), generated.0.outputs.len());
         let estimated_txfee = fee_rate * tx_size / 1000;
-        prop_assert!(generated.1.fee_amount >= estimated_txfee);
+        println!("generated.1.fee_amount={} estimated_txfee={} received_by_me={} output_vals.len={} generated.0.outputs.len={}", 
+            generated.1.fee_amount, estimated_txfee, generated.1.received_by_me, output_vals.len(), generated.0.outputs.len());
+        prop_assert!(generated.1.fee_amount == estimated_txfee);
 
         let received_by_me = if generated.0.outputs.len() > output_vals.len() {
             generated.0.outputs.last().unwrap().value
