@@ -285,7 +285,10 @@ pub enum ActualFeeRate {
 impl ActualFeeRate {
     fn get_tx_fee(&self, tx_size: u64) -> u64 {
         match self {
-            ActualFeeRate::Dynamic(fee_rate) => { /*println!("get_tx_fee fee_rate={} tx_size={} tx_fee={}", fee_rate, tx_size, (fee_rate * tx_size) / KILO_BYTE);*/  (fee_rate * tx_size) / KILO_BYTE },
+            ActualFeeRate::Dynamic(fee_rate) => {
+                /*println!("get_tx_fee fee_rate={} tx_size={} tx_fee={}", fee_rate, tx_size, (fee_rate * tx_size) / KILO_BYTE);*/
+                (fee_rate * tx_size) / KILO_BYTE
+            },
             // return fee_rate here as swap spend transaction size is always less than 1 kb
             ActualFeeRate::FixedPerKb(fee_rate) => {
                 let tx_size_kb = if tx_size % KILO_BYTE == 0 {
