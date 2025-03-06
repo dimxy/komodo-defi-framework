@@ -4,6 +4,7 @@ use common::now_sec;
 use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::zombie_conf;
 use std::path::PathBuf;
+
 use zcash_client_backend::encoding::decode_extended_spending_key;
 
 use super::{z_coin_from_conf_and_params_with_z_key, z_mainnet_constants, PrivKeyBuildPolicy, RefundPaymentArgs,
@@ -67,6 +68,7 @@ async fn zombie_coin_send_and_refund_maker_payment() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
+
     let tx = coin.send_maker_payment(args).await.unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
 

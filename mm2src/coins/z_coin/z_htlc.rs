@@ -111,7 +111,7 @@ pub async fn z_send_dex_fee(
     let addr = coin.z_fields.dex_fee_addr.clone();
     let dex_fee_out = ZOutput {
         to_addr: addr.clone(),
-        amount: amount,
+        amount,
         viewing_key: Some(DEX_FEE_OVK),
         memo: memo.clone(),
     };
@@ -206,7 +206,8 @@ pub async fn z_p2sh_spend(
 
     let prover = coin.z_fields.z_tx_prover.clone();
     #[cfg(not(target_arch = "wasm32"))]
-    let (zcash_tx, tx_metadata) = async_blocking(move || tx_builder.build(consensus::BranchId::Sapling, prover.as_ref())).await?;
+    let (zcash_tx, tx_metadata) =
+        async_blocking(move || tx_builder.build(consensus::BranchId::Sapling, prover.as_ref())).await?;
 
     #[cfg(target_arch = "wasm32")]
     let (zcash_tx, tx_metadata) =
@@ -226,7 +227,7 @@ pub async fn z_p2sh_spend(
         .map(|_| zcash_tx.clone())
         .mm_err(|e| ZP2SHSpendError::TxRecoverable(zcash_tx.clone().into(), e.to_string()))?;
 
-        let output_index = tx_metadata
+    let output_index = tx_metadata
         .output_index(0)
         .expect("Output 0 should exist in the transaction");
 
@@ -239,8 +240,15 @@ pub async fn z_p2sh_spend(
         value: p2sh_tx.vout[0].value,
         memo: None,
     };
-    let mut db = coin.z_fields.light_wallet_db.db.get_update_ops().map_to_mm(|err| ZP2SHSpendError::GenTxError(GenTxError::Internal(err.to_string())))?;
-    db.store_sent_tx(&sent_tx).await.map_to_mm(|err| ZP2SHSpendError::GenTxError(GenTxError::Internal(err.to_string())))?;
+    let mut db = coin
+        .z_fields
+        .light_wallet_db
+        .db
+        .get_update_ops()
+        .map_to_mm(|err| ZP2SHSpendError::GenTxError(GenTxError::Internal(err.to_string())))?;
+    db.store_sent_tx(&sent_tx)
+        .await
+        .map_to_mm(|err| ZP2SHSpendError::GenTxError(GenTxError::Internal(err.to_string())))?;
 
     Ok(zcash_tx)
 }

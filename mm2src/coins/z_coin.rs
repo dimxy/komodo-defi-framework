@@ -10,6 +10,7 @@ mod z_htlc;
 mod z_rpc;
 mod z_tx_history;
 
+use common::executor::Timer;
 use crate::coin_errors::{MyAddressError, ValidatePaymentResult};
 use crate::hd_wallet::HDPathAccountToAddressId;
 use crate::my_tx_history_v2::{MyTxHistoryErrorV2, MyTxHistoryRequestV2, MyTxHistoryResponseV2};
@@ -459,7 +460,15 @@ impl ZCoin {
         &self,
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
-    ) -> Result<(ZTransaction, TransactionMetadata, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
+    ) -> Result<
+        (
+            ZTransaction,
+            TransactionMetadata,
+            AdditionalTxData,
+            SaplingSyncGuard<'_>,
+        ),
+        MmError<GenTxError>,
+    > {
         let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
 
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
@@ -572,6 +581,26 @@ impl ZCoin {
         Ok((tx, metadata, additional_data, sync_guard))
     }
 
+    async fn wait_for_z_balance(&self, required: &Amount, timeout: u32) {
+        let mut sec = 0;
+        println!("wait_for_z_balance: enterred");
+        while &Amount::from_u64(self
+            .my_balance_sat()
+            .await
+            .unwrap_or_default())
+            .unwrap_or(Amount::zero())
+            < required
+        {
+            Timer::sleep(1.0).await;
+            sec += 1;
+            if sec > timeout {
+                println!("wait_for_z_balance: no balance cancelling");
+                return;
+            }
+        }
+        println!("wait_for_z_balance: balance found");
+    }
+
     pub async fn send_outputs(
         &self,
         t_outputs: Vec<TxOut>,
@@ -580,11 +609,12 @@ impl ZCoin {
         memo: Option<MemoBytes>,
         recipient_address: &RecipientAddress,
     ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
-        
         // set lock to prevent note reuse
         println!("Z_NOTE_LOCK waiting on..");
         let tx_lock = Z_NOTE_LOCK.lock().await;
         println!("Z_NOTE_LOCK locked");
+
+        self.wait_for_z_balance(value, 90).await;
 
         let (tx, tx_metadata, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
         let mut tx_bytes = Vec::with_capacity(1024);
@@ -616,10 +646,17 @@ impl ZCoin {
             value: *value,
             memo,
         };
-        let mut db = self.z_fields.light_wallet_db.db.get_update_ops().map_to_mm(|err| SendOutputsErr::InternalError(err.to_string()))?;
-        db.store_sent_tx(&sent_tx).await.map_to_mm(|err| SendOutputsErr::InternalError(err.to_string()))?;
+        let mut db = self
+            .z_fields
+            .light_wallet_db
+            .db
+            .get_update_ops()
+            .map_to_mm(|err| SendOutputsErr::InternalError(err.to_string()))?;
+        db.store_sent_tx(&sent_tx)
+            .await
+            .map_to_mm(|err| SendOutputsErr::InternalError(err.to_string()))?;
 
-        drop(tx_lock); // release the lock: note 'spent' is set 
+        drop(tx_lock); // release the lock: note 'spent' is set
         println!("Z_NOTE_LOCK released");
 
         if let Err(err) = self
