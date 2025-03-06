@@ -95,11 +95,19 @@ use zcash_primitives::{constants::mainnet as z_mainnet_constants, sapling::Payme
                        zip32::ExtendedFullViewingKey, zip32::ExtendedSpendingKey};
 use zcash_proofs::prover::LocalTxProver;
 
+use time::OffsetDateTime;
+use zcash_client_backend::address::RecipientAddress;
+use zcash_client_backend::data_api::SentTransaction;
+#[cfg(not(target_arch = "wasm32"))]
+use zcash_client_sqlite::error::SqliteClientError;
+use zcash_extras::WalletWrite;
+
 cfg_native!(
     use common::{async_blocking, sha256_digest};
     use zcash_client_sqlite::wallet::get_balance;
     use zcash_proofs::default_params_folder;
     use z_rpc::init_native_client;
+    use zcash_primitives::transaction::builder::TransactionMetadata;
 );
 
 cfg_wasm32!(
@@ -449,7 +457,7 @@ impl ZCoin {
         &self,
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
-    ) -> Result<(ZTransaction, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
+    ) -> Result<(ZTransaction, TransactionMetadata, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
         let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
 
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
@@ -531,14 +539,14 @@ impl ZCoin {
         }
 
         #[cfg(not(target_arch = "wasm32"))]
-        let (tx, _) = async_blocking({
+        let (tx, metadata) = async_blocking({
             let prover = self.z_fields.z_tx_prover.clone();
             move || tx_builder.build(BranchId::Sapling, prover.as_ref())
         })
         .await?;
 
         #[cfg(target_arch = "wasm32")]
-        let (tx, _) =
+        let (tx, metadata) =
             TxBuilderSpawner::request_tx_result(tx_builder, BranchId::Sapling, self.z_fields.z_tx_prover.clone())
                 .await?
                 .tx_result?;
@@ -559,17 +567,50 @@ impl ZCoin {
             unused_change: 0,
             kmd_rewards: None,
         };
-        Ok((tx, additional_data, sync_guard))
+        Ok((tx, metadata, additional_data, sync_guard))
     }
 
     pub async fn send_outputs(
         &self,
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
+        value: &Amount,
+        memo: Option<MemoBytes>,
+        recipient_address: &RecipientAddress,
     ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
-        let (tx, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
+        let (tx, tx_metadata, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes).expect("Write should not fail");
+
+        let output_index = match &recipient_address {
+            // Sapling outputs are shuffled, so we need to look up where the output ended up.
+            RecipientAddress::Shielded(_) => match tx_metadata.output_index(0) {
+                Some(idx) => idx,
+                None => panic!("Output 0 should exist in the transaction"),
+            },
+            RecipientAddress::Transparent(addr) => {
+                let script = addr.script();
+                tx.vout
+                    .iter()
+                    .enumerate()
+                    .find(|(_, tx_out)| tx_out.script_pubkey == script)
+                    .map(|(index, _)| index)
+                    .expect("we sent to this address")
+            },
+        };
+
+        let sent_tx = SentTransaction {
+            tx: &tx,
+            created: OffsetDateTime::now_utc(),
+            output_index,
+            account: AccountId::default(),
+            recipient_address,
+            value: *value,
+            memo,
+        };
+        let mut db = self.z_fields.light_wallet_db.db.get_update_ops().map_to_mm(|err| SendOutputsErr::InternalError(err.to_string()))?;
+        db.store_sent_tx(&sent_tx).await.map_to_mm(|err| SendOutputsErr::InternalError(err.to_string()))?;
+
 
         if let Err(err) = self
             .utxo_rpc_client()
@@ -2049,7 +2090,7 @@ impl InitWithdrawCoin for ZCoin {
             memo,
         };
 
-        let (tx, data, _sync_guard) = self.gen_tx(vec![], vec![z_output]).await?;
+        let (tx, _, data, _sync_guard) = self.gen_tx(vec![], vec![z_output]).await?;
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes)
             .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
