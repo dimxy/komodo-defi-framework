@@ -581,9 +581,12 @@ impl ZCoin {
         Ok((tx, metadata, additional_data, sync_guard))
     }
 
-    async fn wait_for_z_balance(&self, required: &Amount, timeout: u32) {
-        let mut sec = 0;
+    async fn wait_for_z_balance(&self, required: &Amount, _timeout: u32) {
         println!("wait_for_z_balance: enterred");
+        let Ok(h_0) = self.utxo_rpc_client().get_block_count().compat().await else {
+            println!("wait_for_z_balance: cannot get_block_count");
+            return;
+        };
         while &Amount::from_u64(self
             .my_balance_sat()
             .await
@@ -591,10 +594,13 @@ impl ZCoin {
             .unwrap_or(Amount::zero())
             < required
         {
-            Timer::sleep(1.0).await;
-            sec += 1;
-            if sec > timeout {
-                println!("wait_for_z_balance: no balance cancelling");
+            Timer::sleep(5.0).await;
+            let Ok(h_1) = self.utxo_rpc_client().get_block_count().compat().await else {
+                println!("wait_for_z_balance: cannot get_block_count");
+                return;
+            };
+            if h_0 < h_1 {
+                println!("wait_for_z_balance: no balance, cancelling");
                 return;
             }
         }

@@ -86,6 +86,7 @@ pub async fn z_send_htlc(
     };
     //let mm_tx = coin.send_outputs(vec![htlc_output, op_return_out], vec![]).await?;
     let to = htlc_output.script_pubkey.address().unwrap();
+    println!("z_send_htlc calling send_outputs");
     let mm_tx = coin
         .send_outputs(
             vec![htlc_output, op_return_out],
@@ -95,7 +96,7 @@ pub async fn z_send_htlc(
             &RecipientAddress::Transparent(to),
         )
         .await?;
-
+    println!("z_send_htlc returned from send_outputs");
     Ok(mm_tx)
 }
 
@@ -117,6 +118,7 @@ pub async fn z_send_dex_fee(
     };
 
     //let tx = coin.send_outputs(vec![], vec![dex_fee_out]).await?;
+    println!("z_send_dex_fee calling send_outputs");
     let tx = coin
         .send_outputs(
             vec![],
@@ -126,7 +128,7 @@ pub async fn z_send_dex_fee(
             &RecipientAddress::Shielded(addr),
         )
         .await?;
-
+    println!("z_send_dex_fee returned from send_outputs");
     Ok(tx)
 }
 
