@@ -581,7 +581,7 @@ impl ZCoin {
         Ok((tx, metadata, additional_data, sync_guard))
     }
 
-    async fn wait_for_z_balance(&self, required: &Amount, _timeout: u32) {
+    async fn wait_for_z_balance(&self, required: &Amount, blocks: u64) {
         println!("wait_for_z_balance: enterred");
         let Ok(h_0) = self.utxo_rpc_client().get_block_count().compat().await else {
             println!("wait_for_z_balance: cannot get_block_count");
@@ -599,7 +599,7 @@ impl ZCoin {
                 println!("wait_for_z_balance: cannot get_block_count");
                 return;
             };
-            if h_0 < h_1 {
+            if h_0 + blocks < h_1 {
                 println!("wait_for_z_balance: no balance, cancelling");
                 return;
             }
@@ -620,7 +620,7 @@ impl ZCoin {
         let tx_lock = Z_NOTE_LOCK.lock().await;
         println!("Z_NOTE_LOCK locked");
 
-        self.wait_for_z_balance(value, 90).await;
+        self.wait_for_z_balance(value, 5).await;
 
         let (tx, tx_metadata, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
         let mut tx_bytes = Vec::with_capacity(1024);
