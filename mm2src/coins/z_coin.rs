@@ -98,8 +98,6 @@ use zcash_proofs::prover::LocalTxProver;
 use time::OffsetDateTime;
 use zcash_client_backend::address::RecipientAddress;
 use zcash_client_backend::data_api::SentTransaction;
-#[cfg(not(target_arch = "wasm32"))]
-use zcash_client_sqlite::error::SqliteClientError;
 use zcash_extras::WalletWrite;
 
 cfg_native!(
@@ -205,6 +203,10 @@ impl Parameters for ZcoinConsensusParams {
     fn b58_pubkey_address_prefix(&self) -> [u8; 2] { self.b58_pubkey_address_prefix }
 
     fn b58_script_address_prefix(&self) -> [u8; 2] { self.b58_script_address_prefix }
+}
+
+lazy_static! {
+    pub static ref Z_NOTE_LOCK: AsyncMutex<()> = AsyncMutex::new(());
 }
 
 #[allow(unused)]
@@ -578,6 +580,12 @@ impl ZCoin {
         memo: Option<MemoBytes>,
         recipient_address: &RecipientAddress,
     ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
+        
+        // set lock to prevent note reuse
+        println!("Z_NOTE_LOCK waiting on..");
+        let tx_lock = Z_NOTE_LOCK.lock().await;
+        println!("Z_NOTE_LOCK locked");
+
         let (tx, tx_metadata, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes).expect("Write should not fail");
@@ -611,6 +619,8 @@ impl ZCoin {
         let mut db = self.z_fields.light_wallet_db.db.get_update_ops().map_to_mm(|err| SendOutputsErr::InternalError(err.to_string()))?;
         db.store_sent_tx(&sent_tx).await.map_to_mm(|err| SendOutputsErr::InternalError(err.to_string()))?;
 
+        drop(tx_lock); // release the lock: note 'spent' is set 
+        println!("Z_NOTE_LOCK released");
 
         if let Err(err) = self
             .utxo_rpc_client()

@@ -35,8 +35,6 @@ use time::OffsetDateTime;
 use zcash_client_backend::address::RecipientAddress;
 use zcash_client_backend::data_api::SentTransaction;
 use zcash_client_backend::wallet::AccountId;
-#[cfg(not(target_arch = "wasm32"))]
-use zcash_client_sqlite::error::SqliteClientError;
 use zcash_extras::WalletWrite;
 
 cfg_native!(
