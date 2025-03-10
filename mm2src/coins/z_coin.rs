@@ -1078,7 +1078,8 @@ pub async fn z_coin_from_conf_and_params_with_z_key(
     builder.build().await
 }
 
-/// Initialize `ZCoin` with a forced `z_spending_key`.
+/// Initialize `ZCoin` with a forced `z_spending_key` for dockerized tests.
+#[cfg(any(test, feature = "run-docker-test"))]
 #[allow(clippy::too_many_arguments)]
 pub async fn z_coin_from_conf_and_params_with_docker(
     ctx: &MmArc,
