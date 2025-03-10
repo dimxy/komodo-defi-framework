@@ -18,7 +18,6 @@ lazy_static! {
 }
 
 /// Build asset `ZCoin` from ticker and spendingkey str without filling the balance.
-#[cfg(any(test, feature = "run-docker-test"))]
 pub async fn z_coin_from_spending_key(spending_key: &str) -> (MmArc, ZCoin) {
     let ctx = MmCtxBuilder::new().into_mm_arc();
     let mut conf = zombie_conf();

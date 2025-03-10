@@ -1052,34 +1052,8 @@ impl<'a> ZCoinBuilder<'a> {
     }
 }
 
-/// Initialize `ZCoin` with a forced `z_spending_key`.
-#[cfg(all(test, feature = "zhtlc-native-tests"))]
-#[allow(clippy::too_many_arguments)]
-pub async fn z_coin_from_conf_and_params_with_z_key(
-    ctx: &MmArc,
-    ticker: &str,
-    conf: &Json,
-    params: &ZcoinActivationParams,
-    priv_key_policy: PrivKeyBuildPolicy,
-    db_dir_path: PathBuf,
-    z_spending_key: ExtendedSpendingKey,
-    protocol_info: ZcoinProtocolInfo,
-) -> Result<ZCoin, MmError<ZCoinBuildError>> {
-    let builder = ZCoinBuilder::new(
-        ctx,
-        ticker,
-        conf,
-        params,
-        priv_key_policy,
-        db_dir_path,
-        Some(z_spending_key),
-        protocol_info,
-    );
-    builder.build().await
-}
-
 /// Initialize `ZCoin` with a forced `z_spending_key` for dockerized tests.
-#[cfg(any(test, feature = "run-docker-test"))]
+#[cfg(any(test, feature = "run-docker-tests"))]
 #[allow(clippy::too_many_arguments)]
 pub async fn z_coin_from_conf_and_params_with_docker(
     ctx: &MmArc,

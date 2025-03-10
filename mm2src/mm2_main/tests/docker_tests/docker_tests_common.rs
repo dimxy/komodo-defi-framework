@@ -227,31 +227,6 @@ pub struct ZCoinAssetDockerOps {
 
 impl CoinDockerOps for ZCoinAssetDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
-    fn wait_ready(&self, expected_tx_version: i32) {
-        let timeout = wait_until_ms(120000);
-        log!("Waiting for ZOMBIE coinbase tx");
-        loop {
-            match block_on_f01(self.rpc_client().get_block_count()) {
-                Ok(n) => {
-                    if n > 1 {
-                        if let UtxoRpcClientEnum::Native(client) = self.rpc_client() {
-                            let hash = block_on_f01(client.get_block_hash(n)).unwrap();
-                            let block = block_on_f01(client.get_block(hash)).unwrap();
-                            let coinbase = block_on_f01(client.get_verbose_transaction(&block.tx[0])).unwrap();
-                            log!("Coinbase tx {:?} in block {}", coinbase, n);
-                            if coinbase.version == expected_tx_version {
-                                log!("ZOMBIE node is ready");
-                                break;
-                            }
-                        }
-                    }
-                },
-                Err(e) => log!("{:?}", e),
-            }
-            assert!(now_ms() < timeout, "Test timed out");
-            thread::sleep(Duration::from_secs(1));
-        }
-    }
 }
 
 impl ZCoinAssetDockerOps {
