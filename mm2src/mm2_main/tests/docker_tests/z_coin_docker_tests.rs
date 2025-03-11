@@ -211,6 +211,7 @@ async fn zombie_coin_validate_dex_fee() {
 
     // let balance = coin.my_balance().compat().await;
 
+    wait_for_z_balance(&coin, "0.011".parse().unwrap(), 5).await;
     let tx = z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16]).await.unwrap();
     log!("dex fee tx {}", tx.txid());
     let tx = tx.into();
