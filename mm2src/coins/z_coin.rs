@@ -323,7 +323,7 @@ impl ZCoin {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    async fn my_balance_sat(&self) -> Result<u64, MmError<ZcashClientError>> {
+    pub async fn my_balance_sat(&self) -> Result<u64, MmError<ZcashClientError>> {
         let wallet_db = self.z_fields.light_wallet_db.clone();
         async_blocking(move || {
             let db_guard = wallet_db.db.inner();

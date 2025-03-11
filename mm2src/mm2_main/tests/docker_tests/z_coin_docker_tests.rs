@@ -11,6 +11,9 @@ use mm2_test_helpers::for_tests::{new_mm2_temp_folder_path, zombie_conf};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use tokio::sync::Mutex;
+use crate::common::Future01CompatExt;
+use coins::MarketCoinOps;
+use mm2_number::BigDecimal;
 
 // https://github.com/KomodoPlatform/librustzcash/blob/4e030a0f44cc17f100bf5f019563be25c5b8755f/zcash_client_backend/src/data_api/wallet.rs#L72-L73
 lazy_static! {
@@ -54,6 +57,34 @@ pub async fn z_coin_from_spending_key(spending_key: &str) -> (MmArc, ZCoin) {
     (ctx, coin)
 }
 
+
+async fn wait_for_z_balance(coin: &ZCoin, required: BigDecimal, blocks: u64) {
+    println!("wait_for_z_balance: enterred");
+    let Ok(h_0) = coin.utxo_rpc_client().get_block_count().compat().await else {
+        println!("wait_for_z_balance: cannot get_block_count");
+        return;
+    };
+    while coin
+        .my_balance()
+        .compat()
+        .await
+        .unwrap_or_default()
+        .spendable
+        < required
+    {
+        Timer::sleep(5.0).await;
+        let Ok(h_1) = coin.utxo_rpc_client().get_block_count().compat().await else {
+            println!("wait_for_z_balance: cannot get_block_count");
+            return;
+        };
+        if h_0 + blocks < h_1 {
+            println!("wait_for_z_balance: no balance, cancelling");
+            return;
+        }
+    }
+    println!("wait_for_z_balance: balance found");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn zombie_coin_send_and_refund_maker_payment() {
     let _lock = TEST_MUTEX.lock().await;
@@ -80,6 +111,7 @@ async fn zombie_coin_send_and_refund_maker_payment() {
         watcher_reward: None,
         wait_for_confirmation_until: 0,
     };
+    wait_for_z_balance(&coin, "0.011".parse().unwrap(), 5).await;
     let tx = coin.send_maker_payment(args).await.unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
 
@@ -130,6 +162,7 @@ async fn zombie_coin_send_and_spend_maker_payment() {
         wait_for_confirmation_until: 0,
     };
 
+    wait_for_z_balance(&coin, "0.011".parse().unwrap(), 5).await;
     let tx = coin.send_maker_payment(maker_payment_args).await.unwrap();
     log!("swap tx {}", hex::encode(tx.tx_hash_as_bytes().0));
     let spends_payment_args = SpendPaymentArgs {
@@ -165,6 +198,7 @@ async fn zombie_coin_send_dex_fee() {
 
     let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").await;
 
+    wait_for_z_balance(&coin, "0.011".parse().unwrap(), 5).await;
     let tx = z_send_dex_fee(&coin, "0.01".parse().unwrap(), &[1; 16]).await.unwrap();
     log!("dex fee tx {}", tx.txid());
     drop(_lock);
