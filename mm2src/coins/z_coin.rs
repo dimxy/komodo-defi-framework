@@ -380,8 +380,8 @@ impl ZCoin {
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
     ) -> Result<(ZTransaction, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
-        const MAX_RETRIES: usize = 30;
-        const RETRY_DELAY: f64 = 10.0;
+        const MAX_RETRIES: usize = 40;
+        const RETRY_DELAY: f64 = 15.0;
         let mut retries = 0;
 
         loop {
