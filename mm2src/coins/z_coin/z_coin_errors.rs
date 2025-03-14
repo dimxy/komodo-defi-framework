@@ -1,5 +1,4 @@
-use super::storage::z_change_notes::ChangeNoteStorageError;
-
+use super::storage::LockedNotesStorageError;
 use crate::my_tx_history_v2::MyTxHistoryErrorV2;
 use crate::utxo::rpc_clients::UtxoRpcError;
 use crate::utxo::utxo_builder::UtxoCoinBuildError;
@@ -134,8 +133,8 @@ pub enum GenTxError {
     FailedToCreateNote,
     SpendableNotesError(String),
     Internal(String),
-    #[from_stringify("ChangeNoteStorageError")]
-    SaveChangeNotesError(String),
+    #[from_stringify("LockedNotesStorageError")]
+    SaveLockedNotessError(String),
 }
 
 impl From<GetUnspentWitnessErr> for GenTxError {
@@ -185,7 +184,7 @@ impl From<GenTxError> for WithdrawError {
             | GenTxError::SpendableNotesError(_)
             | GenTxError::FailedToCreateNote
             | GenTxError::Internal(_)
-            | GenTxError::SaveChangeNotesError(_) => WithdrawError::InternalError(gen_tx.to_string()),
+            | GenTxError::SaveLockedNotessError(_) => WithdrawError::InternalError(gen_tx.to_string()),
         }
     }
 }
@@ -243,7 +242,7 @@ impl From<SqliteError> for GetUnspentWitnessErr {
 pub enum ZCoinBuildError {
     UtxoBuilderError(UtxoCoinBuildError),
     GetAddressError,
-    #[from_stringify("ChangeNoteStorageError")]
+    #[from_stringify("LockedNotesStorageError")]
     ZcashDBError(String),
     Rpc(UtxoRpcError),
     #[display(fmt = "Sapling cache DB does not exist at {}. Please download it.", path)]

@@ -57,6 +57,7 @@ hex = "0.4.2"
 http = "0.2"
 itertools = { version = "0.10", features = ["use_std"] }
 jsonrpc-core = "18.0.0"
+jubjub = "0.5.1"
 keys = { path = "../mm2_bitcoin/keys" }
 lazy_static = "1.4"
 libc = "0.2"
@@ -119,7 +120,6 @@ blake2b_simd = "0.5"
 ff = "0.8"
 futures-util = "0.3"
 instant = "0.1.12"
-jubjub = "0.5.1"
 js-sys = { version = "0.3.27" }
 mm2_db = { path = "../mm2_db" }
 mm2_metamask = { path = "../mm2_metamask" }

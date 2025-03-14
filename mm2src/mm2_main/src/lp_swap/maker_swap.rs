@@ -2198,9 +2198,6 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                             }
                         }
 
-                        if let Err(err) = running_swap.maker_coin.clean_up(running_swap.uuid).await {
-                            error!("!cleanup: {err}");
-                        };
                         break;
                     },
                 }

@@ -12,6 +12,7 @@ pub(crate) use walletdb::*;
 pub(crate) use z_params::ZcashParamsWasmImpl;
 
 pub(crate) mod z_change_notes;
+pub(crate) use z_change_notes::{LockedNotesStorage, LockedNotesStorageError};
 
 use mm2_err_handle::mm_error::MmResult;
 #[cfg(target_arch = "wasm32")]
@@ -120,6 +121,7 @@ pub async fn scan_cached_block(
     data: &DataConnStmtCacheWrapper,
     params: &ZcoinConsensusParams,
     block: &CompactBlock,
+    locked_notes_db: &LockedNotesStorage,
     last_height: &mut BlockHeight,
 ) -> Result<Vec<WalletTx<Nullifier>>, ValidateBlocksError> {
     let mut data_guard = data.inner().clone();
@@ -161,7 +163,6 @@ pub async fn scan_cached_block(
 
     // To enforce that all roots match,
     // see -> https://github.com/KomodoPlatform/librustzcash/blob/e92443a7bbd1c5e92e00e6deb45b5a33af14cea4/zcash_client_backend/src/data_api/chain.rs#L304-L326
-
     let new_witnesses = data_guard
         .advance_by_block(
             &(PrunedBlock {
@@ -187,6 +188,15 @@ pub async fn scan_cached_block(
 
     witnesses.extend(new_witnesses);
     *last_height = current_height;
+
+    // unlock confirmed notes for txs
+    for tx in &txs {
+        common::log::info!("unlocking {} notes", tx.txid);
+        locked_notes_db
+            .remove_note(tx.txid.to_string())
+            .await
+            .map_err(|err| ValidateBlocksError::DbError(err.to_string()))?;
+    }
 
     Ok(txs)
 }

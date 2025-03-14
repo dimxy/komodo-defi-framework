@@ -11,29 +11,29 @@ cfg_native!(
 cfg_wasm32!(
     pub(crate) mod wasm;
 
-    use self::wasm::ChangeNoteDbInner;
+    use self::wasm::LockedNoteDbInner;
     use mm2_db::indexed_db::{DbTransactionError, InitDbError, SharedDb};
 );
 
 #[derive(Debug, Clone)]
-pub(crate) struct ChangeNote {
-    pub(crate) hex_bytes: Vec<u8>,
+pub(crate) struct LockedNote {
     pub(crate) hex: String,
-    pub(crate) change: u64,
+    pub(crate) rseed: String,
 }
 
 /// A wrapper for the db connection to the change note cache database in native and browser.
 #[derive(Clone)]
-pub(crate) struct ChangeNoteStorage {
+pub struct LockedNotesStorage {
     #[cfg(not(target_arch = "wasm32"))]
     pub db: Arc<Mutex<AsyncConnection>>,
     #[cfg(target_arch = "wasm32")]
-    pub db: SharedDb<ChangeNoteDbInner>,
+    pub db: SharedDb<LockedNoteDbInner>,
+    #[allow(unused)]
     address: String,
 }
 
 #[derive(Clone, Debug, Display, Eq, PartialEq, EnumFromStringify)]
-pub(crate) enum ChangeNoteStorageError {
+pub(crate) enum LockedNotesStorageError {
     #[cfg(not(target_arch = "wasm32"))]
     #[display(fmt = "Sqlite Error: {_0}")]
     #[from_stringify("AsyncConnError", "db_common::sqlite::rusqlite::Error")]
@@ -46,7 +46,7 @@ pub(crate) enum ChangeNoteStorageError {
 
 #[cfg(test)]
 pub(super) mod change_note_test {
-    use crate::z_coin::storage::z_change_notes::ChangeNoteStorage;
+    use crate::z_coin::storage::z_change_notes::LockedNotesStorage;
 
     use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;
 
@@ -54,10 +54,10 @@ pub(super) mod change_note_test {
 
     pub(crate) async fn test_insert_and_remove_note_impl() {
         let ctx = mm_ctx_with_custom_db();
-        let db = ChangeNoteStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
+        let db = LockedNotesStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
 
         // insert note
-        let result = db.insert_note("some_hex".to_string(), vec![0, 4, 1, 0], 500).await;
+        let result = db.insert_note("some_hex".to_string(), String::from("228")).await;
         assert!(result.is_ok());
 
         // remove note
@@ -71,9 +71,9 @@ pub(super) mod change_note_test {
 
     pub(crate) async fn test_load_all_notes_impl() {
         let ctx = mm_ctx_with_custom_db();
-        let db = ChangeNoteStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
+        let db = LockedNotesStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
 
-        let result = db.insert_note("some_hex".to_string(), vec![0, 4, 1, 0], 500).await;
+        let result = db.insert_note("some_hex".to_string(), String::from("40")).await;
         assert!(result.is_ok());
 
         let notes = db.load_all_notes().await.unwrap();
@@ -82,16 +82,13 @@ pub(super) mod change_note_test {
 
     pub(crate) async fn test_sum_changes_impl() {
         let ctx = mm_ctx_with_custom_db();
-        let db = ChangeNoteStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
+        let db = LockedNotesStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
 
-        let result = db.insert_note("some_hex".to_string(), vec![0, 4, 1, 0], 500).await;
+        let result = db.insert_note("some_hex".to_string(), String::from("50")).await;
         assert!(result.is_ok());
 
-        let result = db.insert_note("another_hex".to_string(), vec![1, 4, 1, 0], 500).await;
+        let result = db.insert_note("another_hex".to_string(), String::from("5")).await;
         assert!(result.is_ok());
-
-        let changes = db.sum_changes().await.unwrap();
-        assert_eq!(changes, 1000);
     }
 }
 

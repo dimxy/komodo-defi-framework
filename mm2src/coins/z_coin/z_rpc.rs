@@ -1,9 +1,11 @@
 use super::{z_coin_errors::*, BlockDbImpl, CheckPointBlockInfo, WalletDbShared, ZCoinBuilder, ZcoinConsensusParams};
 use crate::utxo::rpc_clients::NO_TX_ERROR_CODE;
 use crate::utxo::utxo_builder::{UtxoCoinBuilderCommonOps, DAY_IN_SECONDS};
+use crate::z_coin::storage::z_change_notes::LockedNotesStorage;
 use crate::z_coin::storage::{BlockProcessingMode, DataConnStmtCacheWrapper};
 use crate::z_coin::SyncStartPoint;
 use crate::RpcCommonOps;
+
 use async_trait::async_trait;
 use common::executor::Timer;
 use common::executor::{spawn_abortable, AbortOnDropHandle};
@@ -509,6 +511,7 @@ pub(super) async fn init_light_client<'a>(
     sync_params: &Option<SyncStartPoint>,
     skip_sync_params: bool,
     z_spending_key: &ExtendedSpendingKey,
+    locked_notes_db: LockedNotesStorage,
 ) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinClientInitError>> {
     let coin = builder.ticker.to_string();
     let (sync_status_notifier, sync_watcher) = channel(1);
@@ -571,6 +574,7 @@ pub(super) async fn init_light_client<'a>(
         scan_interval_ms: builder.z_coin_params.scan_interval_ms,
         first_sync_block: first_sync_block.clone(),
         streaming_manager: builder.ctx.event_stream_manager.clone(),
+        locked_notes_db,
     };
 
     let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle, Box::new(light_rpc_clients)));
@@ -587,6 +591,7 @@ pub(super) async fn init_native_client<'a>(
     native_client: NativeClient,
     blocks_db: BlockDbImpl,
     z_spending_key: &ExtendedSpendingKey,
+    locked_notes_db: LockedNotesStorage,
 ) -> Result<(AsyncMutex<SaplingSyncConnector>, WalletDbShared), MmError<ZcoinClientInitError>> {
     let coin = builder.ticker.to_string();
     let (sync_status_notifier, sync_watcher) = channel(1);
@@ -618,6 +623,7 @@ pub(super) async fn init_native_client<'a>(
         scan_interval_ms: builder.z_coin_params.scan_interval_ms,
         first_sync_block: first_sync_block.clone(),
         streaming_manager: builder.ctx.event_stream_manager.clone(),
+        locked_notes_db,
     };
     let abort_handle = spawn_abortable(light_wallet_db_sync_loop(sync_handle, Box::new(native_client)));
 
@@ -704,6 +710,7 @@ pub struct SaplingSyncLoopHandle {
     current_block: BlockHeight,
     blocks_db: BlockDbImpl,
     wallet_db: WalletDbShared,
+    locked_notes_db: LockedNotesStorage,
     consensus_params: ZcoinConsensusParams,
     /// Notifies about sync status without stopping the loop, e.g. on coin activation
     sync_status_notifier: AsyncSender<SyncStatus>,
@@ -804,6 +811,7 @@ impl SaplingSyncLoopHandle {
                 BlockProcessingMode::Validate,
                 wallet_ops.get_max_height_hash().await?,
                 None,
+                &self.locked_notes_db,
             )
             .await
         {
@@ -844,6 +852,7 @@ impl SaplingSyncLoopHandle {
                     BlockProcessingMode::Scan(scan, self.streaming_manager.clone()),
                     None,
                     Some(self.scan_blocks_per_iteration),
+                    &self.locked_notes_db,
                 )
                 .await?;
 
