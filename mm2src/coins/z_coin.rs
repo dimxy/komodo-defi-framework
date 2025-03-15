@@ -266,6 +266,13 @@ pub struct ZcoinTxDetails {
     internal_id: i64,
 }
 
+struct GenTxData<'a> {
+    tx: ZTransaction,
+    data: AdditionalTxData,
+    sync_guard: SaplingSyncGuard<'a>,
+    rseeds: Vec<String>,
+}
+
 impl ZCoin {
     #[inline]
     pub fn utxo_rpc_client(&self) -> &UtxoRpcClientEnum { &self.utxo_arc.rpc_client }
@@ -375,11 +382,7 @@ impl ZCoin {
         }
     }
 
-    async fn gen_tx(
-        &self,
-        t_outputs: Vec<TxOut>,
-        z_outputs: Vec<ZOutput>,
-    ) -> Result<(ZTransaction, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
+    async fn gen_tx(&self, t_outputs: Vec<TxOut>, z_outputs: Vec<ZOutput>) -> Result<GenTxData, MmError<GenTxError>> {
         const MAX_RETRIES: usize = 40;
         const RETRY_DELAY: f64 = 15.0;
         let mut retries = 0;
@@ -439,7 +442,7 @@ impl ZCoin {
         &self,
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
-    ) -> Result<(ZTransaction, AdditionalTxData, SaplingSyncGuard<'_>), MmError<GenTxError>> {
+    ) -> Result<GenTxData, MmError<GenTxError>> {
         let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
 
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
@@ -462,7 +465,7 @@ impl ZCoin {
 
         let mut tx_builder = ZTxBuilder::new(self.consensus_params(), sync_guard.respawn_guard.current_block());
 
-        let mut selected_notes_rseed: Vec<String> = vec![];
+        let mut rseeds: Vec<String> = vec![];
         for spendable_note in spendable_notes {
             let rseed = match &spendable_note.rseed {
                 Rseed::BeforeZip212(rcm) => rcm.to_string(),
@@ -470,7 +473,7 @@ impl ZCoin {
                     jubjub::Fr::from_bytes_wide(prf_expand(rseed, &[0x04]).as_array()).to_string()
                 },
             };
-            selected_notes_rseed.push(rseed);
+            rseeds.push(rseed);
 
             total_input_amount += big_decimal_from_sat_unsigned(spendable_note.note_value.into(), self.decimals());
 
@@ -547,23 +550,20 @@ impl ZCoin {
                 .await?
                 .tx_result?;
 
-        info!("rseeds :{:?}", selected_notes_rseed);
-        for rseed in selected_notes_rseed {
-            info!("saving tx notes rseed!");
-            self.z_fields
-                .locked_notes_db
-                .insert_note(tx.txid().to_string(), rseed)
-                .await?;
-        }
-
-        let additional_data = AdditionalTxData {
+        let data = AdditionalTxData {
             received_by_me,
             spent_by_me: sat_from_big_decimal(&total_input_amount, self.decimals())?,
             fee_amount: sat_from_big_decimal(&tx_fee, self.decimals())?,
             unused_change: 0,
             kmd_rewards: None,
         };
-        Ok((tx, additional_data, sync_guard))
+
+        Ok(GenTxData {
+            tx,
+            data,
+            sync_guard,
+            rseeds,
+        })
     }
 
     pub async fn send_outputs(
@@ -571,7 +571,12 @@ impl ZCoin {
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
     ) -> Result<ZTransaction, MmError<SendOutputsErr>> {
-        let (tx, _, mut sync_guard) = self.gen_tx(t_outputs, z_outputs).await?;
+        let GenTxData {
+            tx,
+            rseeds,
+            mut sync_guard,
+            ..
+        } = self.gen_tx(t_outputs, z_outputs).await?;
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes).expect("Write should not fail");
 
@@ -579,6 +584,15 @@ impl ZCoin {
             .send_raw_transaction(tx_bytes.into())
             .compat()
             .await?;
+
+        for rseed in rseeds {
+            info!("saving tx notes rseed for {}!", tx.txid().to_string());
+            self.z_fields
+                .locked_notes_db
+                .insert_note(tx.txid().to_string(), rseed)
+                .await
+                .mm_err(|err| SendOutputsErr::InternalError(err.to_string()))?;
+        }
 
         sync_guard.respawn_guard.watch_for_tx(tx.txid());
         Ok(tx)
@@ -1987,7 +2001,7 @@ impl InitWithdrawCoin for ZCoin {
             memo,
         };
 
-        let (tx, data, _sync_guard) = self.gen_tx(vec![], vec![z_output]).await?;
+        let GenTxData { tx, data, rseeds, .. } = self.gen_tx(vec![], vec![z_output]).await?;
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes)
             .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
@@ -1997,8 +2011,18 @@ impl InitWithdrawCoin for ZCoin {
         let received_by_me = big_decimal_from_sat_unsigned(data.received_by_me, self.decimals());
         let spent_by_me = big_decimal_from_sat_unsigned(data.spent_by_me, self.decimals());
 
+        let tx_hash_hex = hex::encode(&tx_hash);
+        for rseed in rseeds {
+            info!("saving tx notes rseed for {}!", tx_hash_hex);
+            self.z_fields
+                .locked_notes_db
+                .insert_note(tx.txid().to_string(), rseed)
+                .await
+                .mm_err(|err| WithdrawError::InternalError(err.to_string()))?;
+        }
+
         Ok(TransactionDetails {
-            tx: TransactionData::new_signed(tx_bytes.into(), hex::encode(&tx_hash)),
+            tx: TransactionData::new_signed(tx_bytes.into(), tx_hash_hex),
             from: vec![self.z_fields.my_z_addr_encoded.clone()],
             to: vec![req.to],
             my_balance_change: &received_by_me - &spent_by_me,
