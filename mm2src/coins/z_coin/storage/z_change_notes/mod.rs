@@ -44,81 +44,77 @@ pub(crate) enum LockedNotesStorageError {
     IndexedDbError(String),
 }
 
-#[cfg(test)]
-pub(super) mod change_note_test {
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(super) mod change_notes_test {
     use crate::z_coin::storage::z_change_notes::LockedNotesStorage;
+    use common::cross_test;
 
     use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;
 
+    common::cfg_wasm32! {
+        use wasm_bindgen_test::*;
+        wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+    }
+
     const MY_ADDRESS: &str = "my_address";
 
-    pub(crate) async fn test_insert_and_remove_note_impl() {
+    cross_test!(test_insert_and_remove_note, {
         let ctx = mm_ctx_with_custom_db();
         let db = LockedNotesStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
 
         // insert note
-        let result = db.insert_note("some_hex".to_string(), String::from("228")).await;
+        let result = db
+            .insert_note(
+                "0xcfec34a81e67e85aa1ce1a6666f92f9bc5606f0795be555bb3c9f9ac089aa4f7".to_string(),
+                String::from("0x18b1acd8ceae8d71a2ae8b7e4a3e48ceb39dc237f0aa38c468425b88dc8d5f3e"),
+            )
+            .await;
         assert!(result.is_ok());
 
         // remove note
-        let result = db.remove_note("some_hex".to_owned()).await;
+        let result = db
+            .remove_note("0xcfec34a81e67e85aa1ce1a6666f92f9bc5606f0795be555bb3c9f9ac089aa4f7".to_owned())
+            .await;
         assert!(result.is_ok());
-
         // get notes(should be empty)
         let notes = db.load_all_notes().await.unwrap();
         assert!(notes.is_empty());
-    }
+    });
 
-    pub(crate) async fn test_load_all_notes_impl() {
+    cross_test!(test_load_all_notes, {
         let ctx = mm_ctx_with_custom_db();
         let db = LockedNotesStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
 
-        let result = db.insert_note("some_hex".to_string(), String::from("40")).await;
+        let result = db
+            .insert_note(
+                "0xcfec34a81e67e85aa1ce1a6666f92f9bc5606f0795be555bb3c9f9ac089aa4f7".to_string(),
+                String::from("0x18b1acd8ceae8d71a2ae8b7e4a3e48ceb39dc237f0aa38c468425b88dc8d5f3e"),
+            )
+            .await;
         assert!(result.is_ok());
 
         let notes = db.load_all_notes().await.unwrap();
         assert!(notes.len() == 1);
-    }
+    });
 
-    pub(crate) async fn test_sum_changes_impl() {
+    cross_test!(test_sum_changes, {
         let ctx = mm_ctx_with_custom_db();
         let db = LockedNotesStorage::new(ctx, MY_ADDRESS.to_string()).await.unwrap();
 
-        let result = db.insert_note("some_hex".to_string(), String::from("50")).await;
+        let result = db
+            .insert_note(
+                "0xcfec34a81e67e85aa1ce1a6666f92f9bc5606f0795be555bb3c9f9ac089aa4f7".to_string(),
+                String::from("0x18b1acd8ceae8d71a2ae8b7e4a3e48ceb39dc237f0aa38c468425b88dc8d5f3e"),
+            )
+            .await;
         assert!(result.is_ok());
 
-        let result = db.insert_note("another_hex".to_string(), String::from("5")).await;
+        let result = db
+            .insert_note(
+                "0x8a7885455838d293cf2e5965dd34b7c11199c81fccfc71fbf33d606e24ce7f01".to_string(),
+                String::from("0xab04f57873bfcd95b18e7495adfd055629eafe7a03f00e5c506c5d18e005e5c3"),
+            )
+            .await;
         assert!(result.is_ok());
-    }
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod change_note_native_tests {
-    use common::block_on;
-
-    use super::change_note_test::{test_insert_and_remove_note_impl, test_load_all_notes_impl, test_sum_changes_impl};
-
-    #[test]
-    fn test_insert_and_remove_note() { block_on(test_insert_and_remove_note_impl()) }
-
-    #[test]
-    fn test_load_all_notes() { block_on(test_load_all_notes_impl()) }
-
-    #[test]
-    fn test_sum_changes() { block_on(test_sum_changes_impl()) }
-}
-
-#[cfg(all(test, target_arch = "wasm32"))]
-mod change_note_native_tests {
-    use super::change_note_test::{test_insert_and_remove_note_impl, test_load_all_notes_impl, test_sum_changes_impl};
-    use wasm_bindgen_test::wasm_bindgen_test;
-
-    #[wasm_bindgen_test]
-    async fn test_insert_and_remove_note() { test_insert_and_remove_note_impl().await }
-
-    #[wasm_bindgen_test]
-    async fn test_load_all_notes() { test_load_all_notes_impl().await }
-
-    #[wasm_bindgen_test]
-    async fn test_sum_changes() { test_sum_changes_impl().await }
+    });
 }
