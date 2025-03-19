@@ -46,7 +46,7 @@ pub(crate) enum LockedNotesStorageError {
 
 #[cfg(any(test, target_arch = "wasm32"))]
 pub(super) mod change_notes_test {
-    use crate::z_coin::storage::z_change_notes::LockedNotesStorage;
+    use crate::z_coin::storage::z_locked_notes::LockedNotesStorage;
     use common::cross_test;
 
     use mm2_test_helpers::for_tests::mm_ctx_with_custom_db;

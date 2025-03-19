@@ -11,8 +11,8 @@ pub(crate) use walletdb::*;
 #[cfg(target_arch = "wasm32")]
 pub(crate) use z_params::ZcashParamsWasmImpl;
 
-pub(crate) mod z_change_notes;
-pub(crate) use z_change_notes::{LockedNotesStorage, LockedNotesStorageError};
+pub(crate) mod z_locked_notes;
+pub(crate) use z_locked_notes::{LockedNotesStorage, LockedNotesStorageError};
 
 use mm2_err_handle::mm_error::MmResult;
 #[cfg(target_arch = "wasm32")]

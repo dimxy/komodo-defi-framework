@@ -1,7 +1,7 @@
 use super::{z_coin_errors::*, BlockDbImpl, CheckPointBlockInfo, WalletDbShared, ZCoinBuilder, ZcoinConsensusParams};
 use crate::utxo::rpc_clients::NO_TX_ERROR_CODE;
 use crate::utxo::utxo_builder::{UtxoCoinBuilderCommonOps, DAY_IN_SECONDS};
-use crate::z_coin::storage::z_change_notes::LockedNotesStorage;
+use crate::z_coin::storage::z_locked_notes::LockedNotesStorage;
 use crate::z_coin::storage::{BlockProcessingMode, DataConnStmtCacheWrapper};
 use crate::z_coin::SyncStartPoint;
 use crate::RpcCommonOps;
