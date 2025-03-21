@@ -57,12 +57,12 @@ impl HttpStatusCode for ApiIntegrationRpcError {
             | ApiIntegrationRpcError::InvalidParam(_)
             | ApiIntegrationRpcError::OutOfBounds { .. }
             | ApiIntegrationRpcError::OneInchAllowanceNotEnough { .. }
-            | ApiIntegrationRpcError::InternalError { .. }
             | ApiIntegrationRpcError::NumberError(_)
             | ApiIntegrationRpcError::LrSwapNotFound => StatusCode::BAD_REQUEST,
             ApiIntegrationRpcError::OneInchError(_) | ApiIntegrationRpcError::ApiDataError(_) => {
                 StatusCode::BAD_GATEWAY
             },
+            ApiIntegrationRpcError::InternalError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
