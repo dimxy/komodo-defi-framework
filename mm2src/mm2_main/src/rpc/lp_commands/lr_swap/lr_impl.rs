@@ -302,16 +302,11 @@ impl LrDataMap {
         self.inner
             .values()
             // filter out orders for which we did not get LR swap quotes and were not able to estimate needed source amount
-            .filter_map(|lr_data| {
-                if lr_data.src_amount.is_some() && lr_data.lr_swap_data.is_some() {
-                    Some((
-                        lr_data.src_amount.unwrap(),
-                        lr_data.lr_swap_data.as_ref().unwrap().clone(),
-                        lr_data.order.clone(),
-                    ))
-                } else {
-                    None
-                }
+            .filter_map(|lr_data| match (lr_data.src_amount, lr_data.lr_swap_data.as_ref()) {
+                (Some(src_amount), Some(lr_swap_data)) => {
+                    Some((src_amount, lr_swap_data.clone(), lr_data.order.clone()))
+                },
+                (_, _) => None,
             })
             // calculate total price and filter out orders for which we could not calculate the total price
             .filter_map(|(src_amount, lr_swap_data, order)| {
@@ -324,7 +319,7 @@ impl LrDataMap {
     }
 }
 
-/// Finds the best swap path to buy order 's best "UTXO" coins, including LR quotes to sell my token for the rel tokens from the orders
+/// Finds the best swap path to buy order's best "UTXO" coins, including LR quotes to sell my token for the rel tokens from the orders
 /// base_amount is amount of UTXO coins user would like to buy
 pub async fn find_best_fill_ask_with_lr(
     ctx: &MmArc,
