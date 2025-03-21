@@ -131,18 +131,24 @@ impl LrDataMap {
         for ((src_token, dst_token), lr_data) in self.inner.iter_mut() {
             let (src_coin, src_contract) = get_coin_for_one_inch(ctx, src_token).await?;
             let (dst_coin, dst_contract) = get_coin_for_one_inch(ctx, dst_token).await?;
+            let src_decimals = src_coin.decimals();
+            let dst_decimals = dst_coin.decimals();
+            if src_decimals == 0 {
+                return MmError::err(ApiIntegrationRpcError::InternalError(format!(
+                    "Source token '{}' has invalid decimals (0)",
+                    src_token
+                )));
+            }
+            if dst_decimals == 0 {
+                return MmError::err(ApiIntegrationRpcError::InternalError(format!(
+                    "Destination token '{}' has invalid decimals (0)",
+                    dst_token
+                )));
+            }
             lr_data.src_contract = Some(src_contract);
             lr_data.dst_contract = Some(dst_contract);
-            lr_data.src_decimals = Some(if src_coin.decimals() != 0 {
-                src_coin.decimals()
-            } else {
-                return MmError::err(ApiIntegrationRpcError::InternalError("bad decimals".to_owned()));
-            });
-            lr_data.dst_decimals = Some(if dst_coin.decimals() != 0 {
-                dst_coin.decimals()
-            } else {
-                return MmError::err(ApiIntegrationRpcError::InternalError("bad decimals".to_owned()));
-            });
+            lr_data.src_decimals = Some(src_decimals);
+            lr_data.dst_decimals = Some(dst_decimals);
             lr_data.chain_id = Some(dst_coin.chain_id());
         }
         Ok(())
@@ -298,7 +304,7 @@ impl LrDataMap {
         let calc_total_price = |src_amount: U256, lr_swap: &ClassicSwapData, order: &RpcOrderbookEntryV2| {
             let src_amount = mm_number_from_u256(src_amount);
             let order_price = MmNumber::from(order.price.rational.clone());
-            let dst_amount = MmNumber::from(lr_swap.dst_amount.to_string().as_str());
+            let dst_amount = MmNumber::from(lr_swap.dst_amount.as_str());
             let order_amount = dst_amount.checked_div(&order_price)?;
             let total_price = src_amount.checked_div(&order_amount);
             log::debug!("select_best_swap order.coin={} lr_swap.dst_amount(wei)={} order_amount(to fill order, wei)={} total_price(with LR)={}", 
