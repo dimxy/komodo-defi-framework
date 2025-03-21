@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use trading_api::one_inch_api::classic_swap_types::{ClassicSwapData, ClassicSwapQuoteParams};
 use trading_api::one_inch_api::client::ApiClient;
-use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesData, DataGranularity};
+use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesSeries, DataGranularity};
 
 /// To estimate src/dst price query price history for last 5 min
 const CROSS_PRICES_GRANULARITY: DataGranularity = DataGranularity::FiveMin;
@@ -170,7 +170,7 @@ impl LrDataMap {
                 .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
             let fut = ApiClient::new(ctx)
                 .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?
-                .call_one_inch_api::<Vec<CrossPricesData>>(
+                .call_one_inch_api::<CrossPricesSeries>(
                     None,
                     ApiClient::portfolio_prices_endpoint(),
                     ApiClient::cross_prices_method().to_owned(),
@@ -346,7 +346,7 @@ pub async fn find_best_fill_ask_with_lr(
 }
 
 /// Helper to process 1inch token cross prices data and return average price
-fn cross_prices_average(series: &Vec<CrossPricesData>) -> MmNumber {
+fn cross_prices_average(series: &CrossPricesSeries) -> MmNumber {
     if series.is_empty() {
         return MmNumber::from(0);
     }

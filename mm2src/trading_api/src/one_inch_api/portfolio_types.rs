@@ -87,3 +87,5 @@ pub struct CrossPricesData {
     pub high: BigDecimal,
     pub close: BigDecimal,
 }
+
+pub type CrossPricesSeries = Vec<CrossPricesData>;
