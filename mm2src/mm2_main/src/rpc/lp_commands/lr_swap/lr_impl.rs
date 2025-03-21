@@ -292,14 +292,11 @@ impl LrDataMap {
             let src_amount = mm_number_from_u256(src_amount);
             let order_price = MmNumber::from(order.price.rational.clone());
             let dst_amount = MmNumber::from(lr_swap.dst_amount.to_string().as_str());
-            if let Some(order_amount) = dst_amount.checked_div(&order_price) {
-                let total_price = src_amount.checked_div(&order_amount);
-                log::debug!("select_best_swap order.coin={} lr_swap.dst_amount(wei)={} order_amount(to fill order, wei)={} total_price(with LR)={}", 
-                    order.coin, lr_swap.dst_amount, order_amount.to_decimal(), total_price.clone().unwrap_or(MmNumber::from(0)).to_decimal());
-                total_price
-            } else {
-                None
-            }
+            let order_amount = dst_amount.checked_div(&order_price)?;
+            let total_price = src_amount.checked_div(&order_amount);
+            log::debug!("select_best_swap order.coin={} lr_swap.dst_amount(wei)={} order_amount(to fill order, wei)={} total_price(with LR)={}", 
+                order.coin, lr_swap.dst_amount, order_amount.to_decimal(), total_price.clone().unwrap_or(MmNumber::from(0)).to_decimal());
+            total_price
         };
 
         self.inner
