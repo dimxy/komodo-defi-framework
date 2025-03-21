@@ -24,8 +24,8 @@ use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesSe
 
 /// To estimate src/dst price query price history for last 5 min
 const CROSS_PRICES_GRANULARITY: DataGranularity = DataGranularity::FiveMin;
-/// Use no more than 10 price history samples to estimate src/dst price
-const CROSS_PRICES_LIMIT: u32 = 10;
+/// Use no more than 1 price history samples to estimate src/dst price
+const CROSS_PRICES_LIMIT: u32 = 1;
 
 #[inline]
 fn mm_number_to_u256(mm_number: &MmNumber) -> Result<U256, FromDecStrErr> {
