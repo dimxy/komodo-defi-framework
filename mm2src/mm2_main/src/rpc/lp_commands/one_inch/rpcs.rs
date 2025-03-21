@@ -2,7 +2,8 @@ use super::errors::ApiIntegrationRpcError;
 use super::types::{AggregationContractRequest, ClassicSwapCreateRequest, ClassicSwapLiquiditySourcesRequest,
                    ClassicSwapLiquiditySourcesResponse, ClassicSwapQuoteRequest, ClassicSwapResponse,
                    ClassicSwapTokensRequest, ClassicSwapTokensResponse};
-use coins::eth::{display_eth_address, wei_from_big_decimal, EthCoin, EthCoinType};
+use coins::eth::{wei_from_big_decimal, EthCoin, EthCoinType};
+use coins::hd_wallet::DisplayAddress;
 use coins::{lp_coinfind_or_err, CoinWithDerivationMethod, MmCoin, MmCoinEnum};
 use ethereum_types::Address;
 use mm2_core::mm_ctx::MmArc;
@@ -32,8 +33,8 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
     let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
         .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
     let query_params = ClassicSwapQuoteParams::new(
-        display_eth_address(&base_contract),
-        display_eth_address(&rel_contract),
+        base_contract.display_address(),
+        rel_contract.display_address(),
         sell_amount.to_string(),
     )
     .with_fee(req.fee)
@@ -79,10 +80,10 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
     let single_address = base.derivation_method().single_addr_or_err().await?;
 
     let query_params = ClassicSwapCreateParams::new(
-        display_eth_address(&base_contract),
-        display_eth_address(&rel_contract),
+        base_contract.display_address(),
+        rel_contract.display_address(),
         sell_amount.to_string(),
-        display_eth_address(&single_address),
+        single_address.display_address(),
         req.slippage,
     )
     .with_fee(req.fee)

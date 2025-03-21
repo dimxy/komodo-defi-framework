@@ -3,8 +3,8 @@
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
-use coins::eth::eth_addr_to_hex;
 use coins::eth::{u256_to_big_decimal, wei_from_big_decimal};
+use coins::hd_wallet::DisplayAddress;
 use coins::lp_coinfind_or_err;
 use coins::MmCoin;
 use coins::NumConversResult;
@@ -161,18 +161,16 @@ impl LrDataMap {
         let mut src_dst = vec![];
         for ((src_token, dst_token), lr_data) in self.inner.iter() {
             // Run src / dst token price query:
-            let src_contract = eth_addr_to_hex(
-                lr_data
-                    .src_contract
-                    .as_ref()
-                    .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?,
-            );
-            let dst_contract = eth_addr_to_hex(
-                lr_data
-                    .dst_contract
-                    .as_ref()
-                    .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?,
-            );
+            let src_contract = lr_data
+                .src_contract
+                .as_ref()
+                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
+                .display_address();
+            let dst_contract = lr_data
+                .dst_contract
+                .as_ref()
+                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
+                .display_address();
             let chain_id = lr_data
                 .chain_id
                 .ok_or(ApiIntegrationRpcError::InternalError("no chain id".to_owned()))?;
@@ -249,18 +247,16 @@ impl LrDataMap {
             let Some(src_amount) = lr_data.src_amount else {
                 continue;
             };
-            let src_contract = eth_addr_to_hex(
-                lr_data
-                    .src_contract
-                    .as_ref()
-                    .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?,
-            );
-            let dst_contract = eth_addr_to_hex(
-                lr_data
-                    .dst_contract
-                    .as_ref()
-                    .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?,
-            );
+            let src_contract = lr_data
+                .src_contract
+                .as_ref()
+                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
+                .display_address();
+            let dst_contract = lr_data
+                .dst_contract
+                .as_ref()
+                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
+                .display_address();
             let chain_id = lr_data
                 .chain_id
                 .ok_or(ApiIntegrationRpcError::InternalError("no chain id".to_owned()))?;
