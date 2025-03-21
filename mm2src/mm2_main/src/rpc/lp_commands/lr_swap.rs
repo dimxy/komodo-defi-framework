@@ -3,7 +3,6 @@
 use super::one_inch::types::ClassicSwapDetails;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
-use coins::lp_coinfind_or_err;
 use lr_impl::find_best_fill_ask_with_lr;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError,
@@ -41,14 +40,12 @@ pub async fn lr_best_quote_rpc(
     // order.price not zero
     // when best order is selected validate against req.rel_max_volume and req.rel_min_volume
 
-    let coin = lp_coinfind_or_err(&ctx, &req.base).await?;
-    let (eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
+    let (my_eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
     let (swap_data, best_order, total_price) =
         find_best_fill_ask_with_lr(&ctx, req.my_token, &req.asks, &req.amount).await?;
-    let lr_swap_details =
-        ClassicSwapDetails::from_api_classic_swap_data(&ctx, eth_coin.chain_id(), swap_data, coin.decimals())
-            .await
-            .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
+    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, my_eth_coin.chain_id(), swap_data)
+        .await
+        .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
     Ok(LrBestQuoteResponse {
         lr_swap_details,
         best_order,

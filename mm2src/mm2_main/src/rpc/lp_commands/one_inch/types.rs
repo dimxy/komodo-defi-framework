@@ -10,6 +10,7 @@ use mm2_number::{construct_detailed, BigDecimal, MmNumber};
 use rpc::v1::types::Bytes as BytesJson;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::str::FromStr;
 use trading_api::one_inch_api::{self,
                                 classic_swap_types::{ProtocolImage, ProtocolInfo, TokenInfo as LrTokenInfo},
@@ -179,12 +180,23 @@ impl ClassicSwapDetails {
         ctx: &MmArc,
         chain_id: u64,
         data: one_inch_api::classic_swap_types::ClassicSwapData,
-        decimals: u8,
     ) -> MmResult<Self, FromApiValueError> {
         let src_token_info = data.src_token.ok_or(FromApiValueError("No token info".to_owned()))?;
         let dst_token_info = data.dst_token.ok_or(FromApiValueError("No token info".to_owned()))?;
+        let src_decimals: u8 = src_token_info
+            .decimals
+            .try_into()
+            .map_to_mm(|_| FromApiValueError("bad decimals".to_owned()))?;
+        let dst_decimals: u8 = dst_token_info
+            .decimals
+            .try_into()
+            .map_to_mm(|_| FromApiValueError("bad decimals".to_owned()))?;
         Ok(Self {
-            dst_amount: MmNumber::from(u256_to_big_decimal(U256::from_dec_str(&data.dst_amount)?, decimals)?).into(),
+            dst_amount: MmNumber::from(u256_to_big_decimal(
+                U256::from_dec_str(&data.dst_amount)?,
+                dst_decimals,
+            )?)
+            .into(),
             src_token: Some(src_token_info.clone()),
             src_token_kdf: Self::token_name_kdf(ctx, chain_id, &src_token_info).await,
             dst_token: Some(dst_token_info.clone()),
@@ -192,7 +204,7 @@ impl ClassicSwapDetails {
             protocols: data.protocols,
             tx: data
                 .tx
-                .map(|tx| TxFields::from_api_tx_fields(tx, decimals))
+                .map(|tx| TxFields::from_api_tx_fields(tx, src_decimals))
                 .transpose()?,
             gas: data.gas,
         })
@@ -213,13 +225,13 @@ pub struct TxFields {
 impl TxFields {
     pub(crate) fn from_api_tx_fields(
         tx_fields: one_inch_api::classic_swap_types::TxFields,
-        decimals: u8,
+        dst_decimals: u8,
     ) -> MmResult<Self, FromApiValueError> {
         Ok(Self {
             from: tx_fields.from,
             to: tx_fields.to,
             data: BytesJson::from(hex::decode(str_strip_0x!(tx_fields.data.as_str()))?),
-            value: u256_to_big_decimal(U256::from_dec_str(&tx_fields.value)?, decimals)?,
+            value: u256_to_big_decimal(U256::from_dec_str(&tx_fields.value)?, dst_decimals)?,
             gas_price: wei_to_gwei_decimal(U256::from_dec_str(&tx_fields.gas_price)?)?,
             gas: tx_fields.gas,
         })

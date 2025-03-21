@@ -53,8 +53,8 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
         )
         .await
         .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?; // use 'base' as amount in errors is in the src coin
-    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), quote, rel.decimals())
-        .await // use 'rel' as quote value is in the dst coin
+    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), quote)
+        .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))
 }
 
@@ -110,8 +110,8 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
         )
         .await
         .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?; // use 'base' as amount in errors is in the src coin
-    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), swap_with_tx, base.decimals())
-        .await // use 'base' as we spend in the src coin
+    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), swap_with_tx)
+        .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))
 }
 
