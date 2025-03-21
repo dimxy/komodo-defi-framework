@@ -92,7 +92,7 @@ use crate::lp_swap::taker_swap::FailAt;
 pub use best_orders::{best_orders_rpc, best_orders_rpc_v2};
 use crypto::secret_hash_algo::SecretHashAlgo;
 pub use orderbook_depth::orderbook_depth_rpc;
-pub use orderbook_rpc::{orderbook_rpc, orderbook_rpc_v2, AggregatedOrderbookEntryV2};
+pub use orderbook_rpc::{orderbook_rpc, orderbook_rpc_v2};
 
 cfg_wasm32! {
     use mm2_db::indexed_db::{ConstructibleDb, DbLocked};
