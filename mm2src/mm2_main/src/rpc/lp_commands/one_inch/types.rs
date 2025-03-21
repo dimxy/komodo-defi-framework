@@ -197,10 +197,10 @@ impl ClassicSwapDetails {
                 dst_decimals,
             )?)
             .into(),
-            src_token: Some(src_token_info.clone()),
             src_token_kdf: Self::token_name_kdf(ctx, chain_id, &src_token_info).await,
-            dst_token: Some(dst_token_info.clone()),
+            src_token: Some(src_token_info),
             dst_token_kdf: Self::token_name_kdf(ctx, chain_id, &dst_token_info).await,
+            dst_token: Some(dst_token_info),
             protocols: data.protocols,
             tx: data
                 .tx
