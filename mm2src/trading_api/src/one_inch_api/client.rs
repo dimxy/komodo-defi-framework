@@ -204,7 +204,7 @@ impl ApiClient {
     #[cfg(feature = "test-ext-api")]
     async fn one_req_per_sec<'a>() -> AsyncMutexGuard<'a, ()> {
         lazy_static! {
-            /// API key for testing
+            /// Lock to ensure requests to the API are not running concurrently in tests
             static ref ONE_INCH_REQ_SYNC: AsyncMutex<()> = AsyncMutex::new(());
         }
         let guard = ONE_INCH_REQ_SYNC.lock().await;

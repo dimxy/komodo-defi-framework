@@ -64,8 +64,8 @@ struct LrData {
 }
 
 struct LrDataMap {
-    /// Map to store data needed for swaps with LR estimations,
-    /// the key is source and destination tokens
+    /// Map to store data needed for best price estimations for swaps with LR,
+    /// the key is the source and destination token pair from the LR swap part
     inner: HashMap<(Ticker, Ticker), LrData>,
 }
 

@@ -10,7 +10,7 @@ use mm2_rpc::data::legacy::{SellBuyRequest, SellBuyResponse};
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LrBestQuoteRequest {
-    /// Order base coin ticker.
+    /// Order base coin ticker (from the orderbook).
     pub base: Ticker,
     /// Swap amount in base coins to sell (with fraction)
     pub amount: MmNumber,
@@ -40,7 +40,7 @@ pub struct LrBestQuoteResponse {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LrQuotesForTokensRequest {
-    /// Order base coin ticker.
+    /// Order base coin ticker (from the orderbook).
     pub base: Ticker,
     /// Swap amount in base coins to sell (with fraction)
     pub amount: MmNumber,
