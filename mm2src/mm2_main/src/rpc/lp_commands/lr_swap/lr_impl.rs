@@ -71,13 +71,13 @@ struct LrDataMap {
 
 impl LrDataMap {
     /// Init LR data map from the source token (mytoken) and tokens from orders
-    fn new_with_src_token(src_token: Ticker, orders: &[RpcOrderbookEntryV2]) -> Self {
+    fn new_with_src_token(src_token: Ticker, orders: Vec<RpcOrderbookEntryV2>) -> Self {
         Self {
             inner: orders
-                .iter()
+                .into_iter()
                 .map(|order| {
                     ((src_token.clone(), order.coin.clone()), LrData {
-                        order: order.clone(),
+                        order,
                         src_contract: None,
                         src_decimals: None,
                         src_amount: None,
@@ -115,15 +115,15 @@ impl LrDataMap {
         Ok(())
     }
 
-    fn update_with_lr_prices(&mut self, lr_prices: &HashMap<(Ticker, Ticker), MmNumber>) {
+    fn update_with_lr_prices(&mut self, mut lr_prices: HashMap<(Ticker, Ticker), MmNumber>) {
         for (key, val) in self.inner.iter_mut() {
-            val.lr_price = lr_prices.get(key).cloned();
+            val.lr_price = lr_prices.remove(key);
         }
     }
 
-    fn update_with_lr_swap_data(&mut self, lr_swap_data: &HashMap<(Ticker, Ticker), ClassicSwapData>) {
+    fn update_with_lr_swap_data(&mut self, mut lr_swap_data: HashMap<(Ticker, Ticker), ClassicSwapData>) {
         for (key, val) in self.inner.iter_mut() {
-            val.lr_swap_data = lr_swap_data.get(key).cloned();
+            val.lr_swap_data = lr_swap_data.remove(key);
         }
     }
 
@@ -211,7 +211,7 @@ impl LrDataMap {
                 q.1.to_decimal()
             );
         }
-        self.update_with_lr_prices(&quotes);
+        self.update_with_lr_prices(quotes);
         Ok(())
     }
 
@@ -286,7 +286,7 @@ impl LrDataMap {
             .into_iter()
             .zip(swap_data.into_iter())
             .collect::<HashMap<(_, _), _>>();
-        self.update_with_lr_swap_data(&swap_data_map);
+        self.update_with_lr_swap_data(swap_data_map);
         Ok(())
     }
 
@@ -333,7 +333,7 @@ impl LrDataMap {
 pub async fn find_best_fill_ask_with_lr(
     ctx: &MmArc,
     user_token: Ticker,
-    orders: &[RpcOrderbookEntryV2],
+    orders: Vec<RpcOrderbookEntryV2>,
     base_amount: &MmNumber,
 ) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), ApiIntegrationRpcError> {
     let mut lr_data_map = LrDataMap::new_with_src_token(user_token, orders);

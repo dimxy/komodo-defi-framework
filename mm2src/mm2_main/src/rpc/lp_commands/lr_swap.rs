@@ -42,7 +42,7 @@ pub async fn lr_best_quote_rpc(
 
     let (my_eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
     let (swap_data, best_order, total_price) =
-        find_best_fill_ask_with_lr(&ctx, req.my_token, &req.asks, &req.amount).await?;
+        find_best_fill_ask_with_lr(&ctx, req.my_token, req.asks, &req.amount).await?;
     let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, my_eth_coin.chain_id(), swap_data)
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
