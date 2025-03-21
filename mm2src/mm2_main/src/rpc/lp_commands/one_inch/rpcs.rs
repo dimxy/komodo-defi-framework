@@ -4,8 +4,10 @@ use super::types::{AggregationContractRequest, ClassicSwapCreateRequest, Classic
                    ClassicSwapTokensRequest, ClassicSwapTokensResponse};
 use coins::eth::{display_eth_address, wei_from_big_decimal, EthCoin, EthCoinType};
 use coins::{lp_coinfind_or_err, CoinWithDerivationMethod, MmCoin, MmCoinEnum};
+use ethereum_types::Address;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use std::str::FromStr;
 use trading_api::one_inch_api::classic_swap_types::{ClassicSwapCreateParams, ClassicSwapQuoteParams,
                                                     ProtocolsResponse, TokensResponse};
 use trading_api::one_inch_api::client::ApiClient;
@@ -29,20 +31,24 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
     api_supports_pair(&base, &rel)?;
     let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
         .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
-    let query_params = ClassicSwapQuoteParams::new(base_contract, rel_contract, sell_amount.to_string())
-        .with_fee(req.fee)
-        .with_protocols(req.protocols)
-        .with_gas_price(req.gas_price)
-        .with_complexity_level(req.complexity_level)
-        .with_parts(req.parts)
-        .with_main_route_parts(req.main_route_parts)
-        .with_gas_limit(req.gas_limit)
-        .with_include_tokens_info(Some(req.include_tokens_info))
-        .with_include_protocols(Some(req.include_protocols))
-        .with_include_gas(Some(req.include_gas))
-        .with_connector_tokens(req.connector_tokens)
-        .build_query_params()
-        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?;
+    let query_params = ClassicSwapQuoteParams::new(
+        display_eth_address(&base_contract),
+        display_eth_address(&rel_contract),
+        sell_amount.to_string(),
+    )
+    .with_fee(req.fee)
+    .with_protocols(req.protocols)
+    .with_gas_price(req.gas_price)
+    .with_complexity_level(req.complexity_level)
+    .with_parts(req.parts)
+    .with_main_route_parts(req.main_route_parts)
+    .with_gas_limit(req.gas_limit)
+    .with_include_tokens_info(Some(req.include_tokens_info))
+    .with_include_protocols(Some(req.include_protocols))
+    .with_include_gas(Some(req.include_gas))
+    .with_connector_tokens(req.connector_tokens)
+    .build_query_params()
+    .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?;
     let quote = ApiClient::new(&ctx)
         .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?
         .call_one_inch_api(
@@ -73,8 +79,8 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
     let single_address = base.derivation_method().single_addr_or_err().await?;
 
     let query_params = ClassicSwapCreateParams::new(
-        base_contract,
-        rel_contract,
+        display_eth_address(&base_contract),
+        display_eth_address(&rel_contract),
         sell_amount.to_string(),
         display_eth_address(&single_address),
         req.slippage,
@@ -160,14 +166,15 @@ pub async fn one_inch_v6_0_classic_swap_tokens_rpc(
 pub(crate) async fn get_coin_for_one_inch(
     ctx: &MmArc,
     ticker: &str,
-) -> MmResult<(EthCoin, String), ApiIntegrationRpcError> {
+) -> MmResult<(EthCoin, Address), ApiIntegrationRpcError> {
     let coin = match lp_coinfind_or_err(ctx, ticker).await? {
         MmCoinEnum::EthCoin(coin) => coin,
         _ => return Err(MmError::new(ApiIntegrationRpcError::CoinTypeError)),
     };
     let contract = match coin.coin_type {
-        EthCoinType::Eth => ApiClient::eth_special_contract().to_owned(),
-        EthCoinType::Erc20 { token_addr, .. } => display_eth_address(&token_addr),
+        EthCoinType::Eth => Address::from_str(ApiClient::eth_special_contract())
+            .map_to_mm(|_| ApiIntegrationRpcError::InternalError("invalid address".to_owned()))?,
+        EthCoinType::Erc20 { token_addr, .. } => token_addr,
         EthCoinType::Nft { .. } => return Err(MmError::new(ApiIntegrationRpcError::NftProtocolNotSupported)),
     };
     Ok((coin, contract))

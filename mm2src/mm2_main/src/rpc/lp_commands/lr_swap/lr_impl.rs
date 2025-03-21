@@ -18,7 +18,6 @@ use mm2_err_handle::prelude::*;
 use mm2_number::MmNumber;
 use num_traits::CheckedDiv;
 use std::collections::HashMap;
-use std::str::FromStr;
 use trading_api::one_inch_api::classic_swap_types::{ClassicSwapData, ClassicSwapQuoteParams};
 use trading_api::one_inch_api::client::ApiClient;
 use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesSeries, DataGranularity};
@@ -132,10 +131,18 @@ impl LrDataMap {
         for ((src_token, dst_token), lr_data) in self.inner.iter_mut() {
             let (src_coin, src_contract) = get_coin_for_one_inch(ctx, src_token).await?;
             let (dst_coin, dst_contract) = get_coin_for_one_inch(ctx, dst_token).await?;
-            lr_data.src_contract = EthAddress::from_str(&src_contract).ok(); // TODO: return error?
-            lr_data.dst_contract = EthAddress::from_str(&dst_contract).ok();
-            lr_data.src_decimals = Some(src_coin.decimals()); // TODO: maybe we should check for 0 and return error (if missed in coins)? Now it works okay if decimals omitted in coins
-            lr_data.dst_decimals = Some(dst_coin.decimals());
+            lr_data.src_contract = Some(src_contract);
+            lr_data.dst_contract = Some(dst_contract);
+            lr_data.src_decimals = Some(if src_coin.decimals() != 0 {
+                src_coin.decimals()
+            } else {
+                return MmError::err(ApiIntegrationRpcError::InternalError("bad decimals".to_owned()));
+            });
+            lr_data.dst_decimals = Some(if dst_coin.decimals() != 0 {
+                dst_coin.decimals()
+            } else {
+                return MmError::err(ApiIntegrationRpcError::InternalError("bad decimals".to_owned()));
+            });
             lr_data.chain_id = Some(dst_coin.chain_id());
         }
         Ok(())
