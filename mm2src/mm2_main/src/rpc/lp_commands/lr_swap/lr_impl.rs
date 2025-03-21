@@ -336,11 +336,11 @@ pub async fn find_best_fill_ask_with_lr(
     base_amount: &MmNumber,
 ) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), ApiIntegrationRpcError> {
     let mut lr_data_map = LrDataMap::new_with_src_token(user_token, orders);
-    let _ = lr_data_map.update_with_contracts(ctx).await;
-    let _ = lr_data_map.calc_destination_token_amounts(ctx, base_amount).await;
-    let _ = lr_data_map.query_destination_token_prices(ctx).await?;
-    let _ = lr_data_map.estimate_source_token_amounts();
-    let _ = lr_data_map.run_lr_quotes(ctx).await?;
+    lr_data_map.update_with_contracts(ctx).await?;
+    lr_data_map.calc_destination_token_amounts(ctx, base_amount).await?;
+    lr_data_map.query_destination_token_prices(ctx).await?;
+    lr_data_map.estimate_source_token_amounts()?;
+    lr_data_map.run_lr_quotes(ctx).await?;
 
     lr_data_map.select_best_swap()
 }
@@ -353,5 +353,5 @@ fn cross_prices_average(series: &Vec<CrossPricesData>) -> MmNumber {
     let total: MmNumber = series.iter().fold(MmNumber::from(0), |acc, price_data| {
         acc + MmNumber::from(price_data.avg.clone())
     });
-    total / MmNumber::from(series.len() as i32)
+    total / MmNumber::from(series.len() as u64)
 }
