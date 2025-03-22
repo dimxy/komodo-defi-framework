@@ -85,7 +85,7 @@ pub async fn lr_fill_order_rpc(
     MmError::err(ApiIntegrationRpcError::InternalError("unimplemented".to_owned()))
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, feature = "test-ext-api", not(target_arch = "wasm32")))]
 mod tests {
     use crate::lp_ordermatch::{OrderbookAddress, RpcOrderbookEntryV2};
     use crate::rpc::lp_commands::legacy::electrum;
@@ -102,7 +102,6 @@ mod tests {
     /// checks how to find an order from an utxo/token ask order list, which is the most price efficient if route from my token into the token in the order.
     /// With this test use --features test-ext-api and set ONE_INCH_API_TEST_AUTH env to the 1inch dev auth key
     /// TODO: make it mockable to run within CI
-    #[cfg(feature = "test-ext-api")]
     #[tokio::test]
     async fn test_find_best_lr_swap_for_order_list() {
         let main_net_url: String = std::env::var("ETH_MAIN_NET_URL_FOR_TEST").unwrap_or_default();
