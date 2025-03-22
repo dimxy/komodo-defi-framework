@@ -64,6 +64,26 @@ struct LrData {
     lr_swap_data: Option<ClassicSwapData>,
 }
 
+impl LrData {
+    #[allow(clippy::result_large_err)]
+    fn get_token_contracts(&self) -> MmResult<(String, String, u64), ApiIntegrationRpcError> {
+        let src_contract = self
+            .src_contract
+            .as_ref()
+            .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
+            .display_address();
+        let dst_contract = self
+            .dst_contract
+            .as_ref()
+            .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
+            .display_address();
+        let chain_id = self
+            .chain_id
+            .ok_or(ApiIntegrationRpcError::InternalError("no chain id".to_owned()))?;
+        Ok((src_contract, dst_contract, chain_id))
+    }
+}
+
 struct LrDataMap {
     /// Map to store data needed for best price estimations for swaps with LR,
     /// the key is the source and destination token pair from the LR swap part
@@ -161,20 +181,8 @@ impl LrDataMap {
         let mut prices_futs = vec![];
         let mut src_dst = vec![];
         for ((src_token, dst_token), lr_data) in self.inner.iter() {
+            let (src_contract, dst_contract, chain_id) = lr_data.get_token_contracts()?;
             // Run src / dst token price query:
-            let src_contract = lr_data
-                .src_contract
-                .as_ref()
-                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
-                .display_address();
-            let dst_contract = lr_data
-                .dst_contract
-                .as_ref()
-                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
-                .display_address();
-            let chain_id = lr_data
-                .chain_id
-                .ok_or(ApiIntegrationRpcError::InternalError("no chain id".to_owned()))?;
             let query_params = CrossPriceParams::new(chain_id, src_contract, dst_contract)
                 .with_granularity(Some(CROSS_PRICES_GRANULARITY))
                 .with_limit(Some(CROSS_PRICES_LIMIT))
@@ -243,19 +251,7 @@ impl LrDataMap {
             let Some(src_amount) = lr_data.src_amount else {
                 continue;
             };
-            let src_contract = lr_data
-                .src_contract
-                .as_ref()
-                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
-                .display_address();
-            let dst_contract = lr_data
-                .dst_contract
-                .as_ref()
-                .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
-                .display_address();
-            let chain_id = lr_data
-                .chain_id
-                .ok_or(ApiIntegrationRpcError::InternalError("no chain id".to_owned()))?;
+            let (src_contract, dst_contract, chain_id) = lr_data.get_token_contracts()?;
             let query_params = ClassicSwapQuoteParams::new(src_contract, dst_contract, src_amount.to_string())
                 .with_include_tokens_info(Some(true))
                 .with_include_gas(Some(true))
