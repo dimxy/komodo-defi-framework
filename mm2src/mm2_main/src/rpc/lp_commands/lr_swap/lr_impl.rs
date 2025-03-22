@@ -66,7 +66,7 @@ struct LrData {
 
 impl LrData {
     #[allow(clippy::result_large_err)]
-    fn get_token_contracts(&self) -> MmResult<(String, String, u64), ApiIntegrationRpcError> {
+    fn get_chain_contract_info(&self) -> MmResult<(String, String, u64), ApiIntegrationRpcError> {
         let src_contract = self
             .src_contract
             .as_ref()
@@ -181,7 +181,7 @@ impl LrDataMap {
         let mut prices_futs = vec![];
         let mut src_dst = vec![];
         for ((src_token, dst_token), lr_data) in self.inner.iter() {
-            let (src_contract, dst_contract, chain_id) = lr_data.get_token_contracts()?;
+            let (src_contract, dst_contract, chain_id) = lr_data.get_chain_contract_info()?;
             // Run src / dst token price query:
             let query_params = CrossPriceParams::new(chain_id, src_contract, dst_contract)
                 .with_granularity(Some(CROSS_PRICES_GRANULARITY))
@@ -251,7 +251,7 @@ impl LrDataMap {
             let Some(src_amount) = lr_data.src_amount else {
                 continue;
             };
-            let (src_contract, dst_contract, chain_id) = lr_data.get_token_contracts()?;
+            let (src_contract, dst_contract, chain_id) = lr_data.get_chain_contract_info()?;
             let query_params = ClassicSwapQuoteParams::new(src_contract, dst_contract, src_amount.to_string())
                 .with_include_tokens_info(Some(true))
                 .with_include_gas(Some(true))
