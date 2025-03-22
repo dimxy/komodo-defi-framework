@@ -19,7 +19,8 @@ use mm2_number::MmNumber;
 use num_traits::CheckedDiv;
 use std::collections::HashMap;
 use trading_api::one_inch_api::classic_swap_types::{ClassicSwapData, ClassicSwapQuoteParams};
-use trading_api::one_inch_api::client::ApiClient;
+use trading_api::one_inch_api::client::{ApiClient, PortfolioApiMethods, PortfolioUrlBuilder, SwapApiMethods,
+                                        SwapUrlBuilder};
 use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesSeries, DataGranularity};
 
 /// To estimate src/dst price query price history for last 5 min
@@ -179,14 +180,9 @@ impl LrDataMap {
                 .with_limit(Some(CROSS_PRICES_LIMIT))
                 .build_query_params()
                 .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
-            let fut = ApiClient::new(ctx)
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?
-                .call_one_inch_api::<CrossPricesSeries>(
-                    None,
-                    ApiClient::portfolio_prices_endpoint(),
-                    ApiClient::cross_prices_method().to_owned(),
-                    Some(query_params),
-                );
+            let url_builder = PortfolioUrlBuilder::create_api_url_builder(ctx, PortfolioApiMethods::CrossPrices)
+                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
+            let fut = ApiClient::call_one_inch_api::<CrossPricesSeries>(url_builder, Some(query_params));
             prices_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
         }
@@ -265,14 +261,10 @@ impl LrDataMap {
                 .with_include_gas(Some(true))
                 .build_query_params()
                 .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
-            let api_client = ApiClient::new(ctx)
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
-            let fut = api_client.call_one_inch_api::<ClassicSwapData>(
-                Some(chain_id),
-                ApiClient::classic_swap_endpoint(),
-                ApiClient::quote_method().to_owned(),
-                Some(query_params),
-            );
+            let url_builder =
+                SwapUrlBuilder::create_api_url_builder(ctx, chain_id, SwapApiMethods::ClassicSwapQuote)
+                    .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
+            let fut = ApiClient::call_one_inch_api::<ClassicSwapData>(url_builder, Some(query_params));
             quote_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
         }

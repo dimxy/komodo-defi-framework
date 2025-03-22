@@ -11,7 +11,7 @@ use mm2_err_handle::prelude::*;
 use std::str::FromStr;
 use trading_api::one_inch_api::classic_swap_types::{ClassicSwapCreateParams, ClassicSwapQuoteParams,
                                                     ProtocolsResponse, TokensResponse};
-use trading_api::one_inch_api::client::ApiClient;
+use trading_api::one_inch_api::client::{ApiClient, SwapApiMethods, SwapUrlBuilder};
 
 /// "1inch_v6_0_classic_swap_contract" rpc impl
 /// used to get contract address (for e.g. to approve funds)
@@ -50,14 +50,9 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
     .with_connector_tokens(req.connector_tokens)
     .build_query_params()
     .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?;
-    let quote = ApiClient::new(&ctx)
-        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?
-        .call_one_inch_api(
-            Some(base.chain_id()),
-            ApiClient::classic_swap_endpoint(),
-            ApiClient::quote_method().to_owned(),
-            Some(query_params),
-        )
+    let url_builder = SwapUrlBuilder::create_api_url_builder(&ctx, base.chain_id(), SwapApiMethods::ClassicSwapQuote)
+        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?;
+    let quote = ApiClient::call_one_inch_api(url_builder, Some(query_params))
         .await
         .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?; // use 'base' as amount in errors is in the src coin
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), quote)
@@ -107,14 +102,9 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
     .with_use_permit2(req.use_permit2)
     .build_query_params()
     .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?;
-    let swap_with_tx = ApiClient::new(&ctx)
-        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?
-        .call_one_inch_api(
-            Some(base.chain_id()),
-            ApiClient::classic_swap_endpoint(),
-            ApiClient::swap_method().to_owned(),
-            Some(query_params),
-        )
+    let url_builder = SwapUrlBuilder::create_api_url_builder(&ctx, base.chain_id(), SwapApiMethods::ClassicSwapCreate)
+        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?;
+    let swap_with_tx = ApiClient::call_one_inch_api(url_builder, Some(query_params))
         .await
         .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?; // use 'base' as amount in errors is in the src coin
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), swap_with_tx)
@@ -128,14 +118,9 @@ pub async fn one_inch_v6_0_classic_swap_liquidity_sources_rpc(
     ctx: MmArc,
     req: ClassicSwapLiquiditySourcesRequest,
 ) -> MmResult<ClassicSwapLiquiditySourcesResponse, ApiIntegrationRpcError> {
-    let response: ProtocolsResponse = ApiClient::new(&ctx)
-        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, None))?
-        .call_one_inch_api(
-            Some(req.chain_id),
-            ApiClient::classic_swap_endpoint(),
-            ApiClient::liquidity_sources_method().to_owned(),
-            None,
-        )
+    let url_builder = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::LiquiditySources)
+        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, None))?;
+    let response: ProtocolsResponse = ApiClient::call_one_inch_api(url_builder, None)
         .await
         .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, None))?;
     Ok(ClassicSwapLiquiditySourcesResponse {
@@ -149,14 +134,9 @@ pub async fn one_inch_v6_0_classic_swap_tokens_rpc(
     ctx: MmArc,
     req: ClassicSwapTokensRequest,
 ) -> MmResult<ClassicSwapTokensResponse, ApiIntegrationRpcError> {
-    let response: TokensResponse = ApiClient::new(&ctx)
-        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, None))?
-        .call_one_inch_api(
-            Some(req.chain_id),
-            ApiClient::classic_swap_endpoint(),
-            ApiClient::tokens_method().to_owned(),
-            None,
-        )
+    let url_builder = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::Tokens)
+        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, None))?;
+    let response: TokensResponse = ApiClient::call_one_inch_api(url_builder, None)
         .await
         .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, None))?;
     Ok(ClassicSwapTokensResponse {
@@ -430,7 +410,7 @@ mod tests {
             use_permit2: None,
         };
 
-        ApiClient::call_one_inch_api::<ClassicSwapData>.mock_safe(move |_, _, _, _, _| {
+        ApiClient::call_one_inch_api::<ClassicSwapData>.mock_safe(move |_, _| {
             let response_quote_raw = response_quote_raw.clone();
             MockResult::Return(Box::pin(async move {
                 Ok(serde_json::from_value::<ClassicSwapData>(response_quote_raw).unwrap())
@@ -448,7 +428,7 @@ mod tests {
         assert_eq!(quote_response.dst_token.as_ref().unwrap().decimals, 6);
         assert_eq!(quote_response.gas.unwrap(), 452704_u128);
 
-        ApiClient::call_one_inch_api::<ClassicSwapData>.mock_safe(move |_, _, _, _, _| {
+        ApiClient::call_one_inch_api::<ClassicSwapData>.mock_safe(move |_, _| {
             let response_create_raw = response_create_raw.clone();
             MockResult::Return(Box::pin(async move {
                 Ok(serde_json::from_value::<ClassicSwapData>(response_create_raw).unwrap())
