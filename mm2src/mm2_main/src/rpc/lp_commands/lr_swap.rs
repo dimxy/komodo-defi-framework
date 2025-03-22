@@ -39,6 +39,7 @@ pub async fn lr_best_quote_rpc(
     // order.coin is supported in 1inch
     // order.price not zero
     // when best order is selected validate against req.rel_max_volume and req.rel_min_volume
+    // coins in orders should be unique
 
     let (my_eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
     let (swap_data, best_order, total_price) =
