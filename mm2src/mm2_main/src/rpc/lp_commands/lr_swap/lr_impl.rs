@@ -1,4 +1,4 @@
-//! Swap with LR in ETH chain, implementation code
+//! Finding best swaps with liquidity routing support
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
@@ -189,8 +189,8 @@ impl LrDataMap {
         let prices_in_series = join_all(prices_futs)
             .await
             .into_iter()
-            .collect::<Result<Vec<_>, _>>() // if an error in any future - return the error
-            .mm_err(|err| ApiIntegrationRpcError::from_api_error(err, None))?;
+            .filter_map(|res| if let Ok(prices) = res { Some(prices) } else { None }) // skip if bad result received (for e.g. low liguidity)
+            .collect::<Vec<_>>();
 
         let quotes = src_dst
             .into_iter()
@@ -199,7 +199,7 @@ impl LrDataMap {
                 let dst_price = cross_prices_average(series);
                 ((src, dst), dst_price)
             })
-            .collect::<HashMap<(_, _), _>>();
+            .collect::<HashMap<_, _>>();
         for q in &quotes {
             log::debug!(
                 "query_destination_token_prices src/dst quote={:?} {}",
@@ -272,12 +272,9 @@ impl LrDataMap {
         let swap_data = join_all(quote_futs)
             .await
             .into_iter()
-            .collect::<MmResult<Vec<_>, _>>()
-            .mm_err(|cli_err| ApiIntegrationRpcError::from_api_error(cli_err, None))?;
-        let swap_data_map = src_dst
-            .into_iter()
-            .zip(swap_data.into_iter())
-            .collect::<HashMap<(_, _), _>>();
+            .filter_map(|res| if let Ok(lr_data) = res { Some(lr_data) } else { None }) // skip if bad result received (for e.g. low liguidity)
+            .collect::<Vec<_>>();
+        let swap_data_map = src_dst.into_iter().zip(swap_data.into_iter()).collect();
         self.update_with_lr_swap_data(swap_data_map);
         Ok(())
     }
@@ -316,7 +313,7 @@ impl LrDataMap {
             })
             .min_by(|(_, _, price_0), (_, _, price_1)| price_0.cmp(price_1))
             .map(|(lr_swap_data, order, price)| (lr_swap_data, order, price))
-            .ok_or(MmError::new(ApiIntegrationRpcError::LrSwapNotFound))
+            .ok_or(MmError::new(ApiIntegrationRpcError::BestLrSwapNotFound))
     }
 }
 

@@ -42,7 +42,7 @@ pub enum ApiIntegrationRpcError {
     ApiDataError(String),
     InternalError(String),
     #[display(fmt = "liquidity routing swap not found")]
-    LrSwapNotFound,
+    BestLrSwapNotFound,
 }
 
 impl HttpStatusCode for ApiIntegrationRpcError {
@@ -58,7 +58,7 @@ impl HttpStatusCode for ApiIntegrationRpcError {
             | ApiIntegrationRpcError::OutOfBounds { .. }
             | ApiIntegrationRpcError::OneInchAllowanceNotEnough { .. }
             | ApiIntegrationRpcError::NumberError(_)
-            | ApiIntegrationRpcError::LrSwapNotFound => StatusCode::BAD_REQUEST,
+            | ApiIntegrationRpcError::BestLrSwapNotFound => StatusCode::BAD_REQUEST,
             ApiIntegrationRpcError::OneInchError(_) | ApiIntegrationRpcError::ApiDataError(_) => {
                 StatusCode::BAD_GATEWAY
             },
