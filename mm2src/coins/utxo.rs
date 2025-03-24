@@ -287,15 +287,7 @@ impl ActualFeeRate {
     fn get_tx_fee(&self, tx_size: u64) -> u64 {
         match self {
             ActualFeeRate::Dynamic(fee_rate) => (fee_rate * tx_size) / KILO_BYTE,
-            // return fee_rate here as swap spend transaction size is always less than 1 kb
-            ActualFeeRate::FixedPerKb(fee_rate) => {
-                let tx_size_kb = if tx_size % KILO_BYTE == 0 {
-                    tx_size / KILO_BYTE
-                } else {
-                    tx_size / KILO_BYTE + 1
-                };
-                fee_rate * tx_size_kb
-            },
+            ActualFeeRate::FixedPerKb(fee_rate) => (fee_rate * tx_size) / KILO_BYTE,
         }
     }
 
