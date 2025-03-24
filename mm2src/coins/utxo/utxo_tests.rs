@@ -3060,7 +3060,42 @@ fn doge_mtp() {
 }
 
 #[test]
-fn test_parse_dingo_txfee_config() {
+fn test_parse_fixed_utxo_txfee_config() {
+    let config = json!({
+        "coin": "DOGE",
+        "name": "dogecoin",
+        "fname": "Dogecoin",
+        "rpcport": 22555,
+        "pubtype": 30,
+        "p2shtype": 22,
+        "wiftype": 158,
+        "txfee": 1000000,
+        "force_min_relay_fee": true,
+        "mm2": 1,
+        "required_confirmations": 2,
+        "avg_blocktime": 1,
+        "protocol": {
+            "type": "UTXO"
+        }
+    });
+    let request = json!({
+        "method": "electrum",
+        "coin": "DOGE",
+        "servers": [{"url": "electrum1.cipig.net:10060"},{"url": "electrum2.cipig.net:10060"},{"url": "electrum3.cipig.net:10060"}],
+    });
+    let ctx = MmCtxBuilder::default().into_mm_arc();
+    let params = UtxoActivationParams::from_legacy_req(&request).unwrap();
+
+    let priv_key = Secp256k1Secret::from([1; 32]);
+    let doge = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "DOGE", &config, &params, priv_key,
+    ))
+    .unwrap();
+    assert!(matches!(doge.as_ref().tx_fee, FeeRate::FixedPerKb(1000000_u64)));
+}
+
+#[test]
+fn test_parse_fixed_dingo_txfee_config() {
     let config = json!({
         "coin": "DINGO",
         "name": "dingocoin",
@@ -3099,24 +3134,6 @@ fn test_parse_dingo_txfee_config() {
         &ctx, "DINGO", &config, &params, priv_key,
     ))
     .unwrap();
-
-    /*let params = UtxoActivationParams {
-        mode: UtxoRpcMode::Native,
-        utxo_merge_params: None,
-        tx_history: false,
-        required_confirmations: None,
-        requires_notarization: None,
-        address_format: None,
-        gap_limit: None,
-        enable_params: EnabledCoinBalanceParams::default(),
-        priv_key_policy: PrivKeyActivationPolicy::ContextPrivKey,
-        check_utxo_maturity: None,
-        // This will not be used since the pubkey from orderbook/etc.. will be used to generate the address
-        path_to_address: HDPathAccountToAddressId::default(),
-    };
-    let conf_builder = UtxoConfBuilder::new(&config, &params, "DINGO");
-    let utxo_conf = conf_builder.build().unwrap();*/
-
     assert!(matches!(dingo.as_ref().tx_fee, FeeRate::FixedPerKbDingo(100000000_u64)));
 }
 

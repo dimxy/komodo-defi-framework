@@ -328,8 +328,8 @@ impl UtxoFeeConfig {
     pub(crate) fn parse_val(conf: &Json) -> Self {
         match (conf["txfee"].as_u64(), conf["dingo_fee"].as_bool()) {
             (Some(0), _) => Self::Dynamic,
-            (Some(val), Some(false)) => Self::FixedPerKb(val),
             (Some(val), Some(true)) => Self::FixedPerKbDingo(val),
+            (Some(val), _) => Self::FixedPerKb(val),
             (_, _) => Self::NotSet,
         }
     }
