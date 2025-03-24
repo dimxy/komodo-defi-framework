@@ -3060,6 +3060,66 @@ fn doge_mtp() {
 }
 
 #[test]
+fn test_parse_dingo_txfee_config() {
+    let config = json!({
+        "coin": "DINGO",
+        "name": "dingocoin",
+        "fname": "Dingocoin",
+        "sign_message_prefix": "Dingocoin Signed Message:\n",
+        "rpcport": 34646,
+        "pubtype": 30,
+        "p2shtype": 22,
+        "wiftype": 158,
+        "txfee": "DINGO(100000000)",
+        "force_min_relay_fee": true,
+        "dust": 100000000,
+        "mm2": 1,
+        "required_confirmations": 5,
+        "avg_blocktime": 60,
+        "protocol": {
+          "type": "UTXO"
+        },
+        "derivation_path": "m/44'/3'",
+        "links": {
+          "github": "https://github.com/dingocoin/dingocoin",
+          "homepage": "https://dingocoin.com"
+        }
+    });
+    let request = json!({
+        "method": "electrum",
+        "coin": "DINGO",
+        "servers": [{"url": "elecx1.dingocoin.com:3342"},{"url": "elecx1.dingocoin.com:3339"},{"url": "elecx2.dingocoin.com:3342"},{"url": "elecx2.dingocoin.com:3339"},{"url": "delecx.twinkykms.com:3342"},{"url": "delecx.twinkykms.com:3339"}],
+    });
+    let ctx = MmCtxBuilder::default().into_mm_arc();
+    let params = UtxoActivationParams::from_legacy_req(&request).unwrap();
+
+    let priv_key = Secp256k1Secret::from([1; 32]);
+    let dingo = block_on(utxo_standard_coin_with_priv_key(
+        &ctx, "DINGO", &config, &params, priv_key,
+    ))
+    .unwrap();
+
+    /*let params = UtxoActivationParams {
+        mode: UtxoRpcMode::Native,
+        utxo_merge_params: None,
+        tx_history: false,
+        required_confirmations: None,
+        requires_notarization: None,
+        address_format: None,
+        gap_limit: None,
+        enable_params: EnabledCoinBalanceParams::default(),
+        priv_key_policy: PrivKeyActivationPolicy::ContextPrivKey,
+        check_utxo_maturity: None,
+        // This will not be used since the pubkey from orderbook/etc.. will be used to generate the address
+        path_to_address: HDPathAccountToAddressId::default(),
+    };
+    let conf_builder = UtxoConfBuilder::new(&config, &params, "DINGO");
+    let utxo_conf = conf_builder.build().unwrap();*/
+
+    assert!(matches!(dingo.as_ref().tx_fee, FeeRate::FixedPerKbDingo(100000000_u64)));
+}
+
+#[test]
 fn firo_mtp() {
     let electrum = electrum_client_for_test(&[
         "electrumx01.firo.org:50001",

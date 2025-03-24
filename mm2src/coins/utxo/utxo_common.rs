@@ -104,6 +104,7 @@ pub async fn get_fee_rate(coin: &UtxoCoinFields) -> UtxoRpcResult<ActualFeeRate>
             Ok(ActualFeeRate::Dynamic(fee_rate))
         },
         FeeRate::FixedPerKb(satoshis) => Ok(ActualFeeRate::FixedPerKb(*satoshis)),
+        FeeRate::FixedPerKbDingo(satoshis) => Ok(ActualFeeRate::FixedPerKbDingo(*satoshis)),
     }
 }
 
@@ -279,7 +280,7 @@ pub async fn get_htlc_spend_fee<T: UtxoCommonOps>(
             // increase dynamic fee for a chance if it grows in the swap
             ActualFeeRate::Dynamic(increase_dynamic_fee_by_stage(coin, dynamic_fee_rate, stage))
         },
-        ActualFeeRate::FixedPerKb(_) => fee_rate,
+        ActualFeeRate::FixedPerKb(_) | ActualFeeRate::FixedPerKbDingo(_) => fee_rate,
     };
     let min_relay_fee_rate = get_min_relay_rate(coin).await?;
     Ok(get_tx_fee_with_relay_fee(&fee_rate, tx_size, min_relay_fee_rate))
@@ -3817,6 +3818,7 @@ pub fn get_trade_fee<T: UtxoCommonOps>(coin: T) -> Box<dyn Future<Item = TradeFe
         let amount = match fee {
             ActualFeeRate::Dynamic(f) => f,
             ActualFeeRate::FixedPerKb(f) => f,
+            ActualFeeRate::FixedPerKbDingo(f) => f,
         };
         Ok(TradeFee {
             coin: ticker,
@@ -3890,7 +3892,7 @@ where
             };
             Ok(big_decimal_from_sat(total_fee as i64, decimals))
         },
-        ActualFeeRate::FixedPerKb(_fee) => {
+        ActualFeeRate::FixedPerKb(_fee) | ActualFeeRate::FixedPerKbDingo(_fee) => {
             let outputs_count = outputs.len();
             let (unspents, _recently_sent_txs) = coin.get_unspent_ordered_list(&my_address).await?;
             let mut tx_builder = UtxoTxBuilder::new(coin)

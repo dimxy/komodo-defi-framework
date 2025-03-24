@@ -313,3 +313,35 @@ impl<'a> UtxoConfBuilder<'a> {
 
     fn avg_blocktime(&self) -> Option<u64> { self.conf["avg_blocktime"].as_u64() }
 }
+
+/// 'txfee' coins param config values
+pub(crate) enum UtxoFeeConfig {
+    NotSet,
+    Dynamic,
+    FixedPerKb(u64),
+    FixedPerKbDingo(u64),
+}
+
+impl UtxoFeeConfig {
+    /// Parse the txfee coins param, like:
+    /// "txfee"=0 or "txfee"=12345 or "txfee"="DINGO(12345)"
+    pub(crate) fn parse_val(txfee_val: &Json) -> Self {
+        match txfee_val.as_u64() {
+            Some(0) => return Self::Dynamic,
+            Some(val) => return Self::FixedPerKb(val),
+            None => {},
+        }
+        if let Some(s) = txfee_val.as_str() {
+            if let Some(s) = s.strip_prefix("DINGO(") {
+                if let Some(s) = s.strip_suffix(')') {
+                    match s.parse() {
+                        Ok(0) => return Self::Dynamic,
+                        Ok(val) => return Self::FixedPerKbDingo(val),
+                        Err(_) => {},
+                    }
+                }
+            }
+        }
+        Self::NotSet
+    }
+}

@@ -489,7 +489,9 @@ impl Qrc20Coin {
     /// or should be sum of gas fee of all contract calls.
     pub async fn get_qrc20_tx_fee(&self, gas_fee: u64) -> Result<u64, String> {
         match try_s!(self.get_fee_rate().await) {
-            ActualFeeRate::Dynamic(amount) | ActualFeeRate::FixedPerKb(amount) => Ok(amount + gas_fee),
+            ActualFeeRate::Dynamic(amount)
+            | ActualFeeRate::FixedPerKb(amount)
+            | ActualFeeRate::FixedPerKbDingo(amount) => Ok(amount + gas_fee),
         }
     }
 
