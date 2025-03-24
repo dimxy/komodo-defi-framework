@@ -323,25 +323,14 @@ pub(crate) enum UtxoFeeConfig {
 }
 
 impl UtxoFeeConfig {
-    /// Parse the txfee coins param, like:
-    /// "txfee"=0 or "txfee"=12345 or "txfee"="DINGO(12345)"
-    pub(crate) fn parse_val(txfee_val: &Json) -> Self {
-        match txfee_val.as_u64() {
-            Some(0) => return Self::Dynamic,
-            Some(val) => return Self::FixedPerKb(val),
-            None => {},
+    /// Parse the txfee-related coins param, like:
+    /// "txfee"=0 and/or "dingo_fee"=true
+    pub(crate) fn parse_val(conf: &Json) -> Self {
+        match (conf["txfee"].as_u64(), conf["dingo_fee"].as_bool()) {
+            (Some(0), _) => Self::Dynamic,
+            (Some(val), Some(false)) => Self::FixedPerKb(val),
+            (Some(val), Some(true)) => Self::FixedPerKbDingo(val),
+            (_, _) => Self::NotSet,
         }
-        if let Some(s) = txfee_val.as_str() {
-            if let Some(s) = s.strip_prefix("DINGO(") {
-                if let Some(s) = s.strip_suffix(')') {
-                    match s.parse() {
-                        Ok(0) => return Self::Dynamic,
-                        Ok(val) => return Self::FixedPerKbDingo(val),
-                        Err(_) => {},
-                    }
-                }
-            }
-        }
-        Self::NotSet
     }
 }

@@ -468,7 +468,7 @@ pub trait UtxoCoinBuilderCommonOps {
     }
 
     async fn tx_fee(&self, rpc_client: &UtxoRpcClientEnum) -> UtxoCoinBuildResult<FeeRate> {
-        let tx_fee = match UtxoFeeConfig::parse_val(&self.conf()["txfee"]) {
+        let tx_fee = match UtxoFeeConfig::parse_val(self.conf()) {
             UtxoFeeConfig::NotSet => FeeRate::FixedPerKb(1000),
             UtxoFeeConfig::Dynamic => {
                 let fee_method = match &rpc_client {
