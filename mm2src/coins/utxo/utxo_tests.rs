@@ -216,7 +216,7 @@ fn test_generate_transaction() {
 
     let outputs = vec![TransactionOutput {
         script_pubkey: vec![].into(),
-        value: 98001,
+        value: 98781,
     }];
 
     let builder = block_on(UtxoTxBuilder::new(&coin))
@@ -227,7 +227,7 @@ fn test_generate_transaction() {
     // so no extra outputs should appear in generated transaction
     assert_eq!(generated.0.outputs.len(), 1);
 
-    assert_eq!(generated.1.fee_amount, 1000 + 999);
+    assert_eq!(generated.1.fee_amount, 220 + 999);
     assert_eq!(generated.1.received_by_me, 0);
     assert_eq!(generated.1.spent_by_me, 100000);
 
@@ -253,10 +253,10 @@ fn test_generate_transaction() {
     let generated = block_on(builder.build()).unwrap();
     assert_eq!(generated.0.outputs.len(), 1);
 
-    assert_eq!(generated.1.fee_amount, 1000);
-    assert_eq!(generated.1.received_by_me, 99000);
+    assert_eq!(generated.1.fee_amount, 211);
+    assert_eq!(generated.1.received_by_me, 99789);
     assert_eq!(generated.1.spent_by_me, 100000);
-    assert_eq!(generated.0.outputs[0].value, 99000);
+    assert_eq!(generated.0.outputs[0].value, 99789);
 
     let unspents = vec![UnspentInfo {
         value: 100000,
@@ -615,7 +615,7 @@ fn test_withdraw_impl_set_fixed_fee() {
     let expected = Some(
         UtxoFeeDetails {
             coin: Some(TEST_COIN_NAME.into()),
-            amount: "0.1".parse().unwrap(),
+            amount: "0.0245".parse().unwrap(),
         }
         .into(),
     );
@@ -913,7 +913,7 @@ fn test_withdraw_kmd_rewards_impl(
     };
     let expected_fee = TxFeeDetails::Utxo(UtxoFeeDetails {
         coin: Some("KMD".into()),
-        amount: "0.00001".parse().unwrap(),
+        amount: "0.00000245".parse().unwrap(),
     });
     let tx_details = block_on_f01(coin.withdraw(withdraw_req)).unwrap();
     assert_eq!(tx_details.fee_details, Some(expected_fee));
@@ -991,7 +991,7 @@ fn test_withdraw_rick_rewards_none() {
     };
     let expected_fee = TxFeeDetails::Utxo(UtxoFeeDetails {
         coin: Some(TEST_COIN_NAME.into()),
-        amount: "0.00001".parse().unwrap(),
+        amount: "0.00000245".parse().unwrap(),
     });
     let tx_details = block_on_f01(coin.withdraw(withdraw_req)).unwrap();
     assert_eq!(tx_details.fee_details, Some(expected_fee));
@@ -2955,7 +2955,9 @@ fn firo_lelantus_tx_details() {
 
 #[test]
 fn test_generate_tx_doge_fee() {
-    // A tx below 1kb is always 0,01 doge fee per kb.
+    // Doge coin does not use fee rounding anymore, so this is not true now: 'a tx below 1kb is always 0,01 doge fee per kb'
+    // That is, this test was fixed for lesser txfee.
+    // See DINGO coin for the fee rounding.
     let config = json!({
         "coin": "DOGE",
         "name": "dogecoin",
@@ -3001,7 +3003,7 @@ fn test_generate_tx_doge_fee() {
         .add_available_inputs(unspents)
         .add_outputs(outputs);
     let (_, data) = block_on(builder.build()).unwrap();
-    let expected_fee = 1000000;
+    let expected_fee = 227000;
     assert_eq!(expected_fee, data.fee_amount);
 
     let unspents = vec![UnspentInfo {
@@ -3022,7 +3024,7 @@ fn test_generate_tx_doge_fee() {
         .add_available_inputs(unspents)
         .add_outputs(outputs);
     let (_, data) = block_on(builder.build()).unwrap();
-    let expected_fee = 2000000;
+    let expected_fee = 1592000;
     assert_eq!(expected_fee, data.fee_amount);
 
     let unspents = vec![UnspentInfo {
@@ -3043,7 +3045,7 @@ fn test_generate_tx_doge_fee() {
         .add_available_inputs(unspents)
         .add_outputs(outputs);
     let (_, data) = block_on(builder.build()).unwrap();
-    let expected_fee = 3000000;
+    let expected_fee = 2292000;
     assert_eq!(expected_fee, data.fee_amount);
 }
 
@@ -3629,7 +3631,7 @@ fn test_withdraw_p2pk_balance() {
     assert_eq!(output_script, expected_script);
 
     // And it should have this value (p2pk balance - amount sent - fees).
-    assert_eq!(transaction.outputs[1].value, 899999000);
+    assert_eq!(transaction.outputs[1].value, 899999755);
 }
 
 /// `UtxoStandardCoin` has to check UTXO maturity if `check_utxo_maturity` is `true`.
@@ -3812,6 +3814,8 @@ fn test_split_qtum() {
     log!("Res = {:?}", res);
 }
 
+/// Test to validate the fix for https://github.com/KomodoPlatform/komodo-defi-framework/issues/2313 produces valid txfee for tx with many inputs
+/// (as before the fix)
 #[test]
 fn test_raven_low_tx_fee_okay() {
     let config = json!({
@@ -3989,11 +3993,11 @@ fn test_raven_low_tx_fee_okay() {
         .add_available_inputs(unspents)
         .add_outputs(outputs);
     let (_, data) = block_on(builder.build()).unwrap();
-    let expected_fee = 3000000;
+    let expected_fee = 2065000;
     assert_eq!(expected_fee, data.fee_amount);
 }
 
-/// Test to validate fix for https://github.com/KomodoPlatform/komodo-defi-framework/issues/2313
+/// Test to validate the fix for https://github.com/KomodoPlatform/komodo-defi-framework/issues/2313 (code before the fix created tx with too low txfee )
 #[test]
 fn test_raven_low_tx_fee_error() {
     let config = json!({
@@ -4167,7 +4171,7 @@ fn test_raven_low_tx_fee_error() {
         .add_available_inputs(unspents)
         .add_outputs(outputs);
     let (_, data) = block_on(builder.build()).unwrap();
-    let expected_fee = 3000000;
+    let expected_fee = 2031000;
     assert_eq!(expected_fee, data.fee_amount);
 }
 
