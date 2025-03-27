@@ -308,7 +308,8 @@ impl ActualFeeRate {
     fn get_tx_fee_for_change(&self, tx_size: u64) -> u64 {
         match self {
             ActualFeeRate::Dynamic(fee_rate) => (*fee_rate * P2PKH_OUTPUT_LEN) / KILO_BYTE,
-            ActualFeeRate::FixedPerKb(fee_rate) | ActualFeeRate::FixedPerKbDingo(fee_rate) => {
+            ActualFeeRate::FixedPerKb(fee_rate) => (*fee_rate * P2PKH_OUTPUT_LEN) / KILO_BYTE,
+            ActualFeeRate::FixedPerKbDingo(fee_rate) => {
                 // take into account the change output if tx_size_kb(tx with change) > tx_size_kb(tx without change)
                 if tx_size % KILO_BYTE + P2PKH_OUTPUT_LEN > KILO_BYTE {
                     *fee_rate
