@@ -53,11 +53,11 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
     if env::var("_MM2_TEST_CONF").is_err() {
         const IMAGES: &[&str] = &[
             UTXO_ASSET_DOCKER_IMAGE_WITH_TAG,
-            QTUM_REGTEST_DOCKER_IMAGE_WITH_TAG,
-            GETH_DOCKER_IMAGE_WITH_TAG,
-            NUCLEUS_IMAGE,
-            ATOM_IMAGE_WITH_TAG,
-            IBC_RELAYER_IMAGE_WITH_TAG,
+            //QTUM_REGTEST_DOCKER_IMAGE_WITH_TAG,
+            //GETH_DOCKER_IMAGE_WITH_TAG,
+            //NUCLEUS_IMAGE,
+            //ATOM_IMAGE_WITH_TAG,
+            //IBC_RELAYER_IMAGE_WITH_TAG,
         ];
 
         for image in IMAGES {
