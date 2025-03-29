@@ -2509,6 +2509,7 @@ impl TransactionDetails {
     }
 }
 
+/// Transaction fee to pay for swap transactions (could be total for two transactions: taker fee and payment fee txns)
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TradeFee {
     pub coin: String,

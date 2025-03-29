@@ -2288,7 +2288,7 @@ pub async fn maker_swap_trade_preimage(
 
     let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
     let base_coin_fee = base_coin
-        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage, NO_REFUND_FEE)
+        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage, NO_REFUND_FEE) // TODO: why NO_REFUND_FEE?
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, base_coin_ticker))?;
     let rel_coin_fee = rel_coin

@@ -735,6 +735,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             let change = self.add_change(&change_script_pubkey);
             self.sum_outputs += change;
             self.update_tx_fee(from.addr_format(), &actual_fee_rate); // recalculate txfee with the change output, if added
+            println!("sum_inputs={} sum_outputs={} total_tx_fee_needed={}", self.sum_inputs, self.sum_outputs, self.total_tx_fee_needed());
             if self.sum_inputs + self.interest >= self.sum_outputs + self.total_tx_fee_needed() {
                 break;
             }
@@ -748,6 +749,7 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             kmd_rewards: Self::make_kmd_rewards_data(coin, self.interest),
         };
 
+        println!("fee_amount={} outputs={} value0={}", data.fee_amount, self.tx.outputs.len(), self.tx.outputs[0].value);
         Ok((self.tx, data))
     }
 
@@ -3910,6 +3912,7 @@ where
 
             // We need to add extra tx fee for the absent change output for e.g. to ensure max_taker_vol is calculated correctly
             // (If we do not do this then in a swap the change output may appear and we may not have sufficient balance to pay taker fee)
+            let outputs_len = tx.outputs.len();
             let total_fee = if tx.outputs.len() == outputs_count {
                 let tx = UtxoTx::from(tx);
                 let tx_bytes = serialize(&tx);
@@ -3919,6 +3922,7 @@ where
                 // the change output is included already
                 data.fee_amount
             };
+            println!("preimage_trade_fee_required_to_send_outputs total_fee={} outputs_count={} outputs.len={}", total_fee, outputs_count, outputs_len);
             Ok(big_decimal_from_sat(total_fee as i64, decimals))
         },
     }
