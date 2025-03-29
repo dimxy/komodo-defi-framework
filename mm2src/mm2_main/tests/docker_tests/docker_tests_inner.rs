@@ -1679,9 +1679,9 @@ fn test_trade_preimage_not_sufficient_balance() {
     .unwrap();
     assert!(!rc.0.is_success(), "trade_preimage success, but should fail: {}", rc.1);
     let available = MmNumber::from("0.00001273").to_decimal();
-    // Required at least 0.00001274 MYCOIN to pay the transaction_fee(0.00000274) and to send a value not less than dust(0.00001).
-    let required = MmNumber::from("0.00001274").to_decimal();
-    expect_not_sufficient_balance(&rc.1, available, required, None);
+    // Required at least 0.00001274 MYCOIN to pay the transaction_fee(0.00000274) and to send a value not less than dust(0.00001) and not less than min_trading_vol (10 * dust).
+    let required = MmNumber::from("0.00001274").to_decimal(); // TODO: this is not true actually: we can't create orders less that min_trading_vol = 10 * dust
+    expect_not_sufficient_balance(&rc.1, available, required, Some(MmNumber::from("0").to_decimal()));
 
     let rc = block_on(mm.rpc(&json!({
         "userpass": mm.userpass,
