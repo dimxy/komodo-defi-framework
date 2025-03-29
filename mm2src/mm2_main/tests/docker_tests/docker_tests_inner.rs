@@ -1698,8 +1698,8 @@ fn test_trade_preimage_not_sufficient_balance() {
     .unwrap();
     assert!(!rc.0.is_success(), "trade_preimage success, but should fail: {}", rc.1);
     // Required 0.00001 MYCOIN to pay the transaction fee and the specified 0.1 volume.
-    let available = MmNumber::from("0.000015").to_decimal();
-    let required = MmNumber::from("0.10001").to_decimal();
+    let available = MmNumber::from("0.00001273").to_decimal();
+    let required = MmNumber::from("0.1000024").to_decimal();
     expect_not_sufficient_balance(&rc.1, available, required, None);
 
     let rc = block_on(mm.rpc(&json!({
