@@ -67,42 +67,42 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
 
         let runtime_dir = prepare_runtime_dir().unwrap();
 
-        let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
-        let atom_node = atom_node(&docker, runtime_dir.clone());
-        let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
+        //let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
+        //let atom_node = atom_node(&docker, runtime_dir.clone());
+        //let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
         let utxo_node = utxo_asset_docker_node(&docker, "MYCOIN", 7000);
         let utxo_node1 = utxo_asset_docker_node(&docker, "MYCOIN1", 8000);
-        let qtum_node = qtum_docker_node(&docker, 9000);
-        let for_slp_node = utxo_asset_docker_node(&docker, "FORSLP", 10000);
-        let geth_node = geth_docker_node(&docker, "ETH", 8545);
+        //let qtum_node = qtum_docker_node(&docker, 9000);
+        //let for_slp_node = utxo_asset_docker_node(&docker, "FORSLP", 10000);
+        //let geth_node = geth_docker_node(&docker, "ETH", 8545);
 
         let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
         let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
-        let qtum_ops = QtumDockerOps::new();
-        let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
+        //let qtum_ops = QtumDockerOps::new();
+        //let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
 
-        qtum_ops.wait_ready(2);
-        qtum_ops.initialize_contracts();
-        for_slp_ops.wait_ready(4);
-        for_slp_ops.initialize_slp();
+        //qtum_ops.wait_ready(2);
+        //qtum_ops.initialize_contracts();
+        //for_slp_ops.wait_ready(4);
+        //for_slp_ops.initialize_slp();
         utxo_ops.wait_ready(4);
         utxo_ops1.wait_ready(4);
 
-        wait_for_geth_node_ready();
-        init_geth_node();
-        prepare_ibc_channels(ibc_relayer_node.container.id());
+        //wait_for_geth_node_ready();
+        //init_geth_node();
+        //prepare_ibc_channels(ibc_relayer_node.container.id());
 
-        thread::sleep(Duration::from_secs(10));
-        wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
+        //thread::sleep(Duration::from_secs(10));
+        //wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
 
         containers.push(utxo_node);
         containers.push(utxo_node1);
-        containers.push(qtum_node);
+        /*containers.push(qtum_node);
         containers.push(for_slp_node);
         containers.push(geth_node);
         containers.push(nucleus_node);
         containers.push(atom_node);
-        containers.push(ibc_relayer_node);
+        containers.push(ibc_relayer_node);*/
     }
     // detect if docker is installed
     // skip the tests that use docker if not installed
