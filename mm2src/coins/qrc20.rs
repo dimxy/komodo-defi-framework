@@ -1201,7 +1201,6 @@ impl MmCoin for Qrc20Coin {
         &self,
         value: TradePreimageValue,
         stage: FeeApproxStage,
-        include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         let decimals = self.utxo.decimals;
         // pass the dummy params
@@ -1234,7 +1233,7 @@ impl MmCoin for Qrc20Coin {
         };
 
         // Optionally calculate refund fee.
-        let sender_refund_fee = if include_refund_fee {
+        let sender_refund_fee = if matches!(stage, FeeApproxStage::TradePreimage | FeeApproxStage::TradePreimageMax) {
             let sender_refund_output =
                 self.sender_refund_output(&self.swap_contract_address, swap_id, value, secret_hash, receiver_addr)?;
             self.preimage_trade_fee_required_to_send_outputs(vec![sender_refund_output], &stage)

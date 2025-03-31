@@ -2767,7 +2767,6 @@ fn test_get_sender_trade_fee_dynamic_tx_fee() {
     let fee1 = block_on(coin.get_sender_trade_fee(
         TradePreimageValue::UpperBound(my_balance.clone()),
         FeeApproxStage::WithoutApprox,
-        false,
     ))
     .expect("!get_sender_trade_fee");
 
@@ -2776,7 +2775,6 @@ fn test_get_sender_trade_fee_dynamic_tx_fee() {
     let fee2 = block_on(coin.get_sender_trade_fee(
         TradePreimageValue::Exact(value_without_fee),
         FeeApproxStage::WithoutApprox,
-        false,
     ))
     .expect("!get_sender_trade_fee");
     assert_eq!(fee1, fee2);
@@ -2786,7 +2784,6 @@ fn test_get_sender_trade_fee_dynamic_tx_fee() {
     let fee3 = block_on(coin.get_sender_trade_fee(
         TradePreimageValue::Exact(max_taker_vol),
         FeeApproxStage::WithoutApprox,
-        false,
     ))
     .expect("!get_sender_trade_fee");
     assert_eq!(fee1, fee3);

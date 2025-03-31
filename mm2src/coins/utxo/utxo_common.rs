@@ -3885,7 +3885,7 @@ where
 
             // We need to add extra tx fee for the absent change output for e.g. to ensure max_taker_vol is calculated correctly
             // (If we do not do this then in a swap the change output may appear and we may not have sufficient balance to pay taker fee)
-            let total_fee = if tx.outputs.len() == outputs_count {
+            let total_fee = if tx.outputs.len() == outputs_count && matches!(stage, FeeApproxStage::TradePreimageMax | FeeApproxStage::OrderIssueMax) {
                 // take into account the change output
                 data.fee_amount + actual_fee_rate.get_tx_fee_for_change(0)
             } else {
@@ -3910,10 +3910,12 @@ where
                 TradePreimageError::from_generate_tx_error(e, ticker.to_string(), decimals, is_amount_upper_bound)
             })?;
 
-            // We need to add extra tx fee for the absent change output for e.g. to ensure max_taker_vol is calculated correctly
+            // We need to add extra tx fee for the absent change output for e.g. to ensure max_maker_vol or max_taker_vol is calculated correctly
             // (If we do not do this then in a swap the change output may appear and we may not have sufficient balance to pay taker fee)
             let outputs_len = tx.outputs.len();
-            let total_fee = if tx.outputs.len() == outputs_count {
+            let total_fee = if tx.outputs.len() == outputs_count && matches!(stage, FeeApproxStage::TradePreimageMax | FeeApproxStage::OrderIssueMax) { 
+                // Do this for TradePreimageMax stage only to ensure max vol is not too low.
+                // Don't do this for TradePreimage stage (or others) as an insufficient amount error may be collected
                 let tx = UtxoTx::from(tx);
                 let tx_bytes = serialize(&tx);
                 // take into account the change output
@@ -4636,12 +4638,12 @@ where
         // Take into account that the dynamic fee may increase at each of the following stages up to [`UtxoCoinFields::tx_fee_volatility_percent`]:
         // - until a swap is started;
         // - during the swap.
-        FeeApproxStage::OrderIssue => base_percent * 2.,
+        FeeApproxStage::OrderIssue | FeeApproxStage::OrderIssueMax => base_percent * 2.,
         // Take into account that the dynamic fee may increase at each of the following stages up to [`UtxoCoinFields::tx_fee_volatility_percent`]:
         // - until an order is issued;
         // - until a swap is started;
         // - during the swap.
-        FeeApproxStage::TradePreimage => base_percent * 2.5,
+        FeeApproxStage::TradePreimage | FeeApproxStage::TradePreimageMax => base_percent * 2.5,
     };
     increase_by_percent(dynamic_fee, percent)
 }

@@ -2591,8 +2591,12 @@ pub enum FeeApproxStage {
     WatcherPreimage,
     /// Increase the trade fee significantly.
     OrderIssue,
-    /// Increase the trade fee largely.
+    /// Increase the trade fee significantly (used for utxo to calc max volume for the order).
+    OrderIssueMax,
+    /// Increase the trade fee largely in the trade_preimage rpc.
     TradePreimage,
+    /// Increase the trade fee in the trade_preimage rpc (used for utxo to calculate max volume).
+    TradePreimageMax,
 }
 
 #[derive(Debug)]
@@ -3494,7 +3498,6 @@ pub trait MmCoin: SwapOps + WatcherOps + MarketCoinOps + Send + Sync + 'static {
         &self,
         value: TradePreimageValue,
         stage: FeeApproxStage,
-        include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee>;
 
     /// Get fee to be paid by receiver per whole swap and check if the wallet has sufficient balance to pay the fee.

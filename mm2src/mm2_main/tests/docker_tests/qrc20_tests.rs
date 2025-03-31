@@ -1009,7 +1009,6 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     let max_trade_fee = block_on(coin.get_sender_trade_fee(
         TradePreimageValue::UpperBound(qtum_balance.clone()),
         FeeApproxStage::TradePreimage,
-        true,
     ))
     .expect("!get_sender_trade_fee");
     let max_trade_fee = max_trade_fee.amount.to_decimal();

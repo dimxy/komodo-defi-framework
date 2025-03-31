@@ -9,7 +9,7 @@ use super::{broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_e
             wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
             NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
             SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext,
-            TransactionIdentifier, INCLUDE_REFUND_FEE, NO_REFUND_FEE, TAKER_FEE_VALIDATION_ATTEMPTS,
+            TransactionIdentifier, TAKER_FEE_VALIDATION_ATTEMPTS,
             TAKER_FEE_VALIDATION_RETRY_DELAY_SECS, WAIT_CONFIRM_INTERVAL_SEC};
 use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
@@ -481,7 +481,7 @@ impl MakerSwap {
         let stage = FeeApproxStage::StartSwap;
         let get_sender_trade_fee_fut = self
             .maker_coin
-            .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE);
+            .get_sender_trade_fee(preimage_value, stage);
         let maker_payment_trade_fee = match get_sender_trade_fee_fut.await {
             Ok(fee) => fee,
             Err(e) => {
@@ -2234,7 +2234,7 @@ pub async fn check_balance_for_maker_swap(
         None => {
             let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
             let maker_payment_trade_fee = my_coin
-                .get_sender_trade_fee(preimage_value, stage, INCLUDE_REFUND_FEE)
+                .get_sender_trade_fee(preimage_value, stage)
                 .await
                 .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, my_coin.ticker()))?;
             let taker_payment_spend_trade_fee = other_coin
@@ -2271,7 +2271,7 @@ pub async fn maker_swap_trade_preimage(
     let rel_coin_ticker = rel_coin.ticker();
     let volume = if req.max {
         let balance = base_coin.my_spendable_balance().compat().await?;
-        calc_max_maker_vol(ctx, &base_coin, &balance, FeeApproxStage::TradePreimage)
+        calc_max_maker_vol(ctx, &base_coin, &balance, FeeApproxStage::TradePreimageMax)
             .await?
             .volume
     } else {
@@ -2288,7 +2288,7 @@ pub async fn maker_swap_trade_preimage(
 
     let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
     let base_coin_fee = base_coin
-        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage, NO_REFUND_FEE)
+        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage)
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, base_coin_ticker))?;
     let rel_coin_fee = rel_coin
@@ -2297,6 +2297,7 @@ pub async fn maker_swap_trade_preimage(
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, rel_coin_ticker))?;
 
+    println!("maker_swap_trade_preimage rel_coin_fee={:?}", rel_coin_fee);
     if req.max {
         // Note the `calc_max_maker_vol` returns [`CheckBalanceError::NotSufficientBalance`] error if the balance of `base_coin` is not sufficient.
         // So we have to check the balance of the other coin only.
@@ -2351,7 +2352,7 @@ pub struct CoinVolumeInfo {
 /// Returns [`CheckBalanceError::NotSufficientBalance`] if the balance is insufficient.
 pub async fn get_max_maker_vol(ctx: &MmArc, my_coin: &MmCoinEnum) -> CheckBalanceResult<CoinVolumeInfo> {
     let my_balance = my_coin.my_spendable_balance().compat().await?;
-    calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssue).await
+    calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssueMax).await
 }
 
 /// Calculates max Maker volume.
@@ -2370,7 +2371,7 @@ pub async fn calc_max_maker_vol(
 
     let preimage_value = TradePreimageValue::UpperBound(volume.to_decimal());
     let trade_fee = coin
-        .get_sender_trade_fee(preimage_value, stage, INCLUDE_REFUND_FEE)
+        .get_sender_trade_fee(preimage_value, stage)
         .await
         .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, ticker))?;
 
@@ -2393,6 +2394,7 @@ pub async fn calc_max_maker_vol(
             locked_by_swaps: Some(locked_by_swaps.to_decimal()),
         });
     }
+    println!("calc_max_maker_vol volume={} stage={:?}", volume, stage);
     Ok(CoinVolumeInfo {
         volume,
         balance: MmNumber::from(balance.clone()),
