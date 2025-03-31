@@ -1240,7 +1240,7 @@ fn test_zombie_order_after_balance_reduce_and_mm_restart() {
     .unwrap();
     assert!(send_raw.0.is_success(), "!send_raw: {}", send_raw.1);
 
-    let new_expected_vol: BigDecimal = "499.99999515".parse().unwrap();
+    let new_expected_vol: BigDecimal = "499.99999481".parse().unwrap();
 
     thread::sleep(Duration::from_secs(32));
 

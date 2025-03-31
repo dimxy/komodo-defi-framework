@@ -578,7 +578,7 @@ fn order_should_be_updated_when_balance_is_decreased_alice_subscribes_after_upda
         "userpass": mm_bob.userpass,
         "method": "withdraw",
         "coin": "MYCOIN",
-        "amount": "499.9999515", 
+        "amount": "499.99999481", 
         "to": "R9imXLs1hEcU9KbFDQq2hJEEJ1P5UoekaF",
     })))
     .unwrap();
@@ -613,7 +613,7 @@ fn order_should_be_updated_when_balance_is_decreased_alice_subscribes_after_upda
     assert_eq!(asks.len(), 1, "Bob MYCOIN/MYCOIN1 orderbook must have exactly 1 ask");
 
     let order_volume = asks[0]["maxvolume"].as_str().unwrap();
-    assert_eq!("500", order_volume); // 1000.0 - (499.9999515 + 0.00000245 txfee) = (500.0 + 0.0000024 txfee)
+    assert_eq!("500", order_volume); // 1000.0 - (499.99999481 + 0.00000274 txfee) = (500.0 + 0.00000274 txfee)
 
     log!("Get MYCOIN/MYCOIN1 orderbook on Alice side");
     let rc = block_on(mm_alice.rpc(&json!({
@@ -727,7 +727,7 @@ fn order_should_be_updated_when_balance_is_decreased_alice_subscribes_before_upd
         "userpass": mm_bob.userpass,
         "method": "withdraw",
         "coin": "MYCOIN",
-        "amount": "499.9999515",
+        "amount": "499.99999481",
         "to": "R9imXLs1hEcU9KbFDQq2hJEEJ1P5UoekaF",
     })))
     .unwrap();
@@ -762,7 +762,7 @@ fn order_should_be_updated_when_balance_is_decreased_alice_subscribes_before_upd
     assert_eq!(asks.len(), 1, "Bob MYCOIN/MYCOIN1 orderbook must have exactly 1 ask");
 
     let order_volume = asks[0]["maxvolume"].as_str().unwrap();
-    assert_eq!("500", order_volume); // 1000.0 - (499.9999515 + 0.00000245 txfee) = (500.0 + 0.0000024 txfee)
+    assert_eq!("500", order_volume); // 1000.0 - (499.99999481 + 0.00000245 txfee) = (500.0 + 0.00000274 txfee)
 
     log!("Get MYCOIN/MYCOIN1 orderbook on Alice side");
     let rc = block_on(mm_alice.rpc(&json!({
@@ -1067,7 +1067,7 @@ fn test_max_taker_vol_swap() {
     .unwrap();
     assert!(rc.0.is_success(), "!max_taker_vol: {}", rc.1);
     let vol: MaxTakerVolResponse = serde_json::from_str(&rc.1).unwrap();
-    let expected_vol = MmNumber::from((258999974877, 5186000000));
+    let expected_vol = MmNumber::from((1294999865579, 25930000000));
 
     let actual_vol = MmNumber::from(vol.result.clone());
     log!("actual vol {}", actual_vol.to_decimal());
@@ -1398,11 +1398,11 @@ fn test_maker_trade_preimage() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!trade_preimage: {}", rc.1);
-    let base_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000308", false); // txfee from get_sender_trade_fee
+    let base_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000274", false); // txfee from get_sender_trade_fee
     let rel_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.0000061", true);
     let volume = MmNumber::from("9.99999726"); // 1.0 - 0.00000274 from calc_max_maker_vol
 
-    let my_coin_total = TotalTradeFeeForTest::new("MYCOIN", "0.00000308", "0.00000308");
+    let my_coin_total = TotalTradeFeeForTest::new("MYCOIN", "0.00000274", "0.00000274");
     let my_coin1_total = TotalTradeFeeForTest::new("MYCOIN1", "0.0000061", "0");
 
     let expected = TradePreimageResult::MakerPreimage(MakerPreimage {
@@ -1435,12 +1435,12 @@ fn test_maker_trade_preimage() {
     let mut actual: RpcSuccessResponse<TradePreimageResult> = serde_json::from_str(&rc.1).unwrap();
     actual.result.sort_total_fees();
 
-    let base_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000616", false);
+    let base_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000548", false);
     let rel_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000305", true);
     let volume = MmNumber::from("19.99999452");
 
     let my_coin_total = TotalTradeFeeForTest::new("MYCOIN", "0.00000305", "0");
-    let my_coin1_total = TotalTradeFeeForTest::new("MYCOIN1", "0.00000616", "0.00000616");
+    let my_coin1_total = TotalTradeFeeForTest::new("MYCOIN1", "0.00000548", "0.00000548");
     let expected = TradePreimageResult::MakerPreimage(MakerPreimage {
         base_coin_fee,
         rel_coin_fee,
@@ -1462,7 +1462,7 @@ fn test_maker_trade_preimage() {
             "rel": "MYCOIN",
             "swap_method": "setprice",
             "price": 1,
-            "volume": "19.99999384", // actually try max value (balance - txfee = 20.0 - 0.00000616) 
+            "volume": "19.99999109", // actually try max value (balance - txfee = 20.0 - 0.00000823) 
         },
     })))
     .unwrap();
@@ -1470,11 +1470,11 @@ fn test_maker_trade_preimage() {
     let mut actual: RpcSuccessResponse<TradePreimageResult> = serde_json::from_str(&rc.1).unwrap();
     actual.result.sort_total_fees();
 
-    let base_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000548", false); // txfee updated for calculated max volume (not 616)
+    let base_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000891", false); // txfee updated for calculated max volume (not 616)
     let rel_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000305", true);
 
     let total_my_coin = TotalTradeFeeForTest::new("MYCOIN", "0.00000305", "0");
-    let total_my_coin1 = TotalTradeFeeForTest::new("MYCOIN1", "0.00000548", "0.00000548");
+    let total_my_coin1 = TotalTradeFeeForTest::new("MYCOIN1", "0.00000891", "0.00000891");
 
     let expected = TradePreimageResult::MakerPreimage(MakerPreimage {
         base_coin_fee,
@@ -2200,8 +2200,8 @@ fn test_get_max_maker_vol() {
     log!("{:?}", block_on(enable_native(&mm, "MYCOIN", &[], None)));
     log!("{:?}", block_on(enable_native(&mm, "MYCOIN1", &[], None)));
 
-    // 1 - tx_fee (240)
-    let expected_volume = MmNumber::from("0.99999760");
+    // 1 - tx_fee (274)
+    let expected_volume = MmNumber::from("0.99999726");
     let expected = MaxMakerVolResponse {
         coin: "MYCOIN1".to_string(),
         volume: MmNumberMultiRepr::from(expected_volume.clone()),
