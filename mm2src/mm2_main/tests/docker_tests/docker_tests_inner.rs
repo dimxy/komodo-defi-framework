@@ -1739,9 +1739,9 @@ fn test_trade_preimage_not_sufficient_balance() {
     assert!(!rc.0.is_success(), "trade_preimage success, but should fail: {}", rc.1);
     let available = MmNumber::from("7.77009773").to_decimal();
     // `required = volume + fee_to_send_taker_payment + dex_fee + fee_to_send_dex_fee`,
-    // where `volume = 7.77`, `fee_to_send_taker_payment = fee_to_send_dex_fee = 0.00001`, `dex_fee = 0.01`.
+    // where `volume = 7.77`, `fee_to_send_taker_payment = 0.00000393, fee_to_send_dex_fee = 0.00000422`, `dex_fee = 0.01`.
     // Please note `dex_fee = 7.77 / 777` with dex_fee = 0.01
-    // required = 7.77 + 0.01 (dex_fee) + (0.0001 * 2) = 7.78002
+    // required = 7.77 + 0.01 (dex_fee) + (0.00000393 + 0.00000422) = 7.78000815
     let required = MmNumber::from("7.78000815");
     expect_not_sufficient_balance(&rc.1, available, required.to_decimal(), Some(BigDecimal::from(0)));
 }
@@ -3076,9 +3076,9 @@ fn test_withdraw_not_sufficient_balance() {
     let (_ctx, coin) = utxo_coin_from_privkey("MYCOIN", privkey);
     fill_address(&coin, &coin.my_address().unwrap(), balance.clone(), 30);
 
-    // txfee = 0.00001, amount = 0.5 => required = 0.50001
+    // txfee = 0.00000211, amount = 0.5 => required = 0.50000211
     // but balance = 0.5
-    let txfee = BigDecimal::from(1) / BigDecimal::from(100000);
+    let txfee = BigDecimal::from_str("0.00000211").unwrap();
     let withdraw = block_on(mm.rpc(&json!({
         "mmrpc": "2.0",
         "userpass": mm.userpass,
