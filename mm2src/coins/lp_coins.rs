@@ -2581,6 +2581,8 @@ impl AddAssign for CoinBalance {
 }
 
 /// The approximation is needed to cover the dynamic miner fee changing during a swap.
+/// Also used to indicate refund fee is needed for eth
+/// Also used to indicate utxo fee correction is needed due to a possible change output
 #[derive(Clone, Copy, Debug)]
 pub enum FeeApproxStage {
     /// Do not increase the trade fee.
@@ -2591,11 +2593,11 @@ pub enum FeeApproxStage {
     WatcherPreimage,
     /// Increase the trade fee significantly.
     OrderIssue,
-    /// Increase the trade fee significantly (used for utxo to calc max volume for the order).
+    /// Increase the trade fee significantly (used to calculate max volume).
     OrderIssueMax,
     /// Increase the trade fee largely in the trade_preimage rpc.
     TradePreimage,
-    /// Increase the trade fee in the trade_preimage rpc (used for utxo to calculate max volume).
+    /// Increase the trade fee in the trade_preimage rpc (used to calculate max volume for trade preimage).
     TradePreimageMax,
 }
 
