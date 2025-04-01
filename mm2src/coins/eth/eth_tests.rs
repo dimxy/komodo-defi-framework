@@ -325,19 +325,19 @@ fn get_sender_trade_preimage() {
 
     let actual = block_on(coin.get_sender_trade_fee(
         TradePreimageValue::UpperBound(150.into()),
-        FeeApproxStage::TradePreimageMax, // pass TradePreimageMax to add refind fee 
+        FeeApproxStage::WithoutApprox,
     ))
     .expect("!get_sender_trade_fee");
-    let expected = expected_fee(GAS_PRICE, gas_limit::ETH_PAYMENT + gas_limit::ETH_SENDER_REFUND);
+    let expected = expected_fee(GAS_PRICE, gas_limit::ETH_PAYMENT);
     assert_eq!(actual, expected);
 
     let value = u256_to_big_decimal(100.into(), 18).expect("!u256_to_big_decimal");
     let actual =
-        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::TradePreimageMax))
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(value), FeeApproxStage::OrderIssue))
             .expect("!get_sender_trade_fee");
     let expected = expected_fee(
         GAS_PRICE_APPROXIMATION_ON_ORDER_ISSUE,
-        gas_limit::ETH_PAYMENT + gas_limit::ETH_SENDER_REFUND,
+        gas_limit::ETH_PAYMENT,
     );
     assert_eq!(actual, expected);
 
