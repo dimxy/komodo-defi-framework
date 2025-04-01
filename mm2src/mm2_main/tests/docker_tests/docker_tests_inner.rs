@@ -1192,7 +1192,7 @@ fn test_buy_when_coins_locked_by_other_swap() {
         // it is slightly more than previous volume so it should fail
         // because the total sum of used funds will be slightly more than available 2
         "volume": {
-            "numer":"77699596770", // increase volume +0.00000001
+            "numer":"77699599999", // increase volume +0.00000001
             "denom":"77800000000"
         },
     })))
@@ -1263,7 +1263,7 @@ fn test_sell_when_coins_locked_by_other_swap() {
         "price": 1,
         // the result of equation x + x / 777 + 0.00000245 + 0.00000274 = 1
         "volume": {
-            "numer":"77699596767",
+            "numer":"77699596737",
             "denom":"77800000000"
         },
     })))
