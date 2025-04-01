@@ -1286,7 +1286,7 @@ fn test_sell_when_coins_locked_by_other_swap() {
         // it is slightly more than previous volume so it should fail
         // because the total sum of used funds will be slightly more than available 2
         "volume": {
-            "numer":"77699599999",
+            "numer":"77699599999", // ensure volume > 1.00000000
             "denom":"77800000000"
         },
     })))
