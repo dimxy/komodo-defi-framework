@@ -959,7 +959,7 @@ fn test_match_and_trade_setprice_max() {
     log!("orderbook {:?}", bob_orderbook);
     let asks = bob_orderbook["asks"].as_array().unwrap();
     assert_eq!(asks.len(), 1, "MYCOIN/MYCOIN1 orderbook must have exactly 1 ask");
-    assert_eq!(asks[0]["maxvolume"], Json::from("999.9999976"));
+    assert_eq!(asks[0]["maxvolume"], Json::from("999.99999726"));
 
     let rc = block_on(mm_alice.rpc(&json!({
         "userpass": mm_alice.userpass,
@@ -1261,10 +1261,10 @@ fn test_sell_when_coins_locked_by_other_swap() {
         "base": "MYCOIN1",
         "rel": "MYCOIN",
         "price": 1,
-        // the result of equation x + x / 777 + 0.00002 = 1
+        // the result of equation x + x / 777 + 0.00000245 + 0.00000274 = 1
         "volume": {
-            "numer":"77698446",
-            "denom":"77800000"
+            "numer":"77699596767",
+            "denom":"77800000000"
         },
     })))
     .unwrap();
@@ -1274,6 +1274,7 @@ fn test_sell_when_coins_locked_by_other_swap() {
     block_on(mm_alice.wait_for_log(22., |log| log.contains("Entering the taker_swap_loop MYCOIN/MYCOIN1"))).unwrap();
     // TODO when sell call is made immediately swap might be not put into swap ctx yet so locked
     // amount returns 0
+    // NOTE: in this test sometimes Alice has time to send only the taker fee, sometimes can send even the payment tx too
     thread::sleep(Duration::from_secs(6));
 
     let rc = block_on(mm_alice.rpc(&json!({
@@ -1285,8 +1286,8 @@ fn test_sell_when_coins_locked_by_other_swap() {
         // it is slightly more than previous volume so it should fail
         // because the total sum of used funds will be slightly more than available 2
         "volume": {
-            "numer":"77698447",
-            "denom":"77800000"
+            "numer":"77699599999",
+            "denom":"77800000000"
         },
     })))
     .unwrap();

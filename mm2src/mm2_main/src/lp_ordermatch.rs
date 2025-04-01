@@ -4143,6 +4143,7 @@ pub async fn sell(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
     if rel_coin.wallet_only(&ctx) {
         return ERR!("Rel coin {} is wallet only", input.rel);
     }
+    println!("sell rpc enterred");
     try_s!(
         check_balance_for_taker_swap(
             &ctx,
