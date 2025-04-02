@@ -37,6 +37,12 @@ use docker_tests::qrc20_tests::{qtum_docker_node, QtumDockerOps, QTUM_REGTEST_DO
 
 #[allow(dead_code)] mod integration_tests_common;
 
+const ENV_VAR_NO_UTXO_DOCKER: &str = "_KDF_NO_UTXO_DOCKER";
+const ENV_VAR_NO_QTUM_DOCKER: &str = "_KDF_NO_QTUM_DOCKER";
+const ENV_VAR_NO_SLP_DOCKER: &str = "_KDF_NO_SLP_DOCKER";
+const ENV_VAR_NO_ETH_DOCKER: &str = "_KDF_NO_ETH_DOCKER";
+const ENV_VAR_NO_COSMOS_DOCKER: &str = "_KDF_NO_COSMOS_DOCKER";
+
 // AP: custom test runner is intended to initialize the required environment (e.g. coin daemons in the docker containers)
 // and then gracefully clear it by dropping the RAII docker container handlers
 // I've tried to use static for such singleton initialization but it turned out that despite
@@ -51,58 +57,126 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
     let mut containers = vec![];
     // skip Docker containers initialization if we are intended to run test_mm_start only
     if env::var("_MM2_TEST_CONF").is_err() {
-        const IMAGES: &[&str] = &[
-            UTXO_ASSET_DOCKER_IMAGE_WITH_TAG,
-            QTUM_REGTEST_DOCKER_IMAGE_WITH_TAG,
-            GETH_DOCKER_IMAGE_WITH_TAG,
-            NUCLEUS_IMAGE,
-            ATOM_IMAGE_WITH_TAG,
-            IBC_RELAYER_IMAGE_WITH_TAG,
-        ];
+        let mut images = vec![];
 
-        for image in IMAGES {
+        let disable_utxo: bool = env::var(ENV_VAR_NO_UTXO_DOCKER).is_ok();
+        let disable_slp: bool = env::var(ENV_VAR_NO_SLP_DOCKER).is_ok();
+        let disable_qtum: bool = env::var(ENV_VAR_NO_QTUM_DOCKER).is_ok();
+        let disable_eth: bool = env::var(ENV_VAR_NO_ETH_DOCKER).is_ok();
+        let disable_cosmos: bool = env::var(ENV_VAR_NO_COSMOS_DOCKER).is_ok();
+
+        if !disable_utxo || !disable_slp {
+            images.push(UTXO_ASSET_DOCKER_IMAGE_WITH_TAG)
+        }
+        if !disable_qtum {
+            images.push(QTUM_REGTEST_DOCKER_IMAGE_WITH_TAG);
+        }
+        if !disable_eth {
+            images.push(GETH_DOCKER_IMAGE_WITH_TAG);
+        }
+        if !disable_cosmos {
+            images.push(NUCLEUS_IMAGE);
+            images.push(ATOM_IMAGE_WITH_TAG);
+            images.push(IBC_RELAYER_IMAGE_WITH_TAG);
+        }
+
+        for image in images {
             pull_docker_image(image);
             remove_docker_containers(image);
         }
 
         let runtime_dir = prepare_runtime_dir().unwrap();
 
-        let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
-        let atom_node = atom_node(&docker, runtime_dir.clone());
-        let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
-        let utxo_node = utxo_asset_docker_node(&docker, "MYCOIN", 7000);
-        let utxo_node1 = utxo_asset_docker_node(&docker, "MYCOIN1", 8000);
-        let qtum_node = qtum_docker_node(&docker, 9000);
-        let for_slp_node = utxo_asset_docker_node(&docker, "FORSLP", 10000);
-        let geth_node = geth_docker_node(&docker, "ETH", 8545);
+        let nucleus_node = if !disable_cosmos {
+            Some(nucleus_node(&docker, runtime_dir.clone()))
+        } else {
+            None
+        };
+        let atom_node = if !disable_cosmos {
+            Some(atom_node(&docker, runtime_dir.clone()))
+        } else {
+            None
+        };
+        let ibc_relayer_node = if !disable_cosmos {
+            Some(ibc_relayer_node(&docker, runtime_dir))
+        } else {
+            None
+        };
+        let utxo_node = if !disable_utxo {
+            Some(utxo_asset_docker_node(&docker, "MYCOIN", 7000))
+        } else {
+            None
+        };
+        let utxo_node1 = if !disable_utxo {
+            Some(utxo_asset_docker_node(&docker, "MYCOIN1", 8000))
+        } else {
+            None
+        };
+        let qtum_node = if !disable_qtum {
+            Some(qtum_docker_node(&docker, 9000))
+        } else {
+            None
+        };
+        let for_slp_node = if !disable_slp {
+            Some(utxo_asset_docker_node(&docker, "FORSLP", 10000))
+        } else {
+            None
+        };
+        let geth_node = if !disable_eth {
+            Some(geth_docker_node(&docker, "ETH", 8545))
+        } else {
+            None
+        };
 
-        let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
-        let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
-        let qtum_ops = QtumDockerOps::new();
-        let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
-
-        qtum_ops.wait_ready(2);
-        qtum_ops.initialize_contracts();
-        for_slp_ops.wait_ready(4);
-        for_slp_ops.initialize_slp();
-        utxo_ops.wait_ready(4);
-        utxo_ops1.wait_ready(4);
-
-        wait_for_geth_node_ready();
-        init_geth_node();
-        prepare_ibc_channels(ibc_relayer_node.container.id());
-
-        thread::sleep(Duration::from_secs(10));
-        wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
-
-        containers.push(utxo_node);
-        containers.push(utxo_node1);
-        containers.push(qtum_node);
-        containers.push(for_slp_node);
-        containers.push(geth_node);
-        containers.push(nucleus_node);
-        containers.push(atom_node);
-        containers.push(ibc_relayer_node);
+        if qtum_node.is_some() {
+            let qtum_ops = QtumDockerOps::new();
+            qtum_ops.wait_ready(2);
+            qtum_ops.initialize_contracts();
+        }
+        if for_slp_node.is_some() {
+            let for_slp_ops = BchDockerOps::from_ticker("FORSLP");
+            for_slp_ops.wait_ready(4);
+            for_slp_ops.initialize_slp();
+        }
+        if utxo_node.is_some() && utxo_node1.is_some() {
+            let utxo_ops = UtxoAssetDockerOps::from_ticker("MYCOIN");
+            let utxo_ops1 = UtxoAssetDockerOps::from_ticker("MYCOIN1");
+            utxo_ops.wait_ready(4);
+            utxo_ops1.wait_ready(4);
+        }
+        if geth_node.is_some() {
+            wait_for_geth_node_ready();
+            init_geth_node();
+        }
+        if let Some(ref ibc_relayer_node) = ibc_relayer_node {
+            prepare_ibc_channels(ibc_relayer_node.container.id());
+            thread::sleep(Duration::from_secs(10));
+            wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
+        }
+        if let Some(utxo_node) = utxo_node {
+            containers.push(utxo_node);
+        }
+        if let Some(utxo_node1) = utxo_node1 {
+            containers.push(utxo_node1);
+        }
+        if let Some(qtum_node) = qtum_node {
+            containers.push(qtum_node);
+        }
+        if let Some(for_slp_node) = for_slp_node {
+            containers.push(for_slp_node);
+        }
+        if let Some(geth_node) = geth_node {
+            containers.push(geth_node);
+        }
+        if let Some(nucleus_node) = nucleus_node {
+            containers.push(nucleus_node);
+        }
+        if let Some(atom_node) = atom_node {
+            containers.push(atom_node);
+        }
+        if let Some(ibc_relayer_node) = ibc_relayer_node {
+            containers.push(ibc_relayer_node);
+        }
     }
     // detect if docker is installed
     // skip the tests that use docker if not installed
