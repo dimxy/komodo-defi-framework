@@ -1220,8 +1220,8 @@ pub struct RaiiDump {
 #[cfg(not(target_arch = "wasm32"))]
 impl Drop for RaiiDump {
     fn drop(&mut self) {
-        const BLUE_ANSI_CODE: &str = "\x1b[34m"; 
-        const PURPLE_ANSI_CODE: &str = "\x1b[35m";
+        const DARK_YELLOW_ANSI_CODE: &str = "\x1b[33m";
+        const YELLOW_ANSI_CODE: &str = "\x1b[93m";
         const RESET_COLOR_ANSI_CODE: &str = "\x1b[0m";
 
         // `term` bypasses the stdout capturing, we should only use it if the capturing was disabled.
@@ -1239,10 +1239,10 @@ impl Drop for RaiiDump {
 
         if nocapture {
             std::io::stdout()
-                .write_all(format!("{}vvv {:?} vvv\n", BLUE_ANSI_CODE, self.log_path).as_bytes())
+                .write_all(format!("{}vvv {:?} vvv\n", DARK_YELLOW_ANSI_CODE, self.log_path).as_bytes())
                 .expect("Printing to stdout failed");
             std::io::stdout()
-                .write_all(format!("{}{}{}\n", PURPLE_ANSI_CODE, log, RESET_COLOR_ANSI_CODE).as_bytes())
+                .write_all(format!("{}{}{}\n", YELLOW_ANSI_CODE, log, RESET_COLOR_ANSI_CODE).as_bytes())
                 .expect("Printing to stdout failed");
         } else {
             log!("vvv {:?} vvv\n{}", self.log_path, log);

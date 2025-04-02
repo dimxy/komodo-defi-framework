@@ -578,7 +578,7 @@ fn order_should_be_updated_when_balance_is_decreased_alice_subscribes_after_upda
         "userpass": mm_bob.userpass,
         "method": "withdraw",
         "coin": "MYCOIN",
-        "amount": "499.99999481", 
+        "amount": "499.99999481",
         "to": "R9imXLs1hEcU9KbFDQq2hJEEJ1P5UoekaF",
     })))
     .unwrap();
@@ -1168,7 +1168,7 @@ fn test_buy_when_coins_locked_by_other_swap() {
         "base": "MYCOIN",
         "rel": "MYCOIN1",
         "price": 1,
-        // the result of equation x + x / 777 + 0.00000274 dexfee_txfee + 0.00000245 payment_txfee = 1 
+        // the result of equation x + x / 777 + 0.00000274 dexfee_txfee + 0.00000245 payment_txfee = 1
         "volume": {
             "numer":"77699596737",
             "denom":"77800000000"
@@ -1325,7 +1325,7 @@ fn test_buy_max() {
         "base": "MYCOIN",
         "rel": "MYCOIN1",
         "price": 1,
-        // the result of equation x + x / 777 + 0.00000274 dexfee_txfee + 0.00000245 payment_txfee = 1 
+        // the result of equation x + x / 777 + 0.00000274 dexfee_txfee + 0.00000245 payment_txfee = 1
         // (btw no need to add refund txfee - it's taken from the spend amount for utxo taker)
         "volume": {
             "numer":"77699596737",
@@ -1463,7 +1463,7 @@ fn test_maker_trade_preimage() {
             "rel": "MYCOIN",
             "swap_method": "setprice",
             "price": 1,
-            "volume": "19.99999109", // actually try max value (balance - txfee = 20.0 - 0.00000823) 
+            "volume": "19.99999109", // actually try max value (balance - txfee = 20.0 - 0.00000823)
         },
     })))
     .unwrap();
@@ -1664,7 +1664,7 @@ fn test_trade_preimage_not_sufficient_balance() {
     log!("{:?}", block_on(enable_native(&mm, "MYCOIN", &[], None)));
 
     fill_balance_functor(MmNumber::from("0.00001273").to_decimal()); // volume < txfee + dust = 274 + 1000
-    // Try sell the max amount with the zero balance.
+                                                                     // Try sell the max amount with the zero balance.
     let rc = block_on(mm.rpc(&json!({
         "userpass": mm.userpass,
         "mmrpc": "2.0",

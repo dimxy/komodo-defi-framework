@@ -5728,7 +5728,6 @@ impl MmCoin for EthCoin {
             },
             EthCoinType::Erc20 { token_addr, .. } => {
                 let mut gas = U256::from(self.gas_limit.erc20_payment);
-                println!("gas0={}", gas.to_string());
                 let value = match value {
                     TradePreimageValue::Exact(value) | TradePreimageValue::UpperBound(value) => {
                         wei_from_big_decimal(&value, self.decimals)?
@@ -5748,12 +5747,10 @@ impl MmCoin for EthCoin {
 
                     // this gas_limit includes gas for `approve`, `erc20Payment` contract calls
                     gas += approve_gas_limit;
-                    println!("gas1={}, approve_gas_limit={}", gas.to_string(), approve_gas_limit.to_string());
                 }
                 // add 'senderRefund' gas if requested
                 if matches!(stage, FeeApproxStage::TradePreimage | FeeApproxStage::TradePreimageMax) {
                     gas += U256::from(self.gas_limit.erc20_sender_refund);
-                    println!("gas2={}, erc20_sender_refund={}", gas.to_string(), self.gas_limit.erc20_sender_refund.to_string());
                 }
                 gas
             },
@@ -5762,7 +5759,6 @@ impl MmCoin for EthCoin {
 
         let total_fee = calc_total_fee(gas_limit, &pay_for_gas_option)?;
         let amount = u256_to_big_decimal(total_fee, ETH_DECIMALS)?;
-        println!("total_fee={}, amount={} pay_for_gas_option={:?}", total_fee.to_string(), amount.to_string(), pay_for_gas_option);
         let fee_coin = match &self.coin_type {
             EthCoinType::Eth => &self.ticker,
             EthCoinType::Erc20 { platform, .. } => platform,

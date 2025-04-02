@@ -71,9 +71,7 @@ pub async fn check_my_coin_balance_for_swap(
     let required = volume + total_trade_fee + dex_fee;
     let available = &balance - &locked;
 
-    println!("check_my_coin_balance_for_swap available={}, required={}", available, required);
     if available < required {
-        println!("check_my_coin_balance_for_swap insufficient");
         return MmError::err(CheckBalanceError::NotSufficientBalance {
             coin: ticker.to_owned(),
             available: available.to_decimal(),
@@ -81,7 +79,6 @@ pub async fn check_my_coin_balance_for_swap(
             locked_by_swaps: Some(locked.to_decimal()),
         });
     }
-    println!("check_my_coin_balance_for_swap okay");
     Ok(balance.into())
 }
 

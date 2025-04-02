@@ -1329,9 +1329,6 @@ fn test_generate_transaction_random_values() {
 
         let tx_size = est_tx_size(generated.0.inputs.len(), generated.0.outputs.len());
         let estimated_txfee = fee_rate * tx_size / 1000;
-        //println!("generated.1.fee_amount={} estimated_txfee={} received_by_me={} output_vals.len={} generated.0.outputs.len={} dust={}, fee_rate={}",
-        //    generated.1.fee_amount, estimated_txfee, generated.1.received_by_me, output_vals.len(), generated.0.outputs.len(), dust, fee_rate);
-
         const CHANGE_OUTPUT_SIZE: u64 = 1 + 25 + 8;
         let max_overpay = dust + fee_rate * CHANGE_OUTPUT_SIZE / 1000; // could be slight overpay due to dust change removed from tx
         if generated.1.fee_amount > estimated_txfee {
@@ -2781,11 +2778,9 @@ fn test_get_sender_trade_fee_dynamic_tx_fee() {
 
     // `2.21934443` value was obtained as a result of executing the `max_taker_vol` RPC call for this wallet
     let max_taker_vol = BigDecimal::from_str("2.21934443").expect("!BigDecimal::from_str");
-    let fee3 = block_on(coin.get_sender_trade_fee(
-        TradePreimageValue::Exact(max_taker_vol),
-        FeeApproxStage::WithoutApprox,
-    ))
-    .expect("!get_sender_trade_fee");
+    let fee3 =
+        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(max_taker_vol), FeeApproxStage::WithoutApprox))
+            .expect("!get_sender_trade_fee");
     assert_eq!(fee1, fee3);
 }
 

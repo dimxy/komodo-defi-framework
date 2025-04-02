@@ -9,8 +9,8 @@ use super::{broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_e
             wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
             NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
             SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext,
-            TransactionIdentifier, TAKER_FEE_VALIDATION_ATTEMPTS,
-            TAKER_FEE_VALIDATION_RETRY_DELAY_SECS, WAIT_CONFIRM_INTERVAL_SEC};
+            TransactionIdentifier, TAKER_FEE_VALIDATION_ATTEMPTS, TAKER_FEE_VALIDATION_RETRY_DELAY_SECS,
+            WAIT_CONFIRM_INTERVAL_SEC};
 use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::MakerOrderBuilder;
@@ -479,9 +479,7 @@ impl MakerSwap {
         // do not use self.r().data here as it is not initialized at this step yet
         let preimage_value = TradePreimageValue::Exact(self.maker_amount.clone());
         let stage = FeeApproxStage::StartSwap;
-        let get_sender_trade_fee_fut = self
-            .maker_coin
-            .get_sender_trade_fee(preimage_value, stage);
+        let get_sender_trade_fee_fut = self.maker_coin.get_sender_trade_fee(preimage_value, stage);
         let maker_payment_trade_fee = match get_sender_trade_fee_fut.await {
             Ok(fee) => fee,
             Err(e) => {
@@ -2297,7 +2295,6 @@ pub async fn maker_swap_trade_preimage(
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, rel_coin_ticker))?;
 
-    println!("maker_swap_trade_preimage rel_coin_fee={:?}", rel_coin_fee);
     if req.max {
         // Note the `calc_max_maker_vol` returns [`CheckBalanceError::NotSufficientBalance`] error if the balance of `base_coin` is not sufficient.
         // So we have to check the balance of the other coin only.
@@ -2394,7 +2391,6 @@ pub async fn calc_max_maker_vol(
             locked_by_swaps: Some(locked_by_swaps.to_decimal()),
         });
     }
-    println!("calc_max_maker_vol volume={} stage={:?}", volume, stage);
     Ok(CoinVolumeInfo {
         volume,
         balance: MmNumber::from(balance.clone()),

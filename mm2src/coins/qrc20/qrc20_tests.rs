@@ -866,11 +866,10 @@ fn test_get_sender_trade_fee_preimage_for_correct_ticker() {
     ))
     .unwrap();
 
-    let actual =
-        block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(0.into()), FeeApproxStage::OrderIssue))
-            .err()
-            .unwrap()
-            .into_inner();
+    let actual = block_on(coin.get_sender_trade_fee(TradePreimageValue::Exact(0.into()), FeeApproxStage::OrderIssue))
+        .err()
+        .unwrap()
+        .into_inner();
     // expecting TradePreimageError::NotSufficientBalance
     let expected = TradePreimageError::NotSufficientBalance {
         coin: "tQTUM".to_string(),

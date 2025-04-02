@@ -1054,9 +1054,7 @@ impl TakerSwap {
                 )]))
             },
         };
-        let get_sender_trade_fee_fut = self
-            .taker_coin
-            .get_sender_trade_fee(preimage_value, stage);
+        let get_sender_trade_fee_fut = self.taker_coin.get_sender_trade_fee(preimage_value, stage);
         let taker_payment_trade_fee = match get_sender_trade_fee_fut.await {
             Ok(fee) => fee,
             Err(e) => {

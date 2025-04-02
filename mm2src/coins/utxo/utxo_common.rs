@@ -735,7 +735,6 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             let change = self.add_change(&change_script_pubkey);
             self.sum_outputs += change;
             self.update_tx_fee(from.addr_format(), &actual_fee_rate); // recalculate txfee with the change output, if added
-            println!("sum_inputs={} sum_outputs={} total_tx_fee_needed={}", self.sum_inputs, self.sum_outputs, self.total_tx_fee_needed());
             if self.sum_inputs + self.interest >= self.sum_outputs + self.total_tx_fee_needed() {
                 break;
             }
@@ -749,7 +748,6 @@ impl<'a, T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps> UtxoTxBuilder<'a, T> {
             kmd_rewards: Self::make_kmd_rewards_data(coin, self.interest),
         };
 
-        println!("fee_amount={} outputs={} value0={}", data.fee_amount, self.tx.outputs.len(), self.tx.outputs[0].value);
         Ok((self.tx, data))
     }
 
@@ -3885,9 +3883,10 @@ where
 
             // We need to add extra tx fee for the absent change output for e.g. to ensure max_taker_vol is calculated correctly
             // (If we do not do this then in a swap the change output may appear and we may not have sufficient balance to pay taker fee)
-            let total_fee = if tx.outputs.len() == outputs_count && matches!(stage, FeeApproxStage::TradePreimageMax | FeeApproxStage::OrderIssueMax) {
+            let total_fee = if tx.outputs.len() == outputs_count
+                && matches!(stage, FeeApproxStage::TradePreimageMax | FeeApproxStage::OrderIssueMax)
+            {
                 // take into account the change output
-                println!("preimage_trade_fee_required_to_send_outputs dynamic ticker={ticker}, stage={:?}", stage);
                 data.fee_amount + actual_fee_rate.get_tx_fee_for_change(0) // TODO: apparently get_tx_fee_for_change always returns 0 here
             } else {
                 // the change output is included already
@@ -3913,20 +3912,19 @@ where
 
             // We need to add extra tx fee for the absent change output for e.g. to ensure max_maker_vol or max_taker_vol is calculated correctly
             // (If we do not do this then in a swap the change output may appear and we may not have sufficient balance to pay taker fee)
-            let outputs_len = tx.outputs.len();
-            let total_fee = if tx.outputs.len() == outputs_count && matches!(stage, FeeApproxStage::TradePreimageMax | FeeApproxStage::OrderIssueMax) { 
+            let total_fee = if tx.outputs.len() == outputs_count
+                && matches!(stage, FeeApproxStage::TradePreimageMax | FeeApproxStage::OrderIssueMax)
+            {
                 // Do this for TradePreimageMax stage only to ensure max vol is not too low.
                 // Don't do this for TradePreimage stage (or others) as an insufficient amount error may be collected
                 let tx = UtxoTx::from(tx);
                 let tx_bytes = serialize(&tx);
                 // take into account the change output
-                println!("preimage_trade_fee_required_to_send_outputs fixed ticker={ticker}, stage={:?}", stage);
                 data.fee_amount + fee_rate.get_tx_fee_for_change(tx_bytes.len() as u64)
             } else {
                 // the change output is included already
                 data.fee_amount
             };
-            println!("preimage_trade_fee_required_to_send_outputs total_fee={} outputs_count={} outputs.len={}", total_fee, outputs_count, outputs_len);
             Ok(big_decimal_from_sat(total_fee as i64, decimals))
         },
     }

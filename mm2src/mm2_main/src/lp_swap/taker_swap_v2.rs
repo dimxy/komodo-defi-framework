@@ -3,9 +3,9 @@ use super::swap_v2_common::*;
 use super::{LockedAmount, LockedAmountInfo, SavedTradeFee, SwapsContext, TakerSwapPreparedParams,
             NEGOTIATE_SEND_INTERVAL, NEGOTIATION_TIMEOUT_SEC};
 use crate::lp_swap::swap_lock::SwapLock;
+use crate::lp_swap::swap_v2_pb::*;
 use crate::lp_swap::{broadcast_swap_v2_msg_every, check_balance_for_taker_swap, recv_swap_v2_msg, swap_v2_topic,
                      SwapConfirmationsSettings, TransactionIdentifier, MAX_STARTED_AT_DIFF, TAKER_SWAP_V2_TYPE};
-use crate::lp_swap::swap_v2_pb::*;
 use async_trait::async_trait;
 use bitcrypto::{dhash160, sha256};
 use coins::hd_wallet::AddrToString;

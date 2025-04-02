@@ -1160,7 +1160,6 @@ impl BalanceTradeFeeUpdatedHandler for BalanceUpdateOrdermatchHandler {
 
             if new_volume < order.available_amount() {
                 order.max_base_vol = &order.reserved_amount() + &new_volume;
-                println!("balance_updated max_base_vol={} reserved_amount={} new_volume={}", order.max_base_vol, order.reserved_amount(), new_volume);
                 let mut update_msg = new_protocol::MakerOrderUpdated::new(order.uuid);
                 update_msg.with_new_max_volume(order.available_amount().into());
                 maker_order_updated_p2p_notify(ctx.clone(), order.orderbook_topic(), update_msg, order.p2p_keypair());
@@ -3546,20 +3545,17 @@ pub async fn lp_ordermatch_loop(ctx: MmArc) {
                         continue;
                     },
                 };
-                let max_vol = match calc_max_maker_vol(&ctx, &base, &current_balance, FeeApproxStage::OrderIssueMax).await
-                {
-                    Ok(vol_info) => vol_info.volume,
-                    Err(e) => {
-                        log::info!("Error {} on balance check to kickstart order {}, cancelling", e, uuid);
-                        to_cancel.push(uuid);
-                        continue;
-                    },
-                };
+                let max_vol =
+                    match calc_max_maker_vol(&ctx, &base, &current_balance, FeeApproxStage::OrderIssueMax).await {
+                        Ok(vol_info) => vol_info.volume,
+                        Err(e) => {
+                            log::info!("Error {} on balance check to kickstart order {}, cancelling", e, uuid);
+                            to_cancel.push(uuid);
+                            continue;
+                        },
+                    };
                 if max_vol < order.available_amount() {
-                    let max_vol_2 = max_vol.clone();
                     order.max_base_vol = order.reserved_amount() + max_vol;
-                    println!("lp_ordermatch_loop max_base_vol={} reserved_amount={} max_vol={}", order.max_base_vol, order.reserved_amount(), max_vol_2);
-
                 }
                 if order.available_amount() < order.min_base_vol {
                     log::info!("Insufficient volume available for order {}, cancelling", uuid);
@@ -4143,7 +4139,6 @@ pub async fn sell(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
     if rel_coin.wallet_only(&ctx) {
         return ERR!("Rel coin {} is wallet only", input.rel);
     }
-    println!("sell rpc enterred");
     try_s!(
         check_balance_for_taker_swap(
             &ctx,
