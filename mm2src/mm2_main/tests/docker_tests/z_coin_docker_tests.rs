@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 // https://github.com/KomodoPlatform/librustzcash/blob/4e030a0f44cc17f100bf5f019563be25c5b8755f/zcash_client_backend/src/data_api/wallet.rs#L72-L73
 lazy_static! {
     static ref GEN_TX_LOCK_MUTEX: Mutex<()> = Mutex::new(());
+    static ref GEN_TX_LOCK_MUTEX_ADDR2: Mutex<()> = Mutex::new(());
 }
 
 /// Build asset `ZCoin` from ticker and spending_key.
@@ -53,6 +54,12 @@ pub async fn z_coin_from_spending_key(spending_key: &str) -> (MmArc, ZCoin) {
     .unwrap();
 
     (ctx, coin)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn prepare_zombie_sapling_cache() {
+    let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").await;
+    assert!(coin.is_sapling_state_synced().await);
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -102,7 +109,7 @@ async fn zombie_coin_send_and_refund_maker_payment() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn zombie_coin_send_and_spend_maker_payment() {
-    let _lock = GEN_TX_LOCK_MUTEX.lock().await;
+    let _lock = GEN_TX_LOCK_MUTEX_ADDR2.lock().await;
     let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1qvqstxphqyqqpqqnh3hstqpdjzkpadeed6u7fz230jmm2mxl0aacrtu9vt7a7rmr2w5az5u79d24t0rudak3newknrz5l0m3dsd8m4dffqh5xwyldc5qwz8pnalrnhlxdzf900x83jazc52y25e9hvyd4kepaze6nlcvk8sd8a4qjh3e9j5d6730t7ctzhhrhp0zljjtwuptadnksxf8a8y5axwdhass5pjaxg0hzhg7z25rx0rll7a6txywl32s6cda0s5kexr03uqdtelwe").await;
 
     assert!(coin.is_sapling_state_synced().await);
@@ -150,14 +157,8 @@ async fn zombie_coin_send_and_spend_maker_payment() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn prepare_zombie_sapling_cache() {
-    let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").await;
-    assert!(coin.is_sapling_state_synced().await);
-}
-
-#[tokio::test(flavor = "current_thread")]
 async fn zombie_coin_send_dex_fee() {
-    let _lock = GEN_TX_LOCK_MUTEX.lock().await;
+    let _lock = GEN_TX_LOCK_MUTEX_ADDR2.lock().await;
     let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1qvqstxphqyqqpqqnh3hstqpdjzkpadeed6u7fz230jmm2mxl0aacrtu9vt7a7rmr2w5az5u79d24t0rudak3newknrz5l0m3dsd8m4dffqh5xwyldc5qwz8pnalrnhlxdzf900x83jazc52y25e9hvyd4kepaze6nlcvk8sd8a4qjh3e9j5d6730t7ctzhhrhp0zljjtwuptadnksxf8a8y5axwdhass5pjaxg0hzhg7z25rx0rll7a6txywl32s6cda0s5kexr03uqdtelwe").await;
 
     assert!(coin.is_sapling_state_synced().await);
@@ -174,8 +175,8 @@ async fn zombie_coin_send_dex_fee() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn zombie_coin_send_standard_dex_fee() {
-    let _lock = GEN_TX_LOCK_MUTEX.lock().await;
-    let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").await;
+    let _lock = GEN_TX_LOCK_MUTEX_ADDR2.lock().await;
+    let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1qvqstxphqyqqpqqnh3hstqpdjzkpadeed6u7fz230jmm2mxl0aacrtu9vt7a7rmr2w5az5u79d24t0rudak3newknrz5l0m3dsd8m4dffqh5xwyldc5qwz8pnalrnhlxdzf900x83jazc52y25e9hvyd4kepaze6nlcvk8sd8a4qjh3e9j5d6730t7ctzhhrhp0zljjtwuptadnksxf8a8y5axwdhass5pjaxg0hzhg7z25rx0rll7a6txywl32s6cda0s5kexr03uqdtelwe").await;
 
     assert!(coin.is_sapling_state_synced().await);
 
@@ -189,7 +190,7 @@ async fn zombie_coin_send_standard_dex_fee() {
 #[tokio::test(flavor = "current_thread")]
 async fn zombie_coin_validate_dex_fee() {
     let _lock = GEN_TX_LOCK_MUTEX.lock().await;
-    let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1qvqstxphqyqqpqqnh3hstqpdjzkpadeed6u7fz230jmm2mxl0aacrtu9vt7a7rmr2w5az5u79d24t0rudak3newknrz5l0m3dsd8m4dffqh5xwyldc5qwz8pnalrnhlxdzf900x83jazc52y25e9hvyd4kepaze6nlcvk8sd8a4qjh3e9j5d6730t7ctzhhrhp0zljjtwuptadnksxf8a8y5axwdhass5pjaxg0hzhg7z25rx0rll7a6txywl32s6cda0s5kexr03uqdtelwe").await;
+    let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe").await;
 
     assert!(coin.is_sapling_state_synced().await);
 

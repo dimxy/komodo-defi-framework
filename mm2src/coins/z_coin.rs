@@ -427,13 +427,13 @@ impl ZCoin {
 
             {
                 // check if remaining notes will be enough for this tx and skip waiting,
-                let change_notes_rseeds = change_notes.iter().map(|n| n.rseed.clone()).collect::<Vec<_>>();
-                let mut filtered_spendable_notes = spendable_notes
+                let change_notes_rseeds = change_notes.iter().map(|n| n.rseed.clone()).collect::<HashSet<_>>();
+                let filtered_spendable_notes: Vec<_> = spendable_notes
                     .iter()
-                    .filter(|n| !change_notes_rseeds.contains(&rseed_to_string(&n.rseed)));
-
+                    .filter(|n| !change_notes_rseeds.contains(&rseed_to_string(&n.rseed)))
+                    .collect();
                 let sum_filtered_notes = filtered_spendable_notes
-                    .by_ref()
+                    .iter()
                     .map(|v| big_decimal_from_sat_unsigned(v.note_value.into(), self.decimals()))
                     .sum::<BigDecimal>();
 
@@ -442,7 +442,7 @@ impl ZCoin {
                         .gen_tx_impl(
                             t_outputs,
                             z_outputs,
-                            filtered_spendable_notes,
+                            filtered_spendable_notes.into_iter(),
                             total_required,
                             tx_fee,
                             sync_guard,
@@ -633,7 +633,7 @@ impl ZCoin {
             .await?;
 
         for rseed in rseeds {
-            info!("saving tx notes rseed for {}!", tx.txid().to_string());
+            info!("saving tx note rseed for {}!", tx.txid().to_string());
             self.z_fields
                 .locked_notes_db
                 .insert_note(tx.txid().to_string(), rseed)
