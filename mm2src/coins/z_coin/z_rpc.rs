@@ -478,10 +478,12 @@ impl ZRpcOps for NativeClient {
     async fn check_tx_existence(&self, tx_id: TxId) -> bool {
         let mut attempts = 0;
         loop {
-            match self.get_raw_transaction_bytes(&H256Json::from(tx_id.0)).compat().await {
+            let tx_hash = H256Json::from(tx_id.0).reversed();
+            let tx = self.get_raw_transaction_bytes(&tx_hash).compat().await;
+            match tx {
                 Ok(_) => break,
                 Err(e) => {
-                    error!("Error on getting tx {}", tx_id);
+                    error!("Error on getting tx {}: err: {e:?}", tx_id);
                     if e.to_string().contains(NO_TX_ERROR_CODE) {
                         if attempts >= 3 {
                             return false;
@@ -927,7 +929,7 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
             let walletdb = &sync_handle.wallet_db;
             if let Ok(is_tx_imported) = walletdb.is_tx_imported(tx_id).await {
                 if !is_tx_imported {
-                    info!("Tx {} is not imported yet", tx_id);
+                    error!("Tx {} is not imported yet", tx_id);
                     Timer::sleep(10.).await;
                     continue;
                 }

@@ -17,7 +17,6 @@ cfg_wasm32!(
 
 #[derive(Debug, Clone)]
 pub(crate) struct LockedNote {
-    pub(crate) hex: String,
     pub(crate) rseed: String,
 }
 

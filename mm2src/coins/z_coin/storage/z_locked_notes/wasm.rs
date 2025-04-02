@@ -106,10 +106,7 @@ impl LockedNotesStorage {
             .get_items("address", &self.address)
             .await?
             .into_iter()
-            .map(|(_, n)| LockedNote {
-                hex: n.hex,
-                rseed: n.rseed,
-            })
+            .map(|(_, n)| LockedNote { rseed: n.rseed })
             .collect::<Vec<_>>())
     }
 }

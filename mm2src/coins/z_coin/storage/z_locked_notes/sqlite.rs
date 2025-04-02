@@ -8,7 +8,7 @@ use mm2_err_handle::prelude::*;
 const TABLE_NAME: &str = "locked_notes_cache";
 
 impl LockedNotesStorage {
-    #[cfg(not(test))]
+    #[cfg(not(any(test, feature = "run-docker-tests")))]
     pub(crate) async fn new(ctx: MmArc, address: String) -> MmResult<Self, LockedNotesStorageError> {
         let db = ctx
             .async_sqlite_connection
@@ -38,7 +38,7 @@ impl LockedNotesStorage {
             .await?)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "run-docker-tests"))]
     pub(crate) async fn new(ctx: MmArc, address: String) -> MmResult<Self, LockedNotesStorageError> {
         use std::sync::Arc;
 
@@ -98,12 +98,7 @@ impl LockedNotesStorage {
         Ok(db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&format!("SELECT * FROM {TABLE_NAME};"))?;
-                let rows = stmt.query_map(params![], |row| {
-                    Ok(LockedNote {
-                        rseed: row.get(0)?,
-                        hex: row.get(1)?,
-                    })
-                })?;
+                let rows = stmt.query_map(params![], |row| Ok(LockedNote { rseed: row.get(0)? }))?;
 
                 Ok(rows.flatten().collect_vec())
             })

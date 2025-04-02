@@ -12,7 +12,6 @@ pub(crate) use walletdb::*;
 pub(crate) use z_params::ZcashParamsWasmImpl;
 
 pub(crate) mod z_locked_notes;
-pub use walletdb::*;
 pub(crate) use z_locked_notes::{LockedNotesStorage, LockedNotesStorageError};
 
 use mm2_err_handle::mm_error::MmResult;

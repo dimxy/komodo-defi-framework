@@ -393,37 +393,87 @@ impl ZCoin {
     async fn gen_tx(&self, t_outputs: Vec<TxOut>, z_outputs: Vec<ZOutput>) -> Result<GenTxData, MmError<GenTxError>> {
         const MAX_RETRIES: usize = 40;
         const RETRY_DELAY: f64 = 15.0;
+
+        let tx_fee = self.get_one_kbyte_tx_fee().await?;
+        let t_output_sat: u64 = t_outputs.iter().fold(0, |cur, out| cur + u64::from(out.value));
+        let z_output_sat: u64 = z_outputs.iter().fold(0, |cur, out| cur + u64::from(out.amount));
+        let total_output_sat = t_output_sat + z_output_sat;
+        let total_output = big_decimal_from_sat_unsigned(total_output_sat, self.utxo_arc.decimals);
+        let total_required = &total_output + &tx_fee;
+
         let mut retries = 0;
 
         loop {
-            let change_notes = self.z_fields.locked_notes_db.load_all_notes().await?;
-            if change_notes.is_empty() {
-                return self.gen_tx_impl(t_outputs, z_outputs).await;
-            }
-
+            // Wait for block sync and previous tx confirmation.
+            let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
             let spendable_notes = self
                 .spendable_notes_ordered()
                 .await
                 .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
+
+            let change_notes = self.z_fields.locked_notes_db.load_all_notes().await?;
+            if change_notes.is_empty() {
+                return self
+                    .gen_tx_impl(
+                        t_outputs,
+                        z_outputs,
+                        spendable_notes.iter(),
+                        total_required,
+                        tx_fee,
+                        sync_guard,
+                    )
+                    .await;
+            }
+
+            {
+                // check if remaining notes will be enough for this tx and skip waiting,
+                let change_notes_rseeds = change_notes.iter().map(|n| n.rseed.clone()).collect::<Vec<_>>();
+                let mut filtered_spendable_notes = spendable_notes
+                    .iter()
+                    .filter(|n| !change_notes_rseeds.contains(&rseed_to_string(&n.rseed)));
+
+                let sum_filtered_notes = filtered_spendable_notes
+                    .by_ref()
+                    .map(|v| big_decimal_from_sat_unsigned(v.note_value.into(), self.decimals()))
+                    .sum::<BigDecimal>();
+
+                if sum_filtered_notes >= total_required {
+                    return self
+                        .gen_tx_impl(
+                            t_outputs,
+                            z_outputs,
+                            filtered_spendable_notes,
+                            total_required,
+                            tx_fee,
+                            sync_guard,
+                        )
+                        .await;
+                }
+            };
+
             let mut found_locked_note = false;
 
             for spendable_note in &spendable_notes {
-                let rseed = match &spendable_note.rseed {
-                    Rseed::BeforeZip212(rcm) => rcm.to_string(),
-                    Rseed::AfterZip212(rseed) => {
-                        jubjub::Fr::from_bytes_wide(prf_expand(rseed, &[0x04]).as_array()).to_string()
-                    },
-                };
-
-                if let Some(n) = change_notes.iter().find(|n| n.rseed == rseed) {
-                    info!("Found locked notes from previous tx: {}", n.hex);
+                if change_notes
+                    .iter()
+                    .any(|n| n.rseed == rseed_to_string(&spendable_note.rseed))
+                {
                     found_locked_note = true;
                     break;
                 }
             }
 
             if !found_locked_note {
-                return self.gen_tx_impl(t_outputs, z_outputs).await;
+                return self
+                    .gen_tx_impl(
+                        t_outputs,
+                        z_outputs,
+                        spendable_notes.iter(),
+                        total_required,
+                        tx_fee,
+                        sync_guard,
+                    )
+                    .await;
             }
 
             if retries >= MAX_RETRIES {
@@ -446,26 +496,15 @@ impl ZCoin {
     }
 
     /// Generates a tx sending outputs from our address
-    async fn gen_tx_impl(
-        &self,
+    async fn gen_tx_impl<'a>(
+        &'a self,
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
+        spendable_notes: impl Iterator<Item = &SpendableNote>,
+        total_required: BigDecimal,
+        tx_fee: BigDecimal,
+        sync_guard: SaplingSyncGuard<'a>,
     ) -> Result<GenTxData, MmError<GenTxError>> {
-        let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
-
-        let tx_fee = self.get_one_kbyte_tx_fee().await?;
-        let t_output_sat: u64 = t_outputs.iter().fold(0, |cur, out| cur + u64::from(out.value));
-        let z_output_sat: u64 = z_outputs.iter().fold(0, |cur, out| cur + u64::from(out.amount));
-        let total_output_sat = t_output_sat + z_output_sat;
-        let total_output = big_decimal_from_sat_unsigned(total_output_sat, self.utxo_arc.decimals);
-        let total_required = &total_output + &tx_fee;
-        let spendable_notes = self
-            .spendable_notes_ordered()
-            .await
-            .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
-        let change_notes = self.z_fields.locked_notes_db.load_all_notes().await?;
-        info!("change_notes :{:?}", change_notes);
-
         let mut total_input_amount = BigDecimal::from(0);
         let mut change = BigDecimal::from(0);
 
@@ -475,9 +514,9 @@ impl ZCoin {
 
         let mut rseeds: Vec<String> = vec![];
         for spendable_note in spendable_notes {
-            let rseed = match &spendable_note.rseed {
+            let rseed = match spendable_note.rseed {
                 Rseed::BeforeZip212(rcm) => rcm.to_string(),
-                Rseed::AfterZip212(rseed) => {
+                Rseed::AfterZip212(ref rseed) => {
                     jubjub::Fr::from_bytes_wide(prf_expand(rseed, &[0x04]).as_array()).to_string()
                 },
             };
@@ -779,7 +818,7 @@ impl ZCoin {
         else {
             return Ok(false);
         };
-        if &address == expected_address {
+        if &address != expected_address {
             return Ok(false);
         }
         if note.value != amount_sat {
@@ -2172,6 +2211,14 @@ fn extended_spending_key_from_global_hd_account(
     }
 
     Ok(spending_key)
+}
+
+#[inline]
+fn rseed_to_string(rseed: &Rseed) -> String {
+    match rseed {
+        Rseed::BeforeZip212(rcm) => rcm.to_string(),
+        Rseed::AfterZip212(rseed) => jubjub::Fr::from_bytes_wide(prf_expand(rseed, &[0x04]).as_array()).to_string(),
+    }
 }
 
 #[test]
