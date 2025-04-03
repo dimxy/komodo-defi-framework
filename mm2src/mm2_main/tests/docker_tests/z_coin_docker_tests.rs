@@ -9,8 +9,6 @@ use lazy_static::lazy_static;
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::MmNumber;
 use mm2_test_helpers::for_tests::{new_mm2_temp_folder_path, zombie_conf_for_docker};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use tokio::sync::Mutex;
 
 // https://github.com/KomodoPlatform/librustzcash/blob/4e030a0f44cc17f100bf5f019563be25c5b8755f/zcash_client_backend/src/data_api/wallet.rs#L72-L73
