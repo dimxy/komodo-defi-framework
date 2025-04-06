@@ -3887,7 +3887,7 @@ where
                 && matches!(stage, FeeApproxStage::TradePreimageMax | FeeApproxStage::OrderIssueMax)
             {
                 // take into account the change output
-                data.fee_amount + actual_fee_rate.get_tx_fee_for_change(0) // TODO: apparently get_tx_fee_for_change always returns 0 here
+                data.fee_amount + actual_fee_rate.get_tx_fee_for_change(0)
             } else {
                 // the change output is included already
                 data.fee_amount
