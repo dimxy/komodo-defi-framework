@@ -15,7 +15,7 @@ use url::Url;
 #[cfg(feature = "test-ext-api")]
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 
-#[cfg(any(test, feature = "mocktopus"))]
+#[cfg(any(test, feature = "for-tests"))]
 use mocktopus::macros::*;
 
 const ONE_INCH_AGGREGATION_ROUTER_CONTRACT_V6_0: &str = "0x111111125421ca6dc452d289314280a0f8842a65";
@@ -170,7 +170,7 @@ impl PortfolioUrlBuilder {
 pub struct ApiClient;
 
 #[allow(clippy::swap_ptr_to_ref)] // need for moctopus
-#[cfg_attr(any(test, feature = "mocktopus"), mockable)]
+#[cfg_attr(any(test, feature = "for-tests"), mockable)]
 impl ApiClient {
     #[allow(unused_variables)]
     #[allow(clippy::result_large_err)]
