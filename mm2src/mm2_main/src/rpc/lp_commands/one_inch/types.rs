@@ -229,13 +229,13 @@ pub struct TxFields {
 impl TxFields {
     pub(crate) fn from_api_tx_fields(
         tx_fields: one_inch_api::classic_swap_types::TxFields,
-        dst_decimals: u8,
+        src_decimals: u8,
     ) -> MmResult<Self, FromApiValueError> {
         Ok(Self {
             from: tx_fields.from,
             to: tx_fields.to,
             data: BytesJson::from(hex::decode(str_strip_0x!(tx_fields.data.as_str()))?),
-            value: u256_to_big_decimal(U256::from_dec_str(&tx_fields.value)?, dst_decimals)?,
+            value: u256_to_big_decimal(U256::from_dec_str(&tx_fields.value)?, src_decimals)?,
             gas_price: wei_to_gwei_decimal(U256::from_dec_str(&tx_fields.gas_price)?)?,
             gas: tx_fields.gas,
         })
