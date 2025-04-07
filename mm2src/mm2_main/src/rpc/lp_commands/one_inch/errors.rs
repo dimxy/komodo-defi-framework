@@ -1,7 +1,7 @@
-use coins::{eth::u256_to_big_decimal, CoinFindError, NumConversError};
+use coins::{CoinFindError, NumConversError};
 use common::{HttpStatusCode, StatusCode};
 use enum_derives::EnumFromStringify;
-use mm2_number::BigDecimal;
+use ethereum_types::U256;
 use ser_error_derive::SerializeErrorType;
 use serde::Serialize;
 use trading_api::one_inch_api::errors::ApiClientError;
@@ -34,8 +34,8 @@ pub enum ApiIntegrationRpcError {
     },
     #[display(fmt = "allowance not enough for 1inch contract, available: {allowance}, needed: {amount}")]
     OneInchAllowanceNotEnough {
-        allowance: BigDecimal,
-        amount: BigDecimal,
+        allowance: U256,
+        amount: U256,
     },
     #[display(fmt = "1inch API error: {}", _0)]
     OneInchError(ApiClientError),
@@ -67,8 +67,8 @@ impl HttpStatusCode for ApiIntegrationRpcError {
     }
 }
 
-impl ApiIntegrationRpcError {
-    pub(crate) fn from_api_error(error: ApiClientError, decimals: Option<u8>) -> Self {
+impl From<ApiClientError> for ApiIntegrationRpcError {
+    fn from(error: ApiClientError) -> Self {
         match error {
             ApiClientError::InvalidParam(error) => ApiIntegrationRpcError::InvalidParam(error),
             ApiClientError::OutOfBounds { param, value, min, max } => {
@@ -78,10 +78,7 @@ impl ApiIntegrationRpcError {
             | ApiClientError::ParseBodyError { .. }
             | ApiClientError::GeneralApiError { .. } => ApiIntegrationRpcError::OneInchError(error),
             ApiClientError::AllowanceNotEnough { allowance, amount, .. } => {
-                ApiIntegrationRpcError::OneInchAllowanceNotEnough {
-                    allowance: u256_to_big_decimal(allowance, decimals.unwrap_or_default()).unwrap_or_default(),
-                    amount: u256_to_big_decimal(amount, decimals.unwrap_or_default()).unwrap_or_default(),
-                }
+                ApiIntegrationRpcError::OneInchAllowanceNotEnough { allowance, amount }
             },
         }
     }

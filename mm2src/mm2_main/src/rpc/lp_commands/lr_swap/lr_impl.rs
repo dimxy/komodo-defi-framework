@@ -186,10 +186,8 @@ impl LrDataMap {
             let query_params = CrossPriceParams::new(chain_id, src_contract, dst_contract)
                 .with_granularity(Some(CROSS_PRICES_GRANULARITY))
                 .with_limit(Some(CROSS_PRICES_LIMIT))
-                .build_query_params()
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
-            let url_builder = PortfolioUrlBuilder::create_api_url_builder(ctx, PortfolioApiMethods::CrossPrices)
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
+                .build_query_params()?;
+            let url_builder = PortfolioUrlBuilder::create_api_url_builder(ctx, PortfolioApiMethods::CrossPrices)?;
             let fut = ApiClient::call_one_inch_api::<CrossPricesSeries>(url_builder, Some(query_params));
             prices_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
@@ -255,11 +253,8 @@ impl LrDataMap {
             let query_params = ClassicSwapQuoteParams::new(src_contract, dst_contract, src_amount.to_string())
                 .with_include_tokens_info(Some(true))
                 .with_include_gas(Some(true))
-                .build_query_params()
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
-            let url_builder =
-                SwapUrlBuilder::create_api_url_builder(ctx, chain_id, SwapApiMethods::ClassicSwapQuote)
-                    .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
+                .build_query_params()?;
+            let url_builder = SwapUrlBuilder::create_api_url_builder(ctx, chain_id, SwapApiMethods::ClassicSwapQuote)?;
             let fut = ApiClient::call_one_inch_api::<ClassicSwapData>(url_builder, Some(query_params));
             quote_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
