@@ -181,16 +181,20 @@ impl ClassicSwapDetails {
         chain_id: u64,
         data: one_inch_api::classic_swap_types::ClassicSwapData,
     ) -> MmResult<Self, FromApiValueError> {
-        let src_token_info = data.src_token.ok_or(FromApiValueError("No token info".to_owned()))?;
-        let dst_token_info = data.dst_token.ok_or(FromApiValueError("No token info".to_owned()))?;
+        let src_token_info = data
+            .src_token
+            .ok_or(FromApiValueError("Missing source TokenInfo".to_owned()))?;
+        let dst_token_info = data
+            .dst_token
+            .ok_or(FromApiValueError("Missing destination TokenInfo".to_owned()))?;
         let src_decimals: u8 = src_token_info
             .decimals
             .try_into()
-            .map_to_mm(|_| FromApiValueError("bad decimals".to_owned()))?;
+            .map_to_mm(|_| FromApiValueError("invalid decimals in source TokenInfo".to_owned()))?;
         let dst_decimals: u8 = dst_token_info
             .decimals
             .try_into()
-            .map_to_mm(|_| FromApiValueError("bad decimals".to_owned()))?;
+            .map_to_mm(|_| FromApiValueError("invalid decimals in destination TokenInfo".to_owned()))?;
         Ok(Self {
             dst_amount: MmNumber::from(u256_to_big_decimal(
                 U256::from_dec_str(&data.dst_amount)?,
