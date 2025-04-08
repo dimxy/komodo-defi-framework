@@ -1303,17 +1303,42 @@ impl MarketCoinOps for ZCoin {
         ))
     }
 
+    /// Calculates the wallet balance, divided into spendable and unspendable portions.
+    /// Unspendable balance consists of notes that are locked in the wallet.
     fn my_balance(&self) -> BalanceFut<CoinBalance> {
         let coin = self.clone();
         let fut = async move {
+            let spendabled_notes = coin
+                .get_spendable_notes()
+                .await
+                .map_err(|err| BalanceError::WalletStorageError(err.to_string()))?;
+
+            let locked_notes = coin
+                .z_fields
+                .locked_notes_db
+                .load_all_notes()
+                .await
+                .mm_err(|e| BalanceError::WalletStorageError(e.to_string()))?
+                .iter()
+                .map(|n| n.rseed.clone())
+                .collect::<HashSet<_>>();
+
+            let unspendable_sat = spendabled_notes
+                .into_iter()
+                .filter(|n| locked_notes.contains(&rseed_to_string(&n.rseed)))
+                .map(|n| u64::from(n.note_value))
+                .sum::<u64>();
             let balance_sat = coin
                 .my_balance_sat()
                 .await
                 .mm_err(|e| BalanceError::WalletStorageError(e.to_string()))?;
 
-            let spendable = big_decimal_from_sat_unsigned(balance_sat, coin.decimals());
+            let spendable_sat = balance_sat.saturating_sub(unspendable_sat);
+            let spendable = big_decimal_from_sat_unsigned(spendable_sat, coin.decimals());
+            let unspendable = big_decimal_from_sat_unsigned(unspendable_sat, coin.decimals());
 
-            Ok(CoinBalance::new(spendable))
+            // Spendable balance is spendable - unspendable.
+            Ok(CoinBalance { spendable, unspendable })
         };
 
         Box::new(fut.boxed().compat())

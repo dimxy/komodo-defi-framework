@@ -97,7 +97,7 @@ impl LockedNotesStorage {
         let db = self.db.lock().await;
         Ok(db
             .call(move |conn| {
-                let mut stmt = conn.prepare(&format!("SELECT * FROM {TABLE_NAME};"))?;
+                let mut stmt = conn.prepare(&format!("SELECT rseed, hex FROM {TABLE_NAME};"))?;
                 let rows = stmt.query_map(params![], |row| Ok(LockedNote { rseed: row.get(0)? }))?;
 
                 Ok(rows.flatten().collect_vec())
