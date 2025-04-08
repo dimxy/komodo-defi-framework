@@ -4,7 +4,8 @@ use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::one_inch::types::{ClassicSwapCreateRequest, ClassicSwapDetails};
 use coins::Ticker;
 use mm2_number::MmNumber;
-use mm2_rpc::data::legacy::{SellBuyRequest, SellBuyResponse};
+use mm2_rpc::data::legacy::SellBuyRequest;
+use uuid::Uuid;
 
 /// Request to find best swap path with LR to fill an order from list.
 #[derive(Debug, Deserialize)]
@@ -69,27 +70,28 @@ pub struct LrQuotesForTokensResponse {
     pub quotes: Vec<QuotesDetails>,
 }
 
-/// Request to sell or buy order with LR
+/// Request to sell or buy maker order with doing atomic swap and LR
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LrFillOrderRequest {
-    /// Original sell or buy request (but only MatchBy::Orders could be used to fill the maker swap found in )
+pub struct LrFillMakerOrderRequest {
+    /// Sell or buy request to fill atomic swap maker order
     #[serde(flatten)]
-    pub fill_req: SellBuyRequest,
+    pub sell_buy_req: SellBuyRequest,
 
     /// Params to create 1inch LR swap (from 1inch quote)
     /// TODO: make this an enum to allow other LR providers
-    pub lr_swap_0: ClassicSwapCreateRequest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lr_swap_0: Option<ClassicSwapCreateRequest>,
 
     /// Params to create 1inch LR swap (from 1inch quote)
-    pub lr_swap_1: ClassicSwapCreateRequest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lr_swap_1: Option<ClassicSwapCreateRequest>,
 }
 
 /// Response to sell or buy order with LR
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct LrFillOrderResponse {
-    /// Original sell or buy response
-    #[serde(flatten)]
-    pub fill_response: SellBuyResponse,
+pub struct LrFillMakerOrderResponse {
+    /// Created aggregated swap uuid for tracking the swap
+    pub uuid: Uuid,
 }

@@ -6,6 +6,7 @@ mod lp_bot_tests;
 mod mm2_tests_inner;
 mod orderbook_sync_tests;
 mod z_coin_tests;
+mod lr_swap_tests;
 
 mod zhtlc_native_reexport {
     pub use common::executor::Timer;

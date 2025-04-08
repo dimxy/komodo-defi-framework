@@ -152,6 +152,7 @@ pub const TX_HELPER_PREFIX: TopicPrefix = "txhlp";
 pub(crate) const LEGACY_SWAP_TYPE: u8 = 0;
 pub(crate) const MAKER_SWAP_V2_TYPE: u8 = 1;
 pub(crate) const TAKER_SWAP_V2_TYPE: u8 = 2;
+pub(crate) const TAKER_SWAP_AGGREGATED_TYPE: u8 = 3;
 
 pub(crate) const TAKER_FEE_VALIDATION_ATTEMPTS: usize = 6;
 pub(crate) const TAKER_FEE_VALIDATION_RETRY_DELAY_SECS: f64 = 10.;

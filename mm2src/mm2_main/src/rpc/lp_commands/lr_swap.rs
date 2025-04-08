@@ -8,11 +8,12 @@ use lr_quote::find_best_fill_ask_with_lr;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
-use types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillOrderRequest, LrFillOrderResponse, LrQuotesForTokensRequest};
+use lr_types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillMakerOrderRequest, LrFillMakerOrderResponse, LrQuotesForTokensRequest};
+use lr_swap_state_machine::lp_start_agg_taker_swap;
 
 mod lr_quote;
-mod agg_taker_swap;
-mod types;
+mod lr_swap_state_machine;
+pub mod lr_types;
 
 /// Find the best swap with liquidity routing of EVM tokens, to select from multiple orders.
 /// For the provided list of orderbook entries this RPC will find out the most price-effective swap with LR.
@@ -83,13 +84,14 @@ pub async fn lr_quotes_for_tokens_rpc(
 
 /// Run a swap with LR to fill a maker order
 pub async fn lr_fill_order_rpc(
-    _ctx: MmArc,
-    _req: LrFillOrderRequest,
-) -> MmResult<LrFillOrderResponse, ApiIntegrationRpcError> {
-    MmError::err(ApiIntegrationRpcError::InternalError("unimplemented".to_owned()))
+    ctx: MmArc,
+    req: LrFillMakerOrderRequest,
+) -> MmResult<LrFillMakerOrderResponse, ApiIntegrationRpcError> {
+    let swap_uuid = lp_start_agg_taker_swap(ctx, req.lr_swap_0, req.lr_swap_1, req.sell_buy_req).await?;
+    Ok(LrFillMakerOrderResponse { uuid: swap_uuid })
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_arch = "wasm32"), feature = "test-ext-api"))]
 mod tests {
     use crate::lp_ordermatch::{OrderbookAddress, RpcOrderbookEntryV2};
     use crate::rpc::lp_commands::legacy::electrum;
@@ -106,7 +108,6 @@ mod tests {
     /// checks how to find an order from an utxo/token ask order list, which is the most price efficient if route from my token into the token in the order.
     /// With this test use --features test-ext-api and set ONE_INCH_API_TEST_AUTH env to the 1inch dev auth key
     /// TODO: make it mockable to run within CI
-    #[cfg(feature = "test-ext-api")]
     #[tokio::test]
     async fn test_find_best_lr_swap_for_order_list() {
         let main_net_url: String = std::env::var("ETH_MAIN_NET_URL_FOR_TEST").unwrap_or_default();

@@ -13,7 +13,7 @@ fn test_sign_eth_transaction() {
     let coins = json!([eth_sepolia_conf()]);
     let conf = Mm2TestConf::seednode(&passphrase, &coins);
     let mm = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
-    block_on(enable_eth(&mm, "ETH", ETH_SEPOLIA_NODES));
+    block_on(enable_eth_rpc(&mm, "ETH", ETH_SEPOLIA_NODES, ETH_SEPOLIA_SWAP_CONTRACT));
     let signed_tx = block_on(call_sign_eth_transaction(
         &mm,
         "ETH",
@@ -33,7 +33,7 @@ fn test_sign_eth_transaction_eip1559() {
     let coins = json!([eth_sepolia_conf()]);
     let conf = Mm2TestConf::seednode(&passphrase, &coins);
     let mm = block_on(MarketMakerIt::start_async(conf.conf, conf.rpc_password, None)).unwrap();
-    block_on(enable_eth(&mm, "ETH", ETH_SEPOLIA_NODES));
+    block_on(enable_eth_rpc(&mm, "ETH", ETH_SEPOLIA_NODES, ETH_SEPOLIA_SWAP_CONTRACT));
     let signed_tx = block_on(call_sign_eth_transaction(
         &mm,
         "ETH",
@@ -60,14 +60,14 @@ fn test_sign_eth_transaction_eip1559() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn enable_eth(mm: &MarketMakerIt, platform_coin: &str, nodes: &[&str]) -> Json {
+pub async fn enable_eth_rpc(mm: &MarketMakerIt, platform_coin: &str, nodes: &[&str], swap_contract: &str) -> Json {
     let enable = mm
         .rpc(&json!({
         "userpass": mm.userpass,
         "method": "enable",
         "coin": platform_coin,
         "urls": nodes,
-        "swap_contract_address": ETH_SEPOLIA_SWAP_CONTRACT,
+        "swap_contract_address": swap_contract,
         "mm2": 1,
         }))
         .await

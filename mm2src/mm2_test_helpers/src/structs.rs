@@ -1,19 +1,23 @@
-#![allow(dead_code, unused_variables)]
+#![allow(dead_code, unused_variables, unused_imports)]
 
 //! The helper structs used in testing of RPC responses, these should be separated from actual MM2 code to ensure
 //! backwards compatibility
 //! Use `#[serde(deny_unknown_fields)]` for all structs for tests to fail in case of adding new fields to the response
 
 use http::{HeaderMap, StatusCode};
-use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber};
+use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber, construct_detailed};
 use mm2_rpc::data::legacy::{MatchBy, OrderConfirmationsSettings, OrderType, RpcOrderbookEntry, TakerAction};
-use rpc::v1::types::H256 as H256Json;
+use rpc::v1::types::{H256 as H256Json, Bytes as BytesJson};
 use serde::de::DeserializeOwned;
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::num::NonZeroUsize;
 use uuid::Uuid;
+use ethereum_types::{Address, H160, H256, U256};
+
+pub type Ticker = String;
+construct_detailed!(DetailedAmount, amount);
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1006,14 +1010,14 @@ pub struct UtxoFeeDetails {
     pub amount: BigDecimal,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields, tag = "address_type", content = "address_data")]
 pub enum OrderbookAddress {
     Transparent(String),
     Shielded,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct RpcOrderbookEntryV2 {
     pub coin: String,
@@ -1038,7 +1042,7 @@ pub struct AggregatedOrderbookEntryV2 {
     pub rel_max_volume_aggr: MmNumberMultiRepr,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct MmNumberMultiRepr {
     pub decimal: BigDecimal,
@@ -1227,4 +1231,90 @@ pub struct TokenInfoResponse {
     pub config_ticker: Option<String>,
     #[serde(flatten)]
     pub info: TokenInfo,
+}
+
+#[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct TxFieldsRpc {
+    pub from: Address,
+    pub to: Address,
+    pub data: BytesJson,
+    pub value: BigDecimal,
+    /// Estimated gas price in gwei
+    pub gas_price: BigDecimal,
+    pub gas: u128,
+}
+
+#[derive(Clone, Deserialize, Debug, Serialize)]
+pub struct LrTokenInfo {
+    pub address: Address,
+    pub symbol: String,
+    pub name: String,
+    pub decimals: u32,
+    pub eip2612: bool,
+    #[serde(rename = "isFoT", default)]
+    pub is_fot: bool,
+    #[serde(rename = "logoURI")]
+    pub logo_uri: String,
+    pub tags: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LrProtocolInfo {
+    pub name: String,
+    pub part: f64,
+    #[serde(rename = "fromTokenAddress")]
+    pub from_token_address: Address,
+    #[serde(rename = "toTokenAddress")]
+    pub to_token_address: Address,
+}
+
+/// Details to create classic swap calls
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ClassicSwapDetails {
+    /// Destination token amount, in coins (with fraction)
+    pub dst_amount: DetailedAmount,
+    /// Source (base) token info
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub src_token: Option<LrTokenInfo>,
+    /// Source (base) token name as it is defined in the coins file
+    pub src_token_kdf: Option<Ticker>,
+    /// Destination (rel) token info
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dst_token: Option<LrTokenInfo>,
+    /// Destination (rel) token name as it is defined in the coins file.
+    /// This is used to show route tokens in the GUI, like they are in the coin file.
+    /// However, route tokens can be missed in the coins file and therefore cannot be filled.
+    /// In this case GUI may use LrTokenInfo::Address or LrTokenInfo::Symbol
+    pub dst_token_kdf: Option<Ticker>,
+    /// Used liquidity sources
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocols: Option<Vec<Vec<Vec<LrProtocolInfo>>>>,
+    /// Swap tx fields (returned only for create swap rpc)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx: Option<TxFieldsRpc>,
+    /// Estimated (returned only for quote rpc)
+    pub gas: Option<u128>,
+}
+
+pub type ClassicSwapResponse = ClassicSwapDetails;
+
+/// Response for find best swap path with LR
+#[derive(Debug, Deserialize, Serialize)]
+pub struct LrBestQuoteResponse {
+    /// Swap tx data (from 1inch quote)
+    pub lr_swap_details: ClassicSwapDetails,
+    /// found best order which can be filled with LR swap
+    pub best_order: RpcOrderbookEntryV2,
+    /// base/rel price including the price of the LR swap part
+    pub total_price: MmNumber,
+    // /// Fees to pay, including LR swap fee
+    // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
+}
+
+/// Response to sell or buy order with LR
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LrFillMakerOrderResponse {
+    /// Created aggregated swap uuid for tracking the swap
+    pub uuid: Uuid,
 }

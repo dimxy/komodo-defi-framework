@@ -262,6 +262,14 @@ pub const ETH_SEPOLIA_TOKEN_CONTRACT: &str = "0x09d0d71FBC00D7CCF9CFf132f5E6825C
 
 pub const BCHD_TESTNET_URLS: &[&str] = &["https://bchd-testnet.greyh.at:18335"];
 
+pub const POLYGON_MAINNET_NODES: &[&str] = &[
+    "https://polygon-mainnet.g.alchemy.com/v2/9YYl6iMLmXXLoflMPHnMTC4Dcm2L2tFH",
+];
+pub const POLYGON_MAINNET_SWAP_CONTRACT: &str = "0x9130b257d37a52e52f21054c4da3450c72f595ce";
+pub const POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT: &str = "0x0"; // TODO: fix when deployed
+pub const POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT: &str = "0x0";
+pub const POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT: &str = "0x0";
+
 pub struct Mm2TestConf {
     pub conf: Json,
     pub rpc_password: String,
@@ -1123,6 +1131,22 @@ pub fn tqrc20_conf() -> Json {
                 "platform": "QTUM",
                 "contract_address": "0xd362e096e873eb7907e205fadc6175c6fec7bc44"
             }
+        }
+    })
+}
+
+pub fn polygon_conf() -> Json {
+    json!({
+        "coin": "MATIC",
+        "name": "matic",
+        "fname": "Polygon",
+        "rpcport": 80,
+        "mm2": 1,
+        "chain_id": 137,
+        "avg_blocktime": 0.03,
+        "required_confirmations": 3,
+        "protocol": {
+            "type": "ETH"
         }
     })
 }
@@ -2080,6 +2104,7 @@ pub async fn enable_eth_coin_v2(
     swap_v2_contracts: SwapV2TestContracts,
     fallback_swap_contract: Option<&str>,
     nodes: &[TestNode],
+    tokens: &[&str],
 ) -> Json {
     let enable = mm
         .rpc(&json!({
@@ -2097,7 +2122,7 @@ pub async fn enable_eth_coin_v2(
                 },
                 "fallback_swap_contract": fallback_swap_contract,
                 "nodes": nodes.iter().map(|node| json!({ "url": node.url })).collect::<Vec<_>>(),
-                "erc20_tokens_requests": []
+                "erc20_tokens_requests": tokens
             }
         }))
         .await

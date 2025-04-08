@@ -153,7 +153,7 @@ pub struct ClassicSwapDetails {
     pub protocols: Option<Vec<Vec<Vec<ProtocolInfo>>>>,
     /// Swap tx fields (returned only for create swap rpc)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx: Option<TxFields>,
+    pub tx: Option<TxFieldsRpc>,
     /// Estimated (returned only for quote rpc)
     pub gas: Option<u128>,
 }
@@ -192,7 +192,7 @@ impl ClassicSwapDetails {
             protocols: data.protocols,
             tx: data
                 .tx
-                .map(|tx| TxFields::from_api_tx_fields(tx, decimals))
+                .map(|tx| TxFieldsRpc::from_api_tx_fields(tx, decimals))
                 .transpose()?,
             gas: data.gas,
         })
@@ -200,7 +200,7 @@ impl ClassicSwapDetails {
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct TxFields {
+pub struct TxFieldsRpc {
     pub from: Address,
     pub to: Address,
     pub data: BytesJson,
@@ -210,7 +210,7 @@ pub struct TxFields {
     pub gas: u128, // TODO: in eth EthTxFeeDetails rpc we use u64. Better have identical u128 everywhere
 }
 
-impl TxFields {
+impl TxFieldsRpc {
     pub(crate) fn from_api_tx_fields(
         tx_fields: one_inch_api::classic_swap_types::TxFields,
         decimals: u8,

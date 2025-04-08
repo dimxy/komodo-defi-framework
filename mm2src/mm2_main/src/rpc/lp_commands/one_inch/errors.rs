@@ -50,8 +50,7 @@ pub enum ApiIntegrationRpcError {
     TransactionError(String),
     #[from_stringify("coins::RawTransactionError")]
     #[display(fmt = "Sign transaction error {}", _0)]
-    SignTransactionError(String),
-    
+    SignTransactionError(String),    
 }
 
 impl HttpStatusCode for ApiIntegrationRpcError {

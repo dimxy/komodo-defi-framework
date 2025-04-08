@@ -3403,6 +3403,7 @@ pub trait MmCoin: SwapOps + WatcherOps + MarketCoinOps + Send + Sync + 'static {
 
     fn get_raw_transaction(&self, req: RawTransactionRequest) -> RawTransactionFut;
 
+    // TODO: apparently duplicates get_raw_transaction
     fn get_tx_hex_by_hash(&self, tx_hash: Vec<u8>) -> RawTransactionFut;
 
     /// Maximum number of digits after decimal point used to denominate integer coin units (satoshis, wei, etc.)
