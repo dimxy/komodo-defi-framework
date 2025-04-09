@@ -266,9 +266,9 @@ pub const POLYGON_MAINNET_NODES: &[&str] = &[
     "https://polygon-mainnet.g.alchemy.com/v2/9YYl6iMLmXXLoflMPHnMTC4Dcm2L2tFH",
 ];
 pub const POLYGON_MAINNET_SWAP_CONTRACT: &str = "0x9130b257d37a52e52f21054c4da3450c72f595ce";
-pub const POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT: &str = "0x0"; // TODO: fix when deployed
-pub const POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT: &str = "0x0";
-pub const POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT: &str = "0x0";
+pub const POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT: &str = "0x0123456789012345678901234567890123456789"; // TODO: fix when deployed
+pub const POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT: &str = "0x0123456789012345678901234567890123456789";
+pub const POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT: &str = "0x0123456789012345678901234567890123456789";
 
 pub struct Mm2TestConf {
     pub conf: Json,
@@ -2104,7 +2104,7 @@ pub async fn enable_eth_coin_v2(
     swap_v2_contracts: SwapV2TestContracts,
     fallback_swap_contract: Option<&str>,
     nodes: &[TestNode],
-    tokens: &[&str],
+    tokens: Json,
 ) -> Json {
     let enable = mm
         .rpc(&json!({

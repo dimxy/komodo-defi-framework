@@ -3,8 +3,8 @@ use super::maker_swap_v2::MakerSwapEvent;
 use super::my_swaps_storage::{MySwapsError, MySwapsOps, MySwapsStorage};
 use super::taker_swap::TakerSavedSwap;
 use super::taker_swap_v2::TakerSwapEvent;
-use super::{active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, LEGACY_SWAP_TYPE, MAKER_SWAP_V2_TYPE,
-            TAKER_SWAP_V2_TYPE};
+use super::{active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, LEGACY_SWAP_TYPE, MAKER_SWAP_V2_TYPE, AGG_TAKER_SWAP_TYPE, TAKER_SWAP_V2_TYPE};
+use crate::rpc::lp_commands::lr_swap::lr_swap_state_machine::AggTakerSwapEvent;
 use common::log::{error, warn};
 use common::{calc_total_pages, HttpStatusCode, PagingOptions};
 use derive_more::Display;
@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 cfg_native!(
     use crate::database::my_swaps::SELECT_MY_SWAP_V2_FOR_RPC_BY_UUID;
+    use crate::database::my_lr_swaps::SELECT_LR_SWAP_FOR_RPC_BY_UUID;
     use common::async_blocking;
     use db_common::sqlite::query_single_row;
     use db_common::sqlite::rusqlite::{Result as SqlResult, Row, Error as SqlError};
@@ -272,6 +273,7 @@ pub(crate) enum SwapRpcData {
     TakerV1(TakerSavedSwap),
     MakerV2(MySwapForRpc<MakerSwapEvent>),
     TakerV2(MySwapForRpc<TakerSwapEvent>),
+    AggTaker(MyAggSwapForRpc<AggTakerSwapEvent>),
 }
 
 #[derive(Display)]
@@ -314,6 +316,10 @@ async fn get_swap_data_by_uuid_and_type(
         TAKER_SWAP_V2_TYPE => {
             let data = get_taker_swap_data_for_rpc(ctx, &uuid).await?;
             Ok(data.map(SwapRpcData::TakerV2))
+        },
+        AGG_TAKER_SWAP_TYPE => {
+            let data = get_agg_taker_swap_data_for_rpc(ctx, &uuid).await?;
+            Ok(data.map(SwapRpcData::AggTaker))
         },
         unsupported => MmError::err(GetSwapDataErr::UnsupportedSwapType(unsupported)),
     }
@@ -504,4 +510,98 @@ pub(crate) async fn active_swaps_rpc(
             .collect(),
         statuses,
     })
+}
+
+
+/// Represents data of the aggregated taker swap used for RPC, omits fields that should be kept in secret
+#[derive(Debug, Serialize)]
+pub(crate) struct MyAggSwapForRpc<T> {
+    my_coin: String,
+    other_coin: String,
+    uuid: Uuid,
+    started_at: i64,
+    is_finished: bool,
+    events: Vec<T>,
+    swap_version: u8,
+}
+
+impl<T: DeserializeOwned> MyAggSwapForRpc<T> {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn from_row(row: &Row) -> SqlResult<Self> {
+        Ok(Self {
+            my_coin: row.get(0)?,
+            other_coin: row.get(1)?,
+            uuid: row
+                .get::<_, String>(2)?
+                .parse()
+                .map_err(|e| SqlError::FromSqlConversionFailure(2, SqlType::Text, Box::new(e)))?,
+            started_at: row.get(3)?,
+            is_finished: row.get(4)?,
+            events: serde_json::from_str(&row.get::<_, String>(5)?)
+                .map_err(|e| SqlError::FromSqlConversionFailure(5, SqlType::Text, Box::new(e)))?,
+            swap_version: row.get(15)?,
+        })
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(super) async fn get_agg_taker_swap_data_for_rpc(
+    ctx: &MmArc,
+    uuid: &Uuid,
+) -> MmResult<Option<MyAggSwapForRpc<AggTakerSwapEvent>>, SqlError> {
+    let ctx = ctx.clone();
+    let uuid = uuid.to_string();
+
+    async_blocking(move || {
+        let swap_data = query_single_row(
+            &ctx.sqlite_connection(),
+            SELECT_LR_SWAP_FOR_RPC_BY_UUID,
+            &[(":uuid", uuid.as_str())],
+            MyAggSwapForRpc::from_row,
+        )?;
+        Ok(swap_data)
+    })
+    .await
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(super) async fn get_agg_taker_swap_data_for_rpc(
+    ctx: &MmArc,
+    uuid: &Uuid,
+) -> MmResult<Option<MySwapForRpc<TakerSwapEvent>>, SwapV2DbError> {
+    let swaps_ctx = SwapsContext::from_ctx(ctx).unwrap();
+    let db = swaps_ctx.swap_db().await?;
+    let transaction = db.transaction().await?;
+    let table = transaction.table::<SavedSwapTable>().await?;
+    let item = match table.get_item_by_unique_index("uuid", uuid).await? {
+        Some((_item_id, item)) => item,
+        None => return Ok(None),
+    };
+
+    let filters_table = transaction.table::<MySwapsFiltersTable>().await?;
+    let filter_item = match filters_table.get_item_by_unique_index("uuid", uuid).await? {
+        Some((_item_id, item)) => item,
+        None => return Ok(None),
+    };
+
+    /*let json_repr: TakerSwapDbRepr = serde_json::from_value(item.saved_swap)?;
+    Ok(Some(MySwapForRpc {
+        my_coin: json_repr.taker_coin,
+        other_coin: json_repr.maker_coin,
+        uuid: json_repr.uuid,
+        started_at: json_repr.started_at as i64,
+        is_finished: filter_item.is_finished.as_bool(),
+        events: json_repr.events,
+        maker_volume: json_repr.maker_volume.into(),
+        taker_volume: json_repr.taker_volume.into(),
+        premium: json_repr.taker_premium.into(),
+        dex_fee: (json_repr.dex_fee_amount + json_repr.dex_fee_burn).into(),
+        lock_duration: json_repr.lock_duration as i64,
+        maker_coin_confs: json_repr.conf_settings.maker_coin_confs as i64,
+        maker_coin_nota: json_repr.conf_settings.maker_coin_nota,
+        taker_coin_confs: json_repr.conf_settings.taker_coin_confs as i64,
+        taker_coin_nota: json_repr.conf_settings.taker_coin_nota,
+        swap_version: json_repr.swap_version,
+    }))*/
+    Ok(None) // TODO: add wasm support 
 }

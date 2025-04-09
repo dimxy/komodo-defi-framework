@@ -41,69 +41,64 @@ lazy_static! {
 
 #[test]
 fn test_aggregated_swap_mainnet_polygon_utxo() {
-
     let bob_passphrase = std::env::var("BOB_PASSPHRASE").expect("BOB_PASSPHRASE env must be set");
     let alice_passphrase = std::env::var("ALICE_PASSPHRASE").expect("ALICE_PASSPHRASE env must be set");
 
     let bob_priv_key = key_pair_from_seed(&bob_passphrase).unwrap().private().secret;
     let alice_priv_key = key_pair_from_seed(&alice_passphrase).unwrap().private().secret;
 
-    // WETH = 2696.90 USD
-    let weth_conf = json!({
-        "coin": "WETH-ERC20",
-        "name": "WETH-ERC20",
-        "derivation_path": "m/44'/1'",
-        "chain_id": 1,
+    let token_1_conf = json!({
+        "coin": "DAI-PLG20",
+        "name": "dai_plg20",
+        "derivation_path": "m/44'/966'",
+        "chain_id": 137,
         "decimals": 18,
         "protocol": {
             "type": "ERC20",
             "protocol_data": {
-                "platform": "ETH",
-                "contract_address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+                "platform": "MATIC",
+                "contract_address": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063"
             }
         }
     });
-
-    // BNB = 612.36 USD
-    let bnb_conf = json!({
-        "coin": "BNB-ERC20",
-        "name": "BNB token",
-        "derivation_path": "m/44'/1'",
-        "chain_id": 1,
+    let token_2_conf = json!({
+        "coin": "1INCH-PLG20",
+        "name": "1inch_avx20",
+        "derivation_path": "m/44'/966'",
+        "chain_id": 137,
         "decimals": 18,
         "protocol": {
             "type": "ERC20",
             "protocol_data": {
-                "platform": "ETH",
-                "contract_address": "0xB8c77482e45F1F44dE1745F52C74426C631bDD52"
+                "platform": "MATIC",
+                "contract_address": "0xd501281565bf7789224523144Fe5D98e8B28f267"
             }
         }
     });
-    // AAVE 258.75 USD
-    let aave_conf = json!({
-        "coin": "AAVE-ERC20",
-        "name": "AAVE token",
-        "derivation_path": "m/44'/1'",
-        "chain_id": 1,
+    let token_3_conf = json!({
+        "coin": "AGIX-PLG20",
+        "name": "agix_plg20",
+        "derivation_path": "m/44'/966'",
+        "chain_id": 137,
         "decimals": 18,
         "protocol": {
             "type": "ERC20",
             "protocol_data": {
-                "platform": "ETH",
-                "contract_address": "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9"
+                "platform": "MATIC",
+                "contract_address": "0x190Eb8a183D22a4bdf278c6791b152228857c033"
             }
         }
     });
 
-    let weth_ticker = weth_conf["coin"].as_str().unwrap().to_owned();
-    let bnb_ticker = bnb_conf["coin"].as_str().unwrap().to_owned();
-    let aave_ticker = aave_conf["coin"].as_str().unwrap().to_owned();
+    let token_1_ticker = token_1_conf["coin"].as_str().unwrap().to_owned();
+    let token_2_ticker = token_2_conf["coin"].as_str().unwrap().to_owned();
+    let token_3_ticker = token_3_conf["coin"].as_str().unwrap().to_owned();
 
-    let bob_coins = json!([doc_conf(), polygon_conf()]);
+    let bob_coins = json!([doc_conf(), polygon_conf(), token_1_conf.clone(), token_2_conf.clone(), token_3_conf.clone()]);
     let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &bob_coins); // Using legacy swaps until TPU contracts deployed on POLYGON 
     let mut mm_bob = block_on(MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, None)).unwrap();
 
-    let alice_coins = json!([doc_conf(), polygon_conf(), weth_conf.clone(), bnb_conf.clone(), aave_conf.clone()]);
+    let alice_coins = json!([doc_conf(), polygon_conf(), token_1_conf.clone(), token_2_conf.clone(), token_3_conf.clone()]);
     let alice_conf = Mm2TestConf::light_node(&alice_passphrase, &alice_coins, &[&mm_bob
         .ip
         .to_string()]);
@@ -121,32 +116,38 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     };
 
     let polygon_nodes = POLYGON_MAINNET_NODES.iter().map(|ip| TestNode { url: (*ip).to_owned() }).collect::<Vec<_>>();
-    log!("{:?}", block_on(enable_eth_coin_v2(&mm_bob, "MATIC", POLYGON_MAINNET_SWAP_CONTRACT, contracts_v2.clone(), None, &polygon_nodes, &[])));
+    log!("{:?}", block_on(enable_eth_coin_v2(&mm_bob, "MATIC", POLYGON_MAINNET_SWAP_CONTRACT, contracts_v2.clone(), None, &polygon_nodes, 
+        json!([
+            { "ticker": &token_1_ticker },
+            { "ticker": &token_2_ticker },
+            { "ticker": &token_3_ticker }
+        ]))));
     log!("{:?}", block_on(enable_electrum_json(&mm_bob, DOC, false, doc_electrums())));
 
     log!("{:?}", block_on(enable_eth_coin_v2(&mm_alice, "MATIC", POLYGON_MAINNET_SWAP_CONTRACT, contracts_v2, None, &polygon_nodes, 
-        &[
-            &weth_ticker,
-            &bnb_ticker,
-            &aave_ticker
-        ])));
+        json!([
+            { "ticker": &token_1_ticker },
+            { "ticker": &token_2_ticker },
+            { "ticker": &token_3_ticker }
+        ]))));
     log!("{:?}", block_on(enable_electrum_json(&mm_alice, DOC, false, doc_electrums())));
 
-    block_on(create_maker_order(&mut mm_bob, DOC, &weth_ticker, 0.00002));
-    block_on(create_maker_order(&mut mm_bob, DOC, &bnb_ticker, 0.00002));
-    block_on(create_maker_order(&mut mm_bob, DOC, &aave_ticker, 0.00002));
+    block_on(create_maker_order(&mut mm_bob, DOC, &token_1_ticker, 0.00002));
+    block_on(create_maker_order(&mut mm_bob, DOC, &token_2_ticker, 0.00002));
+    block_on(create_maker_order(&mut mm_bob, DOC, &token_3_ticker, 0.00002));
 
-    let weth_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &weth_ticker, 60)).unwrap();
-    let bnb_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &bnb_ticker, 60)).unwrap();
-    let aave_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &aave_ticker, 60)).unwrap();
+    let token_1_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_1_ticker, 60)).unwrap();
+    let token_2_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_2_ticker, 60)).unwrap();
+    let token_3_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_3_ticker, 60)).unwrap();
 
     let best_quote = block_on(find_best_lr_swap(
         &mut mm_alice,
         DOC,
-        &[weth_order, bnb_order, aave_order],
+        &[token_1_order, token_2_order, token_3_order],
         0.00001,
         "MATIC"
-    )).unwrap();
+    )).expect("best quote should be found");
+    println!("found best quotes={:?}", best_quote);
 
     let agg_uuid = block_on(start_agg_swap(
         &mut mm_alice,
@@ -181,6 +182,11 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     block_on(disable_coin(&mm_bob, DOC, false));
     block_on(disable_coin(&mm_alice, "MATIC", false));
     block_on(disable_coin(&mm_alice, DOC, false));
+}
+
+async fn top_up_token(mm: &mut MarketMakerIt, base: &str, rel: &str, amount: f64) -> Result<(), String> {
+    make_1inch_swap(mm, base, rel, amount).await?;
+    Ok(())
 }
 
 /// Make 1inch classic swap to top-up tokens for the test
@@ -237,7 +243,7 @@ async fn make_1inch_swap(mm: &mut MarketMakerIt, base: &str, rel: &str, amount: 
         "tx_hex": sign_resp.result.tx_hex
     })))
     .unwrap();
-    if !rc.0.is_success() { return Err(format!("could not send_raw_transaction: {}", rc.1)); }
+    if !rc.0.is_success() { return Err(format!("could not do 1inch send_raw_transaction: {}", rc.1)); }
     let send_resp: Value = serde_json::from_str(&rc.1).unwrap();
     Ok(send_resp["tx_hash"].to_string())
 }

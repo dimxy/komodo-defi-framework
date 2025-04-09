@@ -12,8 +12,8 @@ use lr_types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillMakerOrderRequest,
 use lr_swap_state_machine::lp_start_agg_taker_swap;
 
 mod lr_quote;
-mod lr_swap_state_machine;
-pub mod lr_types;
+pub(crate) mod lr_swap_state_machine;
+pub(crate) mod lr_types;
 
 /// Find the best swap with liquidity routing of EVM tokens, to select from multiple orders.
 /// For the provided list of orderbook entries this RPC will find out the most price-effective swap with LR.

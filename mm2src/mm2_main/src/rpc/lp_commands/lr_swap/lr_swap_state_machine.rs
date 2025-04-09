@@ -22,6 +22,8 @@ use enum_derives::EnumFromStringify;
 use crate::lp_swap::check_balance_for_taker_swap;
 use crate::lp_swap::swap_lock::SwapLock;
 use crate::lp_swap::swap_v2_common::*;
+use crate::lp_swap::AGG_TAKER_SWAP_TYPE;
+use crate::database::my_lr_swaps::insert_new_lr_swap;
 use crate::lp_ordermatch::lp_auto_buy;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::types::{ClassicSwapCreateRequest, ClassicSwapDetails};
@@ -122,7 +124,6 @@ impl StateMachineStorage for AggTakerSwapStorage {
 
     #[cfg(not(target_arch = "wasm32"))]
     async fn store_repr(&mut self, _id: Self::MachineId, repr: Self::DbRepr) -> Result<(), Self::Error> {
-        use crate::{database::my_lr_swaps::insert_new_lr_swap, lp_swap::TAKER_SWAP_AGGREGATED_TYPE};
 
         let ctx = self.ctx.clone();
 
@@ -132,7 +133,7 @@ impl StateMachineStorage for AggTakerSwapStorage {
                 ":other_coin": repr.maker_coin,
                 ":uuid": repr.uuid.to_string(),
                 ":started_at": repr.started_at,
-                ":swap_type": TAKER_SWAP_AGGREGATED_TYPE,
+                ":swap_type": AGG_TAKER_SWAP_TYPE,
                 ":swap_version": repr.swap_version,
             };
             insert_new_lr_swap(&ctx, sql_params)?;
@@ -146,6 +147,7 @@ impl StateMachineStorage for AggTakerSwapStorage {
         let swaps_ctx = SwapsContext::from_ctx(&self.ctx).expect("SwapsContext::from_ctx should not fail");
         let db = swaps_ctx.swap_db().await?;
         let transaction = db.transaction().await?;
+        // TODO: add for wasm
         // ...
         Ok(())
     }
@@ -170,24 +172,20 @@ impl StateMachineStorage for AggTakerSwapStorage {
         get_swap_repr(&self.ctx, id).await
     }
 
-    async fn has_record_for(&mut self, _id: &Self::MachineId) -> Result<bool, Self::Error> {
-        //has_db_record_for(self.ctx.clone(), id).await
-        Ok(false)
+    async fn has_record_for(&mut self, id: &Self::MachineId) -> Result<bool, Self::Error> {
+        has_db_record_for(self.ctx.clone(), id).await
     }
 
-    async fn store_event(&mut self, _id: Self::MachineId, event: AggTakerSwapEvent) -> Result<(), Self::Error> {
-        //store_swap_event::<AggTakerSwapDbRepr>(self.ctx.clone(), id, event).await
-        Ok(())
+    async fn store_event(&mut self, id: Self::MachineId, event: AggTakerSwapEvent) -> Result<(), Self::Error> {
+        store_swap_event::<AggTakerSwapDbRepr>(self.ctx.clone(), id, event).await
     }
 
     async fn get_unfinished(&self) -> Result<Vec<Self::MachineId>, Self::Error> {
-        //get_unfinished_swaps_uuids(self.ctx.clone(), MAKER_SWAP_V2_TYPE).await
-        Ok(vec![])
+        get_unfinished_swaps_uuids(self.ctx.clone(), AGG_TAKER_SWAP_TYPE).await
     }
 
-    async fn mark_finished(&mut self, _id: Self::MachineId) -> Result<(), Self::Error> {
-        //mark_swap_as_finished(self.ctx.clone(), id).await
-        Ok(())
+    async fn mark_finished(&mut self, id: Self::MachineId) -> Result<(), Self::Error> {
+        mark_swap_as_finished(self.ctx.clone(), id).await
     }
 }
 

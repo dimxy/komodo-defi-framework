@@ -2780,7 +2780,7 @@ fn test_v2_eth_eth_kickstart() {
                     contracts.clone(),
                     None,
                     &[node.clone()],
-                    &[]
+                    json!([])
                 ))
             );
         }
