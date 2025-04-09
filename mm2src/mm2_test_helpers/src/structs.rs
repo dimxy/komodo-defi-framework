@@ -1254,7 +1254,7 @@ pub struct LrTokenInfo {
     #[serde(rename = "isFoT", default)]
     pub is_fot: bool,
     #[serde(rename = "logoURI")]
-    pub logo_uri: String,
+    pub logo_uri: Option<String>,
     pub tags: Vec<String>,
 }
 

@@ -6,7 +6,7 @@ use super::client::QueryParams;
 use super::errors::ApiClientError;
 use common::{def_with_opt_param, push_if_some};
 use ethereum_types::Address;
-use mm2_err_handle::mm_error::{MmError, MmResult};
+use mm2_err_handle::mm_error::MmResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use url::Url;
@@ -216,8 +216,8 @@ pub struct TokenInfo {
     pub eip2612: bool,
     #[serde(rename = "isFoT", default)]
     pub is_fot: bool,
-    #[serde(rename = "logoURI", with = "serde_one_inch_link")]
-    pub logo_uri: String,
+    #[serde(rename = "logoURI", default, deserialize_with = "serde_one_inch_link::deserialize_opt_string")] // Note: needed to use 'default' with 'deserialize_with' to allow optional 'logoURI' 
+    pub logo_uri: Option<String>,
     pub tags: Vec<String>,
 }
 
@@ -266,10 +266,10 @@ pub struct TxFields {
 pub struct ProtocolImage {
     pub id: String,
     pub title: String,
-    #[serde(with = "serde_one_inch_link")]
-    pub img: String,
-    #[serde(with = "serde_one_inch_link")]
-    pub img_color: String,
+    #[serde(deserialize_with = "serde_one_inch_link::deserialize_opt_string")]
+    pub img: Option<String>,
+    #[serde(deserialize_with = "serde_one_inch_link::deserialize_opt_string")]
+    pub img_color: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -284,23 +284,15 @@ pub struct TokensResponse {
 
 mod serde_one_inch_link {
     use super::validate_one_inch_link;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use serde::{Deserialize, Deserializer};
 
-    /// Just forward to the normal serializer
-    pub(super) fn serialize<S>(s: &String, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        s.serialize(serializer)
-    }
-
-    /// Deserialise String with checking links
-    pub(super) fn deserialize<'a, D>(deserializer: D) -> Result<String, D::Error>
+    /// Deserialise Option<String> with checking links
+    pub(super) fn deserialize_opt_string<'a, D>(deserializer: D) -> Result<Option<String>, D::Error>
     where
         D: Deserializer<'a>,
     {
-        <String as Deserialize>::deserialize(deserializer)
-            .map(|value| validate_one_inch_link(&value).unwrap_or_default())
+        <Option<String> as Deserialize>::deserialize(deserializer)
+            .map(|opt_value| opt_value.map(|value| validate_one_inch_link(&value).unwrap_or_default()))
     }
 }
 
@@ -393,7 +385,7 @@ fn validate_complexity_level(complexity_level: &Option<u32>) -> MmResult<(), Api
 }
 
 /// Check if url is valid and is a subdomain of 1inch domain (simple anti-phishing check)
-fn validate_one_inch_link(s: &str) -> MmResult<String, ApiClientError> {
+fn validate_one_inch_link(s: &str) -> Result<String, ApiClientError> {
     let url = Url::parse(s).map_err(|_err| ApiClientError::ParseBodyError {
         error_msg: BAD_URL_IN_RESPONSE_ERROR.to_owned(),
     })?;
@@ -402,7 +394,7 @@ fn validate_one_inch_link(s: &str) -> MmResult<String, ApiClientError> {
             return Ok(s.to_owned());
         }
     }
-    MmError::err(ApiClientError::ParseBodyError {
+    Err(ApiClientError::ParseBodyError {
         error_msg: BAD_URL_IN_RESPONSE_ERROR.to_owned(),
     })
 }
@@ -410,6 +402,7 @@ fn validate_one_inch_link(s: &str) -> MmResult<String, ApiClientError> {
 #[test]
 fn test_validate_one_inch_link() {
     assert!(validate_one_inch_link("https://cdn.1inch.io/liquidity-sources-logo/wmatic_color.png").is_ok());
+    assert!(validate_one_inch_link("https://CDN.1INCH.IO/liquidity-sources-logo/wmatic_color.png").is_ok());
     assert!(validate_one_inch_link("https://example.org/somepath/somefile.png").is_err());
     assert!(validate_one_inch_link("https://inch.io/somepath/somefile.png").is_err());
     assert!(validate_one_inch_link("127.0.0.1").is_err());
