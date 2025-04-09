@@ -2421,7 +2421,8 @@ pub async fn calc_max_maker_vol(
     } else {
         let platform_coin_balance = coin.platform_coin_balance().compat().await.map_mm_err()?;
         check_platform_coin_balance_for_swap(ctx, &MmNumber::from(platform_coin_balance), trade_fee.clone(), None)
-            .await.map_mm_err()?;
+            .await
+            .map_mm_err()?;
     }
     let min_tx_amount = MmNumber::from(coin.min_tx_amount());
     if volume < min_tx_amount {

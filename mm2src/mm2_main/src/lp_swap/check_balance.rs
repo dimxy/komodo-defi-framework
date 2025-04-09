@@ -54,7 +54,9 @@ pub async fn check_my_coin_balance_for_swap(
         trade_fee.amount
     } else {
         let platform_coin_balance: MmNumber = coin.platform_coin_balance().compat().await.map_mm_err()?.into();
-        check_platform_coin_balance_for_swap(ctx, &platform_coin_balance, trade_fee, swap_uuid).await.map_mm_err()?;
+        check_platform_coin_balance_for_swap(ctx, &platform_coin_balance, trade_fee, swap_uuid)
+            .await
+            .map_mm_err()?;
         MmNumber::from(0)
     };
 
@@ -132,7 +134,9 @@ pub async fn check_other_coin_balance_for_swap(
         }
     } else {
         let platform_coin_balance: MmNumber = coin.platform_coin_balance().compat().await.map_mm_err()?.into();
-        check_platform_coin_balance_for_swap(ctx, &platform_coin_balance, trade_fee, swap_uuid).await.map_mm_err()?;
+        check_platform_coin_balance_for_swap(ctx, &platform_coin_balance, trade_fee, swap_uuid)
+            .await
+            .map_mm_err()?;
     }
 
     Ok(())
