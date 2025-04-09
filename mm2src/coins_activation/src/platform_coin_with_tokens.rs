@@ -74,6 +74,12 @@ pub trait TokenInitializer {
     ) -> Result<Vec<Self::Token>, MmError<Self::InitTokensError>>;
 
     fn platform_coin(&self) -> &<Self::Token as TokenOf>::PlatformCoin;
+
+    /// Currently ensures platform coin from the token protocol matches the platfrom coin ticker
+    fn validate_token_params(
+        &self,
+        params: &[TokenActivationParams<Self::TokenActivationRequest, Self::TokenProtocol>],
+    ) -> MmResult<(), Self::InitTokensError>;
 }
 
 #[async_trait]
@@ -98,6 +104,7 @@ pub enum InitTokensAsMmCoinsError {
     Transport(String),
     InvalidPayload(String),
     CustomTokenError(CustomTokenError),
+    InvalidTokenProtocol,
 }
 
 impl From<CoinConfWithProtocolError> for InitTokensAsMmCoinsError {
@@ -153,6 +160,7 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        self.validate_token_params(&token_params)?;
         let tokens = self.enable_tokens(token_params).await?;
         for token in tokens.iter() {
             self.platform_coin().register_token_info(token);
@@ -285,6 +293,7 @@ pub enum EnablePlatformCoinWithTokensError {
     UnexpectedDeviceActivationPolicy,
     #[display(fmt = "Custom token error: {}", _0)]
     CustomTokenError(CustomTokenError),
+    InvalidTokenProtocol,
 }
 
 impl From<CoinConfWithProtocolError> for EnablePlatformCoinWithTokensError {
@@ -328,6 +337,7 @@ impl From<InitTokensAsMmCoinsError> for EnablePlatformCoinWithTokensError {
                 EnablePlatformCoinWithTokensError::UnexpectedDerivationMethod(e.to_string())
             },
             InitTokensAsMmCoinsError::CustomTokenError(e) => EnablePlatformCoinWithTokensError::CustomTokenError(e),
+            InitTokensAsMmCoinsError::InvalidTokenProtocol => EnablePlatformCoinWithTokensError::InvalidTokenProtocol,
         }
     }
 }
@@ -374,6 +384,7 @@ impl HttpStatusCode for EnablePlatformCoinWithTokensError {
             | EnablePlatformCoinWithTokensError::NoSuchTask(_)
             | EnablePlatformCoinWithTokensError::UnexpectedDeviceActivationPolicy
             | EnablePlatformCoinWithTokensError::FailedSpawningBalanceEvents(_)
+            | EnablePlatformCoinWithTokensError::InvalidTokenProtocol
             | EnablePlatformCoinWithTokensError::UnexpectedTokenProtocol { .. } => StatusCode::BAD_REQUEST,
             EnablePlatformCoinWithTokensError::Transport(_) => StatusCode::BAD_GATEWAY,
         }

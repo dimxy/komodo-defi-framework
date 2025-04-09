@@ -65,6 +65,7 @@ pub enum EthActivationV2Error {
     InvalidHardwareWalletCall,
     #[display(fmt = "Custom token error: {}", _0)]
     CustomTokenError(CustomTokenError),
+    InvalidTokenProtocol,
 }
 
 impl From<MyAddressError> for EthActivationV2Error {
@@ -97,6 +98,7 @@ impl From<EthTokenActivationError> for EthActivationV2Error {
             },
             EthTokenActivationError::PrivKeyPolicyNotAllowed(e) => EthActivationV2Error::PrivKeyPolicyNotAllowed(e),
             EthTokenActivationError::CustomTokenError(e) => EthActivationV2Error::CustomTokenError(e),
+            EthTokenActivationError::InvalidTokenProtocol => EthActivationV2Error::InvalidTokenProtocol,
         }
     }
 }
@@ -216,6 +218,7 @@ pub enum EthTokenActivationError {
     UnexpectedDerivationMethod(UnexpectedDerivationMethod),
     PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
     CustomTokenError(CustomTokenError),
+    InvalidTokenProtocol,
 }
 
 impl From<AbortedError> for EthTokenActivationError {
