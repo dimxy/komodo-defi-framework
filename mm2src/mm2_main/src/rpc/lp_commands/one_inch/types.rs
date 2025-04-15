@@ -138,24 +138,17 @@ pub struct ClassicSwapDetails {
     /// Source (base) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub src_token: Option<LrTokenInfo>,
-    /// Source (base) token name as it is defined in the coins file
-    pub src_token_kdf: Option<Ticker>,
     /// Destination (rel) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dst_token: Option<LrTokenInfo>,
-    /// Destination (rel) token name as it is defined in the coins file.
-    /// This is used to show route tokens in the GUI, like they are in the coin file.
-    /// However, route tokens can be missed in the coins file and therefore cannot be filled.
-    /// In this case GUI may use LrTokenInfo::Address or LrTokenInfo::Symbol
-    pub dst_token_kdf: Option<Ticker>,
     /// Used liquidity sources
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocols: Option<Vec<Vec<Vec<ProtocolInfo>>>>,
     /// Swap tx fields (returned only for create swap rpc)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx: Option<TxFieldsRpc>,
-    /// Estimated (returned only for quote rpc)
-    pub gas: Option<u128>,
+    /// Estimated gas limit as hex (returned only for quote rpc)
+    pub gas: Option<String>,
 }
 
 /// Response for both classic swap quote or create swap calls
@@ -181,20 +174,20 @@ impl ClassicSwapDetails {
         data: one_inch_api::classic_swap_types::ClassicSwapData,
         decimals: u8,
     ) -> MmResult<Self, FromApiValueError> {
-        let src_token_info = data.src_token.ok_or(FromApiValueError("No token info".to_owned()))?;
-        let dst_token_info = data.dst_token.ok_or(FromApiValueError("No token info".to_owned()))?;
+        let mut src_token_info = data.src_token.ok_or(FromApiValueError("No token info".to_owned()))?;
+        src_token_info.symbol_kdf = Self::token_name_kdf(ctx, chain_id, &src_token_info).await;
+        let mut dst_token_info = data.dst_token.ok_or(FromApiValueError("No token info".to_owned()))?;
+        dst_token_info.symbol_kdf = Self::token_name_kdf(ctx, chain_id, &dst_token_info).await;
         Ok(Self {
             dst_amount: MmNumber::from(u256_to_big_decimal(U256::from_dec_str(&data.dst_amount)?, decimals)?).into(),
             src_token: Some(src_token_info.clone()),
-            src_token_kdf: Self::token_name_kdf(ctx, chain_id, &src_token_info).await,
             dst_token: Some(dst_token_info.clone()),
-            dst_token_kdf: Self::token_name_kdf(ctx, chain_id, &dst_token_info).await,
             protocols: data.protocols,
             tx: data
                 .tx
                 .map(|tx| TxFieldsRpc::from_api_tx_fields(tx, decimals))
                 .transpose()?,
-            gas: data.gas,
+            gas: data.gas.map(|gas| format!("0x{:x}", gas)),
         })
     }
 }

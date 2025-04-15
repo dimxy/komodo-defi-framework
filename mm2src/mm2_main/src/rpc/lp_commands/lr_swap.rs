@@ -1,15 +1,16 @@
 //! RPC implementations for swaps with liquidity routing (LR) of EVM tokens
 
-use crate::rpc::lp_commands::one_inch::types::ClassicSwapDetails;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
+use crate::rpc::lp_commands::one_inch::types::ClassicSwapDetails;
 use coins::lp_coinfind_or_err;
 use lr_quote::find_best_fill_ask_with_lr;
+use lr_swap_state_machine::lp_start_agg_taker_swap;
+use lr_types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillMakerOrderRequest, LrFillMakerOrderResponse,
+               LrQuotesForTokensRequest};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
-use lr_types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillMakerOrderRequest, LrFillMakerOrderResponse, LrQuotesForTokensRequest};
-use lr_swap_state_machine::lp_start_agg_taker_swap;
 
 mod lr_quote;
 pub(crate) mod lr_swap_state_machine;

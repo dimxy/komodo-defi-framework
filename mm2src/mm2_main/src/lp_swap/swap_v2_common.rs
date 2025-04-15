@@ -131,6 +131,7 @@ where
         drop_mutability!(events);
         let serialized_events = serde_json::to_string(&events)?;
         update_swap_events(&ctx.sqlite_connection(), &id_str, &serialized_events)?;
+        println!("store_swap_event updated events={}", serialized_events);
         Ok(())
     })
     .await
@@ -240,6 +241,15 @@ pub(super) fn init_additional_context_impl(ctx: &MmArc, swap_info: ActiveSwapV2I
         .insert(swap_info.uuid, swap_info);
 }
 
+pub(crate) fn init_agg_swap_context_impl(ctx: &MmArc, swap_info: ActiveSwapV2Info) {
+    let swap_ctx = SwapsContext::from_ctx(ctx).expect("SwapsContext::from_ctx should not fail");
+    swap_ctx
+        .active_swaps_v2_infos
+        .lock()
+        .unwrap()
+        .insert(swap_info.uuid, swap_info);
+}
+
 pub(super) fn clean_up_context_impl(ctx: &MmArc, uuid: &Uuid, maker_coin: &str, taker_coin: &str) {
     unsubscribe_from_topic(ctx, swap_v2_topic(uuid));
     let swap_ctx = SwapsContext::from_ctx(ctx).expect("SwapsContext::from_ctx should not fail");
@@ -254,6 +264,20 @@ pub(super) fn clean_up_context_impl(ctx: &MmArc, uuid: &Uuid, maker_coin: &str, 
     if let Some(taker_coin_locked) = locked_amounts.get_mut(taker_coin) {
         taker_coin_locked.retain(|locked| locked.swap_uuid != *uuid);
     }
+}
+
+pub(crate) fn clean_up_agg_swap_context_impl(ctx: &MmArc, uuid: &Uuid, _maker_coin: &str, _taker_coin: &str) {
+    let swap_ctx = SwapsContext::from_ctx(ctx).expect("SwapsContext::from_ctx should not fail");
+    swap_ctx.active_swaps_v2_infos.lock().unwrap().remove(uuid);
+
+    /*let mut locked_amounts = swap_ctx.locked_amounts.lock().unwrap();
+    if let Some(maker_coin_locked) = locked_amounts.get_mut(maker_coin) {
+        maker_coin_locked.retain(|locked| locked.swap_uuid != *uuid);
+    }
+
+    if let Some(taker_coin_locked) = locked_amounts.get_mut(taker_coin) {
+        taker_coin_locked.retain(|locked| locked.swap_uuid != *uuid);
+    }*/
 }
 
 pub(crate) async fn acquire_reentrancy_lock_impl(ctx: &MmArc, uuid: Uuid) -> MmResult<SwapLock, SwapStateMachineError> {

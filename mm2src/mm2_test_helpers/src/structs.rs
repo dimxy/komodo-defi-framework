@@ -847,7 +847,7 @@ pub struct GetWalletNamesResult {
     pub activated_wallet: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RpcV2Response<T> {
     pub mmrpc: String,
@@ -1081,7 +1081,7 @@ pub struct OrderbookV2Response {
     pub total_bids_rel_vol: MmNumberMultiRepr,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct BestOrdersV2Response {
     pub orders: HashMap<String, Vec<RpcOrderbookEntryV2>>,
@@ -1256,6 +1256,7 @@ pub struct LrTokenInfo {
     #[serde(rename = "logoURI")]
     pub logo_uri: Option<String>,
     pub tags: Vec<String>,
+    pub symbol_kdf: Option<Ticker>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1276,24 +1277,17 @@ pub struct ClassicSwapDetails {
     /// Source (base) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub src_token: Option<LrTokenInfo>,
-    /// Source (base) token name as it is defined in the coins file
-    pub src_token_kdf: Option<Ticker>,
     /// Destination (rel) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dst_token: Option<LrTokenInfo>,
-    /// Destination (rel) token name as it is defined in the coins file.
-    /// This is used to show route tokens in the GUI, like they are in the coin file.
-    /// However, route tokens can be missed in the coins file and therefore cannot be filled.
-    /// In this case GUI may use LrTokenInfo::Address or LrTokenInfo::Symbol
-    pub dst_token_kdf: Option<Ticker>,
     /// Used liquidity sources
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocols: Option<Vec<Vec<Vec<LrProtocolInfo>>>>,
     /// Swap tx fields (returned only for create swap rpc)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx: Option<TxFieldsRpc>,
-    /// Estimated (returned only for quote rpc)
-    pub gas: Option<u128>,
+    /// Estimated gas limit as hex (returned only for quote rpc)
+    pub gas: Option<String>,
 }
 
 pub type ClassicSwapResponse = ClassicSwapDetails;
@@ -1311,10 +1305,96 @@ pub struct LrBestQuoteResponse {
     // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
 }
 
-/// Response to sell or buy order with LR
+/// Response to sell or buy order with LR for tests
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LrFillMakerOrderResponse {
-    /// Created aggregated swap uuid for tracking the swap
     pub uuid: Uuid,
+}
+
+/// Request to create transaction for 1inch classic swap for tests
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClassicSwapCreateRequest {
+    pub base: Ticker,
+    pub rel: Ticker,
+    pub amount: MmNumber,
+    pub slippage: f32,
+    pub fee: Option<f32>,
+    pub protocols: Option<String>,
+    pub gas_price: Option<String>,
+    pub complexity_level: Option<u32>,
+    pub parts: Option<u32>,
+    pub main_route_parts: Option<u32>,
+    pub gas_limit: Option<u128>,
+    pub include_tokens_info: bool,
+    pub include_protocols: bool,
+    pub include_gas: bool,
+    pub connector_tokens: Option<String>,
+    pub excluded_protocols: Option<String>,
+    pub permit: Option<String>,
+    pub compatibility: Option<bool>,
+    pub receiver: Option<String>,
+    pub referrer: Option<String>,
+    pub disable_estimate: Option<bool>,
+    pub allow_partial_fill: Option<bool>,
+    pub use_permit2: Option<bool>,
+}
+
+impl ClassicSwapCreateRequest {
+    pub fn new(base: Ticker, rel: Ticker, amount: MmNumber, slippage: f32) -> Self {
+        Self {
+            base,
+            rel,
+            amount,
+            slippage,
+            fee: None,
+            protocols: None,
+            gas_price: None,
+            complexity_level: None,
+            parts: None,
+            main_route_parts: None,
+            gas_limit: None,
+            include_tokens_info: true,
+            include_protocols: false,
+            include_gas: false,
+            connector_tokens: None,
+            excluded_protocols: None,
+            permit: None,
+            compatibility: None,
+            receiver: None,
+            referrer: None,
+            disable_estimate: None,
+            allow_partial_fill: None,
+            use_permit2: None,
+        }
+    }
+
+    pub fn new_from_details(details: &ClassicSwapDetails, value: &str, slippage: f32) -> Self {
+        Self {
+            base: details.src_token.as_ref().unwrap().symbol_kdf.as_ref().unwrap().clone(),
+            rel: details.dst_token.as_ref().unwrap().symbol_kdf.as_ref().unwrap().clone(),
+            amount: MmNumber::from(value),
+            slippage,
+            fee: None,
+            protocols: None,
+            gas_price: None,
+            complexity_level: None,
+            parts: None,
+            main_route_parts: None,
+            gas_limit: None,
+            include_tokens_info: true,
+            include_protocols: false,
+            include_gas: false,
+            connector_tokens: None,
+            excluded_protocols: None,
+            permit: None,
+            compatibility: None,
+            receiver: None,
+            referrer: None,
+            disable_estimate: None,
+            allow_partial_fill: None,
+            use_permit2: None,
+        }
+    }
 }

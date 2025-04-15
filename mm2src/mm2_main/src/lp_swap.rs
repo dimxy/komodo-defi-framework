@@ -133,7 +133,8 @@ pub use saved_swap::{SavedSwap, SavedSwapError, SavedSwapIo, SavedSwapResult};
 use swap_v2_common::{get_unfinished_swaps_uuids, swap_kickstart_handler_for_maker, swap_kickstart_handler_for_taker,
                      ActiveSwapV2Info};
 use swap_v2_pb::*;
-use swap_v2_rpcs::{get_maker_swap_data_for_rpc, get_swap_type, get_taker_swap_data_for_rpc};
+use swap_v2_rpcs::{get_agg_taker_swap_data_for_rpc, get_maker_swap_data_for_rpc, get_swap_type,
+                   get_taker_swap_data_for_rpc};
 pub use swap_watcher::{process_watcher_msg, watcher_topic, TakerSwapWatcherData, MAKER_PAYMENT_SPEND_FOUND_LOG,
                        MAKER_PAYMENT_SPEND_SENT_LOG, TAKER_PAYMENT_REFUND_SENT_LOG, TAKER_SWAP_ENTRY_TIMEOUT_SEC,
                        WATCHER_PREFIX};
@@ -715,6 +716,7 @@ pub fn active_swaps(ctx: &MmArc) -> Result<Vec<(Uuid, u8)>, String> {
 
     let swaps_v2 = swap_ctx.active_swaps_v2_infos.lock().unwrap();
     uuids.extend(swaps_v2.iter().map(|(uuid, info)| (*uuid, info.swap_type)));
+    println!("active_swaps uuids={:?}", uuids);
     Ok(uuids)
 }
 
@@ -1143,6 +1145,12 @@ pub async fn my_swap_status(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, 
             let res = try_s!(json::to_vec(&res_js));
             Ok(try_s!(Response::builder().body(res)))
         },
+        Some(AGG_TAKER_SWAP_TYPE) => {
+            let swap_data = try_s!(get_agg_taker_swap_data_for_rpc(&ctx, &uuid).await);
+            let res_js = json!({ "result": swap_data });
+            let res = try_s!(json::to_vec(&res_js));
+            Ok(try_s!(Response::builder().body(res)))
+        },
         Some(unsupported_type) => ERR!("Got unsupported swap type from DB: {}", unsupported_type),
         None => ERR!("No swap with uuid {}", uuid),
     }
@@ -1335,6 +1343,13 @@ pub async fn my_recent_swaps_rpc(ctx: MmArc, req: Json) -> Result<Response<Vec<u
                 Err(e) => error!("Error loading a swap with the uuid '{}': {}", uuid, e),
             },
             TAKER_SWAP_V2_TYPE => match get_taker_swap_data_for_rpc(&ctx, uuid).await {
+                Ok(data) => {
+                    let swap_json = try_s!(json::to_value(data));
+                    swaps.push(swap_json);
+                },
+                Err(e) => error!("Error loading a swap with the uuid '{}': {}", uuid, e),
+            },
+            AGG_TAKER_SWAP_TYPE => match get_agg_taker_swap_data_for_rpc(&ctx, uuid).await {
                 Ok(data) => {
                     let swap_json = try_s!(json::to_value(data));
                     swaps.push(swap_json);

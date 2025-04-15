@@ -1,5 +1,4 @@
 #![allow(deprecated)] // TODO: remove this once rusqlite is >= 0.29
-
 #![allow(unused)] // TODO: remove
 
 /// This module contains code to work with my_swaps table in MM2 SQLite DB
@@ -64,7 +63,6 @@ pub(crate) fn insert_new_lr_swap(ctx: &MmArc, params: &[(&str, &dyn ToSql)]) -> 
     conn.execute(INSERT_LR_SWAP, params).map(|_| ())
 }
 
-
 /// The SQL query selecting upgraded swap data and send it to user through RPC API
 /// It omits sensitive data (swap secret, p2p privkey, etc) for security reasons
 pub(crate) const SELECT_LR_SWAP_FOR_RPC_BY_UUID: &str = r#"SELECT
@@ -114,4 +112,3 @@ pub const SELECT_LR_SWAP_BY_UUID: &str = r#"SELECT
 FROM my_swaps
 WHERE uuid = :uuid;
 "#;
-

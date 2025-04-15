@@ -216,9 +216,18 @@ pub struct TokenInfo {
     pub eip2612: bool,
     #[serde(rename = "isFoT", default)]
     pub is_fot: bool,
-    #[serde(rename = "logoURI", default, deserialize_with = "serde_one_inch_link::deserialize_opt_string")] // Note: needed to use 'default' with 'deserialize_with' to allow optional 'logoURI' 
+    #[serde(
+        rename = "logoURI",
+        default,
+        deserialize_with = "serde_one_inch_link::deserialize_opt_string"
+    )] // Note: needed to use 'default' with 'deserialize_with' to allow optional 'logoURI'
     pub logo_uri: Option<String>,
     pub tags: Vec<String>,
+    /// Token name as it is defined in the coins file.
+    /// This is used to show route tokens in the GUI, like they are in the coin file.
+    /// However, route tokens can be missed in the coins file and therefore cannot be filled.
+    /// In this case GUI may use LrTokenInfo::Address or LrTokenInfo::Symbol
+    pub symbol_kdf: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

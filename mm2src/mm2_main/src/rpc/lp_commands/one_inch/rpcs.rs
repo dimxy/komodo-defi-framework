@@ -163,7 +163,10 @@ pub(crate) async fn get_coin_for_one_inch(
 ) -> MmResult<(EthCoin, String), ApiIntegrationRpcError> {
     let coin = match lp_coinfind_or_err(ctx, ticker).await? {
         MmCoinEnum::EthCoin(coin) => coin,
-        _ => return Err(MmError::new(ApiIntegrationRpcError::CoinTypeError)),
+        _ => {
+            println!("get_coin_for_one_inch err coin={}", ticker);
+            return Err(MmError::new(ApiIntegrationRpcError::CoinTypeError));
+        },
     };
     let contract = match coin.coin_type {
         EthCoinType::Eth => ApiClient::eth_special_contract().to_owned(),
@@ -436,7 +439,7 @@ mod tests {
         assert_eq!(quote_response.src_token.as_ref().unwrap().decimals, 18);
         assert_eq!(quote_response.dst_token.as_ref().unwrap().symbol, ticker_token);
         assert_eq!(quote_response.dst_token.as_ref().unwrap().decimals, 6);
-        assert_eq!(quote_response.gas.unwrap(), 452704_u128);
+        assert_eq!(quote_response.gas.unwrap(), "0x6e860");
 
         ApiClient::call_one_inch_api::<ClassicSwapData>.mock_safe(move |_, _, _, _, _| {
             let response_create_raw = response_create_raw.clone();

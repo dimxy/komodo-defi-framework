@@ -3,7 +3,8 @@ use super::maker_swap_v2::MakerSwapEvent;
 use super::my_swaps_storage::{MySwapsError, MySwapsOps, MySwapsStorage};
 use super::taker_swap::TakerSavedSwap;
 use super::taker_swap_v2::TakerSwapEvent;
-use super::{active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, LEGACY_SWAP_TYPE, MAKER_SWAP_V2_TYPE, AGG_TAKER_SWAP_TYPE, TAKER_SWAP_V2_TYPE};
+use super::{active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, AGG_TAKER_SWAP_TYPE,
+            LEGACY_SWAP_TYPE, MAKER_SWAP_V2_TYPE, TAKER_SWAP_V2_TYPE};
 use crate::rpc::lp_commands::lr_swap::lr_swap_state_machine::AggTakerSwapEvent;
 use common::log::{error, warn};
 use common::{calc_total_pages, HttpStatusCode, PagingOptions};
@@ -46,7 +47,9 @@ pub(super) async fn get_swap_type(ctx: &MmArc, uuid: &Uuid) -> MmResult<Option<u
             SELECT_SWAP_TYPE_BY_UUID,
             &[(":uuid", uuid.as_str())],
             |row| row.get(0),
-        )?;
+        );
+        println!("get_swap_type maybe_swap_type={:?}", maybe_swap_type);
+        let maybe_swap_type = maybe_swap_type?;
         Ok(maybe_swap_type)
     })
     .await
@@ -266,7 +269,7 @@ pub(super) async fn get_taker_swap_data_for_rpc(
     }))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(tag = "swap_type", content = "swap_data")]
 pub(crate) enum SwapRpcData {
     MakerV1(MakerSavedSwap),
@@ -276,7 +279,7 @@ pub(crate) enum SwapRpcData {
     AggTaker(MyAggSwapForRpc<AggTakerSwapEvent>),
 }
 
-#[derive(Display)]
+#[derive(Display, Debug)]
 enum GetSwapDataErr {
     UnsupportedSwapType(u8),
     DbError(String),
@@ -330,7 +333,7 @@ pub(crate) struct MySwapStatusRequest {
     uuid: Uuid,
 }
 
-#[derive(Display, Serialize, SerializeErrorType)]
+#[derive(Display, Debug, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub(crate) enum MySwapStatusError {
     NoSwapWithUuid(Uuid),
@@ -372,12 +375,18 @@ pub(crate) async fn my_swap_status_rpc(
     ctx: MmArc,
     req: MySwapStatusRequest,
 ) -> MmResult<SwapRpcData, MySwapStatusError> {
-    let swap_type = get_swap_type(&ctx, &req.uuid)
-        .await?
-        .or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid))?;
-    get_swap_data_by_uuid_and_type(&ctx, req.uuid, swap_type)
-        .await?
-        .or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid))
+    println!("my_swap_status_rpc enterred");
+    let swap_type = get_swap_type(&ctx, &req.uuid).await;
+
+    println!("my_swap_status_rpc swap_type={:?}", swap_type);
+    let swap_type = swap_type?.or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid));
+    println!("my_swap_status_rpc swap_type2={:?}", swap_type);
+    let swap_type = swap_type?;
+    let r = get_swap_data_by_uuid_and_type(&ctx, req.uuid, swap_type).await;
+    println!("my_swap_status_rpc r={:?}", r);
+    let r = r?.or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid));
+    println!("my_swap_status_rpc r2={:?}", r);
+    r
 }
 
 #[derive(Deserialize)]
@@ -512,7 +521,6 @@ pub(crate) async fn active_swaps_rpc(
     })
 }
 
-
 /// Represents data of the aggregated taker swap used for RPC, omits fields that should be kept in secret
 #[derive(Debug, Serialize)]
 pub(crate) struct MyAggSwapForRpc<T> {
@@ -603,5 +611,5 @@ pub(super) async fn get_agg_taker_swap_data_for_rpc(
         taker_coin_nota: json_repr.conf_settings.taker_coin_nota,
         swap_version: json_repr.swap_version,
     }))*/
-    Ok(None) // TODO: add wasm support 
+    Ok(None) // TODO: add wasm support
 }

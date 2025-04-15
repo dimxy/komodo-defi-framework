@@ -120,6 +120,7 @@ where
     T: serde::Serialize + 'static,
     E: SerMmErrorType + HttpStatusCode + 'static,
 {
+    println!("handle_mmrpc request.params={}", request.params);
     let params = json::from_value(request.params)?;
     let result = handler(ctx, params).await;
     if let Err(ref e) = result {

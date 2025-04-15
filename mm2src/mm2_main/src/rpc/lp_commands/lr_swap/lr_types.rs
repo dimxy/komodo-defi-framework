@@ -32,9 +32,9 @@ pub struct LrBestQuoteResponse {
     /// found best order which can be filled with LR swap
     pub best_order: RpcOrderbookEntryV2,
     /// base/rel price including the price of the LR swap part
-    pub total_price: MmNumber,
-    // /// Fees to pay, including LR swap fee
-    // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
+    pub total_price: MmNumber, // TODO: add as BigDecimal and Rational like other prices
+                               // /// Fees to pay, including LR swap fee
+                               // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
 }
 
 /// Request to get quotes with possible swap paths to fill order with multiple tokens with LR
@@ -75,16 +75,15 @@ pub struct LrQuotesForTokensResponse {
 #[serde(deny_unknown_fields)]
 pub struct LrFillMakerOrderRequest {
     /// Sell or buy request to fill atomic swap maker order
-    #[serde(flatten)]
     pub sell_buy_req: SellBuyRequest,
 
     /// Params to create 1inch LR swap (from 1inch quote)
     /// TODO: make this an enum to allow other LR providers
-    #[serde(skip_serializing_if = "Option::is_none")]
+    //    #[serde(skip_serializing_if = "Option::is_none")]
     pub lr_swap_0: Option<ClassicSwapCreateRequest>,
 
     /// Params to create 1inch LR swap (from 1inch quote)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    //    #[serde(skip_serializing_if = "Option::is_none")]
     pub lr_swap_1: Option<ClassicSwapCreateRequest>,
 }
 

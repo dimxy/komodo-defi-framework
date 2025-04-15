@@ -141,7 +141,7 @@ impl LrDataMap {
         Ok(())
     }
 
-    /// Query 1inch token_0/token_1 price in series and calc average price
+    /// Query 1inch token_0/token_1 prices in series and estimate token_0/token_1 average price
     /// Assuming the outer RPC-level code ensures that relation src_tokens : dst_tokens will never be M:N (but only 1:M or M:1)
     async fn query_destination_token_prices(&mut self, ctx: &MmArc) -> MmResult<(), ApiIntegrationRpcError> {
         let mut prices_futs = vec![];
@@ -179,27 +179,24 @@ impl LrDataMap {
             prices_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
         }
+        // TODO: for some coins like 1inch-PLG20 'cross prices' call returns a error 'coin not whitelisted'. Hmm... why? Could I use cross prices at all?
         let prices_in_series = join_all(prices_futs)
             .await
             .into_iter()
-            .collect::<Result<Vec<_>, _>>() // if an error in any future - return the error
-            .mm_err(|err| ApiIntegrationRpcError::from_api_error(err, None))?;
+            .map(|p| p.ok()) // set to None if no data returned (to preserve number of elements in the vec)
+            .collect::<Vec<_>>();
 
         let quotes = src_dst
             .into_iter()
             .zip(prices_in_series.iter())
+            .filter_map(|((src, dst), series)| series.as_ref().map(|series| ((src, dst), series))) // exclude empty prices
             .map(|((src, dst), series)| {
-                let dst_price = cross_prices_average(series);
+                let dst_price = cross_prices_average(series); // estimate SRC/DST price as average from series
                 ((src, dst), dst_price)
             })
             .collect::<HashMap<(_, _), _>>();
-        for q in &quotes {
-            log::debug!(
-                "query_destination_token_prices src/dst quote={:?} {}",
-                q,
-                q.1.to_decimal()
-            );
-        }
+
+        log_cross_prices(&quotes);
         self.update_with_lr_prices(&quotes);
         Ok(())
     }
@@ -271,8 +268,8 @@ impl LrDataMap {
         let swap_data = join_all(quote_futs)
             .await
             .into_iter()
-            .collect::<MmResult<Vec<_>, _>>()
-            .mm_err(|cli_err| ApiIntegrationRpcError::from_api_error(cli_err, None))?;
+            .filter_map(|res| res.ok()) // skip if LR provider returned an error for a quote (for e.g. low liguidity)
+            .collect::<Vec<_>>();
         let swap_data_map = src_dst
             .into_iter()
             .zip(swap_data.into_iter())
@@ -292,11 +289,11 @@ impl LrDataMap {
             let src_amount = mm_number_from_u256(src_amount);
             let order_price = MmNumber::from(order.price.rational.clone());
             let dst_amount = MmNumber::from(lr_swap.dst_amount.to_string().as_str());
-            if let Some(order_amount) = dst_amount.checked_div(&order_price) {
-                let total_price = src_amount.checked_div(&order_amount);
-                log::debug!("select_best_swap order.coin={} lr_swap.dst_amount(wei)={} order_amount(to fill order, wei)={} total_price(with LR)={}", 
-                    order.coin, lr_swap.dst_amount, order_amount.to_decimal(), total_price.clone().unwrap_or(MmNumber::from(0)).to_decimal());
-                total_price
+            if let Some(amount_to_fill) = dst_amount.checked_div(&order_price) {
+                let total_price_with_lr = src_amount.checked_div(&amount_to_fill);
+                log::debug!("select_best_swap order.coin={} lr_swap.dst_amount={}wei amount_to_fill={}wei total_price_with_lr={}", 
+                    order.coin, lr_swap.dst_amount, amount_to_fill.to_decimal(), total_price_with_lr.clone().unwrap_or(MmNumber::from(0)).to_decimal());
+                total_price_with_lr
             } else {
                 None
             }
@@ -336,11 +333,11 @@ pub async fn find_best_fill_ask_with_lr(
     base_amount: &MmNumber,
 ) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), ApiIntegrationRpcError> {
     let mut lr_data_map = LrDataMap::new_with_src_token(user_token, orders);
-    let _ = lr_data_map.update_with_contracts(ctx).await;
-    let _ = lr_data_map.calc_destination_token_amounts(ctx, base_amount).await;
-    let _ = lr_data_map.query_destination_token_prices(ctx).await?;
-    let _ = lr_data_map.estimate_source_token_amounts();
-    let _ = lr_data_map.run_lr_quotes(ctx).await?;
+    lr_data_map.update_with_contracts(ctx).await?;
+    lr_data_map.calc_destination_token_amounts(ctx, base_amount).await?;
+    lr_data_map.query_destination_token_prices(ctx).await?;
+    lr_data_map.estimate_source_token_amounts()?;
+    lr_data_map.run_lr_quotes(ctx).await?;
 
     lr_data_map.select_best_swap()
 }
@@ -354,4 +351,10 @@ fn cross_prices_average(series: &Vec<CrossPricesData>) -> MmNumber {
         acc + MmNumber::from(price_data.avg.clone())
     });
     total / MmNumber::from(series.len() as i32)
+}
+
+fn log_cross_prices(prices: &HashMap<(Ticker, Ticker), MmNumber>) {
+    for p in prices {
+        log::debug!("cross prices api src/dst price={:?} {}", p, p.1.to_decimal());
+    }
 }

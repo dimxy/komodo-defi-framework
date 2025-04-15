@@ -50,7 +50,7 @@ pub enum ApiIntegrationRpcError {
     TransactionError(String),
     #[from_stringify("coins::RawTransactionError")]
     #[display(fmt = "Sign transaction error {}", _0)]
-    SignTransactionError(String),    
+    SignTransactionError(String),
 }
 
 impl HttpStatusCode for ApiIntegrationRpcError {
@@ -68,9 +68,9 @@ impl HttpStatusCode for ApiIntegrationRpcError {
             | ApiIntegrationRpcError::InternalError { .. }
             | ApiIntegrationRpcError::ConversionError(_)
             | ApiIntegrationRpcError::LrSwapNotFound => StatusCode::BAD_REQUEST,
-            ApiIntegrationRpcError::OneInchError(_) | ApiIntegrationRpcError::ApiDataError(_) | ApiIntegrationRpcError::TransactionError(_) => {
-                StatusCode::BAD_GATEWAY
-            },
+            ApiIntegrationRpcError::OneInchError(_)
+            | ApiIntegrationRpcError::ApiDataError(_)
+            | ApiIntegrationRpcError::TransactionError(_) => StatusCode::BAD_GATEWAY,
             ApiIntegrationRpcError::ResponseParseError(_) | ApiIntegrationRpcError::SignTransactionError(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             },
