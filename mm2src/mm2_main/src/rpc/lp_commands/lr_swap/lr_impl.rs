@@ -70,16 +70,20 @@ impl LrData {
         let src_contract = self
             .src_contract
             .as_ref()
-            .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
+            .ok_or(ApiIntegrationRpcError::InternalError(
+                "Source LR contract not set".to_owned(),
+            ))?
             .display_address();
         let dst_contract = self
             .dst_contract
             .as_ref()
-            .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?
+            .ok_or(ApiIntegrationRpcError::InternalError(
+                "Destination LR contract not set".to_owned(),
+            ))?
             .display_address();
         let chain_id = self
             .chain_id
-            .ok_or(ApiIntegrationRpcError::InternalError("no chain id".to_owned()))?;
+            .ok_or(ApiIntegrationRpcError::InternalError("LR chain id not set".to_owned()))?;
         Ok((src_contract, dst_contract, chain_id))
     }
 }
