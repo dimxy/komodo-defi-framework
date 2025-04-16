@@ -1,4 +1,5 @@
-//! Finding best swaps with liquidity routing support
+//! Finding best quote to do swaps with liquidity routing (LR) support
+//! Swaps with LR run additional interim swaps in EVM chains to convert one token into another token suitable to do a normal atomic swap.
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
@@ -49,18 +50,25 @@ fn wei_to_coins_mm_number(u256: U256, decimals: u8) -> NumConversResult<MmNumber
 
 /// Internal struct to collect data for selecting the best swap with LR
 struct LrData {
+    /// Order to fill
     order: RpcOrderbookEntryV2,
+    /// Source token contract address (to do interim LR swap from)
     src_contract: Option<EthAddress>,
-    /// Source token (to do LR from) amount in wei
+    /// Source token amount in wei
     src_amount: Option<U256>,
+    /// Source token decimals
     src_decimals: Option<u8>,
+    /// Destination token contract address (to do interim LR swap into)
     dst_contract: Option<EthAddress>,
-    /// Destination token (to do LR into) amount in wei
+    /// Destination token amount in wei
     dst_amount: Option<U256>,
+    /// Destination token decimals
     dst_decimals: Option<u8>,
+    /// Chain id where interim LR swap occurs (obtained from the destination token)
     chain_id: Option<u64>,
-    /// Queried src token / dst token price
+    /// Estimated src token / dst token price
     lr_price: Option<MmNumber>,
+    /// A quote from LR provider with tx data to do interim LR swap of src token to dst token
     lr_swap_data: Option<ClassicSwapData>,
 }
 
