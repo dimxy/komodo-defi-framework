@@ -154,6 +154,20 @@ async fn zombie_coin_send_and_spend_maker_payment() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn zombie_coin_send_standard_dex_fee() {
+    let _lock = GEN_TX_LOCK_MUTEX_ADDR2.lock().await;
+    let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1qvqstxphqyqqpqqnh3hstqpdjzkpadeed6u7fz230jmm2mxl0aacrtu9vt7a7rmr2w5az5u79d24t0rudak3newknrz5l0m3dsd8m4dffqh5xwyldc5qwz8pnalrnhlxdzf900x83jazc52y25e9hvyd4kepaze6nlcvk8sd8a4qjh3e9j5d6730t7ctzhhrhp0zljjtwuptadnksxf8a8y5axwdhass5pjaxg0hzhg7z25rx0rll7a6txywl32s6cda0s5kexr03uqdtelwe", "we").await;
+
+    assert!(coin.is_sapling_state_synced().await);
+
+    let tx = z_send_dex_fee(&coin, DexFee::Standard("0.01".into()), &[1; 16])
+        .await
+        .unwrap();
+    log!("dex fee tx {}", tx.txid());
+    drop(_lock)
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn zombie_coin_send_dex_fee() {
     let _lock = GEN_TX_LOCK_MUTEX_ADDR2.lock().await;
     let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1qvqstxphqyqqpqqnh3hstqpdjzkpadeed6u7fz230jmm2mxl0aacrtu9vt7a7rmr2w5az5u79d24t0rudak3newknrz5l0m3dsd8m4dffqh5xwyldc5qwz8pnalrnhlxdzf900x83jazc52y25e9hvyd4kepaze6nlcvk8sd8a4qjh3e9j5d6730t7ctzhhrhp0zljjtwuptadnksxf8a8y5axwdhass5pjaxg0hzhg7z25rx0rll7a6txywl32s6cda0s5kexr03uqdtelwe", "we").await;
@@ -168,20 +182,6 @@ async fn zombie_coin_send_dex_fee() {
     let tx = z_send_dex_fee(&coin, dex_fee, &[1; 16]).await.unwrap();
     log!("dex fee tx {}", tx.txid());
     drop(_lock);
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn zombie_coin_send_standard_dex_fee() {
-    let _lock = GEN_TX_LOCK_MUTEX_ADDR2.lock().await;
-    let (_ctx, coin) = z_coin_from_spending_key("secret-extended-key-main1qvqstxphqyqqpqqnh3hstqpdjzkpadeed6u7fz230jmm2mxl0aacrtu9vt7a7rmr2w5az5u79d24t0rudak3newknrz5l0m3dsd8m4dffqh5xwyldc5qwz8pnalrnhlxdzf900x83jazc52y25e9hvyd4kepaze6nlcvk8sd8a4qjh3e9j5d6730t7ctzhhrhp0zljjtwuptadnksxf8a8y5axwdhass5pjaxg0hzhg7z25rx0rll7a6txywl32s6cda0s5kexr03uqdtelwe", "we").await;
-
-    assert!(coin.is_sapling_state_synced().await);
-
-    let tx = z_send_dex_fee(&coin, DexFee::Standard("0.01".into()), &[1; 16])
-        .await
-        .unwrap();
-    log!("dex fee tx {}", tx.txid());
-    drop(_lock)
 }
 
 #[tokio::test(flavor = "current_thread")]

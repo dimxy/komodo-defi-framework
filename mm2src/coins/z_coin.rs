@@ -412,6 +412,7 @@ impl ZCoin {
                 .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
 
             let change_notes = self.z_fields.locked_notes_db.load_all_notes().await?;
+            println!("LOCKED NOTES: {change_notes:?}");
             if change_notes.is_empty() {
                 return self
                     .gen_tx_impl(
@@ -1082,7 +1083,9 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
         );
 
         let blocks_db = self.init_blocks_db().await?;
-        let locked_notes_db = LockedNotesStorage::new(self.ctx.clone(), my_z_addr_encoded.clone()).await?;
+        let locked_notes_db_path = self.db_dir_path.join(format!("{}_locked_notes_cache.db", self.ticker));
+        let locked_notes_db =
+            LockedNotesStorage::new(self.ctx.clone(), my_z_addr_encoded.clone(), locked_notes_db_path).await?;
 
         let (sync_state_connector, light_wallet_db) = match &self.z_coin_params.mode {
             #[cfg(not(target_arch = "wasm32"))]
