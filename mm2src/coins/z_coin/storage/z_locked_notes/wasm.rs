@@ -59,7 +59,7 @@ impl LockedNotesStorage {
 }
 
 impl LockedNotesStorage {
-    pub(crate) async fn new(ctx: MmArc, address: String) -> Result<Self, LockedNotesStorageError> {
+    pub(crate) async fn new(ctx: MmArc, address: String, _path: String) -> Result<Self, LockedNotesStorageError> {
         let db = ConstructibleDb::new(&ctx).into_shared();
         Ok(Self { address, db })
     }

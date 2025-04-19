@@ -38,43 +38,20 @@ impl LockedNotesStorage {
             .await?)
     }
 
-    #[cfg(feature = "run-docker-tests")]
+    #[cfg(any(test, feature = "run-docker-tests"))]
     pub(crate) async fn new(_ctx: MmArc, address: String, path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
-        let db = AsyncConnection::open(path)
-            .await
-            .map_to_mm(|err| LockedNotesStorageError::SqliteError(err.to_string()))?;
-
-        let db = Arc::new(Mutex::new(db));
-        let conn_clone = db.clone();
-        let conn_lock = conn_clone.lock().await;
-
-        Ok(conn_lock
-            .call(move |conn| {
-                run_optimization_pragmas(conn)?;
-                conn.execute(
-                    &format!(
-                        "CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-                         rseed VARCHAR NOT NULL UNIQUE,
-                         hex TEXT NOT NULL
-                         )"
-                    ),
-                    [],
-                )?;
-                Ok(Self { db, address })
-            })
-            .await?)
-    }
-
-    #[cfg(test)]
-    pub(crate) async fn new(_ctx: MmArc, address: String, path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
-        let db = AsyncConnection::open(path)
-            .await
-            .map_to_mm(|err| LockedNotesStorageError::SqliteError(err.to_string()))?;
-
+        #[cfg(feature = "run-docker-tests")]
+        let db = Arc::new(Mutex::new(
+            AsyncConnection::open(path)
+                .await
+                .map_to_mm(|err| LockedNotesStorageError::SqliteError(err.to_string()))?,
+        ));
+        #[cfg(all(test, not(feature = "run-docker-tests")))]
         let db = {
             let test_conn = Arc::new(Mutex::new(AsyncConnection::open_in_memory().await.unwrap()));
-            ctx.async_sqlite_connection.get().cloned().unwrap_or(test_conn)
+            _ctx.async_sqlite_connection.get().cloned().unwrap_or(test_conn)
         };
+
         let conn_clone = db.clone();
         let conn_lock = conn_clone.lock().await;
 
@@ -110,8 +87,7 @@ impl LockedNotesStorage {
     }
 
     pub(crate) async fn remove_note(&self, hex: String) -> MmResult<(), LockedNotesStorageError> {
-        // common::log::info!("unlocking {hex} notes");
-        println!("unlocking {hex} notes");
+        common::log::info!("unlocking {hex} notes");
         let db = self.db.lock().await;
         Ok(db
             .call(move |conn| {
