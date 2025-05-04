@@ -63,7 +63,7 @@ impl CrossPriceParams {
     def_with_opt_param!(granularity, DataGranularity);
     def_with_opt_param!(limit, u32);
 
-    pub fn build_query_params(&self) -> MmResult<QueryParams<'static>, ApiClientError> {
+    pub fn build_query_params(&self) -> MmResult<QueryParams, ApiClientError> {
         let mut params = vec![
             ("chain_id", self.chain_id.to_string()),
             ("token0_address", self.token0_address.clone()),
@@ -77,14 +77,22 @@ impl CrossPriceParams {
     }
 }
 
-/// Element of token_0/token_1 prices series returned from a cross prices call
+/// Element of token_0/token_1 price series returned from the 1inch cross_prices call.
+/// Contains OHLC (Open, High, Low, Close) prices for the granularity period.
+/// TODO: check cross_prices v2
 #[derive(Clone, Deserialize, Debug)]
 pub struct CrossPricesData {
+    /// Time of the granularity period
     pub timestamp: u64,
+    /// Price at the period opening
     pub open: BigDecimal,
+    /// Lowest price within the period
     pub low: BigDecimal,
+    /// Average price within the period
     pub avg: BigDecimal,
+    /// Highest price within the period
     pub high: BigDecimal,
+    /// Price at the period closing
     pub close: BigDecimal,
 }
 

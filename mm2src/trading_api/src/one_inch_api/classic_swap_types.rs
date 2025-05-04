@@ -65,7 +65,7 @@ impl ClassicSwapQuoteParams {
     def_with_opt_param!(include_gas, bool);
     def_with_opt_param!(connector_tokens, String);
 
-    pub fn build_query_params(&self) -> MmResult<QueryParams<'static>, ApiClientError> {
+    pub fn build_query_params(&self) -> MmResult<QueryParams, ApiClientError> {
         self.validate_params()?;
 
         let mut params = vec![
@@ -161,7 +161,7 @@ impl ClassicSwapCreateParams {
     def_with_opt_param!(allow_partial_fill, bool);
     def_with_opt_param!(use_permit2, bool);
 
-    pub fn build_query_params(&self) -> MmResult<QueryParams<'static>, ApiClientError> {
+    pub fn build_query_params(&self) -> MmResult<QueryParams, ApiClientError> {
         self.validate_params()?;
 
         let mut params = vec![

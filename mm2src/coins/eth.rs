@@ -6090,12 +6090,15 @@ pub fn wei_from_big_decimal(amount: &BigDecimal, decimals: u8) -> NumConversResu
     U256::from_dec_str(&amount).map_to_mm(|e| NumConversError::new(format!("{:?}", e)))
 }
 
+#[inline(always)]
 pub fn wei_from_gwei_decimal(bigdec: &BigDecimal) -> NumConversResult<U256> {
     wei_from_big_decimal(bigdec, ETH_GWEI_DECIMALS)
 }
 
+#[inline(always)]
 pub fn wei_to_gwei_decimal(wei: U256) -> NumConversResult<BigDecimal> { u256_to_big_decimal(wei, ETH_GWEI_DECIMALS) }
 
+#[inline(always)]
 pub fn wei_to_eth_decimal(wei: U256) -> NumConversResult<BigDecimal> { u256_to_big_decimal(wei, ETH_DECIMALS) } // TODO: use wei_to_eth_decimal instead of u256_to_big_decimal(gas_cost_wei, ETH_DECIMALS)
 
 impl Transaction for SignedEthTx {

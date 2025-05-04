@@ -49,9 +49,11 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
     .with_include_gas(Some(req.include_gas))
     .with_connector_tokens(req.connector_tokens)
     .build_query_params()?;
-    let url_builder = SwapUrlBuilder::create_api_url_builder(&ctx, base.chain_id(), SwapApiMethods::ClassicSwapQuote)?;
-    let quote = ApiClient::call_one_inch_api(url_builder, Some(query_params)).await?; // use 'base' as amount in errors is in the src coin
-    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), quote)
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base.chain_id(), SwapApiMethods::ClassicSwapQuote)?
+        .with_query_params(query_params)
+        .build()?;
+    let quote = ApiClient::call_api(url).await?;
+    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), quote) // use 'base' as amount in errors is in the src coin
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))
 }
@@ -97,8 +99,10 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
     .with_allow_partial_fill(req.allow_partial_fill)
     .with_use_permit2(req.use_permit2)
     .build_query_params()?;
-    let url_builder = SwapUrlBuilder::create_api_url_builder(&ctx, base.chain_id(), SwapApiMethods::ClassicSwapCreate)?;
-    let swap_with_tx = ApiClient::call_one_inch_api(url_builder, Some(query_params)).await?;
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base.chain_id(), SwapApiMethods::ClassicSwapCreate)?
+        .with_query_params(query_params)
+        .build()?;
+    let swap_with_tx = ApiClient::call_api(url).await?;
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), swap_with_tx)
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))
@@ -110,8 +114,8 @@ pub async fn one_inch_v6_0_classic_swap_liquidity_sources_rpc(
     ctx: MmArc,
     req: ClassicSwapLiquiditySourcesRequest,
 ) -> MmResult<ClassicSwapLiquiditySourcesResponse, ApiIntegrationRpcError> {
-    let url_builder = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::LiquiditySources)?;
-    let response: ProtocolsResponse = ApiClient::call_one_inch_api(url_builder, None).await?;
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::LiquiditySources)?.build()?;
+    let response: ProtocolsResponse = ApiClient::call_api(url).await?;
     Ok(ClassicSwapLiquiditySourcesResponse {
         protocols: response.protocols,
     })
@@ -123,8 +127,8 @@ pub async fn one_inch_v6_0_classic_swap_tokens_rpc(
     ctx: MmArc,
     req: ClassicSwapTokensRequest,
 ) -> MmResult<ClassicSwapTokensResponse, ApiIntegrationRpcError> {
-    let url_builder = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::Tokens)?;
-    let response: TokensResponse = ApiClient::call_one_inch_api(url_builder, None).await?;
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::Tokens)?.build()?;
+    let response: TokensResponse = ApiClient::call_api(url).await?;
     Ok(ClassicSwapTokensResponse {
         tokens: response.tokens,
     })
@@ -396,7 +400,7 @@ mod tests {
             use_permit2: None,
         };
 
-        ApiClient::call_one_inch_api::<ClassicSwapData>.mock_safe(move |_, _| {
+        ApiClient::call_api::<ClassicSwapData>.mock_safe(move |_| {
             let response_quote_raw = response_quote_raw.clone();
             MockResult::Return(Box::pin(async move {
                 Ok(serde_json::from_value::<ClassicSwapData>(response_quote_raw).unwrap())
@@ -414,7 +418,7 @@ mod tests {
         assert_eq!(quote_response.dst_token.as_ref().unwrap().decimals, 6);
         assert_eq!(quote_response.gas.unwrap(), 452704_u128);
 
-        ApiClient::call_one_inch_api::<ClassicSwapData>.mock_safe(move |_, _| {
+        ApiClient::call_api::<ClassicSwapData>.mock_safe(move |_| {
             let response_create_raw = response_create_raw.clone();
             MockResult::Return(Box::pin(async move {
                 Ok(serde_json::from_value::<ClassicSwapData>(response_create_raw).unwrap())

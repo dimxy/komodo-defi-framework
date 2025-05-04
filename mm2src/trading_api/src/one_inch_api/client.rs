@@ -30,7 +30,7 @@ lazy_static! {
     static ref ONE_INCH_API_TEST_AUTH: String = std::env::var("ONE_INCH_API_TEST_AUTH").unwrap_or_default();
 }
 
-pub(crate) type QueryParams<'life> = Vec<(&'life str, String)>;
+pub(crate) type QueryParams = Vec<(&'static str, String)>;
 
 /// 1inch v6.0 supported eth-based chains
 const ONE_INCH_V6_0_SUPPORTED_CHAINS: &[(&str, u64)] = &[
@@ -48,18 +48,19 @@ const ONE_INCH_V6_0_SUPPORTED_CHAINS: &[(&str, u64)] = &[
     ("Aurora", 1313161554),
 ];
 
-pub struct UrlBuilder<'a> {
+/// 1inch API basic url builder
+pub struct UrlBuilder {
     base_url: Url,
-    endpoint: &'a str,
+    endpoint: &'static str,
     chain_id: Option<u64>,
     method_name: String,
-    query_params: QueryParams<'a>,
+    query_params: QueryParams,
 }
 
-impl<'a> UrlBuilder<'a> {
-    /// Build url to call 1inch api's.
-    /// Note: in the classic swap api chain_id is added into url path, in portfolio chain_id is a query param so it would be optional here.
-    fn new(base_url: Url, chain_id: Option<u64>, endpoint: &'a str, method_name: String) -> Self {
+impl UrlBuilder {
+    /// Create new basic url builder to call 1inch API's. Normally used by specific API url builders.
+    /// Note: in the classic swap API chain_id is added into url path, in portfolio chain_id is a query param so it would be optional here.
+    fn new(base_url: Url, chain_id: Option<u64>, endpoint: &'static str, method_name: String) -> Self {
         Self {
             base_url,
             endpoint,
@@ -69,13 +70,13 @@ impl<'a> UrlBuilder<'a> {
         }
     }
 
-    fn with_query_params(mut self, mut more_params: QueryParams<'a>) -> Self {
+    pub fn with_query_params(mut self, mut more_params: QueryParams) -> Self {
         self.query_params.append(&mut more_params);
         self
     }
 
     #[allow(clippy::result_large_err)]
-    fn build(&self) -> MmResult<Url, ApiClientError> {
+    pub fn build(&self) -> MmResult<Url, ApiClientError> {
         let url = self.base_url.join(self.endpoint)?;
         let url = if let Some(chain_id) = self.chain_id {
             url.join(&format!("{}/", chain_id))?
@@ -203,7 +204,7 @@ impl ApiClient {
         ]
     }
 
-    pub(crate) async fn call_api<T: DeserializeOwned>(api_url: &Url) -> MmResult<T, ApiClientError> {
+    pub async fn call_api<T: DeserializeOwned>(api_url: Url) -> MmResult<T, ApiClientError> {
         #[cfg(feature = "test-ext-api")]
         let _guard = ApiClient::one_req_per_sec().await;
 
@@ -226,19 +227,6 @@ impl ApiClient {
             }
             .into()
         })
-    }
-
-    pub async fn call_one_inch_api<'l, T: DeserializeOwned>(
-        url_builder: UrlBuilder<'l>,
-        params: Option<QueryParams<'l>>,
-    ) -> MmResult<T, ApiClientError> {
-        let url_builder = if let Some(params) = params {
-            url_builder.with_query_params(params)
-        } else {
-            url_builder
-        };
-        let api_url = url_builder.build()?;
-        ApiClient::call_api(&api_url).await
     }
 
     /// Prevent concurrent calls

@@ -127,7 +127,7 @@ impl LrDataMap {
     }
 
     /// Calculate amounts of destination tokens required to fill ask orders for the requested base_amount:
-    /// multiplies base_amount by the order price (base_amount must be in 'coins')
+    /// multiplies base_amount by the order price. Base_amount must be in coin units (with decimals)
     async fn calc_destination_token_amounts(
         &mut self,
         ctx: &MmArc,
@@ -148,15 +148,15 @@ impl LrDataMap {
         Ok(())
     }
 
-    fn update_with_lr_prices(&mut self, mut lr_prices: HashMap<(Ticker, Ticker), MmNumber>) {
+    fn update_with_lr_prices(&mut self, mut lr_prices: HashMap<(Ticker, Ticker), Option<MmNumber>>) {
         for (key, val) in self.inner.iter_mut() {
-            val.lr_price = lr_prices.remove(key);
+            val.lr_price = lr_prices.remove(key).flatten();
         }
     }
 
-    fn update_with_lr_swap_data(&mut self, mut lr_swap_data: HashMap<(Ticker, Ticker), ClassicSwapData>) {
+    fn update_with_lr_swap_data(&mut self, mut lr_swap_data: HashMap<(Ticker, Ticker), Option<ClassicSwapData>>) {
         for (key, val) in self.inner.iter_mut() {
-            val.lr_swap_data = lr_swap_data.remove(key);
+            val.lr_swap_data = lr_swap_data.remove(key).flatten();
         }
     }
 
@@ -166,18 +166,13 @@ impl LrDataMap {
             let (dst_coin, dst_contract) = get_coin_for_one_inch(ctx, dst_token).await?;
             let src_decimals = src_coin.decimals();
             let dst_decimals = dst_coin.decimals();
-            if src_decimals == 0 {
-                return MmError::err(ApiIntegrationRpcError::InternalError(format!(
-                    "Source token '{}' has invalid decimals (0)",
-                    src_token
-                )));
+
+            #[cfg(feature = "for-tests")]
+            {
+                assert_ne!(src_decimals, 0);
+                assert_ne!(dst_decimals, 0);
             }
-            if dst_decimals == 0 {
-                return MmError::err(ApiIntegrationRpcError::InternalError(format!(
-                    "Destination token '{}' has invalid decimals (0)",
-                    dst_token
-                )));
-            }
+
             lr_data.src_contract = Some(src_contract);
             lr_data.dst_contract = Some(dst_contract);
             lr_data.src_decimals = Some(src_decimals);
@@ -199,32 +194,25 @@ impl LrDataMap {
                 .with_granularity(Some(CROSS_PRICES_GRANULARITY))
                 .with_limit(Some(CROSS_PRICES_LIMIT))
                 .build_query_params()?;
-            let url_builder = PortfolioUrlBuilder::create_api_url_builder(ctx, PortfolioApiMethods::CrossPrices)?;
-            let fut = ApiClient::call_one_inch_api::<CrossPricesSeries>(url_builder, Some(query_params));
+            let url = PortfolioUrlBuilder::create_api_url_builder(ctx, PortfolioApiMethods::CrossPrices)?
+                .with_query_params(query_params)
+                .build()?;
+            let fut = ApiClient::call_api::<CrossPricesSeries>(url);
             prices_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
         }
-        let prices_in_series = join_all(prices_futs)
-            .await
-            .into_iter()
-            .filter_map(|res| if let Ok(prices) = res { Some(prices) } else { None }) // skip if bad result received (for e.g. low liguidity)
-            .collect::<Vec<_>>();
+        let prices_in_series = join_all(prices_futs).await.into_iter().map(|res| res.ok()); // set bad results to None to preserve prices_in_series length
 
         let quotes = src_dst
             .into_iter()
-            .zip(prices_in_series.iter())
+            .zip(prices_in_series)
             .map(|((src, dst), series)| {
                 let dst_price = cross_prices_average(series);
                 ((src, dst), dst_price)
             })
             .collect::<HashMap<_, _>>();
-        for q in &quotes {
-            log::debug!(
-                "query_destination_token_prices src/dst quote={:?} {}",
-                q,
-                q.1.to_decimal()
-            );
-        }
+
+        log_cross_prices(&quotes);
         self.update_with_lr_prices(quotes);
         Ok(())
     }
@@ -266,17 +254,14 @@ impl LrDataMap {
                 .with_include_tokens_info(Some(true))
                 .with_include_gas(Some(true))
                 .build_query_params()?;
-            let url_builder = SwapUrlBuilder::create_api_url_builder(ctx, chain_id, SwapApiMethods::ClassicSwapQuote)?;
-            let fut = ApiClient::call_one_inch_api::<ClassicSwapData>(url_builder, Some(query_params));
+            let url = SwapUrlBuilder::create_api_url_builder(ctx, chain_id, SwapApiMethods::ClassicSwapQuote)?
+                .with_query_params(query_params)
+                .build()?;
+            let fut = ApiClient::call_api::<ClassicSwapData>(url);
             quote_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
         }
-
-        let swap_data = join_all(quote_futs)
-            .await
-            .into_iter()
-            .filter_map(|res| if let Ok(lr_data) = res { Some(lr_data) } else { None }) // skip if bad result received (for e.g. low liguidity)
-            .collect::<Vec<_>>();
+        let swap_data = join_all(quote_futs).await.into_iter().map(|res| res.ok()); // if a bad result received (for e.g. low liguidity) set to None to preserve swap_data length
         let swap_data_map = src_dst.into_iter().zip(swap_data.into_iter()).collect();
         self.update_with_lr_swap_data(swap_data_map);
         Ok(())
@@ -339,12 +324,25 @@ pub async fn find_best_fill_ask_with_lr(
 }
 
 /// Helper to process 1inch token cross prices data and return average price
-fn cross_prices_average(series: &CrossPricesSeries) -> MmNumber {
+fn cross_prices_average(series: Option<CrossPricesSeries>) -> Option<MmNumber> {
+    let Some(series) = series else {
+        return None;
+    };
     if series.is_empty() {
-        return MmNumber::from(0);
+        return None;
     }
     let total: MmNumber = series.iter().fold(MmNumber::from(0), |acc, price_data| {
         acc + MmNumber::from(price_data.avg.clone())
     });
-    total / MmNumber::from(series.len() as u64)
+    Some(total / MmNumber::from(series.len() as u64))
+}
+
+fn log_cross_prices(prices: &HashMap<(Ticker, Ticker), Option<MmNumber>>) {
+    for p in prices {
+        log::debug!(
+            "cross prices api src/dst price={:?} {:?}",
+            p,
+            p.1.clone().map(|v| v.to_decimal())
+        );
+    }
 }
