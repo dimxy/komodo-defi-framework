@@ -1397,6 +1397,7 @@ impl MarketMakerIt {
             let executable = try_s!(env::args().next().ok_or("No program name"));
             let executable = try_s!(Path::new(&executable).canonicalize());
             let log = try_s!(fs::File::create(&log_path));
+            let envs_fixed = fix_rust_log_if_present(envs);
             let child = try_s!(Command::new(executable)
                 .arg("test_mm_start")
                 .arg("--nocapture")
@@ -1404,7 +1405,7 @@ impl MarketMakerIt {
                 .env("_MM2_TEST_CONF", try_s!(json::to_string(&conf)))
                 .env("MM2_UNBUFFERED_OUTPUT", "1")
                 .env("RUST_LOG", read_rust_log().as_str())
-                .envs(envs.to_vec())
+                .envs(envs_fixed.iter().map(|(k, v)| (k, v)))
                 .stdout(try_s!(log.try_clone()))
                 .stderr(log)
                 .spawn());
@@ -4087,33 +4088,37 @@ pub async fn active_swaps(mm: &MarketMakerIt) -> ActiveSwapsResponse {
     json::from_str(&response.1).unwrap()
 }
 
-/// Helper to read RUST_LOG env variable and ensure it contains at least module=info for certain modules
-/// which is needed for wait_for_log to work correctly
+/// Helper to read RUST_LOG env variable and ensure it contains module=info for certain modules needed for tests (wait_for_log to work correctly)
 #[cfg(not(target_arch = "wasm32"))]
 fn read_rust_log() -> String {
-    // Add module=info or replace module=off with module=info, in the source str
-    let ensure_contains_info = |source: &str, module: &str| {
-        let mut updated = source.split(',')
-            .map(|s| {
-                if s.starts_with(&(module.to_owned() + "=off")) {
-                    module.to_owned() + "=info"
-                } else {
-                    s.to_owned()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(",");
+  
+    let rust_log = env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string()); // assume RUST_LOG=debug by default
+    ensure_needed_modules_logged(&rust_log)
+}
 
-        if !updated.contains(module) {
-            if updated.len() > 0 {
-                updated.push(',');
-            }
-            updated.push_str(&(module.to_owned() + "=info"));
+/// Helper to ensure that RUST_LOG (if present in env_vars) contains module=info for certain modules needed for tests (wait_for_log to work correctly)
+#[cfg(not(target_arch = "wasm32"))]
+fn fix_rust_log_if_present(env_vars: &[(&str, &str)]) -> Vec<(String, String)> {
+    env_vars.iter().map(|(key, value)| {
+        if *key == "RUST_LOG" {
+            (key.to_string(), ensure_needed_modules_logged(value))
+        } else {
+            (key.to_string(), value.to_string())
         }
+    })
+    .collect()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn ensure_needed_modules_logged(rust_log: &str) -> String {   
+    // Add module=info to the source
+    let add_module_info = |source: &str, module: &str| {
+        let mut updated = source.to_string();
+        if updated.len() > 0 {
+            updated.push(',');
+        }
+        updated.push_str(&(module.to_owned() + "=info"));
         updated
-    };    
-    let rust_log = env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string()); // RUST_LOG=debug by default
-    // ensure we have some logs enabled, needed for wait_for_log in tests:
-    let rust_log = ensure_contains_info(&rust_log, "mm2_p2p");
-    rust_log
+    };  
+    add_module_info(rust_log, "mm2_p2p")
 }
