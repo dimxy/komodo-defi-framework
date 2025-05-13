@@ -26,6 +26,7 @@ cfg_native!(
 
 // old way to add some extra gas to the returned value from gas station (non-existent now), still used in tests
 const GAS_PRICE_PERCENT: u64 = 10;
+const MATIC_CHAIN_ID: u64 = 137;
 
 fn check_sum(addr: &str, expected: &str) {
     let actual = checksum_address(addr);
@@ -486,7 +487,7 @@ fn test_get_fee_to_send_taker_fee() {
 
     let (_ctx, coin) = eth_coin_for_test(EthCoinType::Eth, &["http://dummy.dummy"], None, ETH_SEPOLIA_CHAIN_ID);
     let actual = block_on(coin.get_fee_to_send_taker_fee(
-        DexFee::Standard(MmNumber::from(dex_fee_amount.clone())),
+        DexFee::Standard(MmNumber::from(&dex_fee_amount)),
         FeeApproxStage::WithoutApprox,
     ))
     .expect("!get_fee_to_send_taker_fee");
@@ -561,7 +562,6 @@ fn validate_dex_fee_invalid_sender_eth() {
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,
         expected_sender: &DEX_FEE_ADDR_RAW_PUBKEY,
-        fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
         dex_fee: &DexFee::Standard(amount.into()),
         min_block_number: 0,
         uuid: &[],
@@ -597,7 +597,6 @@ fn validate_dex_fee_invalid_sender_erc() {
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,
         expected_sender: &DEX_FEE_ADDR_RAW_PUBKEY,
-        fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
         dex_fee: &DexFee::Standard(amount.into()),
         min_block_number: 0,
         uuid: &[],
@@ -637,7 +636,6 @@ fn validate_dex_fee_eth_confirmed_before_min_block() {
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,
         expected_sender: &compressed_public,
-        fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
         dex_fee: &DexFee::Standard(amount.into()),
         min_block_number: 11784793,
         uuid: &[],
@@ -676,7 +674,6 @@ fn validate_dex_fee_erc_confirmed_before_min_block() {
     let validate_fee_args = ValidateFeeArgs {
         fee_tx: &tx,
         expected_sender: &compressed_public,
-        fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
         dex_fee: &DexFee::Standard(amount.into()),
         min_block_number: 11823975,
         uuid: &[],
@@ -765,11 +762,13 @@ fn polygon_check_if_my_payment_sent() {
       "fname": "Polygon",
       "rpcport": 80,
       "mm2": 1,
-      "chain_id": 137,
       "avg_blocktime": 0.03,
       "required_confirmations": 3,
       "protocol": {
-        "type": "ETH"
+        "type": "ETH",
+        "protocol_data": {
+            "chain_id": MATIC_CHAIN_ID
+        }
       }
     });
 
@@ -786,7 +785,9 @@ fn polygon_check_if_my_payment_sent() {
         "MATIC",
         &conf,
         &request,
-        CoinProtocol::ETH,
+        CoinProtocol::ETH {
+            chain_id: MATIC_CHAIN_ID,
+        },
         priv_key_policy,
     ))
     .unwrap();
@@ -918,11 +919,13 @@ fn test_eth_validate_valid_and_invalid_pubkey() {
       "fname": "Polygon",
       "rpcport": 80,
       "mm2": 1,
-      "chain_id": 137,
       "avg_blocktime": 0.03,
       "required_confirmations": 3,
       "protocol": {
-        "type": "ETH"
+        "type": "ETH",
+        "protocol_data": {
+            "chain_id": MATIC_CHAIN_ID
+        }
       }
     });
 
@@ -943,7 +946,9 @@ fn test_eth_validate_valid_and_invalid_pubkey() {
         "MATIC",
         &conf,
         &request,
-        CoinProtocol::ETH,
+        CoinProtocol::ETH {
+            chain_id: MATIC_CHAIN_ID,
+        },
         priv_key_policy,
     ))
     .unwrap();
@@ -980,11 +985,12 @@ fn test_gas_limit_conf() {
             "coin": "ETH",
             "name": "ethereum",
             "fname": "Ethereum",
-            "chain_id": 1337,
             "protocol":{
-                "type": "ETH"
+                "type": "ETH",
+                "protocol_data": {
+                    "chain_id": ETH_SEPOLIA_CHAIN_ID
+                }
             },
-            "chain_id": 1,
             "rpcport": 80,
             "mm2": 1,
             "gas_limit": {

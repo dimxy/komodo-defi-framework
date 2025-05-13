@@ -80,7 +80,6 @@ use http::Uri;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, BigUint, MmNumber};
-#[cfg(test)] use mocktopus::macros::*;
 use rand::seq::SliceRandom;
 use rlp::{DecoderError, Encodable, RlpStream};
 use rpc::v1::types::Bytes as BytesJson;
@@ -161,6 +160,8 @@ pub mod erc20;
 use erc20::get_token_decimals;
 pub(crate) mod eth_swap_v2;
 use eth_swap_v2::{extract_id_from_tx_data, EthPaymentType, PaymentMethod, SpendTxSearchParams};
+
+pub mod tron;
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
@@ -763,6 +764,30 @@ struct SavedErc20Events {
     latest_block: U64,
 }
 
+/// Specifies which blockchain the EthCoin operates on: EVM-compatible or TRON.
+/// This distinction allows unified logic for EVM & TRON coins.
+#[derive(Clone, Debug)]
+pub enum ChainSpec {
+    Evm { chain_id: u64 },
+    Tron { network: tron::Network },
+}
+
+impl ChainSpec {
+    pub fn chain_id(&self) -> Option<u64> {
+        match self {
+            ChainSpec::Evm { chain_id } => Some(*chain_id),
+            ChainSpec::Tron { .. } => None,
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ChainSpec::Evm { .. } => "EVM",
+            ChainSpec::Tron { .. } => "TRON",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EthCoinType {
     /// Ethereum itself or it's forks: ETC/others
@@ -817,6 +842,8 @@ impl From<PrivKeyBuildPolicy> for EthPrivKeyBuildPolicy {
 pub struct EthCoinImpl {
     ticker: String,
     pub coin_type: EthCoinType,
+    /// Specifies the underlying blockchain (EVM or TRON).
+    pub chain_spec: ChainSpec,
     pub(crate) priv_key_policy: EthPrivKeyPolicy,
     /// Either an Iguana address or a 'EthHDWallet' instance.
     /// Arc is used to use the same hd wallet from platform coin if we need to.
@@ -837,7 +864,6 @@ pub struct EthCoinImpl {
     /// Coin needs access to the context in order to reuse the logging and shutdown facilities.
     /// Using a weak reference by default in order to avoid circular references and leaks.
     pub ctx: MmWeak,
-    chain_id: u64,
     /// The name of the coin with which Trezor wallet associates this asset.
     trezor_coin: Option<String>,
     /// the block range used for eth_getLogs
@@ -1044,7 +1070,7 @@ impl EthCoinImpl {
     }
 
     #[inline(always)]
-    pub fn chain_id(&self) -> u64 { self.chain_id }
+    pub fn chain_id(&self) -> Option<u64> { self.chain_spec.chain_id() }
 }
 
 async fn get_raw_transaction_impl(coin: EthCoin, req: RawTransactionRequest) -> RawTransactionResult {
@@ -1162,14 +1188,23 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
         .build()
         .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
     let secret = eth_coin.priv_key_policy.activated_key_or_err()?.secret();
-    let signed = tx.sign(secret, Some(eth_coin.chain_id))?;
+    let chain_id = match eth_coin.chain_spec {
+        ChainSpec::Evm { chain_id } => chain_id,
+        // Todo: Add support for Tron NFTs
+        ChainSpec::Tron { .. } => {
+            return MmError::err(WithdrawError::InternalError(
+                "Tron is not supported for withdraw_erc1155 yet".to_owned(),
+            ))
+        },
+    };
+    let signed = tx.sign(secret, Some(chain_id))?;
     let signed_bytes = rlp::encode(&signed);
     let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
 
     Ok(TransactionNftDetails {
         tx_hex: BytesJson::from(signed_bytes.to_vec()), // TODO: should we return tx_hex 0x-prefixed (everywhere)?
         tx_hash: format!("{:02x}", signed.tx_hash_as_bytes()), // TODO: add 0x hash (use unified hash format for eth wherever it is returned)
-        from: vec![eth_coin.my_address()?],
+        from: vec![my_address.display_address()],
         to: vec![withdraw_type.to],
         contract_type: ContractType::Erc1155,
         token_address: withdraw_type.token_address,
@@ -1253,14 +1288,23 @@ pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> Withd
         .build()
         .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
     let secret = eth_coin.priv_key_policy.activated_key_or_err()?.secret();
-    let signed = tx.sign(secret, Some(eth_coin.chain_id))?;
+    let chain_id = match eth_coin.chain_spec {
+        ChainSpec::Evm { chain_id } => chain_id,
+        // Todo: Add support for Tron NFTs
+        ChainSpec::Tron { .. } => {
+            return MmError::err(WithdrawError::InternalError(
+                "Tron is not supported for withdraw_erc721 yet".to_owned(),
+            ))
+        },
+    };
+    let signed = tx.sign(secret, Some(chain_id))?;
     let signed_bytes = rlp::encode(&signed);
     let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
 
     Ok(TransactionNftDetails {
         tx_hex: BytesJson::from(signed_bytes.to_vec()),
         tx_hash: format!("{:02x}", signed.tx_hash_as_bytes()), // TODO: add 0x hash (use unified hash format for eth wherever it is returned)
-        from: vec![eth_coin.my_address()?],
+        from: vec![my_address.display_address()],
         to: vec![withdraw_type.to],
         contract_type: ContractType::Erc721,
         token_address: withdraw_type.token_address,
@@ -1284,14 +1328,8 @@ impl Deref for EthCoin {
 
 #[async_trait]
 impl SwapOps for EthCoin {
-    async fn send_taker_fee(
-        &self,
-        fee_addr: &[u8],
-        dex_fee: DexFee,
-        _uuid: &[u8],
-        _expire_at: u64,
-    ) -> TransactionResult {
-        let address = try_tx_s!(addr_from_raw_pubkey(fee_addr));
+    async fn send_taker_fee(&self, dex_fee: DexFee, _uuid: &[u8], _expire_at: u64) -> TransactionResult {
+        let address = try_tx_s!(addr_from_raw_pubkey(self.dex_pubkey()));
         self.send_to_address(
             address,
             try_tx_s!(wei_from_big_decimal(&dex_fee.fee_amount().into(), self.decimals)),
@@ -1358,7 +1396,6 @@ impl SwapOps for EthCoin {
         validate_fee_impl(self.clone(), EthValidateFeeArgs {
             fee_tx_hash: &tx.tx_hash(),
             expected_sender: validate_fee_args.expected_sender,
-            fee_addr: validate_fee_args.fee_addr,
             amount: &validate_fee_args.dex_fee.fee_amount().into(),
             min_block_number: validate_fee_args.min_block_number,
             uuid: validate_fee_args.uuid,
@@ -1671,7 +1708,6 @@ impl WatcherOps for EthCoin {
         validate_fee_impl(self.clone(), EthValidateFeeArgs {
             fee_tx_hash: &H256::from_slice(validate_fee_args.taker_fee_hash.as_slice()),
             expected_sender: &validate_fee_args.sender_pubkey,
-            fee_addr: &validate_fee_args.fee_addr,
             amount: &BigDecimal::from(0),
             min_block_number: validate_fee_args.min_block_number,
             uuid: &[],
@@ -2281,7 +2317,6 @@ impl WatcherOps for EthCoin {
 
 #[async_trait]
 #[cfg_attr(test, mockable)]
-#[async_trait]
 impl MarketCoinOps for EthCoin {
     fn ticker(&self) -> &str { &self.ticker[..] }
 
@@ -2600,6 +2635,9 @@ impl MarketCoinOps for EthCoin {
         MmNumber::from(1) / MmNumber::from(10u64.pow(pow))
     }
 
+    #[inline]
+    fn should_burn_dex_fee(&self) -> bool { false }
+
     fn is_trezor(&self) -> bool { self.priv_key_policy.is_trezor() }
 }
 
@@ -2646,9 +2684,18 @@ async fn sign_transaction_with_keypair<'a>(
     let tx_builder = tx_builder_with_pay_for_gas_option(coin, tx_builder, pay_for_gas_option)
         .map_err(|e| TransactionErr::Plain(e.get_inner().to_string()))?;
     let tx = tx_builder.build()?;
+    let chain_id = match coin.chain_spec {
+        ChainSpec::Evm { chain_id } => chain_id,
+        // Todo: Add Tron signing logic
+        ChainSpec::Tron { .. } => {
+            return Err(TransactionErr::Plain(
+                "Tron is not supported for sign_transaction_with_keypair yet".into(),
+            ))
+        },
+    };
 
     Ok((
-        tx.sign(key_pair.secret(), Some(coin.chain_id))?,
+        tx.sign(key_pair.secret(), Some(chain_id))?,
         web3_instances_with_latest_nonce,
     ))
 }
@@ -5805,10 +5852,10 @@ impl MmCoin for EthCoin {
         stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
         let dex_fee_amount = wei_from_big_decimal(&dex_fee_amount.fee_amount().into(), self.decimals)?;
-
         // pass the dummy params
         let to_addr = addr_from_raw_pubkey(&DEX_FEE_ADDR_RAW_PUBKEY)
             .expect("addr_from_raw_pubkey should never fail with DEX_FEE_ADDR_RAW_PUBKEY");
+        let my_address = self.derivation_method.single_addr_or_err().await?;
         let (eth_value, data, call_addr, fee_coin) = match &self.coin_type {
             EthCoinType::Eth => (dex_fee_amount, Vec::new(), &to_addr, &self.ticker),
             EthCoinType::Erc20 { platform, token_addr } => {
@@ -5818,8 +5865,6 @@ impl MmCoin for EthCoin {
             },
             EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
         };
-
-        let my_address = self.derivation_method.single_addr_or_err().await?;
         let fee_policy_for_estimate = get_swap_fee_policy_for_estimate(self.get_swap_transaction_fee_policy());
         let pay_for_gas_option = self.get_swap_pay_for_gas_option(fee_policy_for_estimate).await?;
         let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
@@ -5929,8 +5974,7 @@ fn validate_fee_impl(coin: EthCoin, validate_fee_args: EthValidateFeeArgs<'_>) -
     let sender_addr = try_f!(
         addr_from_raw_pubkey(validate_fee_args.expected_sender).map_to_mm(ValidatePaymentError::InvalidParameter)
     );
-    let fee_addr =
-        try_f!(addr_from_raw_pubkey(validate_fee_args.fee_addr).map_to_mm(ValidatePaymentError::InvalidParameter));
+    let fee_addr = try_f!(addr_from_raw_pubkey(coin.dex_pubkey()).map_to_mm(ValidatePaymentError::InvalidParameter));
     let amount = validate_fee_args.amount.clone();
     let min_block_number = validate_fee_args.min_block_number;
 
@@ -6323,6 +6367,27 @@ pub async fn eth_coin_from_conf_and_request(
     protocol: CoinProtocol,
     priv_key_policy: PrivKeyBuildPolicy,
 ) -> Result<EthCoin, String> {
+    fn get_chain_id_from_platform(ctx: &MmArc, ticker: &str, platform: &str) -> Result<u64, String> {
+        let platform_conf = coin_conf(ctx, platform);
+        if platform_conf.is_null() {
+            return ERR!(
+                "Failed to activate ERC20 token '{}': the platform '{}' is not defined in the coins config.",
+                ticker,
+                platform
+            );
+        }
+        let platform_protocol: CoinProtocol = json::from_value(platform_conf["protocol"].clone())
+            .map_err(|e| ERRL!("Error parsing platform protocol for '{}': {}", platform, e))?;
+        match platform_protocol {
+            CoinProtocol::ETH { chain_id } => Ok(chain_id),
+            protocol => ERR!(
+                "Failed to activate ERC20 token '{}': the platform protocol '{:?}' must be ETH",
+                ticker,
+                protocol
+            ),
+        }
+    }
+
     // Convert `PrivKeyBuildPolicy` to `EthPrivKeyBuildPolicy` if it's possible.
     let priv_key_policy = try_s!(EthPrivKeyBuildPolicy::try_from(priv_key_policy));
 
@@ -6411,8 +6476,8 @@ pub async fn eth_coin_from_conf_and_request(
         return ERR!("Failed to get client version for all urls");
     }
 
-    let (coin_type, decimals) = match protocol {
-        CoinProtocol::ETH => (EthCoinType::Eth, ETH_DECIMALS),
+    let (coin_type, decimals, chain_id) = match protocol {
+        CoinProtocol::ETH { chain_id } => (EthCoinType::Eth, ETH_DECIMALS, chain_id),
         CoinProtocol::ERC20 {
             platform,
             contract_address,
@@ -6431,9 +6496,13 @@ pub async fn eth_coin_from_conf_and_request(
                 ),
                 Some(d) => d as u8,
             };
-            (EthCoinType::Erc20 { platform, token_addr }, decimals)
+            let chain_id = get_chain_id_from_platform(ctx, ticker, &platform)?;
+            (EthCoinType::Erc20 { platform, token_addr }, decimals, chain_id)
         },
-        CoinProtocol::NFT { platform } => (EthCoinType::Nft { platform }, ETH_DECIMALS),
+        CoinProtocol::NFT { platform } => {
+            let chain_id = get_chain_id_from_platform(ctx, ticker, &platform)?;
+            (EthCoinType::Nft { platform }, ETH_DECIMALS, chain_id)
+        },
         _ => return ERR!("Expect ETH, ERC20 or NFT protocol"),
     };
 
@@ -6452,10 +6521,6 @@ pub async fn eth_coin_from_conf_and_request(
     }
 
     let sign_message_prefix: Option<String> = json::from_value(conf["sign_message_prefix"].clone()).unwrap_or(None);
-
-    let chain_id = try_s!(conf["chain_id"]
-        .as_u64()
-        .ok_or_else(|| format!("chain_id is not set for {}", ticker)));
 
     let trezor_coin: Option<String> = json::from_value(conf["trezor_coin"].clone()).unwrap_or(None);
 
@@ -6489,6 +6554,8 @@ pub async fn eth_coin_from_conf_and_request(
         priv_key_policy: key_pair,
         derivation_method: Arc::new(derivation_method),
         coin_type,
+        // Tron is not supported for v1 activation
+        chain_spec: ChainSpec::Evm { chain_id },
         sign_message_prefix,
         swap_contract_address,
         swap_v2_contracts: None,
@@ -6502,7 +6569,6 @@ pub async fn eth_coin_from_conf_and_request(
         max_eth_tx_type,
         ctx: ctx.weak(),
         required_confirmations,
-        chain_id,
         trezor_coin,
         logs_block_range: conf["logs_block_range"].as_u64().unwrap_or(DEFAULT_LOGS_BLOCK_RANGE),
         address_nonce_locks,
@@ -6629,14 +6695,7 @@ pub async fn get_eth_address(
 
     let (_, derivation_method) =
         build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, path_to_address, None).await?;
-    let my_address = match derivation_method {
-        EthDerivationMethod::SingleAddress(my_address) => my_address,
-        EthDerivationMethod::HDWallet(_) => {
-            return Err(MmError::new(GetEthAddressError::UnexpectedDerivationMethod(
-                UnexpectedDerivationMethod::UnsupportedError("HDWallet is not supported for NFT yet!".to_owned()),
-            )));
-        },
-    };
+    let my_address = derivation_method.single_addr_or_err().await?;
 
     Ok(MyWalletAddress {
         coin: ticker.to_owned(),
@@ -6798,6 +6857,8 @@ fn calc_total_fee(gas: U256, pay_for_gas_option: &PayForGasOption) -> NumConvers
     }
 }
 
+// Todo: Tron have a different concept from gas (Energy, Bandwidth and Free Transaction), it should be added as a different function
+// and this should be part of a trait abstracted over both types
 #[allow(clippy::result_large_err)]
 fn tx_builder_with_pay_for_gas_option(
     eth_coin: &EthCoin,
@@ -6809,9 +6870,14 @@ fn tx_builder_with_pay_for_gas_option(
         PayForGasOption::Eip1559(Eip1559FeePerGas {
             max_priority_fee_per_gas,
             max_fee_per_gas,
-        }) => tx_builder
-            .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
-            .with_chain_id(eth_coin.chain_id),
+        }) => {
+            let chain_id = eth_coin
+                .chain_id()
+                .ok_or_else(|| WithdrawError::InternalError("chain_id should be set for an EVM coin".to_string()))?;
+            tx_builder
+                .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
+                .with_chain_id(chain_id)
+        },
     };
     Ok(tx_builder)
 }
@@ -7302,6 +7368,11 @@ impl CommonSwapOpsV2 for EthCoin {
     fn derive_htlc_pubkey_v2_bytes(&self, swap_unique_data: &[u8]) -> Vec<u8> {
         self.derive_htlc_pubkey_v2(swap_unique_data).to_bytes()
     }
+
+    #[inline(always)]
+    fn taker_pubkey_bytes(&self) -> Option<Vec<u8>> {
+        Some(self.derive_htlc_pubkey_v2(&[]).to_bytes()) // unique_data not used for non-private coins
+    }
 }
 
 #[cfg(all(feature = "for-tests", not(target_arch = "wasm32")))]
@@ -7310,6 +7381,7 @@ impl EthCoin {
         let coin = EthCoinImpl {
             ticker: self.ticker.clone(),
             coin_type: new_coin_type,
+            chain_spec: self.chain_spec.clone(),
             priv_key_policy: self.priv_key_policy.clone(),
             derivation_method: Arc::clone(&self.derivation_method),
             sign_message_prefix: self.sign_message_prefix.clone(),
@@ -7326,7 +7398,6 @@ impl EthCoin {
             swap_txfee_policy: Mutex::new(self.swap_txfee_policy.lock().unwrap().clone()),
             max_eth_tx_type: self.max_eth_tx_type,
             ctx: self.ctx.clone(),
-            chain_id: self.chain_id,
             trezor_coin: self.trezor_coin.clone(),
             logs_block_range: self.logs_block_range,
             address_nonce_locks: Arc::clone(&self.address_nonce_locks),

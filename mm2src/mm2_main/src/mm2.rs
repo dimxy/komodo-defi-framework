@@ -42,10 +42,11 @@
 
 #[cfg(not(target_arch = "wasm32"))] use common::block_on;
 use common::crash_reports::init_crash_reports;
+use common::executor::Timer;
 use common::log;
 use common::log::LogLevel;
 use common::password_policy::password_policy;
-use mm2_core::mm_ctx::MmCtxBuilder;
+use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 
 #[cfg(any(feature = "custom-swap-locktime", test, feature = "run-docker-tests"))]
 use common::log::warn;
@@ -55,7 +56,6 @@ use lp_swap::PAYMENT_LOCKTIME;
 use std::sync::atomic::Ordering;
 
 use gstuff::slurp;
-use serde::ser::Serialize;
 use serde_json::{self as json, Value as Json};
 
 use std::env;
@@ -66,7 +66,6 @@ use std::str;
 
 pub use self::lp_native_dex::init_hw;
 pub use self::lp_native_dex::lp_init;
-use coins::update_coins_config;
 use mm2_err_handle::prelude::*;
 
 #[cfg(not(target_arch = "wasm32"))] pub mod database;
@@ -126,7 +125,7 @@ pub async fn lp_main(
     ctx_cb: &dyn Fn(u32),
     version: String,
     datetime: String,
-) -> Result<(), String> {
+) -> Result<MmArc, String> {
     let log_filter = params.filter.unwrap_or_default();
     // Logger can be initialized once.
     // If `kdf` is linked as a library, and `kdf` is restarted, `init_logger` returns an error.
@@ -166,15 +165,28 @@ pub async fn lp_main(
     #[cfg(not(target_arch = "wasm32"))]
     spawn_ctrl_c_handler(ctx.clone());
 
-    try_s!(lp_init(ctx, version, datetime).await);
-    Ok(())
+    try_s!(lp_init(ctx.clone(), version, datetime).await);
+    Ok(ctx)
+}
+
+pub async fn lp_run(ctx: MmArc) {
+    // In the mobile version we might depend on `lp_init` staying around until the context stops.
+    loop {
+        if ctx.is_stopping() {
+            break;
+        };
+        Timer::sleep(0.2).await
+    }
+
+    // Clearing up the running swaps removes any circular references that might prevent the context from being dropped.
+    lp_swap::clear_running_swaps(&ctx);
 }
 
 /// Handles CTRL-C signals and shutdowns the KDF runtime gracefully.
 ///
 /// It's important to spawn this task as soon as `Ctx` is in the correct state.
 #[cfg(not(target_arch = "wasm32"))]
-fn spawn_ctrl_c_handler(ctx: mm2_core::mm_ctx::MmArc) {
+fn spawn_ctrl_c_handler(ctx: MmArc) {
     use crate::lp_dispatcher::{dispatch_lp_event, StopCtxEvent};
 
     common::executor::spawn(async move {
@@ -270,14 +282,6 @@ pub fn mm2_main(version: String, datetime: String) {
     // we're not checking them for the mode switches in order not to risk [untrusted] data being mistaken for a mode switch.
     let first_arg = args_os.get(1).and_then(|arg| arg.to_str());
 
-    if first_arg == Some("update_config") {
-        match on_update_config(&args_os) {
-            Ok(_) => println!("Success"),
-            Err(e) => eprintln!("{}", e),
-        }
-        return;
-    }
-
     if first_arg == Some("--version") || first_arg == Some("-v") || first_arg == Some("version") {
         println!("Komodo DeFi Framework: {version}");
         return;
@@ -369,36 +373,8 @@ pub fn run_lp_main(
     let log_filter = LogLevel::from_env();
 
     let params = LpMainParams::with_conf(conf).log_filter(log_filter);
-    try_s!(block_on(lp_main(params, ctx_cb, version, datetime)));
-    Ok(())
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn on_update_config(args: &[OsString]) -> Result<(), String> {
-    use mm2_io::fs::safe_slurp;
-
-    let src_path = args.get(2).ok_or(ERRL!("Expect path to the source coins config."))?;
-    let dst_path = args.get(3).ok_or(ERRL!("Expect destination path."))?;
-
-    let config = try_s!(safe_slurp(src_path));
-    let mut config: Json = try_s!(json::from_slice(&config));
-
-    let result = if config.is_array() {
-        try_s!(update_coins_config(config))
-    } else {
-        // try to get config["coins"] as array
-        let conf_obj = config.as_object_mut().ok_or(ERRL!("Expected coin list"))?;
-        let coins = conf_obj.remove("coins").ok_or(ERRL!("Expected coin list"))?;
-        let updated_coins = try_s!(update_coins_config(coins));
-        conf_obj.insert("coins".into(), updated_coins);
-        config
-    };
-
-    let buf = Vec::new();
-    let formatter = json::ser::PrettyFormatter::with_indent(b"\t");
-    let mut ser = json::Serializer::with_formatter(buf, formatter);
-    try_s!(result.serialize(&mut ser));
-    try_s!(std::fs::write(dst_path, ser.into_inner()));
+    let ctx = try_s!(block_on(lp_main(params, ctx_cb, version, datetime)));
+    block_on(lp_run(ctx));
     Ok(())
 }
 
