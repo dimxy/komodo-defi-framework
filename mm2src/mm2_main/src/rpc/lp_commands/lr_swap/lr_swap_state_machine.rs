@@ -531,6 +531,7 @@ mod states {
     impl TransitionFrom<WaitForAtomicSwap> for Completed {}
 
     /// Represents possible reasons of taker swap being aborted
+    /// TODO: add reasons
     #[derive(Clone, Debug, Deserialize, Display, Serialize)]
     pub enum AbortReason {
         SomeReason(String),
@@ -684,6 +685,14 @@ impl AggTakerSwapStateMachine {
             TakerAction::Buy => &self.sell_buy_request.volume * &self.sell_buy_request.price,
             TakerAction::Sell => self.sell_buy_request.volume.clone(),
         };
+
+        println!(
+            "Checking balance {} for atomic swap step {}/{} for agg swap uuid: {}",
+            my_amount.to_decimal(),
+            self.sell_buy_request.rel,
+            self.sell_buy_request.base,
+            self.uuid
+        );
         check_balance_for_taker_swap(
             &self.ctx,
             rel_coin.deref(),
@@ -698,8 +707,8 @@ impl AggTakerSwapStateMachine {
         let res_bytes = lp_auto_buy(&self.ctx, &base_coin, &rel_coin, self.sell_buy_request.clone())
             .await
             .map_err(|err| MmError::new(ApiIntegrationRpcError::InternalError(err)))?;
-        let res: SellBuyResponse = json::from_slice(res_bytes.as_slice())?;
-        Ok(res)
+        let rpc_res: Mm2RpcResult<SellBuyResponse> = json::from_slice(res_bytes.as_slice())?;
+        Ok(rpc_res.result)
     }
 }
 

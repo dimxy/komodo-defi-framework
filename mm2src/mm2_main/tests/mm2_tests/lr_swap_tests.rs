@@ -20,7 +20,7 @@ use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed
                                   Mm2TestConf, SwapV2TestContracts, TestNode, DOC, POLYGON_MAINNET_NODES,
                                   POLYGON_MAINNET_SWAP_CONTRACT, POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT,
                                   POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT, POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT};
-use mm2_test_helpers::structs::MmNumberMultiRepr;
+use mm2_test_helpers::structs::{MmNumberMultiRepr, SetPriceResult};
 use serde_json::{json, Value};
 //use crate::tests::eth_tests::enable_eth_rpc;
 use crypto::privkey::key_pair_from_seed;
@@ -102,23 +102,11 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let token_2_ticker = token_2_conf["coin"].as_str().unwrap().to_owned();
     let token_3_ticker = token_3_conf["coin"].as_str().unwrap().to_owned();
 
-    let bob_coins = json!([
-        doc_conf(),
-        polygon_conf(),
-        token_1_conf,
-        token_2_conf,
-        token_3_conf
-    ]);
+    let bob_coins = json!([doc_conf(), polygon_conf(), token_1_conf, token_2_conf, token_3_conf]);
     let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &bob_coins); // Using legacy swaps until TPU contracts deployed on POLYGON
     let mut mm_bob = block_on(MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, None)).unwrap();
 
-    let alice_coins = json!([
-        doc_conf(),
-        polygon_conf(),
-        token_1_conf,
-        token_2_conf,
-        token_3_conf
-    ]);
+    let alice_coins = json!([doc_conf(), polygon_conf(), token_1_conf, token_2_conf, token_3_conf]);
     let mut alice_conf = Mm2TestConf::light_node(&alice_passphrase, &alice_coins, &[&mm_bob.ip.to_string()]);
     alice_conf.conf["1inch_api"] = "https://api.1inch.dev".into();
     let mut mm_alice = block_on(MarketMakerIt::start_async(
@@ -233,16 +221,21 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     //let maker_swap_status = block_on(my_swap_status(&mm_bob, &agg_uuid.to_string()));
     //log!("{:?}", maker_swap_status);
 
-    let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string()));
+    let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
     log!(
         "final taker_swap_status {}",
         serde_json::to_string(&taker_swap_status).unwrap()
     );
+    check_my_agg_swap_final_status(&taker_swap_status);
 
     //assert!(taker_swap_status[])
 
     //block_on(check_recent_swaps(&mm_bob, 1));
-    //block_on(check_recent_swaps(&mm_alice, 1));
+    //block_on(check_recent_swaps(&mm_alice, 1));   
+    block_on(cancel_order(&mm_bob, &token_1_order.uuid));
+    block_on(cancel_order(&mm_bob, &token_2_order.uuid));
+    block_on(cancel_order(&mm_bob, &token_3_order.uuid));
+    block_on(Timer::sleep(10.0)); // wait for orderbook update
 
     // Disabling coins on both nodes should be successful at this point
     block_on(disable_coin(&mm_bob, "MATIC", false));
@@ -352,7 +345,7 @@ async fn wait_for_confirmations(tx_hashes: &[&str], timeout: u32) -> Result<(), 
 }
 
 /// issue setprice request on Bob side by setting base/rel price
-async fn create_maker_order(maker: &mut MarketMakerIt, base: &str, rel: &str, volume: f64) {
+async fn create_maker_order(maker: &mut MarketMakerIt, base: &str, rel: &str, volume: f64) -> Result<SetPriceResult, String> {
     common::log::info!("Issue maker {}/{} sell request", base, rel);
     let rc = maker
         .rpc(&json!({
@@ -365,7 +358,12 @@ async fn create_maker_order(maker: &mut MarketMakerIt, base: &str, rel: &str, vo
         }))
         .await
         .unwrap();
-    assert!(rc.0.is_success(), "!setprice: {}", rc.1);
+    if rc.0.is_success() {
+        let resp: SetPriceResponse = serde_json::from_str(&rc.1).unwrap();
+        Ok(resp.result)
+    } else {
+        Err(rc.1)
+    }
 }
 
 async fn wait_for_orderbook(
@@ -379,7 +377,7 @@ async fn wait_for_orderbook(
     loop {
         let orderbook_v2 = orderbook_v2(taker, base, rel).await;
         let orderbook_v2: RpcV2Response<OrderbookV2Response> = serde_json::from_value(orderbook_v2).unwrap();
-        if orderbook_v2.result.asks.is_empty() {
+        if !orderbook_v2.result.asks.is_empty() {
             return Ok(orderbook_v2.result.asks[0].entry.clone());
         }
         if waited > timeout {
@@ -460,4 +458,25 @@ async fn start_agg_swap(
     } else {
         Err(rc.1)
     }
+}
+
+
+/// Helper function requesting my swap status and checking it's events
+fn check_my_agg_swap_final_status(status_response: &Value) {
+    assert!(status_response["result"]["is_finished"].as_bool().unwrap());
+
+    let events = status_response["result"]["events"].as_array().unwrap();
+    assert!(!events.is_empty());
+    assert!(events.iter().find(|item| item["event_type"].as_str() == Some("Completed")).is_some(), "swap not completed successfully");
+    assert!(events.iter().find(|item| item["event_type"].as_str() == Some("Aborted")).is_none(), "swap was aborted");
+}
+
+async fn cancel_order(mm: &MarketMakerIt, uuid: &Uuid) {
+    let cancel_rc = mm.rpc(&json! ({
+        "userpass": mm.userpass,
+        "method": "cancel_order",
+        "uuid": uuid,
+    }))
+    .await
+    .unwrap();
 }

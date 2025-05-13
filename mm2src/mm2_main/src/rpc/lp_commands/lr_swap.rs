@@ -88,6 +88,7 @@ pub async fn lr_fill_order_rpc(
     ctx: MmArc,
     req: LrFillMakerOrderRequest,
 ) -> MmResult<LrFillMakerOrderResponse, ApiIntegrationRpcError> {
+    println!("sell_buy_req={:?}", req.sell_buy_req);
     let swap_uuid = lp_start_agg_taker_swap(ctx, req.lr_swap_0, req.lr_swap_1, req.sell_buy_req).await?;
     Ok(LrFillMakerOrderResponse { uuid: swap_uuid })
 }
