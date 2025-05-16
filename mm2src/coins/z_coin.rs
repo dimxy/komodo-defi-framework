@@ -65,7 +65,7 @@ use serde_json::Value as Json;
 use serialization::CoinVariant;
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
-use std::iter::{self};
+use std::iter;
 use std::num::NonZeroU32;
 use std::num::TryFromIntError;
 use std::path::PathBuf;
@@ -389,9 +389,13 @@ impl ZCoin {
         }
     }
 
-    async fn gen_tx(&self, t_outputs: Vec<TxOut>, z_outputs: Vec<ZOutput>) -> Result<GenTxData, MmError<GenTxError>> {
-        const MAX_RETRIES: usize = 40;
-        const RETRY_DELAY: f64 = 15.0;
+    /// Generates a tx sending outputs from our address
+    async fn gen_tx(
+        &self,
+        t_outputs: Vec<TxOut>,
+        z_outputs: Vec<ZOutput>,
+    ) -> Result<GenTxData<'_>, MmError<GenTxError>> {
+        let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
 
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
         let t_output_sat: u64 = t_outputs.iter().fold(0, |cur, out| cur + u64::from(out.value));
@@ -400,115 +404,11 @@ impl ZCoin {
         let total_output = big_decimal_from_sat_unsigned(total_output_sat, self.utxo_arc.decimals);
         let total_required = &total_output + &tx_fee;
 
-        let mut retries = 0;
+        let spendable_notes = wait_for_spendable_balance(self, &total_required).await?;
 
-        loop {
-            // Wait for block sync and previous tx confirmation.
-            let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
-            let spendable_notes = self
-                .spendable_notes_ordered()
-                .await
-                .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
-
-            let locked_notes = self.z_fields.locked_notes_db.load_all_notes().await?;
-            if locked_notes.is_empty() {
-                return self
-                    .gen_tx_impl(
-                        t_outputs,
-                        z_outputs,
-                        spendable_notes.iter(),
-                        total_required,
-                        tx_fee,
-                        sync_guard,
-                    )
-                    .await;
-            }
-
-            {
-                // check if remaining notes will be enough for this tx and skip waiting,
-                let locked_notes_rseeds = locked_notes.iter().map(|n| n.rseed.clone()).collect::<HashSet<_>>();
-                let filtered_spendable_notes: Vec<_> = spendable_notes
-                    .iter()
-                    .filter(|n| !locked_notes_rseeds.contains(&rseed_to_string(&n.rseed)))
-                    .collect();
-                let sum_filtered_notes = filtered_spendable_notes
-                    .iter()
-                    .map(|v| big_decimal_from_sat_unsigned(v.note_value.into(), self.decimals()))
-                    .sum::<BigDecimal>();
-
-                if sum_filtered_notes >= total_required {
-                    return self
-                        .gen_tx_impl(
-                            t_outputs,
-                            z_outputs,
-                            filtered_spendable_notes.into_iter(),
-                            total_required,
-                            tx_fee,
-                            sync_guard,
-                        )
-                        .await;
-                }
-            };
-
-            let mut found_locked_note = false;
-
-            for spendable_note in &spendable_notes {
-                if locked_notes
-                    .iter()
-                    .any(|n| n.rseed == rseed_to_string(&spendable_note.rseed))
-                {
-                    found_locked_note = true;
-                    break;
-                }
-            }
-
-            if !found_locked_note {
-                return self
-                    .gen_tx_impl(
-                        t_outputs,
-                        z_outputs,
-                        spendable_notes.iter(),
-                        total_required,
-                        tx_fee,
-                        sync_guard,
-                    )
-                    .await;
-            }
-
-            if retries >= MAX_RETRIES {
-                return MmError::err(GenTxError::Internal(format!(
-                    "Locked notes did not become available after {} retries",
-                    MAX_RETRIES
-                )));
-            }
-
-            info!(
-                "Locked notes detected. Waiting {} seconds before retrying... (Attempt {}/{})",
-                15,
-                retries + 1,
-                MAX_RETRIES
-            );
-
-            common::executor::Timer::sleep(RETRY_DELAY).await;
-            retries += 1;
-        }
-    }
-
-    /// Generates a tx sending outputs from our address
-    async fn gen_tx_impl<'a>(
-        &'a self,
-        t_outputs: Vec<TxOut>,
-        z_outputs: Vec<ZOutput>,
-        spendable_notes: impl Iterator<Item = &SpendableNote>,
-        total_required: BigDecimal,
-        tx_fee: BigDecimal,
-        sync_guard: SaplingSyncGuard<'a>,
-    ) -> Result<GenTxData, MmError<GenTxError>> {
         let mut total_input_amount = BigDecimal::from(0);
         let mut change = BigDecimal::from(0);
-
         let mut received_by_me = 0u64;
-
         let mut tx_builder = ZTxBuilder::new(self.consensus_params(), sync_guard.respawn_guard.current_block());
 
         let mut rseeds: Vec<String> = vec![];
@@ -2160,6 +2060,62 @@ impl InitWithdrawCoin for ZCoin {
             transaction_type: Default::default(),
             memo: req.memo,
         })
+    }
+}
+
+/// Waits until there are enough _unlocked_ Sapling notes to cover `total_required`.
+async fn wait_for_spendable_balance<'a>(
+    selfi: &'a ZCoin,
+    total_required: &BigDecimal,
+) -> Result<impl Iterator<Item = SpendableNote> + 'a, MmError<GenTxError>> {
+    const MAX_RETRIES: usize = 40;
+    const RETRY_DELAY: f64 = 15.0;
+
+    let mut retries = 0;
+
+    loop {
+        let spendable_notes = selfi
+            .spendable_notes_ordered()
+            .await
+            .map_err(|e| GenTxError::SpendableNotesError(e.to_string()))?;
+        let spendable_notes_len = spendable_notes.len();
+
+        let locked_notes = selfi.z_fields.locked_notes_db.load_all_notes().await?;
+
+        let unlocked_notes: Vec<SpendableNote> = if locked_notes.is_empty() {
+            spendable_notes
+        } else {
+            let locked_seeds: HashSet<_> = locked_notes.into_iter().map(|n| n.rseed).collect();
+            spendable_notes
+                .into_iter()
+                .filter(|note| !locked_seeds.contains(&rseed_to_string(&note.rseed)))
+                .collect()
+        };
+
+        let sum_available: BigDecimal = unlocked_notes
+            .iter()
+            .map(|n| big_decimal_from_sat_unsigned(n.note_value.into(), selfi.decimals()))
+            .sum();
+
+        if &sum_available >= total_required || unlocked_notes.len() == spendable_notes_len {
+            return Ok(unlocked_notes.into_iter());
+        }
+
+        if retries >= MAX_RETRIES {
+            return MmError::err(GenTxError::Internal(format!(
+                "Locked notes did not become available after {} retries",
+                MAX_RETRIES
+            )));
+        }
+
+        info!(
+            "Locked notes present; retrying in {}s (attempt {}/{})",
+            RETRY_DELAY,
+            retries + 1,
+            MAX_RETRIES
+        );
+        common::executor::Timer::sleep(RETRY_DELAY).await;
+        retries += 1;
     }
 }
 
