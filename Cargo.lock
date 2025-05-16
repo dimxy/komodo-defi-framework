@@ -4118,6 +4118,7 @@ dependencies = [
  "sp-runtime-interface",
  "sp-trie",
  "spv_validation",
+ "tempfile",
  "testcontainers",
  "timed-map",
  "tokio",

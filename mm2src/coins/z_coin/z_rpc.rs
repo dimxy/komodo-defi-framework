@@ -343,7 +343,7 @@ impl ZRpcOps for LightRpcClient {
                     Err(e) => {
                         error!("Error on getting tx {}", tx_id);
                         if e.message().contains(NO_TX_ERROR_CODE) {
-                            if attempts >= 3 {
+                            if attempts >= 5 {
                                 return false;
                             }
                             attempts += 1;
@@ -485,7 +485,7 @@ impl ZRpcOps for NativeClient {
                 Err(e) => {
                     error!("Error on getting tx {}: err: {e:?}", tx_id);
                     if e.to_string().contains(NO_TX_ERROR_CODE) {
-                        if attempts >= 3 {
+                        if attempts >= 5 {
                             return false;
                         }
                         attempts += 1;

@@ -410,9 +410,8 @@ impl ZCoin {
                 .await
                 .map_err(|err| GenTxError::SpendableNotesError(err.to_string()))?;
 
-            let change_notes = self.z_fields.locked_notes_db.load_all_notes().await?;
-            println!("LOCKED NOTES: {change_notes:?}");
-            if change_notes.is_empty() {
+            let locked_notes = self.z_fields.locked_notes_db.load_all_notes().await?;
+            if locked_notes.is_empty() {
                 return self
                     .gen_tx_impl(
                         t_outputs,
@@ -427,10 +426,10 @@ impl ZCoin {
 
             {
                 // check if remaining notes will be enough for this tx and skip waiting,
-                let change_notes_rseeds = change_notes.iter().map(|n| n.rseed.clone()).collect::<HashSet<_>>();
+                let locked_notes_rseeds = locked_notes.iter().map(|n| n.rseed.clone()).collect::<HashSet<_>>();
                 let filtered_spendable_notes: Vec<_> = spendable_notes
                     .iter()
-                    .filter(|n| !change_notes_rseeds.contains(&rseed_to_string(&n.rseed)))
+                    .filter(|n| !locked_notes_rseeds.contains(&rseed_to_string(&n.rseed)))
                     .collect();
                 let sum_filtered_notes = filtered_spendable_notes
                     .iter()
@@ -454,7 +453,7 @@ impl ZCoin {
             let mut found_locked_note = false;
 
             for spendable_note in &spendable_notes {
-                if change_notes
+                if locked_notes
                     .iter()
                     .any(|n| n.rseed == rseed_to_string(&spendable_note.rseed))
                 {
@@ -514,14 +513,6 @@ impl ZCoin {
 
         let mut rseeds: Vec<String> = vec![];
         for spendable_note in spendable_notes {
-            let rseed = match spendable_note.rseed {
-                Rseed::BeforeZip212(rcm) => rcm.to_string(),
-                Rseed::AfterZip212(ref rseed) => {
-                    jubjub::Fr::from_bytes_wide(prf_expand(rseed, &[0x04]).as_array()).to_string()
-                },
-            };
-            rseeds.push(rseed);
-
             total_input_amount += big_decimal_from_sat_unsigned(spendable_note.note_value.into(), self.decimals());
 
             let note = self
@@ -538,6 +529,15 @@ impl ZCoin {
                     .path()
                     .or_mm_err(|| GenTxError::FailedToGetMerklePath)?,
             )?;
+
+            let rseed = match spendable_note.rseed {
+                Rseed::BeforeZip212(rcm) => rcm.to_string(),
+                Rseed::AfterZip212(ref rseed) => {
+                    jubjub::Fr::from_bytes_wide(prf_expand(rseed, &[0x04]).as_array()).to_string()
+                },
+            };
+
+            rseeds.push(rseed);
 
             if total_input_amount >= total_required {
                 change = &total_input_amount - &total_required;

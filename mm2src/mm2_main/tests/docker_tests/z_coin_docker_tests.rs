@@ -9,14 +9,17 @@ use lazy_static::lazy_static;
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::MmNumber;
 use mm2_test_helpers::for_tests::zombie_conf_for_docker;
+use tempfile::TempDir;
 use tokio::sync::Mutex;
 
 // https://github.com/KomodoPlatform/librustzcash/blob/4e030a0f44cc17f100bf5f019563be25c5b8755f/zcash_client_backend/src/data_api/wallet.rs#L72-L73
 lazy_static! {
-    // secret....fe
+    /// For secret....fe
     static ref GEN_TX_LOCK_MUTEX: Mutex<()> = Mutex::new(());
-    // secret....we
+    /// For secret....we
     static ref GEN_TX_LOCK_MUTEX_ADDR2: Mutex<()> = Mutex::new(());
+    /// This `TempDir` is created once on first use and cleaned up when the process exits.
+    static ref TEMP_DIR: Mutex<TempDir> = Mutex::new(TempDir::new().unwrap());
 }
 
 /// Build asset `ZCoin` from ticker and spending_key.
@@ -28,7 +31,8 @@ pub async fn z_coin_from_spending_key(spending_key: &str, path: &str) -> (MmArc,
         ..Default::default()
     };
     let pk_data = [1; 32];
-    let db_folder = common::temp_dir().join(format!("ZOMBIE_DB_{path}"));
+    let tmp = TEMP_DIR.lock().await;
+    let db_folder = tmp.path().join(format!("ZOMBIE_DB_{path}"));
     std::fs::create_dir_all(&db_folder).unwrap();
     let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
         CoinProtocol::ZHTLC(protocol_info) => protocol_info,
