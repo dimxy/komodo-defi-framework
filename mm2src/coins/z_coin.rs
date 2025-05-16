@@ -2129,7 +2129,7 @@ impl InitWithdrawCoin for ZCoin {
             memo,
         };
 
-        let GenTxData { tx, data, rseeds, .. } = self.gen_tx(vec![], vec![z_output]).await?;
+        let GenTxData { tx, data, .. } = self.gen_tx(vec![], vec![z_output]).await?;
         let mut tx_bytes = Vec::with_capacity(1024);
         tx.write(&mut tx_bytes)
             .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
@@ -2138,16 +2138,7 @@ impl InitWithdrawCoin for ZCoin {
 
         let received_by_me = big_decimal_from_sat_unsigned(data.received_by_me, self.decimals());
         let spent_by_me = big_decimal_from_sat_unsigned(data.spent_by_me, self.decimals());
-
         let tx_hash_hex = hex::encode(&tx_hash);
-        for rseed in rseeds {
-            info!("saving tx notes rseed for {}!", tx_hash_hex);
-            self.z_fields
-                .locked_notes_db
-                .insert_note(tx.txid().to_string(), rseed)
-                .await
-                .mm_err(|err| WithdrawError::InternalError(err.to_string()))?;
-        }
 
         Ok(TransactionDetails {
             tx: TransactionData::new_signed(tx_bytes.into(), tx_hash_hex),
