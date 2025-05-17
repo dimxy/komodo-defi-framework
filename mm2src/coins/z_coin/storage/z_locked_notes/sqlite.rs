@@ -1,5 +1,5 @@
 use super::{LockedNote, LockedNotesStorage, LockedNotesStorageError};
-use db_common::async_sql_conn::AsyncConnection;
+use db_common::async_sql_conn::{AsyncConnError, AsyncConnection};
 use db_common::sqlite::run_optimization_pragmas;
 use db_common::sqlite::rusqlite::params;
 use futures::lock::Mutex;
@@ -11,6 +11,24 @@ use std::sync::Arc;
 
 const TABLE_NAME: &str = "locked_notes_cache";
 
+async fn create_table(conn: &AsyncConnection) -> Result<(), AsyncConnError> {
+    conn.call(move |conn| {
+        run_optimization_pragmas(conn)?;
+        conn.execute(
+            &format!(
+                "CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
+                        rseed VARCHAR NOT NULL UNIQUE,
+                        hex TEXT NOT NULL
+                    )"
+            ),
+            [],
+        )?;
+
+        Ok(())
+    })
+    .await
+}
+
 impl LockedNotesStorage {
     #[cfg(not(any(test, feature = "run-docker-tests")))]
     pub(crate) async fn new(_ctx: MmArc, address: String, path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
@@ -20,22 +38,10 @@ impl LockedNotesStorage {
         let db = Arc::new(Mutex::new(db));
         let conn_clone = db.clone();
         let conn_lock = conn_clone.lock().await;
-        Ok(conn_lock
-            .call(move |conn| {
-                run_optimization_pragmas(conn)?;
-                conn.execute(
-                    &format!(
-                        "CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-                         rseed VARCHAR NOT NULL UNIQUE,
-                         hex TEXT NOT NULL
-                         )"
-                    ),
-                    [],
-                )?;
 
-                Ok(Self { db, address })
-            })
-            .await?)
+        create_table(&conn_lock).await?;
+
+        Ok(Self { db, address })
     }
 
     #[cfg(any(test, feature = "run-docker-tests"))]
@@ -55,21 +61,9 @@ impl LockedNotesStorage {
         let conn_clone = db.clone();
         let conn_lock = conn_clone.lock().await;
 
-        Ok(conn_lock
-            .call(move |conn| {
-                run_optimization_pragmas(conn)?;
-                conn.execute(
-                    &format!(
-                        "CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-                         rseed VARCHAR NOT NULL UNIQUE,
-                         hex TEXT NOT NULL
-                         )"
-                    ),
-                    [],
-                )?;
-                Ok(Self { db, address })
-            })
-            .await?)
+        create_table(&conn_lock).await?;
+
+        Ok(Self { db, address })
     }
 
     pub(crate) async fn insert_note(&self, hex: String, rseed: String) -> MmResult<(), LockedNotesStorageError> {
