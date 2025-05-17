@@ -45,10 +45,10 @@ impl LockedNotesStorage {
     }
 
     #[cfg(any(test, feature = "run-docker-tests"))]
-    pub(crate) async fn new(_ctx: MmArc, address: String, path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
+    pub(crate) async fn new(_ctx: MmArc, address: String, _path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
         #[cfg(feature = "run-docker-tests")]
         let db = Arc::new(Mutex::new(
-            AsyncConnection::open(path)
+            AsyncConnection::open(_path)
                 .await
                 .map_to_mm(|err| LockedNotesStorageError::SqliteError(err.to_string()))?,
         ));
