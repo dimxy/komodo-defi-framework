@@ -1,5 +1,4 @@
 use super::{z_coin_errors::*, BlockDbImpl, CheckPointBlockInfo, WalletDbShared, ZCoinBuilder, ZcoinConsensusParams};
-use crate::utxo::rpc_clients::NO_TX_ERROR_CODE;
 use crate::utxo::utxo_builder::{UtxoCoinBuilderCommonOps, DAY_IN_SECONDS};
 use crate::z_coin::storage::z_locked_notes::LockedNotesStorage;
 use crate::z_coin::storage::{BlockProcessingMode, DataConnStmtCacheWrapper};
@@ -341,13 +340,11 @@ impl ZRpcOps for LightRpcClient {
                 match client.get_transaction(request).await {
                     Ok(_) => break,
                     Err(e) => {
-                        error!("Error on getting tx {}", tx_id);
-                        if e.message().contains(NO_TX_ERROR_CODE) {
-                            if attempts >= 5 {
-                                return false;
-                            }
-                            attempts += 1;
+                        error!("Error on getting tx {}: err: {}", tx_id, e.to_string());
+                        if attempts >= 5 {
+                            return false;
                         }
+                        attempts += 1;
                         Timer::sleep(30.).await;
                     },
                 }
@@ -483,13 +480,11 @@ impl ZRpcOps for NativeClient {
             match tx {
                 Ok(_) => break,
                 Err(e) => {
-                    error!("Error on getting tx {}", tx_id);
-                    if e.to_string().contains(NO_TX_ERROR_CODE) {
-                        if attempts >= 5 {
-                            return false;
-                        }
-                        attempts += 1;
+                    error!("Error on getting tx {}: err: {}", tx_id, e.to_string());
+                    if attempts >= 5 {
+                        return false;
                     }
+                    attempts += 1;
                     Timer::sleep(30.).await;
                 },
             }
