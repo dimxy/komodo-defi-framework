@@ -43,7 +43,7 @@ use async_trait::async_trait;
 use bitcrypto::dhash256;
 use chain::constants::SEQUENCE_FINAL;
 use chain::{Transaction as UtxoTx, TransactionOutput};
-use common::executor::{AbortableSystem, AbortedError};
+use common::executor::{AbortableSystem, AbortedError, SpawnFuture};
 use common::log::info;
 use common::{calc_total_pages, log};
 use crypto::privkey::{key_pair_from_secret, secp_privkey_from_hash};
@@ -70,6 +70,7 @@ use std::num::NonZeroU32;
 use std::num::TryFromIntError;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::oneshot;
 pub use z_coin_errors::*;
 pub use z_htlc::z_send_dex_fee;
 use z_htlc::{z_p2sh_spend, z_send_htlc};
@@ -404,7 +405,7 @@ impl ZCoin {
         let total_output = big_decimal_from_sat_unsigned(total_output_sat, self.utxo_arc.decimals);
         let total_required = &total_output + &tx_fee;
 
-        let spendable_notes = wait_for_spendable_balance(self, &total_required).await?;
+        let spendable_notes = wait_for_spendable_balance_spawner(self, &total_required).await?;
 
         let mut total_input_amount = BigDecimal::from(0);
         let mut change = BigDecimal::from(0);
@@ -2064,10 +2065,10 @@ impl InitWithdrawCoin for ZCoin {
 }
 
 /// Waits until there are enough _unlocked_ Sapling notes to cover `total_required`.
-async fn wait_for_spendable_balance<'a>(
-    selfi: &'a ZCoin,
-    total_required: &BigDecimal,
-) -> Result<impl Iterator<Item = SpendableNote> + 'a, MmError<GenTxError>> {
+async fn wait_for_spendable_balance_impl(
+    selfi: ZCoin,
+    total_required: BigDecimal,
+) -> Result<impl Iterator<Item = SpendableNote>, MmError<GenTxError>> {
     const MAX_RETRIES: usize = 40;
     const RETRY_DELAY: f64 = 15.0;
 
@@ -2097,7 +2098,7 @@ async fn wait_for_spendable_balance<'a>(
             .map(|n| big_decimal_from_sat_unsigned(n.note_value.into(), selfi.decimals()))
             .sum();
 
-        if &sum_available >= total_required || unlocked_notes.len() == spendable_notes_len {
+        if sum_available >= total_required || unlocked_notes.len() == spendable_notes_len {
             return Ok(unlocked_notes.into_iter());
         }
 
@@ -2116,6 +2117,27 @@ async fn wait_for_spendable_balance<'a>(
         );
         common::executor::Timer::sleep(RETRY_DELAY).await;
         retries += 1;
+    }
+}
+
+async fn wait_for_spendable_balance_spawner(
+    selfi: &ZCoin,
+    total_required: &BigDecimal,
+) -> Result<impl Iterator<Item = SpendableNote>, MmError<GenTxError>> {
+    let coin = selfi.clone();
+    let required = total_required.clone();
+    let (tx, rx) = oneshot::channel();
+
+    selfi.spawner().spawn(async move {
+        let result = wait_for_spendable_balance_impl(coin, required).await;
+        let _ = tx.send(result);
+    });
+
+    match rx.await {
+        Ok(res) => res,
+        Err(_) => MmError::err(GenTxError::Internal(
+            "wait_for_spendable_balance task was cancelled".into(),
+        )),
     }
 }
 
