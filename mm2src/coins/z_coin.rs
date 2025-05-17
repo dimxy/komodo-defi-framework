@@ -49,6 +49,7 @@ use common::{calc_total_pages, log};
 use crypto::privkey::{key_pair_from_secret, secp_privkey_from_hash};
 use crypto::HDPathToCoin;
 use crypto::{Bip32DerPathOps, GlobalHDAccountArc};
+use futures::channel::oneshot;
 use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
 use futures::{FutureExt, TryFutureExt};
@@ -70,7 +71,6 @@ use std::num::NonZeroU32;
 use std::num::TryFromIntError;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::oneshot;
 pub use z_coin_errors::*;
 pub use z_htlc::z_send_dex_fee;
 use z_htlc::{z_p2sh_spend, z_send_htlc};
@@ -104,7 +104,6 @@ cfg_native!(
 cfg_wasm32!(
     use crate::z_coin::storage::ZcashParamsWasmImpl;
     use common::executor::AbortOnDropHandle;
-    use futures::channel::oneshot;
     use rand::rngs::OsRng;
     use zcash_primitives::transaction::builder::TransactionMetadata;
     pub use z_coin_errors::ZCoinBalanceError;
