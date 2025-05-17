@@ -192,8 +192,6 @@ pub async fn z_p2sh_spend(
         None,
     )?;
 
-    // println!("z_p2sh_spend: {:?}", t);
-
     let prover = coin.z_fields.z_tx_prover.clone();
     #[cfg(not(target_arch = "wasm32"))]
     let (zcash_tx, _) = async_blocking(move || tx_builder.build(consensus::BranchId::Sapling, prover.as_ref())).await?;

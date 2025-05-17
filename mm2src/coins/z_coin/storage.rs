@@ -189,9 +189,7 @@ pub async fn scan_cached_block(
     witnesses.extend(new_witnesses);
     *last_height = current_height;
 
-    // unlock confirmed notes for txs
     for tx in &txs {
-        common::log::info!("unlocking {} notes", tx.txid);
         locked_notes_db
             .remove_note(tx.txid.to_string())
             .await

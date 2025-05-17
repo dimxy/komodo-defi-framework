@@ -483,7 +483,7 @@ impl ZRpcOps for NativeClient {
             match tx {
                 Ok(_) => break,
                 Err(e) => {
-                    error!("Error on getting tx {}: err: {e:?}", tx_id);
+                    error!("Error on getting tx {}", tx_id);
                     if e.to_string().contains(NO_TX_ERROR_CODE) {
                         if attempts >= 5 {
                             return false;
