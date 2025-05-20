@@ -2024,6 +2024,7 @@ impl InitWithdrawCoin for ZCoin {
 }
 
 /// Waits until there are enough _unlocked_ Sapling notes to cover `total_required`.
+/// TODO: Consider adding `wait_until` argument.
 async fn wait_for_spendable_balance_impl(
     selfi: ZCoin,
     total_required: BigDecimal,
