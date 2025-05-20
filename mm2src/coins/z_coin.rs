@@ -429,14 +429,7 @@ impl ZCoin {
                     .or_mm_err(|| GenTxError::FailedToGetMerklePath)?,
             )?;
 
-            let rseed = match spendable_note.rseed {
-                Rseed::BeforeZip212(rcm) => rcm.to_string(),
-                Rseed::AfterZip212(ref rseed) => {
-                    jubjub::Fr::from_bytes_wide(prf_expand(rseed, &[0x04]).as_array()).to_string()
-                },
-            };
-
-            rseeds.push(rseed);
+            rseeds.push(rseed_to_string(&spendable_note.rseed));
 
             if total_input_amount >= total_required {
                 change = &total_input_amount - &total_required;
@@ -1207,11 +1200,6 @@ impl MarketCoinOps for ZCoin {
     fn my_balance(&self) -> BalanceFut<CoinBalance> {
         let coin = self.clone();
         let fut = async move {
-            let spendabled_notes = coin
-                .get_spendable_notes()
-                .await
-                .map_err(|err| BalanceError::WalletStorageError(err.to_string()))?;
-
             let locked_notes = coin
                 .z_fields
                 .locked_notes_db
@@ -1222,17 +1210,22 @@ impl MarketCoinOps for ZCoin {
                 .map(|n| n.rseed.clone())
                 .collect::<HashSet<_>>();
 
-            let unspendable_sat = spendabled_notes
+            let get_wallet_notes = coin
+                .get_spendable_notes()
+                .await
+                .map_err(|err| BalanceError::WalletStorageError(err.to_string()))?;
+            let unspendable_sat = get_wallet_notes
                 .into_iter()
                 .filter(|n| locked_notes.contains(&rseed_to_string(&n.rseed)))
-                .map(|n| u64::from(n.note_value))
-                .sum::<u64>();
-            let balance_sat = coin
+                .map(|n| n.note_value)
+                .sum::<Amount>();
+            let unspendable_sat = u64::from(unspendable_sat);
+            let available_balance_sat = coin
                 .my_balance_sat()
                 .await
                 .mm_err(|e| BalanceError::WalletStorageError(e.to_string()))?;
 
-            let spendable_sat = balance_sat.saturating_sub(unspendable_sat);
+            let spendable_sat = available_balance_sat.saturating_sub(unspendable_sat);
             let spendable = big_decimal_from_sat_unsigned(spendable_sat, coin.decimals());
             let unspendable = big_decimal_from_sat_unsigned(unspendable_sat, coin.decimals());
 
@@ -2060,10 +2053,8 @@ async fn wait_for_spendable_balance_impl(
                 .collect()
         };
 
-        let sum_available: BigDecimal = unlocked_notes
-            .iter()
-            .map(|n| big_decimal_from_sat_unsigned(n.note_value.into(), selfi.decimals()))
-            .sum();
+        let sum_available = unlocked_notes.iter().map(|n| n.note_value).sum::<Amount>();
+        let sum_available = big_decimal_from_sat_unsigned(sum_available.into(), selfi.decimals());
 
         if sum_available >= total_required || unlocked_notes.len() == spendable_notes_len {
             return Ok(unlocked_notes.into_iter());
@@ -2173,9 +2164,11 @@ fn extended_spending_key_from_global_hd_account(
 
 #[inline]
 fn rseed_to_string(rseed: &Rseed) -> String {
+    const INPUT: [u8; 1] = [0x04];
+
     match rseed {
         Rseed::BeforeZip212(rcm) => rcm.to_string(),
-        Rseed::AfterZip212(rseed) => jubjub::Fr::from_bytes_wide(prf_expand(rseed, &[0x04]).as_array()).to_string(),
+        Rseed::AfterZip212(rseed) => jubjub::Fr::from_bytes_wide(prf_expand(rseed, &INPUT).as_array()).to_string(),
     }
 }
 
