@@ -2052,11 +2052,23 @@ async fn wait_for_spendable_balance_impl(
                 .filter(|note| !locked_seeds.contains(&rseed_to_string(&note.rseed)))
                 .collect()
         };
+        let unlocked_notes_len = unlocked_notes.len();
 
         let sum_available = unlocked_notes.iter().map(|n| n.note_value).sum::<Amount>();
         let sum_available = big_decimal_from_sat_unsigned(sum_available.into(), selfi.decimals());
 
-        if sum_available >= total_required || unlocked_notes.len() == spendable_notes_len {
+        // Reteurn InsufficientBalance error when all notes are unlocked but amount is insufficient.
+        if sum_available < total_required && unlocked_notes_len == spendable_notes_len {
+            return MmError::err(GenTxError::InsufficientBalance {
+                coin: selfi.ticker().to_string(),
+                available: sum_available,
+                required: total_required,
+            });
+        }
+
+        // Returns available notes when either sufficient funds exist or all notes are unlocked.
+        // Otherwise, waits for locked notes to become available up to MAX_RETRIES.
+        if sum_available >= total_required || unlocked_notes_len == spendable_notes_len {
             return Ok(unlocked_notes.into_iter());
         }
 
