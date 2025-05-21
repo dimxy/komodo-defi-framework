@@ -67,7 +67,6 @@ use std::convert::{TryFrom, TryInto};
 use std::iter;
 use std::num::NonZeroU32;
 use std::num::TryFromIntError;
-use std::path::PathBuf;
 use std::sync::Arc;
 pub use z_coin_errors::*;
 pub use z_htlc::z_send_dex_fee;
@@ -94,6 +93,7 @@ use zcash_proofs::prover::LocalTxProver;
 
 cfg_native!(
     use common::{async_blocking, sha256_digest};
+    use std::path::PathBuf;
     use zcash_proofs::default_params_folder;
     use z_rpc::init_native_client;
 );
@@ -928,9 +928,12 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
 
         let z_tx_prover = self.z_tx_prover().await?;
         let blocks_db = self.init_blocks_db().await?;
-        let locked_notes_db_path = self.db_dir_path.join(format!("{}_locked_notes_cache.db", self.ticker));
+        let locked_notes_db_path = self
+            .ctx
+            .wallet_dir()
+            .join(format!("{}_locked_notes_cache.db", self.ticker));
         let locked_notes_db =
-            LockedNotesStorage::new(self.ctx.clone(), my_z_addr_encoded.clone(), locked_notes_db_path).await?;
+            LockedNotesStorage::new(self.ctx, self.my_z_addr_encoded.clone(), locked_notes_db_path).await?;
 
         let (sync_state_connector, light_wallet_db) = match &self.z_coin_params.mode {
             #[cfg(not(target_arch = "wasm32"))]
@@ -1047,9 +1050,6 @@ impl<'a> ZCoinBuilder<'a> {
         let ctx = &self.ctx;
         let ticker = self.ticker.to_string();
 
-        #[cfg(target_arch = "wasm32")]
-        let cache_db_path = PathBuf::new();
-        #[cfg(not(target_arch = "wasm32"))]
         let cache_db_path = self.ctx.global_dir().join(format!("{}_cache.db", self.ticker));
 
         BlockDbImpl::new(ctx, ticker, cache_db_path)

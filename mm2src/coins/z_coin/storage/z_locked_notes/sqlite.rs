@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 const TABLE_NAME: &str = "locked_notes_cache";
 
-async fn create_table(conn: &AsyncConnection) -> Result<(), AsyncConnError> {
+async fn create_table(conn: Arc<Mutex<AsyncConnection>>) -> Result<(), AsyncConnError> {
+    let conn = conn.lock().await;
     conn.call(move |conn| {
         run_optimization_pragmas(conn)?;
         conn.execute(
@@ -31,21 +32,18 @@ async fn create_table(conn: &AsyncConnection) -> Result<(), AsyncConnError> {
 
 impl LockedNotesStorage {
     #[cfg(not(any(test, feature = "run-docker-tests")))]
-    pub(crate) async fn new(_ctx: MmArc, address: String, path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
+    pub(crate) async fn new(_ctx: &MmArc, address: String, path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
         let db = AsyncConnection::open(path)
             .await
             .map_to_mm(|err| LockedNotesStorageError::SqliteError(err.to_string()))?;
         let db = Arc::new(Mutex::new(db));
-        let conn_clone = db.clone();
-        let conn_lock = conn_clone.lock().await;
-
-        create_table(&conn_lock).await?;
+        create_table(db.clone()).await?;
 
         Ok(Self { db, address })
     }
 
     #[cfg(any(test, feature = "run-docker-tests"))]
-    pub(crate) async fn new(_ctx: MmArc, address: String, _path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
+    pub(crate) async fn new(_ctx: &MmArc, address: String, _path: PathBuf) -> MmResult<Self, LockedNotesStorageError> {
         #[cfg(feature = "run-docker-tests")]
         let db = Arc::new(Mutex::new(
             AsyncConnection::open(_path)
@@ -55,13 +53,9 @@ impl LockedNotesStorage {
         #[cfg(all(test, not(feature = "run-docker-tests")))]
         let db = {
             let test_conn = Arc::new(Mutex::new(AsyncConnection::open_in_memory().await.unwrap()));
-            _ctx.async_sqlite_connection.get().cloned().unwrap_or(test_conn)
+            _ctx.clone().async_sqlite_connection.get().cloned().unwrap_or(test_conn)
         };
-
-        let conn_clone = db.clone();
-        let conn_lock = conn_clone.lock().await;
-
-        create_table(&conn_lock).await?;
+        create_table(db.clone()).await?;
 
         Ok(Self { db, address })
     }
