@@ -125,7 +125,7 @@ macro_rules! try_ztx_s {
     };
 }
 
-const DEX_FEE_OVK: OutgoingViewingKey = OutgoingViewingKey([7; 32]);
+pub const DEX_FEE_OVK: OutgoingViewingKey = OutgoingViewingKey([7; 32]);
 const DEX_FEE_Z_ADDR: &str = "zs1rp6426e9r6jkq2nsanl66tkd34enewrmr0uvj0zelhkcwmsy0uvxz2fhm9eu9rl3ukxvgzy2v9f";
 const DEX_BURN_Z_ADDR: &str = "zs1ntx28kyurgvsc7rxgkdhasz8p6wzv63nqpcayvnh7c4r6cs4wfkz8ztkwazjzdsxkgaq6erscyl";
 cfg_native!(
@@ -148,7 +148,7 @@ pub struct ZcoinConsensusParams {
     coin_type: u32,
     hrp_sapling_extended_spending_key: String,
     hrp_sapling_extended_full_viewing_key: String,
-    hrp_sapling_payment_address: String,
+    pub hrp_sapling_payment_address: String,
     b58_pubkey_address_prefix: [u8; 2],
     b58_script_address_prefix: [u8; 2],
 }
@@ -205,9 +205,9 @@ pub struct ZCoinFields {
     evk: ExtendedFullViewingKey,
     z_tx_prover: Arc<LocalTxProver>,
     light_wallet_db: WalletDbShared,
-    consensus_params: ZcoinConsensusParams,
+    pub consensus_params: ZcoinConsensusParams,
     sync_state_connector: AsyncMutex<SaplingSyncConnector>,
-    locked_notes_db: LockedNotesStorage,
+    pub locked_notes_db: LockedNotesStorage,
 }
 
 impl Transaction for ZTransaction {
@@ -227,7 +227,7 @@ impl Transaction for ZTransaction {
 #[derive(Clone)]
 pub struct ZCoin {
     utxo_arc: UtxoArc,
-    z_fields: Arc<ZCoinFields>,
+    pub z_fields: Arc<ZCoinFields>,
 }
 
 pub struct ZOutput {
@@ -374,7 +374,9 @@ impl ZCoin {
         t_outputs: Vec<TxOut>,
         z_outputs: Vec<ZOutput>,
     ) -> Result<GenTxData<'_>, MmError<GenTxError>> {
+        println!("calling wait_for_gen_tx_blockchain_sync...");
         let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
+        println!("wait_for_gen_tx_blockchain_sync finished");
 
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
         let t_output_sat: u64 = t_outputs.iter().fold(0, |cur, out| cur + u64::from(out.value));
@@ -383,7 +385,9 @@ impl ZCoin {
         let total_output = big_decimal_from_sat_unsigned(total_output_sat, self.utxo_arc.decimals);
         let total_required = &total_output + &tx_fee;
 
+        println!("calling wait_for_spendable_balance_spawner...");
         let spendable_notes = wait_for_spendable_balance_spawner(self, &total_required).await?;
+        println!("wait_for_spendable_balance_spawner finished");
 
         let mut total_input_amount = BigDecimal::from(0);
         let mut change = BigDecimal::from(0);

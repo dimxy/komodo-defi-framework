@@ -190,6 +190,7 @@ pub async fn scan_cached_block(
     *last_height = current_height;
 
     for tx in &txs {
+        println!("removing note for txid={}", tx.txid);
         locked_notes_db
             .remove_note(tx.txid.to_string())
             .await

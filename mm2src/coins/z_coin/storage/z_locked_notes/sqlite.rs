@@ -94,7 +94,7 @@ impl LockedNotesStorage {
             .await?)
     }
 
-    pub(crate) async fn load_all_notes(&self) -> MmResult<Vec<LockedNote>, LockedNotesStorageError> {
+    pub async fn load_all_notes(&self) -> MmResult<Vec<LockedNote>, LockedNotesStorageError> {
         let db = self.db.lock().await;
         Ok(db
             .call(move |conn| {

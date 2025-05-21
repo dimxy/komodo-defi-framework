@@ -896,8 +896,10 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
         "(Re)starting light_wallet_db_sync_loop for {}, blocks per iteration {}, interval in ms {}",
         sync_handle.coin, sync_handle.scan_blocks_per_iteration, sync_handle.scan_interval_ms
     );
+    println!("(Re)starting light_wallet_db_sync_loop main_sync_state_finished={}", sync_handle.main_sync_state_finished);
 
     loop {
+        println!("light_wallet_db_sync_loop entering loop");
         if let Err(e) = sync_handle.update_blocks_cache(client.as_ref()).await {
             error!("Error {} on blocks cache update", e);
             sync_handle.notify_on_error(e.to_string());

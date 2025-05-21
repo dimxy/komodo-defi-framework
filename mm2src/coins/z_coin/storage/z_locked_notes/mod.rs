@@ -16,8 +16,8 @@ cfg_wasm32!(
 );
 
 #[derive(Debug, Clone)]
-pub(crate) struct LockedNote {
-    pub(crate) rseed: String,
+pub struct LockedNote {
+    pub rseed: String,
 }
 
 /// A wrapper for the db connection to the change note cache database in native and browser.
@@ -32,7 +32,7 @@ pub struct LockedNotesStorage {
 }
 
 #[derive(Clone, Debug, Display, Eq, PartialEq, EnumFromStringify)]
-pub(crate) enum LockedNotesStorageError {
+pub enum LockedNotesStorageError {
     #[cfg(not(target_arch = "wasm32"))]
     #[display(fmt = "Sqlite Error: {_0}")]
     #[from_stringify("AsyncConnError", "db_common::sqlite::rusqlite::Error")]
