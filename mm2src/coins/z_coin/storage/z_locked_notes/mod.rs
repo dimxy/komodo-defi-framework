@@ -45,8 +45,6 @@ pub(crate) enum LockedNotesStorageError {
 
 #[cfg(any(test, target_arch = "wasm32"))]
 pub(super) mod locked_notes_test {
-    use std::path::PathBuf;
-
     use crate::z_coin::storage::z_locked_notes::LockedNotesStorage;
     use common::cross_test;
 
@@ -61,9 +59,7 @@ pub(super) mod locked_notes_test {
 
     cross_test!(test_insert_and_remove_note, {
         let ctx = mm_ctx_with_custom_db();
-        let db = LockedNotesStorage::new(&ctx, MY_ADDRESS.to_string(), PathBuf::new())
-            .await
-            .unwrap();
+        let db = LockedNotesStorage::new(&ctx, MY_ADDRESS.to_string()).await.unwrap();
 
         // insert note
         let result = db
@@ -86,9 +82,7 @@ pub(super) mod locked_notes_test {
 
     cross_test!(test_load_all_notes, {
         let ctx = mm_ctx_with_custom_db();
-        let db = LockedNotesStorage::new(&ctx, MY_ADDRESS.to_string(), PathBuf::new())
-            .await
-            .unwrap();
+        let db = LockedNotesStorage::new(&ctx, MY_ADDRESS.to_string()).await.unwrap();
 
         let result = db
             .insert_note(
@@ -104,9 +98,7 @@ pub(super) mod locked_notes_test {
 
     cross_test!(test_sum_changes, {
         let ctx = mm_ctx_with_custom_db();
-        let db = LockedNotesStorage::new(&ctx, MY_ADDRESS.to_string(), PathBuf::new())
-            .await
-            .unwrap();
+        let db = LockedNotesStorage::new(&ctx, MY_ADDRESS.to_string()).await.unwrap();
 
         let result = db
             .insert_note(

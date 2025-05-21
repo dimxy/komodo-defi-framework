@@ -928,12 +928,7 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
 
         let z_tx_prover = self.z_tx_prover().await?;
         let blocks_db = self.init_blocks_db().await?;
-        let locked_notes_db_path = self
-            .ctx
-            .wallet_dir()
-            .join(format!("{}_locked_notes_cache.db", self.ticker));
-        let locked_notes_db =
-            LockedNotesStorage::new(self.ctx, self.my_z_addr_encoded.clone(), locked_notes_db_path).await?;
+        let locked_notes_db = LockedNotesStorage::new(self.ctx, self.my_z_addr_encoded.clone()).await?;
 
         let (sync_state_connector, light_wallet_db) = match &self.z_coin_params.mode {
             #[cfg(not(target_arch = "wasm32"))]

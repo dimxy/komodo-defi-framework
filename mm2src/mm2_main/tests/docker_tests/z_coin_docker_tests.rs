@@ -23,18 +23,18 @@ lazy_static! {
 }
 
 /// Build asset `ZCoin` from ticker and spending_key.
-pub async fn z_coin_from_spending_key(spending_key: &str, path: &str) -> (MmArc, ZCoin) {
-    let ctx = MmCtxBuilder::new().into_mm_arc();
+pub async fn z_coin_from_spending_key<'a>(spending_key: &str, path: &'a str) -> (MmArc, ZCoin) {
+    let tmp = TEMP_DIR.lock().await;
+    let db_path = tmp.path().join(format!("ZOMBIE_DB_{path}"));
+    std::fs::create_dir_all(&db_path).unwrap();
+    let ctx = MmCtxBuilder::new().with_conf(json!({ "dbdir": db_path})).into_mm_arc();
+
     let mut conf = zombie_conf_for_docker();
     let params = ZcoinActivationParams {
         mode: ZcoinRpcMode::Native,
         ..Default::default()
     };
     let pk_data = [1; 32];
-
-    let tmp = TEMP_DIR.lock().await;
-    let db_folder = tmp.path().join(format!("ZOMBIE_DB_{path}"));
-    std::fs::create_dir_all(&db_folder).unwrap();
 
     let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
         CoinProtocol::ZHTLC(protocol_info) => protocol_info,
