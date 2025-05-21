@@ -31,9 +31,11 @@ pub async fn z_coin_from_spending_key(spending_key: &str, path: &str) -> (MmArc,
         ..Default::default()
     };
     let pk_data = [1; 32];
+
     let tmp = TEMP_DIR.lock().await;
     let db_folder = tmp.path().join(format!("ZOMBIE_DB_{path}"));
     std::fs::create_dir_all(&db_folder).unwrap();
+
     let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].take()).unwrap() {
         CoinProtocol::ZHTLC(protocol_info) => protocol_info,
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
@@ -45,7 +47,6 @@ pub async fn z_coin_from_spending_key(spending_key: &str, path: &str) -> (MmArc,
         &conf,
         &params,
         PrivKeyBuildPolicy::IguanaPrivKey(pk_data.into()),
-        db_folder,
         protocol_info,
         spending_key,
     )
