@@ -63,7 +63,7 @@ use script::{Builder as ScriptBuilder, Opcode, Script, TransactionInputSigner};
 use serde_json::Value as Json;
 use serialization::CoinVariant;
 use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::iter;
 use std::num::NonZeroU32;
 use std::num::TryFromIntError;
@@ -94,7 +94,6 @@ use zcash_proofs::prover::LocalTxProver;
 
 cfg_native!(
     use common::{async_blocking, sha256_digest};
-    use zcash_client_sqlite::wallet::get_balance;
     use zcash_proofs::default_params_folder;
     use z_rpc::init_native_client;
 );
@@ -334,25 +333,7 @@ impl ZCoin {
         })
     }
 
-    async fn my_balance_sat(&self) -> Result<u64, MmError<ZCoinBalanceError>> {
-        let wallet_db = self.z_fields.light_wallet_db.clone();
-
-        #[cfg(target_arch = "wasm32")]
-        let balance_sat: u64 = wallet_db.db.get_balance(AccountId::default()).await?.into();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let balance_sat: u64 = async_blocking(move || {
-            let db_guard = wallet_db.db.inner();
-            let db_guard = db_guard.lock().unwrap();
-            get_balance(&db_guard, AccountId::default()).map(|v| v.into())
-        })
-        .await
-        .map_to_mm(|err| ZCoinBalanceError::BalanceError(err.to_string()))?;
-
-        Ok(balance_sat)
-    }
-
-    async fn get_spendable_notes(&self) -> Result<Vec<SpendableNote>, MmError<SpendableNotesError>> {
+    async fn get_wallet_notes(&self) -> Result<Vec<SpendableNote>, MmError<SpendableNotesError>> {
         let wallet_db = self.z_fields.light_wallet_db.clone();
         let db_guard = wallet_db.db;
         let latest_db_block = match db_guard
@@ -371,8 +352,8 @@ impl ZCoin {
     }
 
     /// Returns spendable notes
-    async fn spendable_notes_ordered(&self) -> Result<Vec<SpendableNote>, MmError<SpendableNotesError>> {
-        let mut unspents = self.get_spendable_notes().await?;
+    async fn wallet_notes_ordered(&self) -> Result<Vec<SpendableNote>, MmError<SpendableNotesError>> {
+        let mut unspents = self.get_wallet_notes().await?;
 
         unspents.sort_unstable_by(|a, b| a.note_value.cmp(&b.note_value));
         Ok(unspents)
@@ -1209,26 +1190,31 @@ impl MarketCoinOps for ZCoin {
                 .map(|n| n.rseed.clone())
                 .collect::<HashSet<_>>();
 
-            let get_wallet_notes = coin
-                .get_spendable_notes()
+            let wallet_notes = coin
+                .get_wallet_notes()
                 .await
                 .map_err(|err| BalanceError::WalletStorageError(err.to_string()))?;
-            let unspendable_sat = get_wallet_notes
-                .into_iter()
-                .filter(|n| locked_notes.contains(&rseed_to_string(&n.rseed)))
-                .map(|n| n.note_value)
-                .sum::<Amount>();
-            let unspendable_sat = u64::from(unspendable_sat);
-            let available_balance_sat = coin
-                .my_balance_sat()
-                .await
-                .mm_err(|e| BalanceError::WalletStorageError(e.to_string()))?;
 
-            let spendable_sat = available_balance_sat.saturating_sub(unspendable_sat);
+            let (spendable_amount, unspendable_amount) =
+                wallet_notes
+                    .into_iter()
+                    .fold((Amount::zero(), Amount::zero()), |mut acc, n| {
+                        if locked_notes.contains(&rseed_to_string(&n.rseed)) {
+                            acc.1 += n.note_value;
+                        } else {
+                            acc.0 += n.note_value;
+                        }
+                        acc
+                    });
+            let (spendable_sat, unspendable_sat) = {
+                (
+                    u64::try_from(spendable_amount).map_to_mm(|err| BalanceError::Internal(err.to_string()))?,
+                    u64::try_from(unspendable_amount).map_to_mm(|err| BalanceError::Internal(err.to_string()))?,
+                )
+            };
             let spendable = big_decimal_from_sat_unsigned(spendable_sat, coin.decimals());
             let unspendable = big_decimal_from_sat_unsigned(unspendable_sat, coin.decimals());
 
-            // Spendable balance is spendable - unspendable.
             Ok(CoinBalance { spendable, unspendable })
         };
 
@@ -2035,19 +2021,19 @@ async fn wait_for_spendable_balance_impl(
     let mut retries = 0;
 
     loop {
-        let spendable_notes = selfi
-            .spendable_notes_ordered()
+        let wallet_notes = selfi
+            .wallet_notes_ordered()
             .await
             .map_err(|e| GenTxError::SpendableNotesError(e.to_string()))?;
-        let spendable_notes_len = spendable_notes.len();
+        let wallet_notes_len = wallet_notes.len();
 
         let locked_notes = selfi.z_fields.locked_notes_db.load_all_notes().await?;
 
         let unlocked_notes: Vec<SpendableNote> = if locked_notes.is_empty() {
-            spendable_notes
+            wallet_notes
         } else {
             let locked_seeds: HashSet<_> = locked_notes.into_iter().map(|n| n.rseed).collect();
-            spendable_notes
+            wallet_notes
                 .into_iter()
                 .filter(|note| !locked_seeds.contains(&rseed_to_string(&note.rseed)))
                 .collect()
@@ -2055,10 +2041,11 @@ async fn wait_for_spendable_balance_impl(
         let unlocked_notes_len = unlocked_notes.len();
 
         let sum_available = unlocked_notes.iter().map(|n| n.note_value).sum::<Amount>();
-        let sum_available = big_decimal_from_sat_unsigned(sum_available.into(), selfi.decimals());
+        let sum_available = u64::try_from(sum_available).map_to_mm(|err| GenTxError::Internal(err.to_string()))?;
+        let sum_available = big_decimal_from_sat_unsigned(sum_available, selfi.decimals());
 
         // Reteurn InsufficientBalance error when all notes are unlocked but amount is insufficient.
-        if sum_available < total_required && unlocked_notes_len == spendable_notes_len {
+        if sum_available < total_required && unlocked_notes_len == wallet_notes_len {
             return MmError::err(GenTxError::InsufficientBalance {
                 coin: selfi.ticker().to_string(),
                 available: sum_available,
@@ -2068,7 +2055,7 @@ async fn wait_for_spendable_balance_impl(
 
         // Returns available notes when either sufficient funds exist or all notes are unlocked.
         // Otherwise, waits for locked notes to become available up to MAX_RETRIES.
-        if sum_available >= total_required || unlocked_notes_len == spendable_notes_len {
+        if sum_available >= total_required || unlocked_notes_len == wallet_notes_len {
             return Ok(unlocked_notes.into_iter());
         }
 
