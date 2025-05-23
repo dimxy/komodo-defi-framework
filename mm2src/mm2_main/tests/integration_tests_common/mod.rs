@@ -19,19 +19,12 @@ use std::env::var;
 #[cfg(not(target_arch = "wasm32"))]
 fn test_mm_start() { test_mm_start_impl(); }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn test_mm_start_impl() {
     if let Ok(conf) = var("_MM2_TEST_CONF") {
         log!("test_mm_start] Starting the MarketMaker...");
         let conf: Json = json::from_str(&conf).unwrap();
-        #[cfg(not(target_arch = "wasm32"))]
-        let filter = None;
-        #[cfg(target_arch = "wasm32")]
-        let filter = if let Ok(log_var) = var("RUST_LOG") {
-            LogLevel::from_str(&log_var).ok(); // Actually filter is used for wasm only. For native RUST_LOG is parsed by env_logger directly, allowing setting multiple targets
-        } else {
-            None
-        };
-        let params = LpMainParams::with_conf(conf).log_filter(filter);
+        let params = LpMainParams::with_conf(conf);
         block_on(lp_main(params, &|_ctx| (), "TEST".into(), "TEST".into())).unwrap()
     }
 }
