@@ -56,6 +56,7 @@ hex.workspace = true
 http.workspace = true
 itertools = { workspace = true, features = ["use_std"] }
 jsonrpc-core.workspace = true
+jubjub.workspace = true
 keys = { path = "../mm2_bitcoin/keys" }
 lazy_static.workspace = true
 libc.workspace = true
