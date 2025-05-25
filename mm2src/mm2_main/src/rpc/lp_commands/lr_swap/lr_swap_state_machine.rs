@@ -16,6 +16,7 @@ use ethereum_types::{Address as EthAddress, H256, U256};
 use common::executor::abortable_queue::AbortableQueue;
 use common::executor::AbortSettings;
 use common::executor::AbortableSystem;
+use common::executor::Timer;
 use common::log::{info, warn};
 use enum_derives::EnumFromStringify;
 use futures::compat::Future01CompatExt;
@@ -26,6 +27,7 @@ use crate::lp_swap::check_balance_for_taker_swap;
 use crate::lp_swap::swap_lock::SwapLock;
 use crate::lp_swap::swap_v2_common::*;
 use crate::lp_swap::AGG_TAKER_SWAP_TYPE;
+use crate::lp_swap::swap_v2_rpcs::{my_swap_status_rpc, SwapRpcData, MySwapStatusError, MySwapStatusRequest};
 use crate::rpc::lp_commands::lr_swap::lr_types::LrFillMakerOrderResponse;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
@@ -49,6 +51,7 @@ use serde_json::{self as json, Value as Json};
 use std::convert::TryInto;
 use std::ops::Deref;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex, OnceLock};
 use trading_api::one_inch_api::classic_swap_types::{ClassicSwapCreateParams, ClassicSwapData, ClassicSwapQuoteParams,
                                                     TxFields};
 use trading_api::one_inch_api::client::ApiClient;
@@ -245,6 +248,8 @@ pub struct AggTakerSwapStateMachine {
     //pub classic_swap_details: ClassicSwapDetails,
     /// Sell or but params for the atomic swap
     pub sell_buy_request: SellBuyRequest,
+    /// The UUID of the atomic swap
+    pub atomic_swap_uuid: OnceLock<Uuid>,
     /// unique ID of the agg swap for stopping or querying status.
     pub uuid: Uuid,
     /// The timestamp when the agg swap was started.
@@ -308,6 +313,7 @@ impl StorableStateMachine for AggTakerSwapStateMachine {
             lr_swap_0: Default::default(),
             lr_swap_1: Default::default(),
             sell_buy_request: Default::default(),
+            atomic_swap_uuid: OnceLock::default(), // TODO: set from db
             uuid,
             swap_version: AggTakerSwapStateMachine::AGG_SWAP_VERSION,
             started_at: 0,
@@ -409,14 +415,19 @@ mod states {
             self: Box<Self>,
             state_machine: &mut Self::StateMachine,
         ) -> StateResult<Self::StateMachine> {
-            if let Err(err) = state_machine.start_lp_auto_buy().await {
-                let aborted = Aborted {
-                    reason: AbortReason::SomeReason(err.to_string()),
-                };
-                return Self::change_state(aborted, state_machine).await;
+            match state_machine.start_lp_auto_buy().await {
+                Ok(resp) => {
+                    state_machine.atomic_swap_uuid.set(resp.request.uuid);
+                    let next_state = WaitForAtomicSwap {};
+                    Self::change_state(next_state, state_machine).await
+                },
+                Err(err) => {
+                    let next_state = Aborted {
+                        reason: AbortReason::SomeReason(err.to_string()),
+                    };
+                    Self::change_state(next_state, state_machine).await
+                },
             }
-            let wait_for_atomic_swap = WaitForAtomicSwap {};
-            Self::change_state(wait_for_atomic_swap, state_machine).await
         }
     }
 
@@ -439,6 +450,12 @@ mod states {
             self: Box<Self>,
             state_machine: &mut Self::StateMachine,
         ) -> StateResult<Self::StateMachine> {
+            if let Err(err) = state_machine.wait_for_atomic_swap_finished().await {
+                let next_state = Aborted {
+                    reason: AbortReason::SomeReason(err.to_string()),
+                };
+                return Self::change_state(next_state, state_machine).await;
+            }
             if state_machine.lr_swap_1.is_some() {
                 let run_lr_swap_1 = RunLrSwap1 {};
                 Self::change_state(run_lr_swap_1, state_machine).await
@@ -710,6 +727,57 @@ impl AggTakerSwapStateMachine {
         let rpc_res: Mm2RpcResult<SellBuyResponse> = json::from_slice(res_bytes.as_slice())?;
         Ok(rpc_res.result)
     }
+
+    fn check_if_status_finished(swap_result: &MmResult<SwapRpcData, MySwapStatusError>) -> MmResult<bool, ApiIntegrationRpcError> {
+        let swap_status = match swap_result {
+            Ok(swap_status) => swap_status,
+            Err(mm_err) => {
+                match mm_err.get_inner() {                                         
+                    // TODO: now considering that swap has not been started yet and we don't have non-existing uuids,
+                    // but maybe we could throw an error after some time
+                    MySwapStatusError::NoSwapWithUuid(_) => return Ok(false),
+                    other_err => {
+                        return MmError::err(ApiIntegrationRpcError::InternalError(format!(
+                            "Failed to get swap status: {}",
+                            other_err
+                        )))
+                    },
+                }
+            }
+        };
+        match swap_status {
+            SwapRpcData::TakerV1(swap_status) => {
+                Ok(swap_status.is_finished())
+            },
+            SwapRpcData::TakerV2(swap_status) => {
+                Ok(swap_status.is_finished)
+            },
+            SwapRpcData::AggTaker(_) | SwapRpcData::MakerV1(_) | SwapRpcData::MakerV2(_) => { 
+                MmError::err(ApiIntegrationRpcError::InternalError(
+                    "incorrect atomic swap type".to_string(),
+                ))
+            },
+        }
+    }
+
+    async fn wait_for_atomic_swap_finished(&self) -> MmResult<(), ApiIntegrationRpcError> {
+        let atomic_swap_uuid = self
+            .atomic_swap_uuid
+            .get()
+            .ok_or(ApiIntegrationRpcError::InternalError(
+                "atomic swap uuid not set".to_string(),
+            ))?;
+        loop {
+            println!("LR swap waiting for atomic swap finish...");
+            let swap_result = my_swap_status_rpc(self.ctx.clone(), MySwapStatusRequest { uuid: *atomic_swap_uuid }).await;
+            if Self::check_if_status_finished(&swap_result)? {
+                break;
+            }
+            Timer::sleep(5.).await;
+        }
+        println!("LR swap atomic swap finished");
+        Ok(())
+    }
 }
 
 async fn check_balance_for_agg_taker_swap(
@@ -742,6 +810,7 @@ async fn start_agg_taker_swap_state_machine(
         uuid,
         started_at: now_sec(),
         swap_version: AggTakerSwapStateMachine::AGG_SWAP_VERSION,
+        atomic_swap_uuid: OnceLock::default(),
     };
     #[allow(clippy::box_default)]
     state_machine

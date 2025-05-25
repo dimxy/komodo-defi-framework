@@ -16,7 +16,7 @@ use mm2_rpc::data::legacy::RpcOrderbookEntry;
 use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed_for_kickstart, disable_coin,
                                   disable_coin_err, doc_conf, enable_electrum_json, enable_eth_coin, enable_native,
                                   get_locked_amount, mm_dump, my_swap_status, mycoin1_conf, mycoin_conf, polygon_conf,
-                                  start_swaps, wait_for_swap_finished, wait_for_swap_status, MarketMakerIt,
+                                  start_swaps, wait_for_swap_finished, MarketMakerIt,
                                   Mm2TestConf, SwapV2TestContracts, TestNode, DOC, POLYGON_MAINNET_NODES,
                                   POLYGON_MAINNET_SWAP_CONTRACT, POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT,
                                   POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT, POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT};
@@ -131,66 +131,73 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
         .iter()
         .map(|ip| TestNode { url: (*ip).to_owned() })
         .collect::<Vec<_>>();
-    log!(
-        "{:?}",
-        block_on(enable_eth_coin_v2(
-            &mm_bob,
-            "MATIC",
-            POLYGON_MAINNET_SWAP_CONTRACT,
-            contracts_v2.clone(),
-            None,
-            &polygon_nodes,
-            json!([
-                { "ticker": &token_1_ticker },
-                { "ticker": &token_2_ticker },
-                { "ticker": &token_3_ticker }
-            ])
-        ))
-    );
-    log!(
-        "{:?}",
-        block_on(enable_electrum_json(&mm_bob, DOC, false, doc_electrums()))
+    
+    let bob_enable_tokens = block_on(enable_eth_coin_v2(
+        &mm_bob,
+        "MATIC",
+        POLYGON_MAINNET_SWAP_CONTRACT,
+        contracts_v2.clone(),
+        None,
+        &polygon_nodes,
+        json!([
+            { "ticker": &token_1_ticker },
+            { "ticker": &token_2_ticker },
+            { "ticker": &token_3_ticker }
+        ])
+    ));
+    let bob_enable_doc = block_on(enable_electrum_json(&mm_bob, DOC, false, doc_electrums()));
+    println!("Bob address={:?}, DOC balance={:?} unspendable_balance={:?}", bob_enable_doc["address"].as_str().unwrap(), bob_enable_doc["balance"], bob_enable_doc["unspendable_balance"]);
+
+    let alice_enable_tokens = block_on(enable_eth_coin_v2(
+        &mm_alice,
+        "MATIC",
+        POLYGON_MAINNET_SWAP_CONTRACT,
+        contracts_v2,
+        None,
+        &polygon_nodes,
+        json!([
+            { "ticker": &token_1_ticker },
+            { "ticker": &token_2_ticker },
+            { "ticker": &token_3_ticker }
+        ])
+    ));
+    let alice_enable_doc = block_on(enable_electrum_json(&mm_alice, DOC, false, doc_electrums()));
+
+    let alice_eth_info = alice_enable_tokens["result"]["eth_addresses_infos"].as_object().unwrap();
+    let alice_erc20_info = alice_enable_tokens["result"]["erc20_addresses_infos"].as_object().unwrap();
+    println!("Alice address={}, MATIC balance={:?}\ntoken balances:\n{:?}={:?}\n{:?}={:?}\n{:?}={:?}",
+        alice_eth_info.iter().next().unwrap().0,
+        alice_eth_info.iter().next().unwrap().1["balances"].as_object().unwrap(),
+        token_1_ticker, alice_erc20_info.iter().next().unwrap().1["balances"][token_1_ticker.clone()].as_object().unwrap(),
+        token_2_ticker, alice_erc20_info.iter().next().unwrap().1["balances"][token_2_ticker.clone()].as_object().unwrap(),
+        token_3_ticker, alice_erc20_info.iter().next().unwrap().1["balances"][token_3_ticker.clone()].as_object().unwrap(),
     );
 
-    log!(
-        "{:?}",
-        block_on(enable_eth_coin_v2(
-            &mm_alice,
-            "MATIC",
-            POLYGON_MAINNET_SWAP_CONTRACT,
-            contracts_v2,
-            None,
-            &polygon_nodes,
-            json!([
-                { "ticker": &token_1_ticker },
-                { "ticker": &token_2_ticker },
-                { "ticker": &token_3_ticker }
-            ])
-        ))
-    );
-    log!(
-        "{:?}",
-        block_on(enable_electrum_json(&mm_alice, DOC, false, doc_electrums()))
-    );
-
-    block_on(create_maker_order(&mut mm_bob, DOC, &token_1_ticker, 0.002));
-    block_on(create_maker_order(&mut mm_bob, DOC, &token_2_ticker, 0.002));
-    block_on(create_maker_order(&mut mm_bob, DOC, &token_3_ticker, 0.002));
+    let order_res_1 = block_on(create_maker_order(&mut mm_bob, DOC, &token_1_ticker, 0.002));
+    let order_res_2 = block_on(create_maker_order(&mut mm_bob, DOC, &token_2_ticker, 0.002));
+    let order_res_3 = block_on(create_maker_order(&mut mm_bob, DOC, &token_3_ticker, 0.002));
+    if order_res_1.is_err() && order_res_2.is_err() && order_res_3.is_err() {
+        println!("maker orders for test all errors:\n{}\n{}\n{}", 
+            order_res_1.unwrap_err(), order_res_2.unwrap_err(), order_res_3.unwrap_err());
+        panic!("could not create maker orders for test");
+    }
 
     let token_1_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_1_ticker, 60)).unwrap();
     let token_2_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_2_ticker, 60)).unwrap();
     let token_3_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_3_ticker, 60)).unwrap();
-    println!("token_1_order={}", serde_json::to_string(&token_1_order).unwrap());
+    // println!("token_1_order={}", serde_json::to_string(&token_1_order).unwrap());
+    // println!("token_2_order={}", serde_json::to_string(&token_2_order).unwrap());
+    // println!("token_3_order={}", serde_json::to_string(&token_3_order).unwrap());
 
     let best_asks = block_on(best_orders_v2_by_number(&mm_alice, DOC, "buy", 10, false));
-    println!("best_asks={}", serde_json::to_string(&best_asks).unwrap());
+    // println!("best_asks={}", serde_json::to_string(&best_asks).unwrap());
     let entries = best_asks.result.orders.values().flatten().cloned().collect::<Vec<_>>();
-    println!("best_asks(entries)={}", serde_json::to_string(&entries).unwrap());
+    // println!("best_asks(entries)={}", serde_json::to_string(&entries).unwrap());
 
     const SWAP_AMOUNT: &str = "0.001234";
     let best_quote = block_on(find_best_lr_swap(&mut mm_alice, DOC, &entries, SWAP_AMOUNT, "MATIC"))
         .expect("best LR quote should be found");
-    println!("found best LR quote={}", serde_json::to_string(&best_quote).unwrap());
+    println!("Found best LR quote={}", serde_json::to_string(&best_quote).unwrap());
 
     let agg_uuid = block_on(start_agg_swap(
         &mut mm_alice,
@@ -205,21 +212,15 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
         SWAP_AMOUNT.parse().unwrap(),
     ))
     .unwrap();
-    log!("aggregated swap uuid {:?}", agg_uuid);
-
-    //let active_swaps_bob = block_on(active_swaps(&mm_bob));
-    //assert_eq!(active_swaps_bob.uuids, vec![agg_uuid]);
+    log!("Aggregated swap uuid {:?} started", agg_uuid);
 
     block_on(Timer::sleep(1.0));
 
     let active_swaps_alice = block_on(active_swaps(&mm_alice));
     assert_eq!(active_swaps_alice.uuids, vec![agg_uuid]);
 
-    //block_on(wait_for_swap_finished(&mm_bob, &agg_uuid.to_string(), 60));
-    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 30));
-
-    //let maker_swap_status = block_on(my_swap_status(&mm_bob, &agg_uuid.to_string()));
-    //log!("{:?}", maker_swap_status);
+    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 120)); // Only taker has the aggregated swap
+    println!("Aggregated lr swap {:?} finished", agg_uuid);
 
     let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
     log!(

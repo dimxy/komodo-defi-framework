@@ -48,7 +48,7 @@ pub(super) async fn get_swap_type(ctx: &MmArc, uuid: &Uuid) -> MmResult<Option<u
             &[(":uuid", uuid.as_str())],
             |row| row.get(0),
         );
-        println!("get_swap_type maybe_swap_type={:?}", maybe_swap_type);
+        //println!("get_swap_type maybe_swap_type={:?}", maybe_swap_type);
         let maybe_swap_type = maybe_swap_type?;
         Ok(maybe_swap_type)
     })
@@ -101,7 +101,7 @@ pub(crate) struct MySwapForRpc<T> {
     other_coin: String,
     uuid: Uuid,
     started_at: i64,
-    is_finished: bool,
+    pub(crate) is_finished: bool,
     events: Vec<T>,
     maker_volume: MmNumberMultiRepr,
     taker_volume: MmNumberMultiRepr,
@@ -330,7 +330,7 @@ async fn get_swap_data_by_uuid_and_type(
 
 #[derive(Deserialize)]
 pub(crate) struct MySwapStatusRequest {
-    uuid: Uuid,
+    pub(crate) uuid: Uuid,
 }
 
 #[derive(Display, Debug, Serialize, SerializeErrorType)]
@@ -375,7 +375,7 @@ pub(crate) async fn my_swap_status_rpc(
     ctx: MmArc,
     req: MySwapStatusRequest,
 ) -> MmResult<SwapRpcData, MySwapStatusError> {
-    println!("my_swap_status_rpc enterred");
+    println!("my_swap_status_rpc enterred for uuid={}", req.uuid);
     let swap_type = get_swap_type(&ctx, &req.uuid).await;
 
     println!("my_swap_status_rpc swap_type={:?}", swap_type);
@@ -383,9 +383,9 @@ pub(crate) async fn my_swap_status_rpc(
     println!("my_swap_status_rpc swap_type2={:?}", swap_type);
     let swap_type = swap_type?;
     let r = get_swap_data_by_uuid_and_type(&ctx, req.uuid, swap_type).await;
-    println!("my_swap_status_rpc r={:?}", r);
+    //println!("my_swap_status_rpc r={:?}", r);
     let r = r?.or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid));
-    println!("my_swap_status_rpc r2={:?}", r);
+    //println!("my_swap_status_rpc r2={:?}", r);
     r
 }
 
