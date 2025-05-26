@@ -1,13 +1,13 @@
 //! RPC implementations for swaps with liquidity routing (LR) of EVM tokens
 
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
-use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
 use crate::rpc::lp_commands::one_inch::types::ClassicSwapDetails;
 use coins::lp_coinfind_or_err;
 use lr_quote::find_best_fill_ask_with_lr;
 use lr_swap_state_machine::lp_start_agg_taker_swap;
 use lr_types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillMakerOrderRequest, LrFillMakerOrderResponse,
                LrQuotesForTokensRequest};
+use lr_helpers::get_coin_for_one_inch;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
@@ -15,6 +15,8 @@ use mm2_err_handle::{map_mm_error::MapMmError,
 mod lr_quote;
 pub(crate) mod lr_swap_state_machine;
 pub(crate) mod lr_types;
+pub(crate) mod lr_errors;
+pub(crate) mod lr_helpers;
 
 /// Find the best swap with liquidity routing of EVM tokens, to select from multiple orders.
 /// For the provided list of orderbook entries this RPC will find out the most price-effective swap with LR.
@@ -89,9 +91,18 @@ pub async fn lr_fill_order_rpc(
     req: LrFillMakerOrderRequest,
 ) -> MmResult<LrFillMakerOrderResponse, ApiIntegrationRpcError> {
     println!("sell_buy_req={:?}", req.sell_buy_req);
-    let swap_uuid = lp_start_agg_taker_swap(ctx, req.lr_swap_0, req.lr_swap_1, req.sell_buy_req).await?;
+    
+    // State machine errors will be automatically converted to ApiIntegrationRpcError
+    let swap_uuid = lp_start_agg_taker_swap(
+        ctx, 
+        req.lr_swap_0, 
+        req.lr_swap_1, 
+        req.sell_buy_req
+    ).await?;
+    
     Ok(LrFillMakerOrderResponse { uuid: swap_uuid })
 }
+
 
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "test-ext-api"))]
 mod tests {

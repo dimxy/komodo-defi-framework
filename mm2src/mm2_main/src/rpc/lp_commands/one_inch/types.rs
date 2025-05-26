@@ -1,4 +1,4 @@
-use crate::rpc::lp_commands::one_inch::errors::FromApiValueError;
+use super::errors::FromApiValueError;
 use coins::eth::erc20::{get_erc20_ticker_by_contract_address, get_platform_ticker};
 use coins::eth::{u256_to_big_decimal, wei_to_gwei_decimal};
 use coins::Ticker;

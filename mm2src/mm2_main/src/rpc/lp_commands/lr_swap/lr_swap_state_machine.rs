@@ -29,8 +29,8 @@ use crate::lp_swap::swap_v2_common::*;
 use crate::lp_swap::AGG_TAKER_SWAP_TYPE;
 use crate::lp_swap::swap_v2_rpcs::{my_swap_status_rpc, SwapRpcData, MySwapStatusError, MySwapStatusRequest};
 use crate::rpc::lp_commands::lr_swap::lr_types::LrFillMakerOrderResponse;
-use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
-use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
+use crate::rpc::lp_commands::lr_swap::lr_errors::LrSwapError;
+use crate::rpc::lp_commands::lr_swap::lr_helpers::{get_coin_for_one_inch, api_supports_pair};
 use crate::rpc::lp_commands::one_inch::types::{ClassicSwapCreateRequest, ClassicSwapDetails};
 //use ethcore_transaction::Action;
 //use crate::lp_swap::SwapsContext;
@@ -58,6 +58,7 @@ use trading_api::one_inch_api::client::ApiClient;
 
 use crate::database::my_lr_swaps::SELECT_LR_SWAP_BY_UUID;
 
+
 //use primitives::hash::H256;
 //use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
 use uuid::Uuid;
@@ -72,16 +73,6 @@ cfg_wasm32!(
     use crate::lp_swap::swap_wasm_db::{MySwapsFiltersTable, SavedSwapTable};
     use crate::swap_versioning::legacy_swap_version;
 );
-
-/*
-#[derive(Debug, Display, EnumFromStringify)]
-pub enum ApiIntegrationRpcError {
-    #[from_stringify("coins::CoinFindError")]
-    NoSuchCoin(String),
-    #[from_stringify("serde_json::Error")]
-    ParseError(String),
-    InternalError(String),
-}*/
 
 /// Represents events produced by aggregated taker swap states.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -595,19 +586,19 @@ impl AggTakerSwapStateMachine {
     const AGG_SWAP_VERSION: u8 = 0;
 
     #[allow(clippy::result_large_err)]
-    fn sell_buy_method(&self) -> MmResult<TakerAction, ApiIntegrationRpcError> {
+    fn sell_buy_method(&self) -> MmResult<TakerAction, LrSwapError> {
         //println!("method={} TakerAction={:?}", self.sell_buy_request.method.as_str(), json::from_str::<TakerAction>(self.sell_buy_request.method.as_str()));
         match self.sell_buy_request.method.as_str() {
             "buy" => Ok(TakerAction::Buy),
             "sell" => Ok(TakerAction::Sell),
-            _ => MmError::err(ApiIntegrationRpcError::InvalidParam(
+            _ => MmError::err(LrSwapError::InvalidParam(
                 "invalid method in sell/buy request".to_owned(),
             )),
         }
     }
 
     #[allow(clippy::result_large_err)]
-    fn maker_coin(&self) -> MmResult<&str, ApiIntegrationRpcError> {
+    fn maker_coin(&self) -> MmResult<&str, LrSwapError> {
         match self.sell_buy_method()? {
             TakerAction::Buy => Ok(&self.sell_buy_request.base),
             TakerAction::Sell => Ok(&self.sell_buy_request.rel),
@@ -615,18 +606,18 @@ impl AggTakerSwapStateMachine {
     }
 
     #[allow(clippy::result_large_err)]
-    fn taker_coin(&self) -> MmResult<&str, ApiIntegrationRpcError> {
+    fn taker_coin(&self) -> MmResult<&str, LrSwapError> {
         match self.sell_buy_method()? {
             TakerAction::Buy => Ok(&self.sell_buy_request.rel),
             TakerAction::Sell => Ok(&self.sell_buy_request.base),
         }
     }
 
-    async fn run_lr_swap(&self, req: &ClassicSwapCreateRequest) -> MmResult<(), ApiIntegrationRpcError> {
+    async fn run_lr_swap(&self, req: &ClassicSwapCreateRequest) -> MmResult<(), LrSwapError> {
         let (base, base_contract) = get_coin_for_one_inch(&self.ctx, &req.base).await?;
         let (rel, rel_contract) = get_coin_for_one_inch(&self.ctx, &req.rel).await?;
         let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
-            .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
+            .mm_err(|err| LrSwapError::InvalidParam(err.to_string()))?;
         let single_address = base.derivation_method().single_addr_or_err().await?;
 
         let query_params = ClassicSwapCreateParams::new(
@@ -637,10 +628,8 @@ impl AggTakerSwapStateMachine {
             req.slippage,
         )
         // TODO: add more quuery params from req
-        .build_query_params()
-        .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?;
-        let swap_with_tx: ClassicSwapData = ApiClient::new(&self.ctx)
-            .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, Some(base.decimals())))?
+        .build_query_params()?;
+        let swap_with_tx: ClassicSwapData = ApiClient::new(&self.ctx)?
             .call_one_inch_api(
                 Some(base.chain_id()),
                 ApiClient::classic_swap_endpoint(),
@@ -648,11 +637,11 @@ impl AggTakerSwapStateMachine {
                 Some(query_params),
             )
             .await
-            .mm_err(|api_err| ApiIntegrationRpcError::InternalError(api_err.to_string()))?; // use 'base' as amount in errors is in the src coin
+            .mm_err(|api_err| LrSwapError::InternalError(api_err.to_string()))?; // use 'base' as amount in errors is in the src coin
 
         let tx_fields = swap_with_tx
             .tx
-            .ok_or(ApiIntegrationRpcError::InternalError("TxFields empty".to_string()))?;
+            .ok_or(LrSwapError::InternalError("TxFields empty".to_string()))?;
         /*let tx = base.sign_and_send_transaction(
             U256::from_str(&tx_fields.value)?,
             Action::Call(tx_fields.to),
@@ -683,17 +672,17 @@ impl AggTakerSwapStateMachine {
         Ok(())
     }
 
-    async fn start_lp_auto_buy(&self) -> MmResult<SellBuyResponse, ApiIntegrationRpcError> {
+    async fn start_lp_auto_buy(&self) -> MmResult<SellBuyResponse, LrSwapError> {
         let rel_coin = lp_coinfind_or_err(&self.ctx, &self.sell_buy_request.rel).await?;
         let base_coin = lp_coinfind_or_err(&self.ctx, &self.sell_buy_request.base).await?;
         if base_coin.wallet_only(&self.ctx) {
-            return MmError::err(ApiIntegrationRpcError::InvalidParam(format!(
+            return MmError::err(LrSwapError::InvalidParam(format!(
                 "Base coin {} is wallet only",
                 self.sell_buy_request.base
             )));
         }
         if rel_coin.wallet_only(&self.ctx) {
-            return MmError::err(ApiIntegrationRpcError::InvalidParam(format!(
+            return MmError::err(LrSwapError::InvalidParam(format!(
                 "Base coin {} is wallet only",
                 self.sell_buy_request.rel
             )));
@@ -720,15 +709,15 @@ impl AggTakerSwapStateMachine {
             FeeApproxStage::OrderIssue,
         )
         .await
-        .mm_err(|_| ApiIntegrationRpcError::InternalError("insufficient balance".to_string()))?;
+        .mm_err(|_| LrSwapError::InternalError("insufficient balance".to_string()))?;
         let res_bytes = lp_auto_buy(&self.ctx, &base_coin, &rel_coin, self.sell_buy_request.clone())
             .await
-            .map_err(|err| MmError::new(ApiIntegrationRpcError::InternalError(err)))?;
+            .map_err(|err| MmError::new(LrSwapError::InternalError(err)))?;
         let rpc_res: Mm2RpcResult<SellBuyResponse> = json::from_slice(res_bytes.as_slice())?;
         Ok(rpc_res.result)
     }
 
-    fn check_if_status_finished(swap_result: &MmResult<SwapRpcData, MySwapStatusError>) -> MmResult<bool, ApiIntegrationRpcError> {
+    fn check_if_status_finished(swap_result: &MmResult<SwapRpcData, MySwapStatusError>) -> MmResult<bool, LrSwapError> {
         let swap_status = match swap_result {
             Ok(swap_status) => swap_status,
             Err(mm_err) => {
@@ -737,7 +726,7 @@ impl AggTakerSwapStateMachine {
                     // but maybe we could throw an error after some time
                     MySwapStatusError::NoSwapWithUuid(_) => return Ok(false),
                     other_err => {
-                        return MmError::err(ApiIntegrationRpcError::InternalError(format!(
+                        return MmError::err(LrSwapError::InternalError(format!(
                             "Failed to get swap status: {}",
                             other_err
                         )))
@@ -753,18 +742,18 @@ impl AggTakerSwapStateMachine {
                 Ok(swap_status.is_finished)
             },
             SwapRpcData::AggTaker(_) | SwapRpcData::MakerV1(_) | SwapRpcData::MakerV2(_) => { 
-                MmError::err(ApiIntegrationRpcError::InternalError(
+                MmError::err(LrSwapError::InternalError(
                     "incorrect atomic swap type".to_string(),
                 ))
             },
         }
     }
 
-    async fn wait_for_atomic_swap_finished(&self) -> MmResult<(), ApiIntegrationRpcError> {
+    async fn wait_for_atomic_swap_finished(&self) -> MmResult<(), LrSwapError> {
         let atomic_swap_uuid = self
             .atomic_swap_uuid
             .get()
-            .ok_or(ApiIntegrationRpcError::InternalError(
+            .ok_or(LrSwapError::InternalError(
                 "atomic swap uuid not set".to_string(),
             ))?;
         loop {
@@ -784,7 +773,7 @@ async fn check_balance_for_agg_taker_swap(
     ctx: &MmArc,
     lr_swap_0: &Option<ClassicSwapCreateRequest>,
     sell_buy_request: &SellBuyRequest,
-) -> MmResult<(), ApiIntegrationRpcError> {
+) -> MmResult<(), LrSwapError> {
     //let base_coin = lp_coinfind_or_err(ctx, &sell_buy_request.base).await?;
     //let rel_coin = lp_coinfind_or_err(ctx, &sell_buy_request.rel).await?;
     Ok(())
@@ -824,13 +813,13 @@ pub(crate) async fn lp_start_agg_taker_swap(
     lr_swap_0: Option<ClassicSwapCreateRequest>,
     lr_swap_1: Option<ClassicSwapCreateRequest>,
     sell_buy_request: SellBuyRequest,
-) -> MmResult<Uuid, ApiIntegrationRpcError> {
+) -> MmResult<Uuid, LrSwapError> {
     let spawner = ctx.spawner();
     let uuid = new_uuid(); // For a aggregated swap we need a new uuid, different from the atomic swap uuid, to distinguish the aggregated swap as dedicated in rpcs, statuses etc)
 
     check_balance_for_agg_taker_swap(&ctx, &lr_swap_0, &sell_buy_request)
         .await
-        .mm_err(|_| ApiIntegrationRpcError::InternalError("insufficient balance".to_string()))?; // TODO: add specific err
+        .mm_err(|_| LrSwapError::InternalError("insufficient balance".to_string()))?; // TODO: add specific err
 
     let fut = async move {
         log_tag!(

@@ -2,7 +2,7 @@
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
-use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
+use crate::rpc::lp_commands::lr_swap::lr_helpers::get_coin_for_one_inch;
 use coins::eth::eth_addr_to_hex;
 use coins::eth::{u256_to_big_decimal, wei_from_big_decimal};
 use coins::lp_coinfind_or_err;
@@ -166,10 +166,8 @@ impl LrDataMap {
             let query_params = CrossPriceParams::new(chain_id, src_contract, dst_contract)
                 .with_granularity(Some(CROSS_PRICES_GRANULARITY))
                 .with_limit(Some(CROSS_PRICES_LIMIT))
-                .build_query_params()
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
-            let fut = ApiClient::new(ctx)
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?
+                .build_query_params()?;
+            let fut = ApiClient::new(ctx)?
                 .call_one_inch_api::<Vec<CrossPricesData>>(
                     None,
                     ApiClient::portfolio_prices_endpoint(),
@@ -251,10 +249,8 @@ impl LrDataMap {
             let query_params = ClassicSwapQuoteParams::new(src_contract, dst_contract, src_amount.to_string())
                 .with_include_tokens_info(Some(true))
                 .with_include_gas(Some(true))
-                .build_query_params()
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
-            let api_client = ApiClient::new(ctx)
-                .mm_err(|api_err| ApiIntegrationRpcError::from_api_error(api_err, lr_data.dst_decimals))?;
+                .build_query_params()?;
+            let api_client = ApiClient::new(ctx)?;
             let fut = api_client.call_one_inch_api::<ClassicSwapData>(
                 Some(chain_id),
                 ApiClient::classic_swap_endpoint(),
