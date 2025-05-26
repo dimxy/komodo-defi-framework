@@ -459,7 +459,6 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
 
     let ctx = swap.ctx.clone();
     subscribe_to_topic(&ctx, swap_topic(&swap.uuid));
-    let mut status = ctx.log.status_handle();
     let uuid_str = uuid.to_string();
     let to_broadcast = !(swap.maker_coin.is_privacy() || swap.taker_coin.is_privacy());
     let running_swap = Arc::new(swap);
@@ -502,11 +501,7 @@ pub async fn run_taker_swap(swap: RunTakerSwapInput, ctx: MmArc) {
                         )
                     }
 
-                    if event.is_error() {
-                        error!("[swap uuid={uuid_str}] {event:?}");
-                    }
-
-                    status.status(&[&"swap", &("uuid", uuid_str.as_str())], &event.status_str());
+                    info!("[swap uuid={uuid_str}] {event:?}"); // let's use normal logging instead of delayed dashboard status logging
                     running_swap.apply_event(event);
                 }
                 match res.0 {
