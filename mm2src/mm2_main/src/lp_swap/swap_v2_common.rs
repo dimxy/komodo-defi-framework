@@ -165,7 +165,7 @@ pub(crate) async fn store_swap_event<T: StateMachineDbRepr + DeserializeOwned + 
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(super) async fn get_swap_repr<T: DeserializeOwned>(ctx: &MmArc, id: Uuid) -> MmResult<T, SwapStateMachineError> {
+pub(crate) async fn get_swap_repr<T: DeserializeOwned>(ctx: &MmArc, id: Uuid) -> MmResult<T, SwapStateMachineError> {
     let swaps_ctx = SwapsContext::from_ctx(ctx).expect("SwapsContext::from_ctx should not fail");
     let db = swaps_ctx.swap_db().await?;
     let transaction = db.transaction().await?;
@@ -269,15 +269,6 @@ pub(super) fn clean_up_context_impl(ctx: &MmArc, uuid: &Uuid, maker_coin: &str, 
 pub(crate) fn clean_up_agg_swap_context_impl(ctx: &MmArc, uuid: &Uuid, _maker_coin: &str, _taker_coin: &str) {
     let swap_ctx = SwapsContext::from_ctx(ctx).expect("SwapsContext::from_ctx should not fail");
     swap_ctx.active_swaps_v2_infos.lock().unwrap().remove(uuid);
-
-    /*let mut locked_amounts = swap_ctx.locked_amounts.lock().unwrap();
-    if let Some(maker_coin_locked) = locked_amounts.get_mut(maker_coin) {
-        maker_coin_locked.retain(|locked| locked.swap_uuid != *uuid);
-    }
-
-    if let Some(taker_coin_locked) = locked_amounts.get_mut(taker_coin) {
-        taker_coin_locked.retain(|locked| locked.swap_uuid != *uuid);
-    }*/
 }
 
 pub(crate) async fn acquire_reentrancy_lock_impl(ctx: &MmArc, uuid: Uuid) -> MmResult<SwapLock, SwapStateMachineError> {

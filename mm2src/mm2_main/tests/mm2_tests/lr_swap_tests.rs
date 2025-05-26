@@ -16,8 +16,8 @@ use mm2_rpc::data::legacy::RpcOrderbookEntry;
 use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed_for_kickstart, disable_coin,
                                   disable_coin_err, doc_conf, enable_electrum_json, enable_eth_coin, enable_native,
                                   get_locked_amount, mm_dump, my_swap_status, mycoin1_conf, mycoin_conf, polygon_conf,
-                                  start_swaps, wait_for_swap_finished, MarketMakerIt,
-                                  Mm2TestConf, SwapV2TestContracts, TestNode, DOC, POLYGON_MAINNET_NODES,
+                                  start_swaps, wait_for_swap_finished, MarketMakerIt, Mm2TestConf,
+                                  SwapV2TestContracts, TestNode, DOC, POLYGON_MAINNET_NODES,
                                   POLYGON_MAINNET_SWAP_CONTRACT, POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT,
                                   POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT, POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT};
 use mm2_test_helpers::structs::{MmNumberMultiRepr, SetPriceResult};
@@ -131,7 +131,7 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
         .iter()
         .map(|ip| TestNode { url: (*ip).to_owned() })
         .collect::<Vec<_>>();
-    
+
     let bob_enable_tokens = block_on(enable_eth_coin_v2(
         &mm_bob,
         "MATIC",
@@ -143,10 +143,15 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
             { "ticker": &token_1_ticker },
             { "ticker": &token_2_ticker },
             { "ticker": &token_3_ticker }
-        ])
+        ]),
     ));
     let bob_enable_doc = block_on(enable_electrum_json(&mm_bob, DOC, false, doc_electrums()));
-    println!("Bob address={:?}, DOC balance={:?} unspendable_balance={:?}", bob_enable_doc["address"].as_str().unwrap(), bob_enable_doc["balance"], bob_enable_doc["unspendable_balance"]);
+    println!(
+        "Bob address={:?}, DOC balance={:?} unspendable_balance={:?}",
+        bob_enable_doc["address"].as_str().unwrap(),
+        bob_enable_doc["balance"],
+        bob_enable_doc["unspendable_balance"]
+    );
 
     let alice_enable_tokens = block_on(enable_eth_coin_v2(
         &mm_alice,
@@ -159,26 +164,44 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
             { "ticker": &token_1_ticker },
             { "ticker": &token_2_ticker },
             { "ticker": &token_3_ticker }
-        ])
+        ]),
     ));
     let alice_enable_doc = block_on(enable_electrum_json(&mm_alice, DOC, false, doc_electrums()));
 
-    let alice_eth_info = alice_enable_tokens["result"]["eth_addresses_infos"].as_object().unwrap();
-    let alice_erc20_info = alice_enable_tokens["result"]["erc20_addresses_infos"].as_object().unwrap();
-    println!("Alice address={}, MATIC balance={:?}\ntoken balances:\n{:?}={:?}\n{:?}={:?}\n{:?}={:?}",
+    let alice_eth_info = alice_enable_tokens["result"]["eth_addresses_infos"]
+        .as_object()
+        .unwrap();
+    let alice_erc20_info = alice_enable_tokens["result"]["erc20_addresses_infos"]
+        .as_object()
+        .unwrap();
+    println!(
+        "Alice address={}, MATIC balance={:?}\ntoken balances:\n{:?}={:?}\n{:?}={:?}\n{:?}={:?}",
         alice_eth_info.iter().next().unwrap().0,
         alice_eth_info.iter().next().unwrap().1["balances"].as_object().unwrap(),
-        token_1_ticker, alice_erc20_info.iter().next().unwrap().1["balances"][token_1_ticker.clone()].as_object().unwrap(),
-        token_2_ticker, alice_erc20_info.iter().next().unwrap().1["balances"][token_2_ticker.clone()].as_object().unwrap(),
-        token_3_ticker, alice_erc20_info.iter().next().unwrap().1["balances"][token_3_ticker.clone()].as_object().unwrap(),
+        token_1_ticker,
+        alice_erc20_info.iter().next().unwrap().1["balances"][token_1_ticker.clone()]
+            .as_object()
+            .unwrap(),
+        token_2_ticker,
+        alice_erc20_info.iter().next().unwrap().1["balances"][token_2_ticker.clone()]
+            .as_object()
+            .unwrap(),
+        token_3_ticker,
+        alice_erc20_info.iter().next().unwrap().1["balances"][token_3_ticker.clone()]
+            .as_object()
+            .unwrap(),
     );
 
     let order_res_1 = block_on(create_maker_order(&mut mm_bob, DOC, &token_1_ticker, 0.002));
     let order_res_2 = block_on(create_maker_order(&mut mm_bob, DOC, &token_2_ticker, 0.002));
     let order_res_3 = block_on(create_maker_order(&mut mm_bob, DOC, &token_3_ticker, 0.002));
     if order_res_1.is_err() && order_res_2.is_err() && order_res_3.is_err() {
-        println!("maker orders for test all errors:\n{}\n{}\n{}", 
-            order_res_1.unwrap_err(), order_res_2.unwrap_err(), order_res_3.unwrap_err());
+        println!(
+            "maker orders for test all errors:\n{}\n{}\n{}",
+            order_res_1.unwrap_err(),
+            order_res_2.unwrap_err(),
+            order_res_3.unwrap_err()
+        );
         panic!("could not create maker orders for test");
     }
 
@@ -232,7 +255,7 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     //assert!(taker_swap_status[])
 
     //block_on(check_recent_swaps(&mm_bob, 1));
-    //block_on(check_recent_swaps(&mm_alice, 1));   
+    //block_on(check_recent_swaps(&mm_alice, 1));
     block_on(cancel_order(&mm_bob, &token_1_order.uuid));
     block_on(cancel_order(&mm_bob, &token_2_order.uuid));
     block_on(cancel_order(&mm_bob, &token_3_order.uuid));
@@ -346,7 +369,12 @@ async fn wait_for_confirmations(tx_hashes: &[&str], timeout: u32) -> Result<(), 
 }
 
 /// issue setprice request on Bob side by setting base/rel price
-async fn create_maker_order(maker: &mut MarketMakerIt, base: &str, rel: &str, volume: f64) -> Result<SetPriceResult, String> {
+async fn create_maker_order(
+    maker: &mut MarketMakerIt,
+    base: &str,
+    rel: &str,
+    volume: f64,
+) -> Result<SetPriceResult, String> {
     common::log::info!("Issue maker {}/{} sell request", base, rel);
     let rc = maker
         .rpc(&json!({
@@ -461,23 +489,33 @@ async fn start_agg_swap(
     }
 }
 
-
 /// Helper function requesting my swap status and checking it's events
 fn check_my_agg_swap_final_status(status_response: &Value) {
     assert!(status_response["result"]["is_finished"].as_bool().unwrap());
 
     let events = status_response["result"]["events"].as_array().unwrap();
     assert!(!events.is_empty());
-    assert!(events.iter().find(|item| item["event_type"].as_str() == Some("Completed")).is_some(), "swap not completed successfully");
-    assert!(events.iter().find(|item| item["event_type"].as_str() == Some("Aborted")).is_none(), "swap was aborted");
+    assert!(
+        events
+            .iter()
+            .any(|item| item["event_type"].as_str() == Some("Completed")),
+        "swap not completed successfully"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|item| item["event_type"].as_str() == Some("Aborted")),
+        "swap was aborted"
+    );
 }
 
 async fn cancel_order(mm: &MarketMakerIt, uuid: &Uuid) {
-    let cancel_rc = mm.rpc(&json! ({
-        "userpass": mm.userpass,
-        "method": "cancel_order",
-        "uuid": uuid,
-    }))
-    .await
-    .unwrap();
+    let cancel_rc = mm
+        .rpc(&json! ({
+            "userpass": mm.userpass,
+            "method": "cancel_order",
+            "uuid": uuid,
+        }))
+        .await
+        .unwrap();
 }

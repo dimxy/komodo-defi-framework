@@ -237,10 +237,7 @@ pub const QRC20_ELECTRUMS: &[&str] = &[
     "electrum3.cipig.net:10071",
 ];
 pub const T_BCH_ELECTRUMS: &[&str] = &["tbch.loping.net:60001", "bch0.kister.net:51001"];
-pub const TBTC_ELECTRUMS: &[&str] = &[
-    "electrum3.cipig.net:10068",
-    "testnet.aranguren.org:51001",
-];
+pub const TBTC_ELECTRUMS: &[&str] = &["electrum3.cipig.net:10068", "testnet.aranguren.org:51001"];
 
 pub const ETH_MAINNET_NODES: &[&str] = &[
     "https://mainnet.infura.io/v3/c01c1b4cf66642528547624e1d6d9d6b",
@@ -251,6 +248,7 @@ pub const ETH_MAINNET_CHAIN_ID: u64 = 1;
 pub const ETH_MAINNET_SWAP_CONTRACT: &str = "0x24abe4c71fc658c91313b6552cd40cd808b3ea80";
 
 pub const ETH_SEPOLIA_NODES: &[&str] = &[
+    "https://sepolia.drpc.org",
     "https://ethereum-sepolia-rpc.publicnode.com",
     "https://rpc2.sepolia.org",
     "https://1rpc.io/sepolia",
@@ -483,14 +481,18 @@ pub enum Mm2InitPrivKeyPolicy {
     GlobalHDAccount,
 }
 
-pub fn zombie_conf() -> Json {
+pub fn zombie_conf() -> Json { zombie_conf_inner(None) }
+
+pub fn zombie_conf_for_docker() -> Json { zombie_conf_inner(Some(10)) }
+
+pub fn zombie_conf_inner(custom_blocktime: Option<u8>) -> Json {
     json!({
         "coin":"ZOMBIE",
         "asset":"ZOMBIE",
         "txversion":4,
-        "overwintered":1,
+        "overwintered": 1,
         "mm2":1,
-        "avg_blocktime": 60,
+        "avg_blocktime": custom_blocktime.unwrap_or(60),
         "protocol":{
             "type":"ZHTLC",
             "protocol_data": {
@@ -839,13 +841,9 @@ pub fn eth_testnet_conf_trezor() -> Json {
 }
 
 /// ETH configuration used for dockerized Geth dev node
-pub fn eth_dev_conf() -> Json {
-    eth_conf("ETH")
-}
+pub fn eth_dev_conf() -> Json { eth_conf("ETH") }
 
-pub fn eth1_dev_conf() -> Json {
-    eth_conf("ETH1")
-}
+pub fn eth1_dev_conf() -> Json { eth_conf("ETH1") }
 
 fn eth_conf(coin: &str) -> Json {
     json!({
@@ -1251,8 +1249,8 @@ pub struct RaiiDump {
 #[cfg(not(target_arch = "wasm32"))]
 impl Drop for RaiiDump {
     fn drop(&mut self) {
-        const DARK_YELLOW_ANSI_CODE: &str = "\x1b[33m";
-        const YELLOW_ANSI_CODE: &str = "\x1b[93m";
+        const DARK_YELLOW_ANSI_CODE: &str = "\x1b[34m";
+        const YELLOW_ANSI_CODE: &str = "\x1b[35m";
         const RESET_COLOR_ANSI_CODE: &str = "\x1b[0m";
 
         // `term` bypasses the stdout capturing, we should only use it if the capturing was disabled.
@@ -1601,7 +1599,7 @@ impl MarketMakerIt {
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn rpc(&self, payload: &Json) -> Result<(StatusCode, String, HeaderMap), String> {
         let uri = format!("http://{}:7783", self.ip);
-        log!("sending rpc request {} to {}", json::to_string(payload).unwrap(), uri);
+        info!("sending rpc request {} to {}", json::to_string(payload).unwrap(), uri);
 
         let payload = try_s!(json::to_vec(payload));
         let request = try_s!(Request::builder().method("POST").uri(uri).body(payload));
@@ -2151,7 +2149,12 @@ pub async fn enable_eth_coin_v2(
         }))
         .await
         .unwrap();
-    assert_eq!(enable.0, StatusCode::OK, "'enable_eth_with_tokens' failed: {}", enable.1);
+    assert_eq!(
+        enable.0,
+        StatusCode::OK,
+        "'enable_eth_with_tokens' failed: {}",
+        enable.1
+    );
     json::from_str(&enable.1).unwrap()
 }
 
@@ -3182,6 +3185,52 @@ pub async fn get_tendermint_my_tx_history(mm: &MarketMakerIt, coin: &str, limit:
     json::from_str(&request.1).unwrap()
 }
 
+pub async fn tendermint_delegations(mm: &MarketMakerIt, coin: &str) -> Json {
+    let rpc_endpoint = "experimental::staking::query::delegations";
+    let request = json!({
+        "userpass": mm.userpass,
+        "method": rpc_endpoint,
+        "mmrpc": "2.0",
+        "params": {
+            "coin": coin,
+            "info_details": {
+                "type": "Cosmos",
+                "limit": 0,
+                "page_number": 1
+            }
+        }
+    });
+    log!("{rpc_endpoint} request {}", json::to_string(&request).unwrap());
+
+    let request = mm.rpc(&request).await.unwrap();
+    assert_eq!(request.0, StatusCode::OK, "'{rpc_endpoint}' failed: {}", request.1);
+    log!("{rpc_endpoint} response {}", request.1);
+    json::from_str(&request.1).unwrap()
+}
+
+pub async fn tendermint_ongoing_undelegations(mm: &MarketMakerIt, coin: &str) -> Json {
+    let rpc_endpoint = "experimental::staking::query::ongoing_undelegations";
+    let request = json!({
+        "userpass": mm.userpass,
+        "method": rpc_endpoint,
+        "mmrpc": "2.0",
+        "params": {
+            "coin": coin,
+            "info_details": {
+                "type": "Cosmos",
+                "limit": 0,
+                "page_number": 1
+            }
+        }
+    });
+    log!("{rpc_endpoint} request {}", json::to_string(&request).unwrap());
+
+    let request = mm.rpc(&request).await.unwrap();
+    assert_eq!(request.0, StatusCode::OK, "'{rpc_endpoint}' failed: {}", request.1);
+    log!("{rpc_endpoint} response {}", request.1);
+    json::from_str(&request.1).unwrap()
+}
+
 pub async fn enable_tendermint_token(mm: &MarketMakerIt, coin: &str) -> Json {
     let request = json!({
         "userpass": mm.userpass,
@@ -3212,16 +3261,19 @@ pub async fn tendermint_validators(
     limit: usize,
     page_number: usize,
 ) -> Json {
-    let rpc_endpoint = "tendermint_validators";
+    let rpc_endpoint = "experimental::staking::query::validators";
     let request = json!({
         "userpass": mm.userpass,
         "method": rpc_endpoint,
         "mmrpc": "2.0",
         "params": {
-            "ticker": coin,
-            "filter_by_status": filter_by_status,
-            "limit": limit,
-            "page_number": page_number
+            "coin": coin,
+            "info_details": {
+                "type": "Cosmos",
+                "filter_by_status": filter_by_status,
+                "limit": limit,
+                "page_number": page_number
+            }
         }
     });
     log!("{rpc_endpoint} request {}", json::to_string(&request).unwrap());
@@ -3238,7 +3290,7 @@ pub async fn tendermint_add_delegation(
     validator_address: &str,
     amount: &str,
 ) -> TransactionDetails {
-    let rpc_endpoint = "add_delegation";
+    let rpc_endpoint = "experimental::staking::delegate";
     let request = json!({
         "userpass": mm.userpass,
         "method": rpc_endpoint,
@@ -3268,7 +3320,7 @@ pub async fn tendermint_remove_delegation_raw(
     validator_address: &str,
     amount: &str,
 ) -> (StatusCode, String, HeaderMap) {
-    let rpc_endpoint = "remove_delegation";
+    let rpc_endpoint = "experimental::staking::undelegate";
     let request = json!({
         "userpass": mm.userpass,
         "method": rpc_endpoint,
@@ -3293,7 +3345,7 @@ pub async fn tendermint_remove_delegation(
     validator_address: &str,
     amount: &str,
 ) -> TransactionDetails {
-    let rpc_endpoint = "remove_delegation";
+    let rpc_endpoint = "experimental::staking::undelegate";
     let response = tendermint_remove_delegation_raw(mm, coin, validator_address, amount).await;
     assert_eq!(response.0, StatusCode::OK, "{rpc_endpoint} failed: {}", response.1);
     log!("{rpc_endpoint} response {}", response.1);

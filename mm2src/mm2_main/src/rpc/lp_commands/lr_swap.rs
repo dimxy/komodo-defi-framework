@@ -2,21 +2,20 @@
 
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::types::ClassicSwapDetails;
-use coins::lp_coinfind_or_err;
+use lr_helpers::get_coin_for_one_inch;
 use lr_quote::find_best_fill_ask_with_lr;
 use lr_swap_state_machine::lp_start_agg_taker_swap;
 use lr_types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillMakerOrderRequest, LrFillMakerOrderResponse,
                LrQuotesForTokensRequest};
-use lr_helpers::get_coin_for_one_inch;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
 
+pub(crate) mod lr_errors;
+pub(crate) mod lr_helpers;
 mod lr_quote;
 pub(crate) mod lr_swap_state_machine;
 pub(crate) mod lr_types;
-pub(crate) mod lr_errors;
-pub(crate) mod lr_helpers;
 
 /// Find the best swap with liquidity routing of EVM tokens, to select from multiple orders.
 /// For the provided list of orderbook entries this RPC will find out the most price-effective swap with LR.
@@ -45,15 +44,14 @@ pub async fn lr_best_quote_rpc(
     // order.coin is supported in 1inch
     // order.price not zero
     // when best order is selected validate against req.rel_max_volume and req.rel_min_volume
+    // coins in orders should be unique
 
-    let coin = lp_coinfind_or_err(&ctx, &req.base).await?;
-    let (eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
+    let (my_eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
     let (swap_data, best_order, total_price) =
-        find_best_fill_ask_with_lr(&ctx, req.my_token, &req.asks, &req.amount).await?;
-    let lr_swap_details =
-        ClassicSwapDetails::from_api_classic_swap_data(&ctx, eth_coin.chain_id(), swap_data, coin.decimals())
-            .await
-            .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
+        find_best_fill_ask_with_lr(&ctx, req.my_token, req.asks, &req.amount).await?;
+    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, my_eth_coin.chain_id(), swap_data)
+        .await
+        .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
     Ok(LrBestQuoteResponse {
         lr_swap_details,
         best_order,
@@ -91,18 +89,12 @@ pub async fn lr_fill_order_rpc(
     req: LrFillMakerOrderRequest,
 ) -> MmResult<LrFillMakerOrderResponse, ApiIntegrationRpcError> {
     println!("sell_buy_req={:?}", req.sell_buy_req);
-    
+
     // State machine errors will be automatically converted to ApiIntegrationRpcError
-    let swap_uuid = lp_start_agg_taker_swap(
-        ctx, 
-        req.lr_swap_0, 
-        req.lr_swap_1, 
-        req.sell_buy_req
-    ).await?;
-    
+    let swap_uuid = lp_start_agg_taker_swap(ctx, req.lr_swap_0, req.lr_swap_1, req.sell_buy_req).await?;
+
     Ok(LrFillMakerOrderResponse { uuid: swap_uuid })
 }
-
 
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "test-ext-api"))]
 mod tests {

@@ -1,6 +1,6 @@
-use super::errors::FromApiValueError;
+use crate::rpc::lp_commands::one_inch::errors::FromApiValueError;
 use coins::eth::erc20::{get_erc20_ticker_by_contract_address, get_platform_ticker};
-use coins::eth::{u256_to_big_decimal, wei_to_gwei_decimal};
+use coins::eth::{u256_to_big_decimal, wei_to_eth_decimal, wei_to_gwei_decimal};
 use coins::Ticker;
 use common::true_f;
 use ethereum_types::{Address, U256};
@@ -10,6 +10,7 @@ use mm2_number::{construct_detailed, BigDecimal, MmNumber};
 use rpc::v1::types::Bytes as BytesJson;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::str::FromStr;
 use trading_api::one_inch_api::{self,
                                 classic_swap_types::{ProtocolImage, ProtocolInfo, TokenInfo as LrTokenInfo},
@@ -67,7 +68,7 @@ pub struct ClassicSwapQuoteRequest {
 
 /// Request to create transaction for 1inch classic swap.
 /// See 1inch docs for more details: https://portal.1inch.dev/documentation/apis/swap/classic-swap/Parameter%20Descriptions/swap_params
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClassicSwapCreateRequest {
     /// Base coin ticker
@@ -138,17 +139,24 @@ pub struct ClassicSwapDetails {
     /// Source (base) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub src_token: Option<LrTokenInfo>,
+    /// Source (base) token name as it is defined in the coins file
+    pub src_token_kdf: Option<Ticker>,
     /// Destination (rel) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dst_token: Option<LrTokenInfo>,
+    /// Destination (rel) token name as it is defined in the coins file.
+    /// This is used to show route tokens in the GUI, like they are in the coin file.
+    /// However, route tokens can be missed in the coins file and therefore cannot be filled.
+    /// In this case GUI may use LrTokenInfo::Address or LrTokenInfo::Symbol
+    pub dst_token_kdf: Option<Ticker>,
     /// Used liquidity sources
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocols: Option<Vec<Vec<Vec<ProtocolInfo>>>>,
     /// Swap tx fields (returned only for create swap rpc)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx: Option<TxFieldsRpc>,
-    /// Estimated gas limit as hex (returned only for quote rpc)
-    pub gas: Option<String>,
+    pub tx: Option<TxFields>,
+    /// Estimated (returned only for quote rpc)
+    pub gas: Option<u128>,
 }
 
 /// Response for both classic swap quote or create swap calls
@@ -172,28 +180,36 @@ impl ClassicSwapDetails {
         ctx: &MmArc,
         chain_id: u64,
         data: one_inch_api::classic_swap_types::ClassicSwapData,
-        decimals: u8,
     ) -> MmResult<Self, FromApiValueError> {
-        let mut src_token_info = data.src_token.ok_or(FromApiValueError("No token info".to_owned()))?;
-        src_token_info.symbol_kdf = Self::token_name_kdf(ctx, chain_id, &src_token_info).await;
-        let mut dst_token_info = data.dst_token.ok_or(FromApiValueError("No token info".to_owned()))?;
-        dst_token_info.symbol_kdf = Self::token_name_kdf(ctx, chain_id, &dst_token_info).await;
+        let src_token_info = data
+            .src_token
+            .ok_or(FromApiValueError("Missing source TokenInfo".to_owned()))?;
+        let dst_token_info = data
+            .dst_token
+            .ok_or(FromApiValueError("Missing destination TokenInfo".to_owned()))?;
+        let dst_decimals: u8 = dst_token_info
+            .decimals
+            .try_into()
+            .map_to_mm(|_| FromApiValueError("invalid decimals in destination TokenInfo".to_owned()))?;
         Ok(Self {
-            dst_amount: MmNumber::from(u256_to_big_decimal(U256::from_dec_str(&data.dst_amount)?, decimals)?).into(),
-            src_token: Some(src_token_info.clone()),
-            dst_token: Some(dst_token_info.clone()),
+            dst_amount: MmNumber::from(u256_to_big_decimal(
+                U256::from_dec_str(&data.dst_amount)?,
+                dst_decimals,
+            )?)
+            .into(),
+            src_token_kdf: Self::token_name_kdf(ctx, chain_id, &src_token_info).await,
+            src_token: Some(src_token_info),
+            dst_token_kdf: Self::token_name_kdf(ctx, chain_id, &dst_token_info).await,
+            dst_token: Some(dst_token_info),
             protocols: data.protocols,
-            tx: data
-                .tx
-                .map(|tx| TxFieldsRpc::from_api_tx_fields(tx, decimals))
-                .transpose()?,
-            gas: data.gas.map(|gas| format!("0x{:x}", gas)),
+            tx: data.tx.map(TxFields::from_api_tx_fields).transpose()?,
+            gas: data.gas,
         })
     }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
-pub struct TxFieldsRpc {
+pub struct TxFields {
     pub from: Address,
     pub to: Address,
     pub data: BytesJson,
@@ -203,16 +219,15 @@ pub struct TxFieldsRpc {
     pub gas: u128, // TODO: in eth EthTxFeeDetails rpc we use u64. Better have identical u128 everywhere
 }
 
-impl TxFieldsRpc {
+impl TxFields {
     pub(crate) fn from_api_tx_fields(
         tx_fields: one_inch_api::classic_swap_types::TxFields,
-        decimals: u8,
     ) -> MmResult<Self, FromApiValueError> {
         Ok(Self {
             from: tx_fields.from,
             to: tx_fields.to,
             data: BytesJson::from(hex::decode(str_strip_0x!(tx_fields.data.as_str()))?),
-            value: u256_to_big_decimal(U256::from_dec_str(&tx_fields.value)?, decimals)?,
+            value: wei_to_eth_decimal(U256::from_dec_str(&tx_fields.value)?)?,
             gas_price: wei_to_gwei_decimal(U256::from_dec_str(&tx_fields.gas_price)?)?,
             gas: tx_fields.gas,
         })

@@ -375,18 +375,12 @@ pub(crate) async fn my_swap_status_rpc(
     ctx: MmArc,
     req: MySwapStatusRequest,
 ) -> MmResult<SwapRpcData, MySwapStatusError> {
-    println!("my_swap_status_rpc enterred for uuid={}", req.uuid);
-    let swap_type = get_swap_type(&ctx, &req.uuid).await;
-
-    println!("my_swap_status_rpc swap_type={:?}", swap_type);
-    let swap_type = swap_type?.or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid));
-    println!("my_swap_status_rpc swap_type2={:?}", swap_type);
-    let swap_type = swap_type?;
-    let r = get_swap_data_by_uuid_and_type(&ctx, req.uuid, swap_type).await;
-    //println!("my_swap_status_rpc r={:?}", r);
-    let r = r?.or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid));
-    //println!("my_swap_status_rpc r2={:?}", r);
-    r
+    let swap_type = get_swap_type(&ctx, &req.uuid)
+        .await?
+        .or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid))?;
+    get_swap_data_by_uuid_and_type(&ctx, req.uuid, swap_type)
+        .await?
+        .or_mm_err(|| MySwapStatusError::NoSwapWithUuid(req.uuid))
 }
 
 #[derive(Deserialize)]
@@ -572,44 +566,25 @@ pub(super) async fn get_agg_taker_swap_data_for_rpc(
     .await
 }
 
+// TODO: add wasm support
 #[cfg(target_arch = "wasm32")]
 pub(super) async fn get_agg_taker_swap_data_for_rpc(
     ctx: &MmArc,
     uuid: &Uuid,
-) -> MmResult<Option<MySwapForRpc<TakerSwapEvent>>, SwapV2DbError> {
+) -> MmResult<Option<MyAggSwapForRpc<AggTakerSwapEvent>>, SwapV2DbError> {
     let swaps_ctx = SwapsContext::from_ctx(ctx).unwrap();
     let db = swaps_ctx.swap_db().await?;
     let transaction = db.transaction().await?;
     let table = transaction.table::<SavedSwapTable>().await?;
-    let item = match table.get_item_by_unique_index("uuid", uuid).await? {
+    let _item = match table.get_item_by_unique_index("uuid", uuid).await? {
         Some((_item_id, item)) => item,
         None => return Ok(None),
     };
 
     let filters_table = transaction.table::<MySwapsFiltersTable>().await?;
-    let filter_item = match filters_table.get_item_by_unique_index("uuid", uuid).await? {
+    let _filter_item = match filters_table.get_item_by_unique_index("uuid", uuid).await? {
         Some((_item_id, item)) => item,
         None => return Ok(None),
     };
-
-    /*let json_repr: TakerSwapDbRepr = serde_json::from_value(item.saved_swap)?;
-    Ok(Some(MySwapForRpc {
-        my_coin: json_repr.taker_coin,
-        other_coin: json_repr.maker_coin,
-        uuid: json_repr.uuid,
-        started_at: json_repr.started_at as i64,
-        is_finished: filter_item.is_finished.as_bool(),
-        events: json_repr.events,
-        maker_volume: json_repr.maker_volume.into(),
-        taker_volume: json_repr.taker_volume.into(),
-        premium: json_repr.taker_premium.into(),
-        dex_fee: (json_repr.dex_fee_amount + json_repr.dex_fee_burn).into(),
-        lock_duration: json_repr.lock_duration as i64,
-        maker_coin_confs: json_repr.conf_settings.maker_coin_confs as i64,
-        maker_coin_nota: json_repr.conf_settings.maker_coin_nota,
-        taker_coin_confs: json_repr.conf_settings.taker_coin_confs as i64,
-        taker_coin_nota: json_repr.conf_settings.taker_coin_nota,
-        swap_version: json_repr.swap_version,
-    }))*/
-    Ok(None) // TODO: add wasm support
+    Ok(None)
 }

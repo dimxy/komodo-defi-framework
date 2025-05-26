@@ -1,75 +1,52 @@
 //! State machine for taker aggregated swap: liquidity routing swap (opt) + atomic swap + liquidity routing swap (opt)
 
-#![allow(unused)] // TODO: remove
-
-use crate::lp_swap::CheckBalanceResult;
+use crate::common::executor::SpawnAbortable;
+use crate::common::log::LogOnError;
+use crate::lp_ordermatch::lp_auto_buy;
+use crate::lp_swap::check_balance_for_taker_swap;
+use crate::lp_swap::swap_lock::SwapLock;
+use crate::lp_swap::swap_v2_common::*;
+use crate::lp_swap::swap_v2_rpcs::{my_swap_status_rpc, MySwapStatusError, MySwapStatusRequest, SwapRpcData};
+use crate::lp_swap::AGG_TAKER_SWAP_TYPE;
+use crate::rpc::lp_commands::lr_swap::lr_errors::LrSwapError;
+use crate::rpc::lp_commands::lr_swap::lr_helpers::get_coin_for_one_inch;
+use crate::rpc::lp_commands::one_inch::types::ClassicSwapCreateRequest;
 use async_trait::async_trait;
-use coins::eth::display_eth_address;
-use coins::eth::eth_addr_to_hex;
 use coins::eth::{u256_to_big_decimal, wei_from_big_decimal};
+use coins::hd_wallet::DisplayAddress;
 use coins::CoinWithDerivationMethod;
 use coins::MmCoin;
 use coins::{lp_coinfind_or_err, FeeApproxStage, MarketCoinOps, SignEthTransactionParams, SignRawTransactionEnum,
-            SignRawTransactionRequest, Ticker};
-use ethereum_types::{Address as EthAddress, H256, U256};
-//use coins::{AddrToString, CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, FundingTxSpend, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes, RefundMakerPaymentSecretArgs, RefundMakerPaymentTimelockArgs, SearchForFundingSpendErr, SendMakerPaymentArgs, SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2, Ticker, ToBytes, TradePreimageValue, Transaction, TxPreimageWithSig, ValidateTakerFundingArgs};
+            SignRawTransactionRequest};
 use common::executor::abortable_queue::AbortableQueue;
 use common::executor::AbortSettings;
 use common::executor::AbortableSystem;
 use common::executor::Timer;
 use common::log::{info, warn};
-use enum_derives::EnumFromStringify;
-use futures::compat::Future01CompatExt;
-//use common::{now_sec, Future01CompatExt, DEX_FEE_ADDR_RAW_PUBKEY};
-use crate::database::my_lr_swaps::insert_new_lr_swap;
-use crate::lp_ordermatch::lp_auto_buy;
-use crate::lp_swap::check_balance_for_taker_swap;
-use crate::lp_swap::swap_lock::SwapLock;
-use crate::lp_swap::swap_v2_common::*;
-use crate::lp_swap::AGG_TAKER_SWAP_TYPE;
-use crate::lp_swap::swap_v2_rpcs::{my_swap_status_rpc, SwapRpcData, MySwapStatusError, MySwapStatusRequest};
-use crate::rpc::lp_commands::lr_swap::lr_types::LrFillMakerOrderResponse;
-use crate::rpc::lp_commands::lr_swap::lr_errors::LrSwapError;
-use crate::rpc::lp_commands::lr_swap::lr_helpers::{get_coin_for_one_inch, api_supports_pair};
-use crate::rpc::lp_commands::one_inch::types::{ClassicSwapCreateRequest, ClassicSwapDetails};
-//use ethcore_transaction::Action;
-//use crate::lp_swap::SwapsContext;
-//use crypto::privkey::SerializableSecp256k1Keypair;
-//use crypto::secret_hash_algo::SecretHashAlgo;
+use common::Future01CompatExt;
+use common::{new_uuid, now_sec};
+use ethereum_types::U256;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-#[allow(unused_imports)]
-use mm2_rpc::data::legacy::{MatchBy, Mm2RpcResult, OrderConfirmationsSettings, OrderType, RpcOrderbookEntry,
-                            SellBuyRequest, SellBuyResponse, TakerAction, TakerRequestForRpc};
-//use mm2_number::MmNumber;
-use crate::common::executor::SpawnAbortable;
-use crate::common::log::LogOnError;
-use common::{new_uuid, now_sec};
+use mm2_rpc::data::legacy::{Mm2RpcResult, SellBuyRequest, SellBuyResponse, TakerAction};
 use mm2_state_machine::prelude::*;
 use mm2_state_machine::storable_state_machine::*;
-use serde_json::{self as json, Value as Json};
-use std::convert::TryInto;
 use std::ops::Deref;
-use std::str::FromStr;
-use std::sync::{Arc, Mutex, OnceLock};
-use trading_api::one_inch_api::classic_swap_types::{ClassicSwapCreateParams, ClassicSwapData, ClassicSwapQuoteParams,
-                                                    TxFields};
-use trading_api::one_inch_api::client::ApiClient;
-
-use crate::database::my_lr_swaps::SELECT_LR_SWAP_BY_UUID;
-
-
-//use primitives::hash::H256;
-//use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json};
+use std::sync::OnceLock;
+use trading_api::one_inch_api::classic_swap_types::{ClassicSwapCreateParams, ClassicSwapData};
+use trading_api::one_inch_api::client::{ApiClient, SwapApiMethods, SwapUrlBuilder};
 use uuid::Uuid;
 
 cfg_native!(
     use common::async_blocking;
     use db_common::sqlite::rusqlite::{named_params, Error as SqlError, Result as SqlResult, Row};
     use db_common::sqlite::rusqlite::types::Type as SqlType;
+    use crate::database::my_lr_swaps::insert_new_lr_swap;
+    use crate::database::my_lr_swaps::SELECT_LR_SWAP_BY_UUID;
 );
 
 cfg_wasm32!(
+    use crate::lp_swap::SwapsContext;
     use crate::lp_swap::swap_wasm_db::{MySwapsFiltersTable, SavedSwapTable};
     use crate::swap_versioning::legacy_swap_version;
 );
@@ -81,11 +58,11 @@ pub enum AggTakerSwapEvent {
     /// Atomic swap has been successfully started
     StartAtomicSwap {},
     /// Run LR-swap before atomic swap and get its result
-    RunLrSwap0 {},
+    RunLrSwap0 { req: ClassicSwapCreateRequest },
     /// Waiting for running atomic swap
     WaitingForAtomicSwap {},
     /// Run LR-swap after atomic swap and get its result
-    RunLrSwap1 {},
+    RunLrSwap1 { req: ClassicSwapCreateRequest },
     /// Aggregated swap has been aborted before any payment was sent.
     Aborted { reason: states::AbortReason },
     /// Aggregated swap completed successfully.
@@ -128,10 +105,10 @@ impl StateMachineStorage for AggTakerSwapStorage {
     }
 
     #[cfg(target_arch = "wasm32")]
-    async fn store_repr(&mut self, uuid: Self::MachineId, _repr: Self::DbRepr) -> Result<(), Self::Error> {
+    async fn store_repr(&mut self, _uuid: Self::MachineId, _repr: Self::DbRepr) -> Result<(), Self::Error> {
         let swaps_ctx = SwapsContext::from_ctx(&self.ctx).expect("SwapsContext::from_ctx should not fail");
         let db = swaps_ctx.swap_db().await?;
-        let transaction = db.transaction().await?;
+        let _transaction = db.transaction().await?;
         // TODO: add for wasm
         // ...
         Ok(())
@@ -197,12 +174,6 @@ impl StateMachineDbRepr for AggTakerSwapDbRepr {
     fn add_event(&mut self, event: Self::Event) { self.events.push(event) }
 }
 
-/*impl GetSwapCoins for AggTakerSwapDbRepr {
-    fn maker_coin(&self) -> &str { &self.maker_coin }
-
-    fn taker_coin(&self) -> &str { &self.taker_coin }
-}*/
-
 #[cfg(not(target_arch = "wasm32"))]
 impl AggTakerSwapDbRepr {
     fn from_sql_row(row: &Row) -> SqlResult<Self> {
@@ -214,7 +185,7 @@ impl AggTakerSwapDbRepr {
                 .parse()
                 .map_err(|e| SqlError::FromSqlConversionFailure(2, SqlType::Text, Box::new(e)))?,
             started_at: row.get(3)?,
-            events: json::from_str(&row.get::<_, String>(7)?)
+            events: serde_json::from_str(&row.get::<_, String>(7)?)
                 .map_err(|e| SqlError::FromSqlConversionFailure(7, SqlType::Text, Box::new(e)))?,
             swap_version: row.get(20)?,
         })
@@ -285,8 +256,8 @@ impl StorableStateMachine for AggTakerSwapStateMachine {
             .ok_or(MmError::new(SwapRecreateError::ReprEventsEmpty))?
         {
             AggTakerSwapEvent::StartAtomicSwap {} => Box::new(states::StartAtomicSwap {}),
-            AggTakerSwapEvent::RunLrSwap0 {} => Box::new(states::RunLrSwap0 {}),
-            AggTakerSwapEvent::RunLrSwap1 {} => Box::new(states::RunLrSwap1 {}),
+            AggTakerSwapEvent::RunLrSwap0 { req } => Box::new(states::RunLrSwap0 { req }),
+            AggTakerSwapEvent::RunLrSwap1 { req } => Box::new(states::RunLrSwap1 { req }),
 
             AggTakerSwapEvent::Aborted { .. } => return MmError::err(SwapRecreateError::SwapAborted),
             AggTakerSwapEvent::Completed => return MmError::err(SwapRecreateError::SwapCompleted),
@@ -353,10 +324,12 @@ impl StorableStateMachine for AggTakerSwapStateMachine {
             AggTakerSwapEvent::Aborted { .. } | AggTakerSwapEvent::Completed => (),
             _ => (),
         }
+
+        // TODO: add streamer call
         // Send a notification to the swap status streamer about a new event.
         /*self.ctx
         .event_stream_manager
-        .send_fn(SwapStatusStreamer::derive_streamer_id(), || SwapStatusEvent::MakerV2 {
+        .send_fn(SwapStatusStreamer::derive_streamer_id(), || SwapStatusEvent::AggTaker {
             uuid: self.uuid,
             event: event.clone(),
         })
@@ -386,8 +359,10 @@ mod states {
             state_machine: &mut Self::StateMachine,
         ) -> StateResult<Self::StateMachine> {
             info!("Aggregated taker swap {} starting...", state_machine.uuid);
-            if state_machine.lr_swap_0.is_some() {
-                let run_lr_swap_0 = RunLrSwap0 {};
+            if let Some(ref lr_swap_params) = state_machine.lr_swap_0 {
+                let run_lr_swap_0 = RunLrSwap0 {
+                    req: lr_swap_params.clone()
+                };
                 Self::change_state(run_lr_swap_0, state_machine).await
             } else {
                 let run_atomic_swap = StartAtomicSwap {};
@@ -408,7 +383,7 @@ mod states {
         ) -> StateResult<Self::StateMachine> {
             match state_machine.start_lp_auto_buy().await {
                 Ok(resp) => {
-                    state_machine.atomic_swap_uuid.set(resp.request.uuid);
+                    let _ = state_machine.atomic_swap_uuid.set(resp.request.uuid).expect("Atomic swap UUID should be empty");
                     let next_state = WaitForAtomicSwap {};
                     Self::change_state(next_state, state_machine).await
                 },
@@ -447,8 +422,10 @@ mod states {
                 };
                 return Self::change_state(next_state, state_machine).await;
             }
-            if state_machine.lr_swap_1.is_some() {
-                let run_lr_swap_1 = RunLrSwap1 {};
+            if let Some(ref lr_swap_params) = state_machine.lr_swap_1 {
+                let run_lr_swap_1 = RunLrSwap1 {
+                    req: lr_swap_params.clone()
+                };
                 Self::change_state(run_lr_swap_1, state_machine).await
             } else {
                 let completed = Completed {};
@@ -465,7 +442,9 @@ mod states {
 
     impl TransitionFrom<StartAtomicSwap> for WaitForAtomicSwap {}
 
-    pub(super) struct RunLrSwap0 {}
+    pub(super) struct RunLrSwap0 {
+        pub req: ClassicSwapCreateRequest
+    }
 
     #[async_trait]
     impl State for RunLrSwap0 {
@@ -475,6 +454,12 @@ mod states {
             self: Box<Self>,
             state_machine: &mut Self::StateMachine,
         ) -> StateResult<Self::StateMachine> {
+            if let Err(err) = state_machine.run_lr_swap(&self.req).await {
+                let next_state = Aborted {
+                    reason: AbortReason::SomeReason(err.to_string()),
+                };
+                return Self::change_state(next_state, state_machine).await;
+            }
             let start_atomic_swap = StartAtomicSwap {};
             Self::change_state(start_atomic_swap, state_machine).await
         }
@@ -483,12 +468,14 @@ mod states {
     impl StorableState for RunLrSwap0 {
         type StateMachine = AggTakerSwapStateMachine;
 
-        fn get_event(&self) -> AggTakerSwapEvent { AggTakerSwapEvent::RunLrSwap0 {} }
+        fn get_event(&self) -> AggTakerSwapEvent { AggTakerSwapEvent::RunLrSwap0 { req: self.req.clone() } }
     }
 
     impl TransitionFrom<Initialize> for RunLrSwap0 {}
 
-    pub(super) struct RunLrSwap1 {}
+    pub(super) struct RunLrSwap1 {
+        pub req: ClassicSwapCreateRequest
+    }
 
     #[async_trait]
     impl State for RunLrSwap1 {
@@ -498,6 +485,12 @@ mod states {
             self: Box<Self>,
             state_machine: &mut Self::StateMachine,
         ) -> StateResult<Self::StateMachine> {
+            if let Err(err) = state_machine.run_lr_swap(&self.req).await {
+                let next_state = Aborted {
+                    reason: AbortReason::SomeReason(err.to_string()),
+                };
+                return Self::change_state(next_state, state_machine).await;
+            }
             let completed = Completed {};
             Self::change_state(completed, state_machine).await
         }
@@ -506,16 +499,12 @@ mod states {
     impl StorableState for RunLrSwap1 {
         type StateMachine = AggTakerSwapStateMachine;
 
-        fn get_event(&self) -> AggTakerSwapEvent { AggTakerSwapEvent::RunLrSwap1 {} }
+        fn get_event(&self) -> AggTakerSwapEvent { AggTakerSwapEvent::RunLrSwap1 { req: self.req.clone() } }
     }
 
     impl TransitionFrom<WaitForAtomicSwap> for RunLrSwap1 {}
 
     pub(super) struct Completed {}
-
-    impl Completed {
-        fn new() -> Completed { Completed {} }
-    }
 
     impl StorableState for Completed {
         type StateMachine = AggTakerSwapStateMachine;
@@ -547,10 +536,6 @@ mod states {
 
     struct Aborted {
         reason: AbortReason,
-    }
-
-    impl Aborted {
-        fn new(reason: AbortReason) -> Aborted { Aborted { reason } }
     }
 
     #[async_trait]
@@ -587,7 +572,7 @@ impl AggTakerSwapStateMachine {
 
     #[allow(clippy::result_large_err)]
     fn sell_buy_method(&self) -> MmResult<TakerAction, LrSwapError> {
-        //println!("method={} TakerAction={:?}", self.sell_buy_request.method.as_str(), json::from_str::<TakerAction>(self.sell_buy_request.method.as_str()));
+        //println!("method={} TakerAction={:?}", self.sell_buy_request.method.as_str(), serde_json::from_str::<TakerAction>(self.sell_buy_request.method.as_str()));
         match self.sell_buy_request.method.as_str() {
             "buy" => Ok(TakerAction::Buy),
             "sell" => Ok(TakerAction::Sell),
@@ -615,34 +600,31 @@ impl AggTakerSwapStateMachine {
 
     async fn run_lr_swap(&self, req: &ClassicSwapCreateRequest) -> MmResult<(), LrSwapError> {
         let (base, base_contract) = get_coin_for_one_inch(&self.ctx, &req.base).await?;
-        let (rel, rel_contract) = get_coin_for_one_inch(&self.ctx, &req.rel).await?;
+        let (_rel, rel_contract) = get_coin_for_one_inch(&self.ctx, &req.rel).await?;
         let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
             .mm_err(|err| LrSwapError::InvalidParam(err.to_string()))?;
         let single_address = base.derivation_method().single_addr_or_err().await?;
 
         let query_params = ClassicSwapCreateParams::new(
-            base_contract,
-            rel_contract,
+            base_contract.display_address(),
+            rel_contract.display_address(),
             sell_amount.to_string(),
-            display_eth_address(&single_address),
+            single_address.display_address(),
             req.slippage,
         )
-        // TODO: add more quuery params from req
-        .build_query_params()?;
-        let swap_with_tx: ClassicSwapData = ApiClient::new(&self.ctx)?
-            .call_one_inch_api(
-                Some(base.chain_id()),
-                ApiClient::classic_swap_endpoint(),
-                ApiClient::swap_method().to_owned(),
-                Some(query_params),
-            )
-            .await
-            .mm_err(|api_err| LrSwapError::InternalError(api_err.to_string()))?; // use 'base' as amount in errors is in the src coin
+        .build_query_params()?; // TODO: add more query params from req
 
+        let url =
+            SwapUrlBuilder::create_api_url_builder(&self.ctx, base.chain_id(), SwapApiMethods::ClassicSwapCreate)?
+                .with_query_params(query_params)
+                .build()?;
+        let swap_with_tx: ClassicSwapData = ApiClient::call_api(url).await?;
         let tx_fields = swap_with_tx
             .tx
             .ok_or(LrSwapError::InternalError("TxFields empty".to_string()))?;
-        /*let tx = base.sign_and_send_transaction(
+        
+        /* Could we make this work?
+        let tx = base.sign_and_send_transaction(
             U256::from_str(&tx_fields.value)?,
             Action::Call(tx_fields.to),
             hex::decode(tx_fields.data)?,
@@ -654,7 +636,7 @@ impl AggTakerSwapStateMachine {
                 U256::from_dec_str(&tx_fields.value)?,
                 base.decimals(),
             )?),
-            to: Some(eth_addr_to_hex(&tx_fields.to)),
+            to: Some(tx_fields.to.display_address()),
             data: Some(tx_fields.data),
             gas_limit: U256::from(tx_fields.gas),
             pay_for_gas: None, // TODO: use gas price from tx_fields? Maybe we can use our gas_price
@@ -669,6 +651,8 @@ impl AggTakerSwapStateMachine {
                 tx: sign_params,
             })
             .await?;
+        let txid = base.send_raw_tx_bytes(&tx_bytes.tx_hex).compat().await.map_to_mm(LrSwapError::TransactionError)?;
+        info!("Sent LR swap tx {}", txid);
         Ok(())
     }
 
@@ -713,38 +697,31 @@ impl AggTakerSwapStateMachine {
         let res_bytes = lp_auto_buy(&self.ctx, &base_coin, &rel_coin, self.sell_buy_request.clone())
             .await
             .map_err(|err| MmError::new(LrSwapError::InternalError(err)))?;
-        let rpc_res: Mm2RpcResult<SellBuyResponse> = json::from_slice(res_bytes.as_slice())?;
+        let rpc_res: Mm2RpcResult<SellBuyResponse> = serde_json::from_slice(res_bytes.as_slice())?;
         Ok(rpc_res.result)
     }
 
+    #[allow(clippy::result_large_err)]
     fn check_if_status_finished(swap_result: &MmResult<SwapRpcData, MySwapStatusError>) -> MmResult<bool, LrSwapError> {
         let swap_status = match swap_result {
             Ok(swap_status) => swap_status,
             Err(mm_err) => {
-                match mm_err.get_inner() {                                         
+                match mm_err.get_inner() {
                     // TODO: now considering that swap has not been started yet and we don't have non-existing uuids,
                     // but maybe we could throw an error after some time
                     MySwapStatusError::NoSwapWithUuid(_) => return Ok(false),
-                    other_err => {
-                        return MmError::err(LrSwapError::InternalError(format!(
-                            "Failed to get swap status: {}",
-                            other_err
-                        )))
-                    },
+                    other_err => return MmError::err(LrSwapError::InternalError(format!(
+                        "Failed to get swap status: {}",
+                        other_err
+                    ))),
                 }
-            }
+            },
         };
         match swap_status {
-            SwapRpcData::TakerV1(swap_status) => {
-                Ok(swap_status.is_finished())
-            },
-            SwapRpcData::TakerV2(swap_status) => {
-                Ok(swap_status.is_finished)
-            },
-            SwapRpcData::AggTaker(_) | SwapRpcData::MakerV1(_) | SwapRpcData::MakerV2(_) => { 
-                MmError::err(LrSwapError::InternalError(
-                    "incorrect atomic swap type".to_string(),
-                ))
+            SwapRpcData::TakerV1(swap_status) => Ok(swap_status.is_finished()),
+            SwapRpcData::TakerV2(swap_status) => Ok(swap_status.is_finished),
+            SwapRpcData::AggTaker(_) | SwapRpcData::MakerV1(_) | SwapRpcData::MakerV2(_) => {
+                MmError::err(LrSwapError::InternalError("incorrect atomic swap type".to_string()))
             },
         }
     }
@@ -753,12 +730,13 @@ impl AggTakerSwapStateMachine {
         let atomic_swap_uuid = self
             .atomic_swap_uuid
             .get()
-            .ok_or(LrSwapError::InternalError(
-                "atomic swap uuid not set".to_string(),
-            ))?;
+            .ok_or(LrSwapError::InternalError("atomic swap uuid not set".to_string()))?;
         loop {
             println!("LR swap waiting for atomic swap finish...");
-            let swap_result = my_swap_status_rpc(self.ctx.clone(), MySwapStatusRequest { uuid: *atomic_swap_uuid }).await;
+            let swap_result = my_swap_status_rpc(self.ctx.clone(), MySwapStatusRequest {
+                uuid: *atomic_swap_uuid,
+            })
+            .await;
             if Self::check_if_status_finished(&swap_result)? {
                 break;
             }
@@ -769,6 +747,7 @@ impl AggTakerSwapStateMachine {
     }
 }
 
+#[allow(unused)]
 async fn check_balance_for_agg_taker_swap(
     ctx: &MmArc,
     lr_swap_0: &Option<ClassicSwapCreateRequest>,

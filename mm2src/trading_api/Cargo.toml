@@ -29,6 +29,7 @@ futures = { version = "0.3", package = "futures", features = ["async-await"], op
 test-ext-api = [ 
     "futures"
 ]
+for-tests = ["dep:mocktopus"]
 
 [dev-dependencies]
 mocktopus = { version = "0.8.0" }

@@ -11,7 +11,7 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LrBestQuoteRequest {
-    /// Order base coin ticker.
+    /// Order base coin ticker (from the orderbook).
     pub base: Ticker,
     /// Swap amount in base coins to sell (with fraction)
     pub amount: MmNumber,
@@ -33,15 +33,15 @@ pub struct LrBestQuoteResponse {
     pub best_order: RpcOrderbookEntryV2,
     /// base/rel price including the price of the LR swap part
     pub total_price: MmNumber, // TODO: add as BigDecimal and Rational like other prices
-                               // /// Fees to pay, including LR swap fee
-                               // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
+    // /// Fees to pay, including LR swap fee
+    // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
 }
 
 /// Request to get quotes with possible swap paths to fill order with multiple tokens with LR
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LrQuotesForTokensRequest {
-    /// Order base coin ticker.
+    /// Order base coin ticker (from the orderbook).
     pub base: Ticker,
     /// Swap amount in base coins to sell (with fraction)
     pub amount: MmNumber,

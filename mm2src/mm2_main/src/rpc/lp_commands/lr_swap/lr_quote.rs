@@ -1,10 +1,11 @@
-//! Swap with LR in ETH chain, implementation code
+//! Finding best quote to do swaps with liquidity routing (LR) support
+//! Swaps with LR run additional interim swaps in EVM chains to convert one token into another token suitable to do a normal atomic swap.
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
-use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::lr_swap::lr_helpers::get_coin_for_one_inch;
-use coins::eth::eth_addr_to_hex;
+use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use coins::eth::{u256_to_big_decimal, wei_from_big_decimal};
+use coins::hd_wallet::AddrToString;
 use coins::lp_coinfind_or_err;
 use coins::MmCoin;
 use coins::NumConversResult;
@@ -18,15 +19,15 @@ use mm2_err_handle::prelude::*;
 use mm2_number::MmNumber;
 use num_traits::CheckedDiv;
 use std::collections::HashMap;
-use std::str::FromStr;
 use trading_api::one_inch_api::classic_swap_types::{ClassicSwapData, ClassicSwapQuoteParams};
-use trading_api::one_inch_api::client::ApiClient;
-use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesData, DataGranularity};
+use trading_api::one_inch_api::client::{ApiClient, PortfolioApiMethods, PortfolioUrlBuilder, SwapApiMethods,
+                                        SwapUrlBuilder};
+use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesSeries, DataGranularity};
 
 /// To estimate src/dst price query price history for last 5 min
 const CROSS_PRICES_GRANULARITY: DataGranularity = DataGranularity::FiveMin;
-/// Use no more than 10 price history samples to estimate src/dst price
-const CROSS_PRICES_LIMIT: u32 = 10;
+/// Use no more than 1 price history samples to estimate src/dst price
+const CROSS_PRICES_LIMIT: u32 = 1;
 
 #[inline]
 fn mm_number_to_u256(mm_number: &MmNumber) -> Result<U256, FromDecStrErr> {
@@ -49,36 +50,67 @@ fn wei_to_coins_mm_number(u256: U256, decimals: u8) -> NumConversResult<MmNumber
 
 /// Internal struct to collect data for selecting the best swap with LR
 struct LrData {
+    /// Order to fill
     order: RpcOrderbookEntryV2,
+    /// Source token contract address (to do interim LR swap from)
     src_contract: Option<EthAddress>,
-    /// Source token (to do LR from) amount in wei
+    /// Source token amount in wei
     src_amount: Option<U256>,
+    /// Source token decimals
     src_decimals: Option<u8>,
+    /// Destination token contract address (to do interim LR swap into)
     dst_contract: Option<EthAddress>,
-    /// Destination token (to do LR into) amount in wei
+    /// Destination token amount in wei
     dst_amount: Option<U256>,
+    /// Destination token decimals
     dst_decimals: Option<u8>,
+    /// Chain id where interim LR swap occurs (obtained from the destination token)
     chain_id: Option<u64>,
-    /// Queried src token / dst token price
+    /// Estimated src token / dst token price
     lr_price: Option<MmNumber>,
+    /// A quote from LR provider with tx data to do interim LR swap of src token to dst token
     lr_swap_data: Option<ClassicSwapData>,
 }
 
+impl LrData {
+    #[allow(clippy::result_large_err)]
+    fn get_chain_contract_info(&self) -> MmResult<(String, String, u64), ApiIntegrationRpcError> {
+        let src_contract = self
+            .src_contract
+            .as_ref()
+            .ok_or(ApiIntegrationRpcError::InternalError(
+                "Source LR contract not set".to_owned(),
+            ))?
+            .addr_to_string();
+        let dst_contract = self
+            .dst_contract
+            .as_ref()
+            .ok_or(ApiIntegrationRpcError::InternalError(
+                "Destination LR contract not set".to_owned(),
+            ))?
+            .addr_to_string();
+        let chain_id = self
+            .chain_id
+            .ok_or(ApiIntegrationRpcError::InternalError("LR chain id not set".to_owned()))?;
+        Ok((src_contract, dst_contract, chain_id))
+    }
+}
+
 struct LrDataMap {
-    /// Map to store data needed for swaps with LR estimations,
-    /// the key is source and destination tokens
+    /// Map to store data needed for best price estimations for swaps with LR,
+    /// the key is the source and destination token pair from the LR swap part
     inner: HashMap<(Ticker, Ticker), LrData>,
 }
 
 impl LrDataMap {
     /// Init LR data map from the source token (mytoken) and tokens from orders
-    fn new_with_src_token(src_token: Ticker, orders: &[RpcOrderbookEntryV2]) -> Self {
+    fn new_with_src_token(src_token: Ticker, orders: Vec<RpcOrderbookEntryV2>) -> Self {
         Self {
             inner: orders
-                .iter()
+                .into_iter()
                 .map(|order| {
                     ((src_token.clone(), order.coin.clone()), LrData {
-                        order: order.clone(),
+                        order,
                         src_contract: None,
                         src_decimals: None,
                         src_amount: None,
@@ -95,7 +127,7 @@ impl LrDataMap {
     }
 
     /// Calculate amounts of destination tokens required to fill ask orders for the requested base_amount:
-    /// multiplies base_amount by the order price (base_amount must be in 'coins')
+    /// multiplies base_amount by the order price. Base_amount must be in coin units (with decimals)
     async fn calc_destination_token_amounts(
         &mut self,
         ctx: &MmArc,
@@ -116,15 +148,15 @@ impl LrDataMap {
         Ok(())
     }
 
-    fn update_with_lr_prices(&mut self, lr_prices: &HashMap<(Ticker, Ticker), MmNumber>) {
+    fn update_with_lr_prices(&mut self, mut lr_prices: HashMap<(Ticker, Ticker), Option<MmNumber>>) {
         for (key, val) in self.inner.iter_mut() {
-            val.lr_price = lr_prices.get(key).cloned();
+            val.lr_price = lr_prices.remove(key).flatten();
         }
     }
 
-    fn update_with_lr_swap_data(&mut self, lr_swap_data: &HashMap<(Ticker, Ticker), ClassicSwapData>) {
+    fn update_with_lr_swap_data(&mut self, mut lr_swap_data: HashMap<(Ticker, Ticker), Option<ClassicSwapData>>) {
         for (key, val) in self.inner.iter_mut() {
-            val.lr_swap_data = lr_swap_data.get(key).cloned();
+            val.lr_swap_data = lr_swap_data.remove(key).flatten();
         }
     }
 
@@ -132,10 +164,19 @@ impl LrDataMap {
         for ((src_token, dst_token), lr_data) in self.inner.iter_mut() {
             let (src_coin, src_contract) = get_coin_for_one_inch(ctx, src_token).await?;
             let (dst_coin, dst_contract) = get_coin_for_one_inch(ctx, dst_token).await?;
-            lr_data.src_contract = EthAddress::from_str(&src_contract).ok(); // TODO: return error?
-            lr_data.dst_contract = EthAddress::from_str(&dst_contract).ok();
-            lr_data.src_decimals = Some(src_coin.decimals()); // TODO: maybe we should check for 0 and return error (if missed in coins)? Now it works okay if decimals omitted in coins
-            lr_data.dst_decimals = Some(dst_coin.decimals());
+            let src_decimals = src_coin.decimals();
+            let dst_decimals = dst_coin.decimals();
+
+            #[cfg(feature = "for-tests")]
+            {
+                assert_ne!(src_decimals, 0);
+                assert_ne!(dst_decimals, 0);
+            }
+
+            lr_data.src_contract = Some(src_contract);
+            lr_data.dst_contract = Some(dst_contract);
+            lr_data.src_decimals = Some(src_decimals);
+            lr_data.dst_decimals = Some(dst_decimals);
             lr_data.chain_id = Some(dst_coin.chain_id());
         }
         Ok(())
@@ -147,55 +188,32 @@ impl LrDataMap {
         let mut prices_futs = vec![];
         let mut src_dst = vec![];
         for ((src_token, dst_token), lr_data) in self.inner.iter() {
+            let (src_contract, dst_contract, chain_id) = lr_data.get_chain_contract_info()?;
             // Run src / dst token price query:
-            let src_contract = eth_addr_to_hex(
-                lr_data
-                    .src_contract
-                    .as_ref()
-                    .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?,
-            );
-            let dst_contract = eth_addr_to_hex(
-                lr_data
-                    .dst_contract
-                    .as_ref()
-                    .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?,
-            );
-            let chain_id = lr_data
-                .chain_id
-                .ok_or(ApiIntegrationRpcError::InternalError("no chain id".to_owned()))?;
             let query_params = CrossPriceParams::new(chain_id, src_contract, dst_contract)
                 .with_granularity(Some(CROSS_PRICES_GRANULARITY))
                 .with_limit(Some(CROSS_PRICES_LIMIT))
                 .build_query_params()?;
-            let fut = ApiClient::new(ctx)?
-                .call_one_inch_api::<Vec<CrossPricesData>>(
-                    None,
-                    ApiClient::portfolio_prices_endpoint(),
-                    ApiClient::cross_prices_method().to_owned(),
-                    Some(query_params),
-                );
+            let url = PortfolioUrlBuilder::create_api_url_builder(ctx, PortfolioApiMethods::CrossPrices)?
+                .with_query_params(query_params)
+                .build()?;
+            let fut = ApiClient::call_api::<CrossPricesSeries>(url);
             prices_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
         }
-        // TODO: for some coins like 1inch-PLG20 'cross prices' call returns a error 'coin not whitelisted'. Hmm... why? Could I use cross prices at all?
-        let prices_in_series = join_all(prices_futs)
-            .await
-            .into_iter()
-            .map(|p| p.ok()) // set to None if no data returned (to preserve number of elements in the vec)
-            .collect::<Vec<_>>();
+        let prices_in_series = join_all(prices_futs).await.into_iter().map(|res| res.ok()); // set bad results to None to preserve prices_in_series length
 
         let quotes = src_dst
             .into_iter()
-            .zip(prices_in_series.iter())
-            .filter_map(|((src, dst), series)| series.as_ref().map(|series| ((src, dst), series))) // exclude empty prices
+            .zip(prices_in_series)
             .map(|((src, dst), series)| {
                 let dst_price = cross_prices_average(series); // estimate SRC/DST price as average from series
                 ((src, dst), dst_price)
             })
-            .collect::<HashMap<(_, _), _>>();
+            .collect::<HashMap<_, _>>();
 
         log_cross_prices(&quotes);
-        self.update_with_lr_prices(&quotes);
+        self.update_with_lr_prices(quotes);
         Ok(())
     }
 
@@ -231,46 +249,21 @@ impl LrDataMap {
             let Some(src_amount) = lr_data.src_amount else {
                 continue;
             };
-            let src_contract = eth_addr_to_hex(
-                lr_data
-                    .src_contract
-                    .as_ref()
-                    .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?,
-            );
-            let dst_contract = eth_addr_to_hex(
-                lr_data
-                    .dst_contract
-                    .as_ref()
-                    .ok_or(ApiIntegrationRpcError::InternalError("no contract".to_owned()))?,
-            );
-            let chain_id = lr_data
-                .chain_id
-                .ok_or(ApiIntegrationRpcError::InternalError("no chain id".to_owned()))?;
+            let (src_contract, dst_contract, chain_id) = lr_data.get_chain_contract_info()?;
             let query_params = ClassicSwapQuoteParams::new(src_contract, dst_contract, src_amount.to_string())
                 .with_include_tokens_info(Some(true))
                 .with_include_gas(Some(true))
                 .build_query_params()?;
-            let api_client = ApiClient::new(ctx)?;
-            let fut = api_client.call_one_inch_api::<ClassicSwapData>(
-                Some(chain_id),
-                ApiClient::classic_swap_endpoint(),
-                ApiClient::quote_method().to_owned(),
-                Some(query_params),
-            );
+            let url = SwapUrlBuilder::create_api_url_builder(ctx, chain_id, SwapApiMethods::ClassicSwapQuote)?
+                .with_query_params(query_params)
+                .build()?;
+            let fut = ApiClient::call_api::<ClassicSwapData>(url);
             quote_futs.push(fut);
             src_dst.push((src_token.clone(), dst_token.clone()));
         }
-
-        let swap_data = join_all(quote_futs)
-            .await
-            .into_iter()
-            .filter_map(|res| res.ok()) // skip if LR provider returned an error for a quote (for e.g. low liguidity)
-            .collect::<Vec<_>>();
-        let swap_data_map = src_dst
-            .into_iter()
-            .zip(swap_data.into_iter())
-            .collect::<HashMap<(_, _), _>>();
-        self.update_with_lr_swap_data(&swap_data_map);
+        let swap_data = join_all(quote_futs).await.into_iter().map(|res| res.ok()); // if a bad result received (for e.g. low liguidity) set to None to preserve swap_data length
+        let swap_data_map = src_dst.into_iter().zip(swap_data.into_iter()).collect();
+        self.update_with_lr_swap_data(swap_data_map);
         Ok(())
     }
 
@@ -284,30 +277,22 @@ impl LrDataMap {
         let calc_total_price = |src_amount: U256, lr_swap: &ClassicSwapData, order: &RpcOrderbookEntryV2| {
             let src_amount = mm_number_from_u256(src_amount);
             let order_price = MmNumber::from(order.price.rational.clone());
-            let dst_amount = MmNumber::from(lr_swap.dst_amount.to_string().as_str());
-            if let Some(amount_to_fill) = dst_amount.checked_div(&order_price) {
-                let total_price_with_lr = src_amount.checked_div(&amount_to_fill);
-                log::debug!("select_best_swap order.coin={} lr_swap.dst_amount={}wei amount_to_fill={}wei total_price_with_lr={}", 
-                    order.coin, lr_swap.dst_amount, amount_to_fill.to_decimal(), total_price_with_lr.clone().unwrap_or(MmNumber::from(0)).to_decimal());
-                total_price_with_lr
-            } else {
-                None
-            }
+            let dst_amount = MmNumber::from(lr_swap.dst_amount.as_str());
+            let order_amount = dst_amount.checked_div(&order_price)?;
+            let total_price = src_amount.checked_div(&order_amount);
+            log::debug!("select_best_swap order.coin={} lr_swap.dst_amount(wei)={} order_amount(to fill order, wei)={} total_price(with LR)={}", 
+                order.coin, lr_swap.dst_amount, order_amount.to_decimal(), total_price.clone().unwrap_or(MmNumber::from(0)).to_decimal());
+            total_price
         };
 
         self.inner
             .values()
             // filter out orders for which we did not get LR swap quotes and were not able to estimate needed source amount
-            .filter_map(|lr_data| {
-                if lr_data.src_amount.is_some() && lr_data.lr_swap_data.is_some() {
-                    Some((
-                        lr_data.src_amount.unwrap(),
-                        lr_data.lr_swap_data.as_ref().unwrap().clone(),
-                        lr_data.order.clone(),
-                    ))
-                } else {
-                    None
-                }
+            .filter_map(|lr_data| match (lr_data.src_amount, lr_data.lr_swap_data.as_ref()) {
+                (Some(src_amount), Some(lr_swap_data)) => {
+                    Some((src_amount, lr_swap_data.clone(), lr_data.order.clone()))
+                },
+                (_, _) => None,
             })
             // calculate total price and filter out orders for which we could not calculate the total price
             .filter_map(|(src_amount, lr_swap_data, order)| {
@@ -316,16 +301,16 @@ impl LrDataMap {
             })
             .min_by(|(_, _, price_0), (_, _, price_1)| price_0.cmp(price_1))
             .map(|(lr_swap_data, order, price)| (lr_swap_data, order, price))
-            .ok_or(MmError::new(ApiIntegrationRpcError::LrSwapNotFound))
+            .ok_or(MmError::new(ApiIntegrationRpcError::BestLrSwapNotFound))
     }
 }
 
-/// Finds the best swap path to buy order 's best "UTXO" coins, including LR quotes to sell my token for the rel tokens from the orders
+/// Finds the best swap path to buy order's best "UTXO" coins, including LR quotes to sell my token for the rel tokens from the orders
 /// base_amount is amount of UTXO coins user would like to buy
 pub async fn find_best_fill_ask_with_lr(
     ctx: &MmArc,
     user_token: Ticker,
-    orders: &[RpcOrderbookEntryV2],
+    orders: Vec<RpcOrderbookEntryV2>,
     base_amount: &MmNumber,
 ) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), ApiIntegrationRpcError> {
     let mut lr_data_map = LrDataMap::new_with_src_token(user_token, orders);
@@ -339,18 +324,25 @@ pub async fn find_best_fill_ask_with_lr(
 }
 
 /// Helper to process 1inch token cross prices data and return average price
-fn cross_prices_average(series: &Vec<CrossPricesData>) -> MmNumber {
+fn cross_prices_average(series: Option<CrossPricesSeries>) -> Option<MmNumber> {
+    let Some(series) = series else {
+        return None;
+    };
     if series.is_empty() {
-        return MmNumber::from(0);
+        return None;
     }
     let total: MmNumber = series.iter().fold(MmNumber::from(0), |acc, price_data| {
         acc + MmNumber::from(price_data.avg.clone())
     });
-    total / MmNumber::from(series.len() as i32)
+    Some(total / MmNumber::from(series.len() as u64))
 }
 
-fn log_cross_prices(prices: &HashMap<(Ticker, Ticker), MmNumber>) {
+fn log_cross_prices(prices: &HashMap<(Ticker, Ticker), Option<MmNumber>>) {
     for p in prices {
-        log::debug!("cross prices api src/dst price={:?} {}", p, p.1.to_decimal());
+        log::debug!(
+            "cross prices api src/dst price={:?} {:?}",
+            p,
+            p.1.clone().map(|v| v.to_decimal())
+        );
     }
 }
