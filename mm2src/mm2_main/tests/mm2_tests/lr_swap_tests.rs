@@ -1,6 +1,5 @@
 #![allow(unused)]
 
-//use crate::{generate_utxo_coin_with_random_privkey, GETH_MAKER_SWAP_V2, MYCOIN, MYCOIN1};
 use bitcrypto::dhash160;
 use coins::utxo::UtxoCommonOps;
 use coins::RawTransactionRes;
@@ -11,6 +10,8 @@ use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArg
             ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
 use common::executor::Timer;
 use common::{block_on, block_on_f01, log, now_sec, DEX_FEE_ADDR_RAW_PUBKEY};
+use crypto::privkey::key_pair_from_seed;
+use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
 use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::RpcOrderbookEntry;
 use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed_for_kickstart, disable_coin,
@@ -21,11 +22,8 @@ use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed
                                   POLYGON_MAINNET_SWAP_CONTRACT, POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT,
                                   POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT, POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT};
 use mm2_test_helpers::structs::{MmNumberMultiRepr, SetPriceResult};
-use serde_json::{json, Value};
-//use crate::tests::eth_tests::enable_eth_rpc;
-use crypto::privkey::key_pair_from_seed;
-use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
 use script::{Builder, Opcode};
+use serde_json::{json, Value};
 use serialization::serialize;
 use std::str::FromStr;
 use std::time::Duration;
@@ -502,9 +500,7 @@ fn check_my_agg_swap_final_status(status_response: &Value) {
         "swap not completed successfully"
     );
     assert!(
-        !events
-            .iter()
-            .any(|item| item["event_type"].as_str() == Some("Aborted")),
+        !events.iter().any(|item| item["event_type"].as_str() == Some("Aborted")),
         "swap was aborted"
     );
 }
