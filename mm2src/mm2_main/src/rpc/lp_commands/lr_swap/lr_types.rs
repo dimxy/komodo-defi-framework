@@ -33,8 +33,8 @@ pub struct LrBestQuoteResponse {
     pub best_order: RpcOrderbookEntryV2,
     /// base/rel price including the price of the LR swap part
     pub total_price: MmNumber, // TODO: add as BigDecimal and Rational like other prices
-    // /// Fees to pay, including LR swap fee
-    // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
+                               // /// Fees to pay, including LR swap fee
+                               // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
 }
 
 /// Request to get quotes with possible swap paths to fill order with multiple tokens with LR

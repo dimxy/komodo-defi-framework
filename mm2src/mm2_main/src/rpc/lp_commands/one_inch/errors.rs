@@ -1,13 +1,12 @@
 use crate::rpc::lp_commands::lr_swap::lr_errors::LrSwapError;
-use coins::{CoinFindError, NumConversError};
+use coins::{CoinFindError, NumConversError, UnexpectedDerivationMethod};
 use common::{HttpStatusCode, StatusCode};
-use enum_derives::EnumFromStringify;
 use ethereum_types::U256;
 use ser_error_derive::SerializeErrorType;
 use serde::Serialize;
 use trading_api::one_inch_api::errors::ApiClientError;
 
-#[derive(Debug, Display, Serialize, SerializeErrorType, EnumFromStringify)]
+#[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum ApiIntegrationRpcError {
     NoSuchCoin {
@@ -21,9 +20,7 @@ pub enum ApiIntegrationRpcError {
     ChainNotSupported,
     #[display(fmt = "Must be same chain")]
     DifferentChains,
-    #[from_stringify("coins::UnexpectedDerivationMethod")]
     MyAddressError(String),
-    #[from_stringify("ethereum_types::FromDecStrErr", "coins::NumConversError", "hex::FromHexError")]
     ConversionError(String),
     InvalidParam(String),
     #[display(fmt = "Parameter {param} out of bounds, value: {value}, min: {min} max: {max}")]
@@ -42,12 +39,9 @@ pub enum ApiIntegrationRpcError {
     OneInchError(ApiClientError),
     ApiDataError(String),
     InternalError(String),
-    #[from_stringify("serde_json::Error")]
     ResponseParseError(String),
-    #[from_stringify("coins::TransactionErr")]
     #[display(fmt = "Transaction error {}", _0)]
     TransactionError(String),
-    #[from_stringify("coins::RawTransactionError")]
     #[display(fmt = "Sign transaction error {}", _0)]
     SignTransactionError(String),
     #[display(fmt = "best liquidity routing swap not found")]
@@ -66,9 +60,9 @@ impl HttpStatusCode for ApiIntegrationRpcError {
             | ApiIntegrationRpcError::InvalidParam(_)
             | ApiIntegrationRpcError::OutOfBounds { .. }
             | ApiIntegrationRpcError::OneInchAllowanceNotEnough { .. }
-            | ApiIntegrationRpcError::ConversionError(_)
-            | ApiIntegrationRpcError::BestLrSwapNotFound => StatusCode::BAD_REQUEST,
+            | ApiIntegrationRpcError::ConversionError(_) => StatusCode::BAD_REQUEST,
             ApiIntegrationRpcError::OneInchError(_)
+            | ApiIntegrationRpcError::BestLrSwapNotFound
             | ApiIntegrationRpcError::ApiDataError(_)
             | ApiIntegrationRpcError::TransactionError(_) => StatusCode::BAD_GATEWAY,
             ApiIntegrationRpcError::ResponseParseError(_)
@@ -101,6 +95,10 @@ impl From<CoinFindError> for ApiIntegrationRpcError {
             CoinFindError::NoSuchCoin { coin } => ApiIntegrationRpcError::NoSuchCoin { coin },
         }
     }
+}
+
+impl From<UnexpectedDerivationMethod> for ApiIntegrationRpcError {
+    fn from(err: UnexpectedDerivationMethod) -> Self { Self::MyAddressError(err.to_string()) }
 }
 
 /// Error aggregator for errors of conversion of api returned values
@@ -136,6 +134,7 @@ impl From<LrSwapError> for ApiIntegrationRpcError {
             LrSwapError::DifferentChains => ApiIntegrationRpcError::DifferentChains,
             LrSwapError::InvalidParam(msg) => ApiIntegrationRpcError::InvalidParam(msg),
             LrSwapError::MyAddressError(msg) => ApiIntegrationRpcError::MyAddressError(msg),
+            LrSwapError::BestLrSwapNotFound => ApiIntegrationRpcError::BestLrSwapNotFound,
             LrSwapError::OutOfBounds { param, value, min, max } => {
                 ApiIntegrationRpcError::OutOfBounds { param, value, min, max }
             },

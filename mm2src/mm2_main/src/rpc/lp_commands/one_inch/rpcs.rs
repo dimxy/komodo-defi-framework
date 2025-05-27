@@ -2,7 +2,7 @@ use super::errors::ApiIntegrationRpcError;
 use super::types::{AggregationContractRequest, ClassicSwapCreateRequest, ClassicSwapLiquiditySourcesRequest,
                    ClassicSwapLiquiditySourcesResponse, ClassicSwapQuoteRequest, ClassicSwapResponse,
                    ClassicSwapTokensRequest, ClassicSwapTokensResponse};
-use crate::rpc::lp_commands::lr_swap::lr_helpers::{api_supports_pair, get_coin_for_one_inch};
+use crate::rpc::lp_commands::lr_swap::lr_helpers::{check_if_one_inch_supports_pair, get_coin_for_one_inch};
 use coins::eth::wei_from_big_decimal;
 use coins::hd_wallet::DisplayAddress;
 use coins::{CoinWithDerivationMethod, MmCoin};
@@ -28,7 +28,7 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
 ) -> MmResult<ClassicSwapResponse, ApiIntegrationRpcError> {
     let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await?;
     let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await?;
-    api_supports_pair(&base, &rel)?;
+    check_if_one_inch_supports_pair(&base, &rel)?;
     let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
         .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
     let query_params = ClassicSwapQuoteParams::new(
@@ -66,7 +66,7 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
 ) -> MmResult<ClassicSwapResponse, ApiIntegrationRpcError> {
     let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await?;
     let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await?;
-    api_supports_pair(&base, &rel)?;
+    check_if_one_inch_supports_pair(&base, &rel)?;
     let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
         .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
     let single_address = base.derivation_method().single_addr_or_err().await?;

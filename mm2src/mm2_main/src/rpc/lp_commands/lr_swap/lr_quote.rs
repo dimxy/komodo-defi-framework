@@ -1,9 +1,9 @@
 //! Finding best quote to do swaps with liquidity routing (LR) support
 //! Swaps with LR run additional interim swaps in EVM chains to convert one token into another token suitable to do a normal atomic swap.
 
+use super::lr_errors::LrSwapError;
+use super::lr_helpers::get_coin_for_one_inch;
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
-use crate::rpc::lp_commands::lr_swap::lr_helpers::get_coin_for_one_inch;
-use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use coins::eth::{u256_to_big_decimal, wei_from_big_decimal};
 use coins::hd_wallet::AddrToString;
 use coins::lp_coinfind_or_err;
@@ -74,24 +74,20 @@ struct LrData {
 
 impl LrData {
     #[allow(clippy::result_large_err)]
-    fn get_chain_contract_info(&self) -> MmResult<(String, String, u64), ApiIntegrationRpcError> {
+    fn get_chain_contract_info(&self) -> MmResult<(String, String, u64), LrSwapError> {
         let src_contract = self
             .src_contract
             .as_ref()
-            .ok_or(ApiIntegrationRpcError::InternalError(
-                "Source LR contract not set".to_owned(),
-            ))?
+            .ok_or(LrSwapError::InternalError("Source LR contract not set".to_owned()))?
             .addr_to_string();
         let dst_contract = self
             .dst_contract
             .as_ref()
-            .ok_or(ApiIntegrationRpcError::InternalError(
-                "Destination LR contract not set".to_owned(),
-            ))?
+            .ok_or(LrSwapError::InternalError("Destination LR contract not set".to_owned()))?
             .addr_to_string();
         let chain_id = self
             .chain_id
-            .ok_or(ApiIntegrationRpcError::InternalError("LR chain id not set".to_owned()))?;
+            .ok_or(LrSwapError::InternalError("LR chain id not set".to_owned()))?;
         Ok((src_contract, dst_contract, chain_id))
     }
 }
@@ -132,7 +128,7 @@ impl LrDataMap {
         &mut self,
         ctx: &MmArc,
         base_amount: &MmNumber,
-    ) -> MmResult<(), ApiIntegrationRpcError> {
+    ) -> MmResult<(), LrSwapError> {
         for lr_data in self.inner.values_mut() {
             let price: MmNumber = lr_data.order.price.rational.clone().into();
             let dst_amount = base_amount * &price;
@@ -160,7 +156,7 @@ impl LrDataMap {
         }
     }
 
-    async fn update_with_contracts(&mut self, ctx: &MmArc) -> MmResult<(), ApiIntegrationRpcError> {
+    async fn update_with_contracts(&mut self, ctx: &MmArc) -> MmResult<(), LrSwapError> {
         for ((src_token, dst_token), lr_data) in self.inner.iter_mut() {
             let (src_coin, src_contract) = get_coin_for_one_inch(ctx, src_token).await?;
             let (dst_coin, dst_contract) = get_coin_for_one_inch(ctx, dst_token).await?;
@@ -184,7 +180,7 @@ impl LrDataMap {
 
     /// Query 1inch token_0/token_1 prices in series and estimate token_0/token_1 average price
     /// Assuming the outer RPC-level code ensures that relation src_tokens : dst_tokens will never be M:N (but only 1:M or M:1)
-    async fn query_destination_token_prices(&mut self, ctx: &MmArc) -> MmResult<(), ApiIntegrationRpcError> {
+    async fn query_destination_token_prices(&mut self, ctx: &MmArc) -> MmResult<(), LrSwapError> {
         let mut prices_futs = vec![];
         let mut src_dst = vec![];
         for ((src_token, dst_token), lr_data) in self.inner.iter() {
@@ -219,14 +215,14 @@ impl LrDataMap {
 
     /// Estimate the needed source amount for LR swap, by dividing the known dst amount by the src/dst price
     #[allow(clippy::result_large_err)]
-    fn estimate_source_token_amounts(&mut self) -> MmResult<(), ApiIntegrationRpcError> {
+    fn estimate_source_token_amounts(&mut self) -> MmResult<(), LrSwapError> {
         for lr_data in self.inner.values_mut() {
             let Some(ref dst_price) = lr_data.lr_price else {
                 continue;
             };
             let dst_amount = lr_data
                 .dst_amount
-                .ok_or(ApiIntegrationRpcError::InternalError("no dst_amount".to_owned()))?;
+                .ok_or(LrSwapError::InternalError("no dst_amount".to_owned()))?;
             let dst_amount = mm_number_from_u256(dst_amount);
             if let Some(src_amount) = &dst_amount.checked_div(dst_price) {
                 lr_data.src_amount = Some(mm_number_to_u256(src_amount)?);
@@ -242,7 +238,7 @@ impl LrDataMap {
     }
 
     /// Run 1inch requests to get LR quotes to convert source tokens to tokens in orders
-    async fn run_lr_quotes(&mut self, ctx: &MmArc) -> MmResult<(), ApiIntegrationRpcError> {
+    async fn run_lr_quotes(&mut self, ctx: &MmArc) -> MmResult<(), LrSwapError> {
         let mut src_dst = vec![];
         let mut quote_futs = vec![];
         for ((src_token, dst_token), lr_data) in self.inner.iter() {
@@ -269,7 +265,7 @@ impl LrDataMap {
 
     /// Select the best swap path, by minimum of total swap price (including order and LR swap)
     #[allow(clippy::result_large_err)]
-    fn select_best_swap(&self) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), ApiIntegrationRpcError> {
+    fn select_best_swap(&self) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), LrSwapError> {
         // Calculate swap's total_price (filling the order plus LR swap) as src_amount / order_amount
         // where src_amount is user tokens to pay for the swap with LR, 'order_amount' is amount which will fill the order
         // Tx fee is not accounted here because it is in the platform coin, not token, so we can't compare LR swap tx fee directly here.
@@ -301,7 +297,7 @@ impl LrDataMap {
             })
             .min_by(|(_, _, price_0), (_, _, price_1)| price_0.cmp(price_1))
             .map(|(lr_swap_data, order, price)| (lr_swap_data, order, price))
-            .ok_or(MmError::new(ApiIntegrationRpcError::BestLrSwapNotFound))
+            .ok_or(MmError::new(LrSwapError::BestLrSwapNotFound))
     }
 }
 
@@ -312,7 +308,7 @@ pub async fn find_best_fill_ask_with_lr(
     user_token: Ticker,
     orders: Vec<RpcOrderbookEntryV2>,
     base_amount: &MmNumber,
-) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), ApiIntegrationRpcError> {
+) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), LrSwapError> {
     let mut lr_data_map = LrDataMap::new_with_src_token(user_token, orders);
     lr_data_map.update_with_contracts(ctx).await?;
     lr_data_map.calc_destination_token_amounts(ctx, base_amount).await?;
