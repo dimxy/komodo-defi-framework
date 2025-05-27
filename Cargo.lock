@@ -4068,6 +4068,8 @@ dependencies = [
  "web-time",
  "web3",
  "winapi",
+ "zcash_client_backend",
+ "zcash_primitives",
 ]
 
 [[package]]

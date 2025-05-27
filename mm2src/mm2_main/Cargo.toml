@@ -143,6 +143,8 @@ ethcore-transaction.workspace = true
 rustc-hex.workspace = true
 sia-rust.workspace = true
 url.workspace = true
+zcash_client_backend.workspace = true
+zcash_primitives.workspace = true 
 
 [build-dependencies]
 chrono.workspace = true

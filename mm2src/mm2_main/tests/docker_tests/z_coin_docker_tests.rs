@@ -9,13 +9,10 @@ use lazy_static::lazy_static;
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::{BigDecimal, MmNumber};
 use mm2_test_helpers::for_tests::zombie_conf_for_docker;
-use rpc::v1::types::H256;
 use rustc_hex::ToHex;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
-use std::collections::HashSet;
-
-use coins::{MarketCoinOps, utxo::UtxoCommonOps};
+use coins::MarketCoinOps;
 use core::time::Duration;
 use std::str::FromStr;
 use coins::z_coin::{ZOutput, DEX_FEE_OVK};
@@ -199,7 +196,7 @@ async fn zombie_coin_send_standard_dex_fee_and_payment() {
     .expect("valid z-address");
 
     let z_out = ZOutput {
-        to_addr: to_addr,
+        to_addr,
         amount: Amount::from_u64(100000000).unwrap(),
         viewing_key: Some(DEX_FEE_OVK),
         memo: Some(MemoBytes::from_bytes(&[0]).expect("memo from_bytes")),
@@ -215,7 +212,7 @@ async fn zombie_coin_send_standard_dex_fee_and_payment() {
     let z_spending_key = ExtendedSpendingKey::master(&*secp_keypair.private().secret);
     let encoded = encode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, &z_spending_key);
 
-    let (_ctx, coin) = z_coin_from_spending_key(&*secp_keypair.private().secret, &encoded, "we2").await;
+    let (_ctx, coin) = z_coin_from_spending_key(&secp_keypair.private().secret, &encoded, "we2").await;
 
     loop {
         let my_balance = coin.my_balance().compat().await.unwrap();
