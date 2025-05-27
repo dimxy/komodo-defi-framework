@@ -1286,7 +1286,7 @@ pub struct ClassicSwapDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx: Option<TxFieldsRpc>,
     /// Estimated gas limit as hex (returned only for quote rpc)
-    pub gas: Option<String>,
+    pub gas: Option<u128>,
 }
 
 pub type ClassicSwapResponse = ClassicSwapDetails;
@@ -1370,9 +1370,13 @@ impl ClassicSwapCreateRequest {
     }
 
     pub fn new_from_details(details: &ClassicSwapDetails, value: &str, slippage: f32) -> Self {
+        let base = details.src_token.as_ref().unwrap().symbol_kdf.as_ref().unwrap().clone();
+        let rel = details.dst_token.as_ref().unwrap().symbol_kdf.as_ref().unwrap().clone();
+        assert!(!base.is_empty(), "base can't be empty");
+        assert!(!rel.is_empty(), "rel can't be empty");
         Self {
-            base: details.src_token.as_ref().unwrap().symbol_kdf.as_ref().unwrap().clone(),
-            rel: details.dst_token.as_ref().unwrap().symbol_kdf.as_ref().unwrap().clone(),
+            base,
+            rel,
             amount: MmNumber::from(value),
             slippage,
             fee: None,
