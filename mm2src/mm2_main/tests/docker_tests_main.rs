@@ -97,8 +97,8 @@ pub fn docker_tests_runner(tests: &[&TestDescAndFn]) {
             let nucleus_node = nucleus_node(&docker, runtime_dir.clone());
             let atom_node = atom_node(&docker, runtime_dir.clone());
             let ibc_relayer_node = ibc_relayer_node(&docker, runtime_dir);
+            thread::sleep(Duration::from_secs(12));
             prepare_ibc_channels(ibc_relayer_node.container.id());
-            thread::sleep(Duration::from_secs(10));
             wait_until_relayer_container_is_ready(ibc_relayer_node.container.id());
             containers.push(nucleus_node);
             containers.push(atom_node);
