@@ -139,16 +139,9 @@ pub struct ClassicSwapDetails {
     /// Source (base) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub src_token: Option<LrTokenInfo>,
-    /// Source (base) token name as it is defined in the coins file
-    pub src_token_kdf: Option<Ticker>,
     /// Destination (rel) token info
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dst_token: Option<LrTokenInfo>,
-    /// Destination (rel) token name as it is defined in the coins file.
-    /// This is used to show route tokens in the GUI, like they are in the coin file.
-    /// However, route tokens can be missed in the coins file and therefore cannot be filled.
-    /// In this case GUI may use LrTokenInfo::Address or LrTokenInfo::Symbol
-    pub dst_token_kdf: Option<Ticker>,
     /// Used liquidity sources
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocols: Option<Vec<Vec<Vec<ProtocolInfo>>>>,
@@ -191,16 +184,22 @@ impl ClassicSwapDetails {
             .decimals
             .try_into()
             .map_to_mm(|_| FromApiValueError("invalid decimals in destination TokenInfo".to_owned()))?;
+        let src_token_kdf = Self::token_name_kdf(ctx, chain_id, &src_token_info).await;
+        let dst_token_kdf = Self::token_name_kdf(ctx, chain_id, &dst_token_info).await;
         Ok(Self {
             dst_amount: MmNumber::from(u256_to_big_decimal(
                 U256::from_dec_str(&data.dst_amount)?,
                 dst_decimals,
             )?)
             .into(),
-            src_token_kdf: Self::token_name_kdf(ctx, chain_id, &src_token_info).await,
-            src_token: Some(src_token_info),
-            dst_token_kdf: Self::token_name_kdf(ctx, chain_id, &dst_token_info).await,
-            dst_token: Some(dst_token_info),
+            src_token: Some(LrTokenInfo {
+                symbol_kdf: src_token_kdf,
+                ..src_token_info
+            }),
+            dst_token: Some(LrTokenInfo {
+                symbol_kdf: dst_token_kdf,
+                ..dst_token_info
+            }),
             protocols: data.protocols,
             tx: data.tx.map(TxFields::from_api_tx_fields).transpose()?,
             gas: data.gas,
