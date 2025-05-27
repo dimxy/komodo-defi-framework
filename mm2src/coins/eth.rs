@@ -2376,11 +2376,8 @@ impl MarketCoinOps for EthCoin {
         }
     }
 
-    fn send_raw_tx(&self, mut tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
-        if tx.starts_with("0x") {
-            tx = &tx[2..];
-        }
-        let bytes = try_fus!(hex::decode(tx));
+    fn send_raw_tx(&self, tx: &str) -> Box<dyn Future<Item = String, Error = String> + Send> {
+        let bytes = try_fus!(hex::decode(str_strip_0x!(tx)));
 
         let coin = self.clone();
 
@@ -2748,7 +2745,7 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
     } else {
         Create
     };
-    let data = hex::decode(args.data.as_ref().unwrap_or(&String::from("")))?;
+    let data = hex::decode(str_strip_0x!(args.data.as_ref().unwrap_or(&String::from(""))))?;
     match coin.priv_key_policy {
         // TODO: use zeroise for privkey
         EthPrivKeyPolicy::Iguana(ref key_pair)
