@@ -38,11 +38,14 @@ cfg_native! {
     use mm2_metrics::MmMetricsError;
     use std::net::{IpAddr, SocketAddr, AddrParseError};
     use std::path::{Path, PathBuf};
+    use derive_more::Display;
     use std::sync::MutexGuard;
 }
 
 /// Default interval to export and record metrics to log.
 const EXPORT_METRICS_INTERVAL: f64 = 5. * 60.;
+/// File extension for files containing a wallet's encrypted mnemonic phrase.
+pub const WALLET_FILE_EXTENSION: &str = "json";
 
 /// MarketMaker state, shared between the various MarketMaker threads.
 ///
@@ -319,10 +322,6 @@ impl MmCtx {
     /// Returns the path to the MM databases root.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn db_root(&self) -> PathBuf { path_to_db_root(self.conf["dbdir"].as_str()) }
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn wallet_file_path(&self, wallet_name: &str) -> PathBuf {
-        self.db_root().join(wallet_name.to_string() + ".dat")
-    }
 
     /// MM database path.  
     /// Defaults to a relative "DB".
@@ -350,8 +349,13 @@ impl MmCtx {
     ///
     /// Such directory isn't bound to a specific seed/wallet or address.
     /// Data that should be stored there is public and shared between all seeds and addresses (e.g. stats, block headers, etc...).
-    #[cfg(all(feature = "new-db-arch", not(target_arch = "wasm32")))]
-    pub fn global_dir(&self) -> PathBuf { self.db_root().join("global") }
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn global_dir(&self) -> PathBuf {
+        if cfg!(not(feature = "new-db-arch")) {
+            return self.dbdir();
+        }
+        self.db_root().join("global")
+    }
 
     /// Returns the path to wallet's data directory.
     ///
@@ -359,8 +363,11 @@ impl MmCtx {
     /// For HD wallets, this `rmd160` is derived from `mm2_internal_derivation_path`.
     /// For Iguana, this `rmd160` is simply a hash of the seed.
     /// Use this directory to store seed/wallet related data rather than address related data (e.g. HD wallet accounts, HD wallet tx history, etc...)
-    #[cfg(all(feature = "new-db-arch", not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn wallet_dir(&self) -> PathBuf {
+        if cfg!(not(feature = "new-db-arch")) {
+            return self.dbdir();
+        }
         self.db_root()
             .join("wallets")
             .join(hex::encode(self.rmd160().as_slice()))
@@ -370,13 +377,12 @@ impl MmCtx {
     ///
     /// Use this directory for data related to a specific address and only that specific address (e.g. swap data, order data, etc...).
     /// This makes sure that when this address is activated using a different technique, this data is still accessible.
-    #[cfg(all(feature = "new-db-arch", not(target_arch = "wasm32")))]
-    pub fn address_dir(&self, address: &str) -> Result<PathBuf, AddressDataError> {
-        let path = self.db_root().join("addresses").join(address);
-        if !path.exists() {
-            std::fs::create_dir_all(&path).map_err(AddressDataError::CreateAddressDirFailure)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn address_dir(&self, address: &str) -> PathBuf {
+        if cfg!(not(feature = "new-db-arch")) {
+            return self.dbdir();
         }
-        Ok(path)
+        self.db_root().join("addresses").join(address)
     }
 
     /// Returns a SQL connection to the global database.
@@ -398,17 +404,18 @@ impl MmCtx {
     }
 
     /// Returns a SQL connection to the address database.
-    #[cfg(all(feature = "new-db-arch", not(target_arch = "wasm32")))]
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn address_db(&self, address: &str) -> Result<Connection, AddressDataError> {
-        let path = self.address_dir(address)?.join("MM2.db");
+        let path = self.address_dir(address).join("MM2.db");
+        mm2_io::fs::create_parents(&path).map_err(|err| AddressDataError::CreateAddressDirFailure(err.into_inner()))?;
         log_sqlite_file_open_attempt(&path);
         let connection = Connection::open(path).map_err(AddressDataError::SqliteConnectionFailure)?;
         Ok(connection)
     }
 
-    pub fn is_watcher(&self) -> bool { self.conf["is_watcher"].as_bool().unwrap_or_default() }
+    pub fn is_watcher(&self) -> bool { self.conf["is_watcher"].as_bool().unwrap_or(false) }
 
-    pub fn use_watchers(&self) -> bool { self.conf["use_watchers"].as_bool().unwrap_or(true) }
+    pub fn disable_watchers_globally(&self) -> bool { !self.conf["use_watchers"].as_bool().unwrap_or(true) }
 
     pub fn netid(&self) -> u16 {
         let netid = self.conf["netid"].as_u64().unwrap_or(0);
@@ -416,6 +423,29 @@ impl MmCtx {
             panic!("netid {} is too big", netid)
         }
         netid as u16
+    }
+
+    pub fn disable_p2p(&self) -> bool {
+        if let Some(disable_p2p) = self.conf["disable_p2p"].as_bool() {
+            return disable_p2p;
+        }
+
+        let default = !self.conf["is_bootstrap_node"].as_bool().unwrap_or(false)
+            && self.conf["seednodes"].as_array().is_none()
+            && !self.p2p_in_memory();
+
+        default
+    }
+
+    pub fn is_bootstrap_node(&self) -> bool {
+        if let Some(is_bootstrap_node) = self.conf["is_bootstrap_node"].as_bool() {
+            return is_bootstrap_node;
+        }
+
+        let default = !self.conf["disable_p2p"].as_bool().unwrap_or(false)
+            && self.conf["seednodes"].as_array().map_or(true, |t| t.is_empty());
+
+        default
     }
 
     pub fn p2p_in_memory(&self) -> bool { self.conf["p2p_in_memory"].as_bool().unwrap_or(false) }
@@ -535,7 +565,8 @@ impl Drop for MmCtx {
     }
 }
 
-#[cfg(all(feature = "new-db-arch", not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Display)]
 pub enum AddressDataError {
     CreateAddressDirFailure(std::io::Error),
     SqliteConnectionFailure(db_common::sqlite::rusqlite::Error),

@@ -42,9 +42,12 @@ pub async fn lr_best_quote_rpc(
     // coins in orders should be unique
 
     let (my_eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
+    let my_chain_id = my_eth_coin
+        .chain_id()
+        .ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
     let (swap_data, best_order, total_price) =
         find_best_fill_ask_with_lr(&ctx, req.my_token, req.asks, &req.amount).await?;
-    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, my_eth_coin.chain_id(), swap_data)
+    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, my_chain_id, swap_data)
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
     Ok(LrBestQuoteResponse {
@@ -114,7 +117,10 @@ mod tests {
             "derivation_path": "m/44'/1'",
             "chain_id": 1,
             "protocol": {
-                "type": "ETH"
+                "type": "ETH",
+                "protocol_data": {
+                    "chain_id": 1
+                }
             }
         });
 
