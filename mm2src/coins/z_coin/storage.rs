@@ -152,7 +152,7 @@ pub async fn scan_cached_block(
         ));
     }
 
-    println!("scan_block witnesses.len={} nullifiers.len={}", current_height, witnesses.len(), nullifiers.len());
+    println!("scan_block block_height={:?} witnesses.len={} nullifiers.len={}", current_height, witnesses.len(), nullifiers.len());
 
     for tx in block.vtx.clone().into_iter() {
         let mut txid = TxId([0u8; 32]);
