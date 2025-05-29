@@ -128,6 +128,7 @@ pub async fn scan_cached_block(
     // Fetch the ExtendedFullViewingKeys we are tracking
     let extfvks = data_guard.get_extended_full_viewing_keys().await?;
     let extfvks: Vec<(&AccountId, &ExtendedFullViewingKey)> = extfvks.iter().collect();
+    println!("scan_cached_block from height={:?}", last_height);
 
     // Get the most recent CommitmentTree
     let mut tree = data_guard
@@ -188,7 +189,7 @@ pub async fn scan_cached_block(
 
     witnesses.extend(new_witnesses);
     *last_height = current_height;
-
+    println!("scan_cached_block reset last_height to {:?}", last_height);
     for tx in &txs {
         println!("removing note for txid={}", tx.txid);
         locked_notes_db
