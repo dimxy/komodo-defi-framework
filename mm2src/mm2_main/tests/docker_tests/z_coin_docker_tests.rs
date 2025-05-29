@@ -24,7 +24,7 @@ use zcash_primitives::constants::mainnet as z_mainnet_constants;
 
 use std::collections::HashSet;
 use coins::utxo::UtxoCommonOps;
-use rpc::v1::types::hash::H256;
+use rpc::v1::types::H256;
 
 use crypto::privkey::key_pair_from_seed;
 
