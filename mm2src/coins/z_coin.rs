@@ -377,6 +377,7 @@ impl ZCoin {
     ) -> Result<GenTxData<'_>, MmError<GenTxError>> {
         println!("calling wait_for_gen_tx_blockchain_sync...");
         let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
+        drop(sync_guard);
         println!("wait_for_gen_tx_blockchain_sync finished");
 
         let tx_fee = self.get_one_kbyte_tx_fee().await?;
@@ -389,6 +390,8 @@ impl ZCoin {
         println!("calling wait_for_spendable_balance_spawner...");
         let spendable_notes = wait_for_spendable_balance_spawner(self, &total_required).await?;
         println!("wait_for_spendable_balance_spawner finished");
+
+        let sync_guard = self.wait_for_gen_tx_blockchain_sync().await?;
 
         let mut total_input_amount = BigDecimal::from(0);
         let mut change = BigDecimal::from(0);
