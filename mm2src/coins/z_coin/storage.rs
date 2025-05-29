@@ -125,7 +125,7 @@ pub async fn scan_cached_block(
     last_height: &mut BlockHeight,
 ) -> Result<Vec<WalletTx<Nullifier>>, ValidateBlocksError> {
     use zcash_primitives::transaction::TxId;
-    
+
     let mut data_guard = data.inner().clone();
     // Fetch the ExtendedFullViewingKeys we are tracking
     let extfvks = data_guard.get_extended_full_viewing_keys().await?;
@@ -152,7 +152,7 @@ pub async fn scan_cached_block(
         ));
     }
 
-    for tx in block.vtx.into_iter() {
+    for tx in block.vtx.clone().into_iter() {
         let mut txid = TxId([0u8; 32]);
         txid.0.copy_from_slice(&tx.hash);
         println!("scan_block block_height={:?} txid={}", current_height, txid);
