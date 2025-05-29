@@ -99,7 +99,7 @@ impl LockedNotesStorage {
         Ok(db
             .call(move |conn| {
                 let mut stmt = conn.prepare(&format!("SELECT rseed, hex FROM {TABLE_NAME};"))?;
-                let rows = stmt.query_map(params![], |row| Ok(LockedNote { rseed: row.get(0)? }))?;
+                let rows = stmt.query_map(params![], |row| Ok(LockedNote { rseed: row.get(0)?, txid: row.get(1)? }))?;
 
                 Ok(rows.flatten().collect_vec())
             })

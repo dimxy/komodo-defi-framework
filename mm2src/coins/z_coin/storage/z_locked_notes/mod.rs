@@ -18,6 +18,7 @@ cfg_wasm32!(
 #[derive(Debug, Clone)]
 pub struct LockedNote {
     pub rseed: String,
+    pub txid: String,
 }
 
 /// A wrapper for the db connection to the change note cache database in native and browser.

@@ -67,6 +67,7 @@ use std::convert::{TryFrom, TryInto};
 use std::iter;
 use std::num::NonZeroU32;
 use std::num::TryFromIntError;
+use std::str::FromStr;
 use std::sync::Arc;
 pub use z_coin_errors::*;
 pub use z_htlc::z_send_dex_fee;
@@ -2020,10 +2021,28 @@ async fn wait_for_spendable_balance_impl(
 
         let locked_notes = selfi.z_fields.locked_notes_db.load_all_notes().await?;
 
+        for l in locked_notes.iter() {
+            let mut tx_ids = HashSet::new();
+            let t = H256Json::from_str(&l.txid).unwrap();
+            tx_ids.insert(t);
+            let r = selfi.get_verbose_transactions_from_cache_or_rpc(tx_ids).compat().await;
+            match r {
+                Err(err) => println!("locked notes txid={} err={}", l.txid, err),
+                Ok(hset) if !hset.is_empty() => {
+                    let tx = hset.iter().next().unwrap().1; 
+                    let tx_rpc = tx.clone().into_inner();
+                    println!("locked notes txid={} height={:?}", l.txid, tx_rpc.height);
+                },
+                Ok(_) => {
+                    println!("locked notes txid={} empty", l.txid);
+                },
+            }
+        }
+
         let unlocked_notes: Vec<SpendableNote> = if locked_notes.is_empty() {
             wallet_notes
         } else {
-            let locked_seeds: HashSet<_> = locked_notes.into_iter().map(|n| n.rseed).collect();
+            let locked_seeds: HashSet<_> = locked_notes.clone().into_iter().map(|n| n.rseed).collect();
             wallet_notes
                 .into_iter()
                 .filter(|note| !locked_seeds.contains(&rseed_to_string(&note.rseed)))
@@ -2035,8 +2054,8 @@ async fn wait_for_spendable_balance_impl(
         let sum_available = u64::try_from(sum_available).map_to_mm(|err| GenTxError::Internal(err.to_string()))?;
         let sum_available = big_decimal_from_sat_unsigned(sum_available, selfi.decimals());
 
-        println!("wait_for_spendable_balance_impl total_required={} sum_available={} unlocked_notes_len={} wallet_notes_len={}", 
-            total_required, sum_available, unlocked_notes_len, wallet_notes_len);
+        println!("wait_for_spendable_balance_impl total_required={} sum_available={} unlocked_notes_len={} wallet_notes_len={} locked_notes_len={}", 
+            total_required, sum_available, unlocked_notes_len, wallet_notes_len, locked_notes.len());
         // Reteurn InsufficientBalance error when all notes are unlocked but amount is insufficient.
         if sum_available < total_required && unlocked_notes_len == wallet_notes_len {
             return MmError::err(GenTxError::InsufficientBalance {
