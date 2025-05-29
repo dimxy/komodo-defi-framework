@@ -2035,6 +2035,8 @@ async fn wait_for_spendable_balance_impl(
         let sum_available = u64::try_from(sum_available).map_to_mm(|err| GenTxError::Internal(err.to_string()))?;
         let sum_available = big_decimal_from_sat_unsigned(sum_available, selfi.decimals());
 
+        println!("wait_for_spendable_balance_impl total_required={} sum_available={} unlocked_notes_len={} wallet_notes_len={}", 
+            total_required, sum_available, unlocked_notes_len, wallet_notes_len);
         // Reteurn InsufficientBalance error when all notes are unlocked but amount is insufficient.
         if sum_available < total_required && unlocked_notes_len == wallet_notes_len {
             return MmError::err(GenTxError::InsufficientBalance {
