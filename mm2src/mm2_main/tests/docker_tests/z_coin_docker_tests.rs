@@ -22,6 +22,9 @@ use zcash_primitives::memo::MemoBytes;
 use zcash_primitives::zip32::ExtendedSpendingKey;
 use zcash_primitives::constants::mainnet as z_mainnet_constants;
 
+use std::collections::HashSet;
+use coins::utxo::UtxoCommonOps;
+use keys::hash::H256;
 
 use crypto::privkey::key_pair_from_seed;
 
@@ -233,7 +236,7 @@ async fn zombie_coin_send_standard_dex_fee_and_payment() {
 
     // this loop, waiting for all locked notes unlocked, makes test workable
     // but without it, the test is not stable: waiting infinitely in sending the payment tx code
-    /* loop {
+    loop {
         println!("my_balance after dex fee {:?}", coin.my_balance().compat().await.unwrap());
         let locked_notes = coin.z_fields.locked_notes_db.load_all_notes().await.unwrap();
         println!("locked_notes={:?}", locked_notes);
@@ -258,7 +261,7 @@ async fn zombie_coin_send_standard_dex_fee_and_payment() {
             },
         }
         tokio::time::sleep(Duration::from_secs(10)).await;
-    } */
+    }
 
 
     // try to send payment of 0.08 while the change note is locked by the dexfee tx
