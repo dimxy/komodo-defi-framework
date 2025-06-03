@@ -4606,7 +4606,7 @@ pub enum CustomTokenError {
         ticker: String,
         contract_address: String,
     },
-    InvalidErc20Address,
+    InvalidTokenAddress,
 }
 
 impl CoinProtocol {
@@ -4675,7 +4675,7 @@ impl CoinProtocol {
         if let Some(existing_ticker) = get_erc20_ticker_by_contract_address(
             ctx,
             platform,
-            &EthAddress::from_str(contract_address).map_err(|_| MmError::new(CustomTokenError::InvalidErc20Address))?,
+            &EthAddress::from_str(contract_address).map_err(|_| MmError::new(CustomTokenError::InvalidTokenAddress))?,
         ) {
             return Err(MmError::new(CustomTokenError::DuplicateContractInConfig {
                 ticker_in_config: existing_ticker,
