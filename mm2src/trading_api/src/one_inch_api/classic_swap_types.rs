@@ -1,7 +1,5 @@
 //! Structs to call 1inch classic swap api
 
-#![allow(clippy::result_large_err)]
-
 use super::client::QueryParams;
 use super::errors::ApiClientError;
 use common::{def_with_opt_param, push_if_some};
@@ -65,6 +63,7 @@ impl ClassicSwapQuoteParams {
     def_with_opt_param!(include_gas, bool);
     def_with_opt_param!(connector_tokens, String);
 
+    #[allow(clippy::result_large_err)]
     pub fn build_query_params(&self) -> MmResult<QueryParams, ApiClientError> {
         self.validate_params()?;
 
@@ -89,6 +88,7 @@ impl ClassicSwapQuoteParams {
     }
 
     /// Validate params by 1inch rules (to avoid extra requests)
+    #[allow(clippy::result_large_err)]
     fn validate_params(&self) -> MmResult<(), ApiClientError> {
         validate_fee(&self.fee)?;
         validate_complexity_level(&self.complexity_level)?;
@@ -161,6 +161,7 @@ impl ClassicSwapCreateParams {
     def_with_opt_param!(allow_partial_fill, bool);
     def_with_opt_param!(use_permit2, bool);
 
+    #[allow(clippy::result_large_err)]
     pub fn build_query_params(&self) -> MmResult<QueryParams, ApiClientError> {
         self.validate_params()?;
 
@@ -196,6 +197,7 @@ impl ClassicSwapCreateParams {
     }
 
     /// Validate params by 1inch rules (to avoid extra requests)
+    #[allow(clippy::result_large_err)]
     fn validate_params(&self) -> MmResult<(), ApiClientError> {
         validate_slippage(self.slippage)?;
         validate_fee(&self.fee)?;
@@ -304,6 +306,7 @@ mod serde_one_inch_link {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_slippage(slippage: f32) -> MmResult<(), ApiClientError> {
     if !(0.0..=ONE_INCH_MAX_SLIPPAGE).contains(&slippage) {
         return Err(ApiClientError::OutOfBounds {
@@ -317,6 +320,7 @@ fn validate_slippage(slippage: f32) -> MmResult<(), ApiClientError> {
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_fee(fee: &Option<f32>) -> MmResult<(), ApiClientError> {
     if let Some(fee) = fee {
         if !(0.0..=ONE_INCH_MAX_FEE_SHARE).contains(fee) {
@@ -332,6 +336,7 @@ fn validate_fee(fee: &Option<f32>) -> MmResult<(), ApiClientError> {
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_gas_limit(gas_limit: &Option<u128>) -> MmResult<(), ApiClientError> {
     if let Some(gas_limit) = gas_limit {
         if gas_limit > &ONE_INCH_MAX_GAS {
@@ -347,6 +352,7 @@ fn validate_gas_limit(gas_limit: &Option<u128>) -> MmResult<(), ApiClientError> 
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_parts(parts: &Option<u32>) -> MmResult<(), ApiClientError> {
     if let Some(parts) = parts {
         if parts > &ONE_INCH_MAX_PARTS {
@@ -362,6 +368,7 @@ fn validate_parts(parts: &Option<u32>) -> MmResult<(), ApiClientError> {
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_main_route_parts(main_route_parts: &Option<u32>) -> MmResult<(), ApiClientError> {
     if let Some(main_route_parts) = main_route_parts {
         if main_route_parts > &ONE_INCH_MAX_MAIN_ROUTE_PARTS {
@@ -377,6 +384,7 @@ fn validate_main_route_parts(main_route_parts: &Option<u32>) -> MmResult<(), Api
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_complexity_level(complexity_level: &Option<u32>) -> MmResult<(), ApiClientError> {
     if let Some(complexity_level) = complexity_level {
         if complexity_level > &ONE_INCH_MAX_COMPLEXITY_LEVEL {
@@ -393,6 +401,7 @@ fn validate_complexity_level(complexity_level: &Option<u32>) -> MmResult<(), Api
 }
 
 /// Check if url is valid and is a subdomain of 1inch domain (simple anti-phishing check)
+#[allow(clippy::result_large_err)]
 fn validate_one_inch_link(s: &str) -> MmResult<String, ApiClientError> {
     let url = Url::parse(s).map_err(|_err| ApiClientError::ParseBodyError {
         error_msg: BAD_URL_IN_RESPONSE_ERROR.to_owned(),

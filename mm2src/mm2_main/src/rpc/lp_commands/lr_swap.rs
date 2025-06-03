@@ -5,8 +5,7 @@ use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
 use lr_impl::find_best_fill_ask_with_lr;
 use mm2_core::mm_ctx::MmArc;
-use mm2_err_handle::{map_mm_error::MapMmError,
-                     mm_error::{MmError, MmResult}};
+use mm2_err_handle::{map_mm_error::MapMmError, mm_error::MmResult};
 use types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillOrderRequest, LrFillOrderResponse, LrQuotesForTokensRequest};
 
 mod lr_impl;
@@ -54,7 +53,8 @@ pub async fn lr_best_quote_rpc(
         lr_swap_details,
         best_order,
         total_price,
-        // trade_fee: // TODO: implement later
+        // TODO: implement later
+        // trade_fee: ...
     })
 }
 
@@ -78,7 +78,7 @@ pub async fn lr_quotes_for_tokens_rpc(
     _req: LrQuotesForTokensRequest,
 ) -> MmResult<LrBestQuoteResponse, ApiIntegrationRpcError> {
     // TODO: impl later
-    MmError::err(ApiIntegrationRpcError::InternalError("unimplemented".to_owned()))
+    todo!()
 }
 
 /// Run a swap with LR to fill a maker order
@@ -86,7 +86,7 @@ pub async fn lr_fill_order_rpc(
     _ctx: MmArc,
     _req: LrFillOrderRequest,
 ) -> MmResult<LrFillOrderResponse, ApiIntegrationRpcError> {
-    MmError::err(ApiIntegrationRpcError::InternalError("unimplemented".to_owned()))
+    todo!()
 }
 
 #[cfg(all(test, feature = "test-ext-api", not(target_arch = "wasm32")))]

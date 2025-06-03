@@ -1,7 +1,5 @@
 //! Structs to call 1inch portfolio api
 
-#![allow(clippy::result_large_err)]
-
 use super::client::QueryParams;
 use super::errors::ApiClientError;
 use common::{def_with_opt_param, push_if_some};
@@ -63,6 +61,7 @@ impl CrossPriceParams {
     def_with_opt_param!(granularity, DataGranularity);
     def_with_opt_param!(limit, u32);
 
+    #[allow(clippy::result_large_err)]
     pub fn build_query_params(&self) -> MmResult<QueryParams, ApiClientError> {
         let mut params = vec![
             ("chain_id", self.chain_id.to_string()),

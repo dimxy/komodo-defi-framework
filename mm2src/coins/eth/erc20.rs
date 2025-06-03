@@ -1,7 +1,7 @@
 use super::{ERC20_PROTOCOL_TYPE, ETH_PROTOCOL_TYPE};
 use crate::eth::web3_transport::Web3Transport;
 use crate::eth::{EthCoin, ERC20_CONTRACT};
-use crate::{CoinsContext, MarketCoinOps, MmCoinEnum};
+use crate::{CoinsContext, MarketCoinOps, MmCoinEnum, Ticker};
 use ethabi::Token;
 use ethereum_types::Address;
 use futures_util::TryFutureExt;
@@ -73,7 +73,7 @@ pub async fn get_erc20_token_info(coin: &EthCoin, token_addr: Address) -> Result
 }
 
 /// Finds eth platfrom coin in coins config by chain_id and returns its ticker.
-pub fn get_platform_ticker(ctx: &MmArc, chain_id: u64) -> Option<String> {
+pub fn get_platform_ticker(ctx: &MmArc, chain_id: u64) -> Option<Ticker> {
     ctx.conf["coins"].as_array()?.iter().find_map(|coin| {
         let protocol = coin.get("protocol")?;
         let protocol_type = protocol.get("type")?.as_str()?;

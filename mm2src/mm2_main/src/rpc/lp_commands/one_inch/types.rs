@@ -1,4 +1,4 @@
-use crate::rpc::lp_commands::one_inch::errors::FromApiValueError;
+use super::errors::FromApiValueError;
 use coins::eth::erc20::{get_erc20_ticker_by_contract_address, get_platform_ticker};
 use coins::eth::{u256_to_big_decimal, wei_to_eth_decimal, wei_to_gwei_decimal};
 use coins::Ticker;
@@ -183,14 +183,14 @@ impl ClassicSwapDetails {
     ) -> MmResult<Self, FromApiValueError> {
         let src_token_info = data
             .src_token
-            .ok_or(FromApiValueError("Missing source TokenInfo".to_owned()))?;
+            .ok_or(FromApiValueError::new("Missing source TokenInfo".to_owned()))?;
         let dst_token_info = data
             .dst_token
-            .ok_or(FromApiValueError("Missing destination TokenInfo".to_owned()))?;
+            .ok_or(FromApiValueError::new("Missing destination TokenInfo".to_owned()))?;
         let dst_decimals: u8 = dst_token_info
             .decimals
             .try_into()
-            .map_to_mm(|_| FromApiValueError("invalid decimals in destination TokenInfo".to_owned()))?;
+            .map_to_mm(|_| FromApiValueError::new("invalid decimals in destination TokenInfo".to_owned()))?;
         Ok(Self {
             dst_amount: MmNumber::from(u256_to_big_decimal(
                 U256::from_dec_str(&data.dst_amount)?,

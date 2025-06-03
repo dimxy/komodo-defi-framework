@@ -94,7 +94,11 @@ impl From<CoinFindError> for ApiIntegrationRpcError {
 
 /// Error aggregator for errors of conversion of api returned values
 #[derive(Debug, Display, Serialize)]
-pub(crate) struct FromApiValueError(pub String);
+pub(crate) struct FromApiValueError(String);
+
+impl FromApiValueError {
+    pub(crate) fn new(msg: String) -> Self { Self(msg) }
+}
 
 impl From<NumConversError> for FromApiValueError {
     fn from(err: NumConversError) -> Self { Self(err.to_string()) }
