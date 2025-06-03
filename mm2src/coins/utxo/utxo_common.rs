@@ -2,7 +2,7 @@ use super::*;
 use crate::coin_balance::{HDAddressBalance, HDWalletBalanceObject, HDWalletBalanceOps};
 use crate::coin_errors::{MyAddressError, ValidatePaymentError, ValidatePaymentResult};
 use crate::eth::EthCoinType;
-use crate::hd_wallet::{HDCoinAddress, HDCoinHDAccount, HDCoinWithdrawOps, TrezorCoinError};
+use crate::hd_wallet::{HDAddressSelector, HDCoinAddress, HDCoinHDAccount, HDCoinWithdrawOps, TrezorCoinError};
 use crate::lp_price::get_base_price_in_rel;
 use crate::rpc_command::init_withdraw::WithdrawTaskHandleShared;
 use crate::utxo::rpc_clients::{electrum_script_hash, BlockHashOrHeight, UnspentInfo, UnspentMap, UtxoRpcClientEnum,
@@ -368,6 +368,9 @@ pub fn my_public_key(coin: &UtxoCoinFields) -> Result<&Public, MmError<Unexpecte
         #[cfg(target_arch = "wasm32")]
         PrivKeyPolicy::Metamask(_) => MmError::err(UnexpectedDerivationMethod::UnsupportedError(
             "`PrivKeyPolicy::Metamask` is not supported in this context".to_string(),
+        )),
+        PrivKeyPolicy::WalletConnect { .. } => MmError::err(UnexpectedDerivationMethod::UnsupportedError(
+            "`PrivKeyPolicy::WalletConnect` is not supported in this context".to_string(),
         )),
     }
 }
@@ -2886,10 +2889,32 @@ pub fn sign_message_hash(coin: &UtxoCoinFields, message: &str) -> Option<[u8; 32
     Some(dhash256(&stream.out()).take())
 }
 
-pub fn sign_message(coin: &UtxoCoinFields, message: &str) -> SignatureResult<String> {
+pub fn sign_message(
+    coin: &UtxoCoinFields,
+    message: &str,
+    account: Option<HDAddressSelector>,
+) -> SignatureResult<String> {
     let message_hash = sign_message_hash(coin, message).ok_or(SignatureError::PrefixNotFound)?;
-    let private_key = coin.priv_key_policy.activated_key_or_err()?.private();
-    let signature = private_key.sign_compact(&H256::from(message_hash))?;
+
+    let private = if let Some(account) = account {
+        let path_to_coin = coin.priv_key_policy.path_to_coin_or_err()?;
+        let derivation_path = account
+            .valid_derivation_path(path_to_coin)
+            .mm_err(|err| SignatureError::InvalidRequest(err.to_string()))?;
+        let privkey = coin
+            .priv_key_policy
+            .hd_wallet_derived_priv_key_or_err(&derivation_path)?;
+        Private {
+            prefix: coin.conf.wif_prefix,
+            secret: privkey,
+            compressed: true,
+            checksum_type: coin.conf.checksum_type,
+        }
+    } else {
+        *coin.priv_key_policy.activated_key_or_err()?.private()
+    };
+
+    let signature = private.sign_compact(&H256::from(message_hash))?;
     Ok(STANDARD.encode(&*signature))
 }
 
@@ -3218,6 +3243,7 @@ pub fn display_priv_key(coin: &UtxoCoinFields) -> Result<String, String> {
         PrivKeyPolicy::Trezor => ERR!("'display_priv_key' is not supported for Hardware Wallets"),
         #[cfg(target_arch = "wasm32")]
         PrivKeyPolicy::Metamask(_) => ERR!("'display_priv_key' doesn't support Metamask"),
+        PrivKeyPolicy::WalletConnect { .. } => ERR!("'display_priv_key' doesn't support WalletConnect"),
     }
 }
 
@@ -5009,9 +5035,10 @@ pub fn derive_htlc_key_pair(coin: &UtxoCoinFields, _swap_unique_data: &[u8]) -> 
             activated_key: activated_key_pair,
             ..
         } => activated_key_pair,
-        PrivKeyPolicy::Trezor => todo!(),
+        PrivKeyPolicy::Trezor => panic!("`PrivKeyPolicy::Trezor` is not supported for UTXO coins"),
         #[cfg(target_arch = "wasm32")]
         PrivKeyPolicy::Metamask(_) => panic!("`PrivKeyPolicy::Metamask` is not supported for UTXO coins"),
+        PrivKeyPolicy::WalletConnect { .. } => panic!("`PrivKeyPolicy::WalletConnect` is not supported for UTXO coins"),
     }
 }
 
