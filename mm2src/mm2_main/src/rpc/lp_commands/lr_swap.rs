@@ -115,7 +115,6 @@ mod tests {
             "coin": platform_coin.clone(),
             "name": "ethereum",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "protocol": {
                 "type": "ETH",
                 "protocol_data": {
@@ -129,7 +128,6 @@ mod tests {
             "coin": "WETH-ERC20",
             "name": "WETH-ERC20",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "decimals": 18,
             "protocol": {
                 "type": "ERC20",
@@ -145,7 +143,6 @@ mod tests {
             "coin": "BNB-ERC20",
             "name": "BNB token",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "decimals": 18,
             "protocol": {
                 "type": "ERC20",
@@ -160,7 +157,6 @@ mod tests {
             "coin": "AAVE-ERC20",
             "name": "AAVE token",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "decimals": 18,
             "protocol": {
                 "type": "ERC20",
@@ -175,7 +171,6 @@ mod tests {
             "coin": "CNC-ERC20",
             "name": "CNC token",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "decimals": 18,
             "protocol": {
                 "type": "ERC20",
@@ -230,7 +225,7 @@ mod tests {
                     {"ticker": aave_ticker.clone()},
                     {"ticker": cnc_ticker.clone()}
                 ],
-                "priv_key_policy": "ContextPrivKey"
+                "priv_key_policy": { "type": "ContextPrivKey" }
             }))
             .unwrap(),
         )

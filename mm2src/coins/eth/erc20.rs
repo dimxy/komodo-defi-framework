@@ -80,7 +80,7 @@ pub fn get_platform_ticker(ctx: &MmArc, chain_id: u64) -> Option<Ticker> {
         if protocol_type != ETH_PROTOCOL_TYPE {
             return None;
         }
-        let coin_chain_id = coin.get("chain_id")?.as_u64()?;
+        let coin_chain_id = protocol.get("protocol_data")?.get("chain_id")?.as_u64()?;
         if coin_chain_id == chain_id {
             coin.get("coin")?.as_str().map(|s| s.to_string())
         } else {
