@@ -734,6 +734,7 @@ impl AggTakerSwapStateMachine {
     async fn run_lr_swap(&self, req: &ClassicSwapCreateRequest) -> MmResult<(Ticker, BytesJson), LrSwapError> {
         let (base, base_contract) = get_coin_for_one_inch(&self.ctx, &req.base).await?;
         let (_rel, rel_contract) = get_coin_for_one_inch(&self.ctx, &req.rel).await?;
+        let base_chain_id = base.chain_id().ok_or(LrSwapError::ChainNotSupported)?;
         info!(
             "Taker swap with LR: starting liquidity routing step for {}/{} for amount {}",
             req.base,
@@ -753,10 +754,9 @@ impl AggTakerSwapStateMachine {
         )
         .build_query_params()?; // TODO: add more query params from req
 
-        let url =
-            SwapUrlBuilder::create_api_url_builder(&self.ctx, base.chain_id(), SwapApiMethods::ClassicSwapCreate)?
-                .with_query_params(query_params)
-                .build()?;
+        let url = SwapUrlBuilder::create_api_url_builder(&self.ctx, base_chain_id, SwapApiMethods::ClassicSwapCreate)?
+            .with_query_params(query_params)
+            .build()?;
         let swap_with_tx: ClassicSwapData = ApiClient::call_api(url).await?;
         let tx_fields = swap_with_tx
             .tx

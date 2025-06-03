@@ -25,7 +25,7 @@ pub fn test_mm_start_impl() {
         log!("test_mm_start] Starting the MarketMaker...");
         let conf: Json = json::from_str(&conf).unwrap();
         let params = LpMainParams::with_conf(conf);
-        block_on(lp_main(params, &|_ctx| (), "TEST".into(), "TEST".into())).unwrap()
+        let _ = block_on(lp_main(params, &|_ctx| (), "TEST".into(), "TEST".into())).unwrap();
     }
 }
 

@@ -28,7 +28,9 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
 ) -> MmResult<ClassicSwapResponse, ApiIntegrationRpcError> {
     let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await?;
     let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await?;
-    check_if_one_inch_supports_pair(&base, &rel)?;
+    let base_chain_id = base.chain_id().ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
+    let rel_chain_id = rel.chain_id().ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
+    check_if_one_inch_supports_pair(base_chain_id, rel_chain_id)?;
     let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
         .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
     let query_params = ClassicSwapQuoteParams::new(
@@ -48,11 +50,11 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
     .with_include_gas(Some(req.include_gas))
     .with_connector_tokens(req.connector_tokens)
     .build_query_params()?;
-    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base.chain_id(), SwapApiMethods::ClassicSwapQuote)?
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base_chain_id, SwapApiMethods::ClassicSwapQuote)?
         .with_query_params(query_params)
         .build()?;
     let quote = ApiClient::call_api(url).await?;
-    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), quote) // use 'base' as amount in errors is in the src coin
+    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, quote) // use 'base' as amount in errors is in the src coin
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))
 }
@@ -66,7 +68,9 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
 ) -> MmResult<ClassicSwapResponse, ApiIntegrationRpcError> {
     let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await?;
     let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await?;
-    check_if_one_inch_supports_pair(&base, &rel)?;
+    let base_chain_id = base.chain_id().ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
+    let rel_chain_id = rel.chain_id().ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
+    check_if_one_inch_supports_pair(base_chain_id, rel_chain_id)?;
     let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
         .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
     let single_address = base.derivation_method().single_addr_or_err().await?;
@@ -98,11 +102,11 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
     .with_allow_partial_fill(req.allow_partial_fill)
     .with_use_permit2(req.use_permit2)
     .build_query_params()?;
-    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base.chain_id(), SwapApiMethods::ClassicSwapCreate)?
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base_chain_id, SwapApiMethods::ClassicSwapCreate)?
         .with_query_params(query_params)
         .build()?;
     let swap_with_tx = ApiClient::call_api(url).await?;
-    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base.chain_id(), swap_with_tx)
+    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, swap_with_tx)
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))
 }
@@ -159,7 +163,10 @@ mod tests {
             "chain_id": 1,
             "decimals": 18,
             "protocol": {
-                "type": "ETH"
+                "type": "ETH",
+                "protocol_data": {
+                    "chain_id": 1,
+                }
             },
             "trezor_coin": "Ethereum"
         });
@@ -197,7 +204,7 @@ mod tests {
                 ],
                 "swap_contract_address": "0xeA6D65434A15377081495a9E7C5893543E7c32cB",
                 "erc20_tokens_requests": [{"ticker": ticker_token}],
-                "priv_key_policy": "ContextPrivKey"
+                "priv_key_policy": { "type": "ContextPrivKey" }
             }))
             .unwrap(),
         ))

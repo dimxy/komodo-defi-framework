@@ -173,7 +173,7 @@ impl LrDataMap {
             lr_data.dst_contract = Some(dst_contract);
             lr_data.src_decimals = Some(src_decimals);
             lr_data.dst_decimals = Some(dst_decimals);
-            lr_data.chain_id = Some(dst_coin.chain_id());
+            lr_data.chain_id = dst_coin.chain_id();
         }
         Ok(())
     }

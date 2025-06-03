@@ -22,11 +22,11 @@ pub(crate) async fn get_coin_for_one_inch(ctx: &MmArc, ticker: &str) -> MmResult
 }
 
 #[allow(clippy::result_large_err)]
-pub(crate) fn check_if_one_inch_supports_pair(base: &EthCoin, rel: &EthCoin) -> MmResult<(), LrSwapError> {
-    if !ApiClient::is_chain_supported(base.chain_id()) {
+pub(crate) fn check_if_one_inch_supports_pair(base_chain_id: u64, rel_chain_id: u64) -> MmResult<(), LrSwapError> {
+    if !ApiClient::is_chain_supported(base_chain_id) {
         return MmError::err(LrSwapError::ChainNotSupported);
     }
-    if base.chain_id() != rel.chain_id() {
+    if base_chain_id != rel_chain_id {
         return MmError::err(LrSwapError::DifferentChains);
     }
     Ok(())

@@ -4936,12 +4936,7 @@ pub async fn create_maker_order(ctx: &MmArc, req: SetPriceReq) -> Result<MakerOr
         None => return ERR!("Rel coin {} is not found", req.rel),
     };
 
-    if base_coin.wallet_only(ctx) {
-        return ERR!("Base coin {} is wallet only", req.base);
-    }
-    if rel_coin.wallet_only(ctx) {
-        return ERR!("Rel coin {} is wallet only", req.rel);
-    }
+    try_s!(base_coin.pre_check_for_order_creation(ctx, &rel_coin).await);
 
     let (volume, balance) = if req.max {
         let CoinVolumeInfo { volume, balance, .. } = try_s!(
@@ -6081,7 +6076,6 @@ pub enum OrderbookAddress {
 #[derive(Debug, Display)]
 enum OrderbookAddrErr {
     AddrFromPubkeyError(String),
-    #[cfg(feature = "enable-sia")]
     CoinIsNotSupported(String),
     DeserializationError(json::Error),
     InvalidPlatformCoinProtocol(String),
@@ -6107,11 +6101,13 @@ fn orderbook_address(
 ) -> Result<OrderbookAddress, MmError<OrderbookAddrErr>> {
     let protocol: CoinProtocol = json::from_value(conf["protocol"].clone())?;
     match protocol {
-        CoinProtocol::ERC20 { .. } | CoinProtocol::ETH | CoinProtocol::NFT { .. } => {
+        CoinProtocol::ERC20 { .. } | CoinProtocol::ETH { .. } | CoinProtocol::NFT { .. } => {
             coins::eth::addr_from_pubkey_str(pubkey)
                 .map(OrderbookAddress::Transparent)
                 .map_to_mm(OrderbookAddrErr::AddrFromPubkeyError)
         },
+        // Todo: implement TRX address generation
+        CoinProtocol::TRX { .. } => MmError::err(OrderbookAddrErr::CoinIsNotSupported(coin.to_owned())),
         CoinProtocol::UTXO | CoinProtocol::QTUM | CoinProtocol::QRC20 { .. } | CoinProtocol::BCH { .. } => {
             coins::utxo::address_by_conf_and_pubkey_str(coin, conf, pubkey, addr_format)
                 .map(OrderbookAddress::Transparent)

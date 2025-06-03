@@ -8,8 +8,7 @@ use lr_swap_state_machine::lp_start_agg_taker_swap;
 use lr_types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillMakerOrderRequest, LrFillMakerOrderResponse,
                LrQuotesForTokensRequest};
 use mm2_core::mm_ctx::MmArc;
-use mm2_err_handle::{map_mm_error::MapMmError,
-                     mm_error::{MmError, MmResult}};
+use mm2_err_handle::{map_mm_error::MapMmError, mm_error::MmResult};
 
 pub(crate) mod lr_errors;
 pub(crate) mod lr_helpers;
@@ -47,16 +46,20 @@ pub async fn lr_best_quote_rpc(
     // coins in orders should be unique
 
     let (my_eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
+    let my_chain_id = my_eth_coin
+        .chain_id()
+        .ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
     let (swap_data, best_order, total_price) =
         find_best_fill_ask_with_lr(&ctx, req.my_token, req.asks, &req.amount).await?;
-    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, my_eth_coin.chain_id(), swap_data)
+    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, my_chain_id, swap_data)
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
     Ok(LrBestQuoteResponse {
         lr_swap_details,
         best_order,
         total_price,
-        // trade_fee: // TODO: implement later
+        // TODO: implement later
+        // trade_fee: ...
     })
 }
 
@@ -80,7 +83,7 @@ pub async fn lr_quotes_for_tokens_rpc(
     _req: LrQuotesForTokensRequest,
 ) -> MmResult<LrBestQuoteResponse, ApiIntegrationRpcError> {
     // TODO: impl later
-    MmError::err(ApiIntegrationRpcError::InternalError("unimplemented".to_owned()))
+    todo!()
 }
 
 /// Run a swap with LR to fill a maker order
@@ -122,9 +125,11 @@ mod tests {
             "coin": platform_coin.clone(),
             "name": "ethereum",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "protocol": {
-                "type": "ETH"
+                "type": "ETH",
+                "protocol_data": {
+                    "chain_id": 1
+                }
             }
         });
 
@@ -133,7 +138,6 @@ mod tests {
             "coin": "WETH-ERC20",
             "name": "WETH-ERC20",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "decimals": 18,
             "protocol": {
                 "type": "ERC20",
@@ -149,7 +153,6 @@ mod tests {
             "coin": "BNB-ERC20",
             "name": "BNB token",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "decimals": 18,
             "protocol": {
                 "type": "ERC20",
@@ -164,7 +167,6 @@ mod tests {
             "coin": "AAVE-ERC20",
             "name": "AAVE token",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "decimals": 18,
             "protocol": {
                 "type": "ERC20",
@@ -179,7 +181,6 @@ mod tests {
             "coin": "CNC-ERC20",
             "name": "CNC token",
             "derivation_path": "m/44'/1'",
-            "chain_id": 1,
             "decimals": 18,
             "protocol": {
                 "type": "ERC20",
@@ -234,7 +235,7 @@ mod tests {
                     {"ticker": aave_ticker.clone()},
                     {"ticker": cnc_ticker.clone()}
                 ],
-                "priv_key_policy": "ContextPrivKey"
+                "priv_key_policy": { "type": "ContextPrivKey" }
             }))
             .unwrap(),
         )

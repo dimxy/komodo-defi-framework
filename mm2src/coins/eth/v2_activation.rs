@@ -1,5 +1,5 @@
 use super::*;
-use crate::eth::erc20::{get_enabled_erc20_by_contract, get_token_decimals};
+use crate::eth::erc20::{get_enabled_erc20_by_platform_and_contract, get_token_decimals};
 use crate::eth::web3_transport::http_transport::HttpTransport;
 use crate::hd_wallet::{load_hd_accounts_from_storage, HDAccountsMutex, HDPathAccountToAddressId, HDWalletCoinStorage,
                        HDWalletStorageError, DEFAULT_GAP_LIMIT};
@@ -7,10 +7,13 @@ use crate::nft::get_nfts_for_activation;
 use crate::nft::nft_errors::{GetNftInfoError, ParseChainTypeError};
 use crate::nft::nft_structs::Chain;
 #[cfg(target_arch = "wasm32")] use crate::EthMetamaskPolicy;
+
 use common::executor::AbortedError;
 use compatible_time::Instant;
 use crypto::{trezor::TrezorError, Bip32Error, CryptoCtxError, HwError};
 use enum_derives::EnumFromTrait;
+use ethereum_types::H264;
+use kdf_walletconnect::error::WalletConnectError;
 use mm2_err_handle::common_errors::WithInternal;
 #[cfg(target_arch = "wasm32")]
 use mm2_metamask::{from_metamask_error, MetamaskError, MetamaskRpcError, WithMetamaskRpcError};
@@ -21,7 +24,9 @@ use std::sync::atomic::Ordering;
 use url::Url;
 use web3_transport::websocket_transport::WebsocketTransport;
 
-#[derive(Clone, Debug, Deserialize, Display, EnumFromTrait, PartialEq, Serialize, SerializeErrorType)]
+#[derive(
+    Clone, Debug, Deserialize, Display, EnumFromTrait, EnumFromStringify, PartialEq, Serialize, SerializeErrorType,
+)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum EthActivationV2Error {
     InvalidPayload(String),
@@ -30,6 +35,11 @@ pub enum EthActivationV2Error {
     InvalidPathToAddress(String),
     #[display(fmt = "`chain_id` should be set for evm coins or tokens")]
     ChainIdNotSet,
+    #[display(fmt = "{} chains don't support {}", chain, feature)]
+    UnsupportedChain {
+        chain: String,
+        feature: String,
+    },
     #[display(fmt = "Platform coin {} activation failed. {}", ticker, error)]
     ActivationFailed {
         ticker: String,
@@ -66,6 +76,9 @@ pub enum EthActivationV2Error {
     #[display(fmt = "Custom token error: {}", _0)]
     CustomTokenError(CustomTokenError),
     InvalidTokenProtocol,
+    // TODO: Map WalletConnectError to distinct error categories (transport, invalid payload) after refactoring.
+    #[from_stringify("WalletConnectError")]
+    WalletConnectError(String),
 }
 
 impl From<MyAddressError> for EthActivationV2Error {
@@ -157,12 +170,16 @@ impl From<EnableCoinBalanceError> for EthActivationV2Error {
 
 /// An alternative to `crate::PrivKeyActivationPolicy`, typical only for ETH coin.
 #[derive(Clone, Deserialize, Default)]
+#[serde(tag = "type", content = "params")]
 pub enum EthPrivKeyActivationPolicy {
     #[default]
     ContextPrivKey,
     Trezor,
     #[cfg(target_arch = "wasm32")]
     Metamask,
+    WalletConnect {
+        session_topic: String,
+    },
 }
 
 impl EthPrivKeyActivationPolicy {
@@ -400,7 +417,7 @@ impl EthCoin {
         // Todo: when custom token config storage is added, this might not be needed
         // `is_custom` was added to avoid this unnecessary check for non-custom tokens
         if is_custom {
-            match get_enabled_erc20_by_contract(&ctx, protocol.token_addr).await {
+            match get_enabled_erc20_by_platform_and_contract(&ctx, &protocol.platform, &protocol.token_addr).await {
                 Ok(Some(token)) => {
                     return MmError::err(EthTokenActivationError::CustomTokenError(
                         CustomTokenError::TokenWithSameContractAlreadyActivated {
@@ -457,6 +474,7 @@ impl EthCoin {
             // storage ticker will be the platform coin ticker
             derivation_method: self.derivation_method.clone(),
             coin_type,
+            chain_spec: self.chain_spec.clone(),
             sign_message_prefix: self.sign_message_prefix.clone(),
             swap_contract_address: self.swap_contract_address,
             swap_v2_contracts: self.swap_v2_contracts,
@@ -470,7 +488,6 @@ impl EthCoin {
             max_eth_tx_type,
             ctx: self.ctx.clone(),
             required_confirmations,
-            chain_id: self.chain_id,
             trezor_coin: self.trezor_coin.clone(),
             logs_block_range: self.logs_block_range,
             address_nonce_locks: self.address_nonce_locks.clone(),
@@ -543,6 +560,7 @@ impl EthCoin {
         let global_nft = EthCoinImpl {
             ticker,
             coin_type,
+            chain_spec: self.chain_spec.clone(),
             priv_key_policy: self.priv_key_policy.clone(),
             derivation_method: self.derivation_method.clone(),
             sign_message_prefix: self.sign_message_prefix.clone(),
@@ -557,7 +575,6 @@ impl EthCoin {
             max_eth_tx_type,
             required_confirmations,
             ctx: self.ctx.clone(),
-            chain_id: self.chain_id,
             trezor_coin: self.trezor_coin.clone(),
             logs_block_range: self.logs_block_range,
             address_nonce_locks: self.address_nonce_locks.clone(),
@@ -579,6 +596,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
     conf: &Json,
     req: EthActivationV2Request,
     priv_key_build_policy: EthPrivKeyBuildPolicy,
+    chain_spec: ChainSpec,
 ) -> MmResult<EthCoin, EthActivationV2Error> {
     if req.swap_contract_address == Address::default() {
         return Err(EthActivationV2Error::InvalidSwapContractAddr(
@@ -623,14 +641,19 @@ pub async fn eth_coin_from_conf_and_request_v2(
     )
     .await?;
 
-    let chain_id = conf["chain_id"].as_u64().ok_or(EthActivationV2Error::ChainIdNotSet)?;
     let web3_instances = match (req.rpc_mode, &priv_key_policy) {
         (EthRpcMode::Default, EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. })
-        | (EthRpcMode::Default, EthPrivKeyPolicy::Trezor) => {
+        | (EthRpcMode::Default, EthPrivKeyPolicy::Trezor)
+        | (EthRpcMode::Default, EthPrivKeyPolicy::WalletConnect { .. }) => {
             build_web3_instances(ctx, ticker.to_string(), req.nodes.clone()).await?
         },
         #[cfg(target_arch = "wasm32")]
         (EthRpcMode::Metamask, EthPrivKeyPolicy::Metamask(_)) => {
+            // Metamask doesn't support native Tron
+            let chain_id = chain_spec.chain_id().ok_or(EthActivationV2Error::UnsupportedChain {
+                chain: chain_spec.kind().to_string(),
+                feature: "Metamask".to_string(),
+            })?;
             build_metamask_transport(ctx, ticker.to_string(), chain_id).await?
         },
         #[cfg(target_arch = "wasm32")]
@@ -678,6 +701,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         priv_key_policy,
         derivation_method: Arc::new(derivation_method),
         coin_type,
+        chain_spec,
         sign_message_prefix,
         swap_contract_address: req.swap_contract_address,
         swap_v2_contracts: req.swap_v2_contracts,
@@ -691,7 +715,6 @@ pub async fn eth_coin_from_conf_and_request_v2(
         max_eth_tx_type,
         ctx: ctx.weak(),
         required_confirmations,
-        chain_id,
         trezor_coin,
         logs_block_range: conf["logs_block_range"].as_u64().unwrap_or(DEFAULT_LOGS_BLOCK_RANGE),
         address_nonce_locks,
@@ -805,6 +828,21 @@ pub(crate) async fn build_address_and_priv_key_policy(
                 DerivationMethod::SingleAddress(address),
             ))
         },
+        EthPrivKeyBuildPolicy::WalletConnect {
+            address,
+            public_key_uncompressed,
+            session_topic,
+        } => {
+            let public_key = compress_public_key(public_key_uncompressed)?;
+            Ok((
+                EthPrivKeyPolicy::WalletConnect {
+                    public_key,
+                    public_key_uncompressed,
+                    session_topic,
+                },
+                DerivationMethod::SingleAddress(address),
+            ))
+        },
     }
 }
 
@@ -821,7 +859,7 @@ async fn build_web3_instances(
     eth_nodes.as_mut_slice().shuffle(&mut rng);
     drop_mutability!(eth_nodes);
 
-    let event_handlers = rpc_event_handlers_for_eth_transport(ctx, coin_ticker.clone());
+    let event_handlers = rpc_event_handlers_for_eth_transport(ctx, coin_ticker);
 
     let mut web3_instances = Vec::with_capacity(eth_nodes.len());
     for eth_node in eth_nodes {
@@ -976,10 +1014,10 @@ async fn check_metamask_supports_chain_id(
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn compress_public_key(uncompressed: H520) -> MmResult<H264, EthActivationV2Error> {
     let public_key = PublicKey::from_slice(uncompressed.as_bytes())
         .map_to_mm(|e| EthActivationV2Error::InternalError(e.to_string()))?;
     let compressed = public_key.serialize();
+
     Ok(H264::from(compressed))
 }

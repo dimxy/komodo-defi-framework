@@ -1,7 +1,7 @@
 use super::{ERC20_PROTOCOL_TYPE, ETH_PROTOCOL_TYPE};
 use crate::eth::web3_transport::Web3Transport;
 use crate::eth::{EthCoin, ERC20_CONTRACT};
-use crate::{CoinsContext, MmCoinEnum};
+use crate::{CoinsContext, MarketCoinOps, MmCoinEnum, Ticker};
 use ethabi::Token;
 use ethereum_types::Address;
 use futures_util::TryFutureExt;
@@ -73,14 +73,14 @@ pub async fn get_erc20_token_info(coin: &EthCoin, token_addr: Address) -> Result
 }
 
 /// Finds eth platfrom coin in coins config by chain_id and returns its ticker.
-pub fn get_platform_ticker(ctx: &MmArc, chain_id: u64) -> Option<String> {
+pub fn get_platform_ticker(ctx: &MmArc, chain_id: u64) -> Option<Ticker> {
     ctx.conf["coins"].as_array()?.iter().find_map(|coin| {
         let protocol = coin.get("protocol")?;
         let protocol_type = protocol.get("type")?.as_str()?;
         if protocol_type != ETH_PROTOCOL_TYPE {
             return None;
         }
-        let coin_chain_id = coin.get("chain_id")?.as_u64()?;
+        let coin_chain_id = protocol.get("protocol_data")?.get("chain_id")?.as_u64()?;
         if coin_chain_id == chain_id {
             coin.get("coin")?.as_str().map(|s| s.to_string())
         } else {
@@ -113,16 +113,20 @@ pub fn get_erc20_ticker_by_contract_address(
     })
 }
 
-/// Finds an enabled ERC20 token by its contract address and returns it as `MmCoinEnum`.
-pub async fn get_enabled_erc20_by_contract(
+/// Finds an enabled ERC20 token by contract address and platform coin ticker and returns it as `MmCoinEnum`.
+pub async fn get_enabled_erc20_by_platform_and_contract(
     ctx: &MmArc,
-    contract_address: Address,
+    platform: &str,
+    contract_address: &Address,
 ) -> MmResult<Option<MmCoinEnum>, String> {
     let cctx = CoinsContext::from_ctx(ctx)?;
     let coins = cctx.coins.lock().await;
 
     Ok(coins.values().find_map(|coin| match &coin.inner {
-        MmCoinEnum::EthCoin(eth_coin) if eth_coin.erc20_token_address() == Some(contract_address) => {
+        MmCoinEnum::EthCoin(eth_coin)
+            if eth_coin.platform_ticker() == platform
+                && eth_coin.erc20_token_address().as_ref() == Some(contract_address) =>
+        {
             Some(coin.inner.clone())
         },
         _ => None,
