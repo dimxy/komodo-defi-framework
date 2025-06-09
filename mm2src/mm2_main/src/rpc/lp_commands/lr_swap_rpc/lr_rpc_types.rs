@@ -1,7 +1,7 @@
 //! Types for LR swaps rpc
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
-use crate::rpc::lp_commands::one_inch::types::{ClassicSwapCreateRequest, ClassicSwapDetails};
+use crate::rpc::lp_commands::ext_api::ext_api_types::{ClassicSwapCreateRequest, ClassicSwapDetails};
 use coins::Ticker;
 use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::SellBuyRequest;
@@ -13,7 +13,7 @@ use uuid::Uuid;
 pub struct LrBestQuoteRequest {
     /// Order base coin ticker (from the orderbook).
     pub base: Ticker,
-    /// Swap amount in base coins to sell (with fraction)
+    /// Source amount in base coins to sell (with fraction)
     pub amount: MmNumber,
     /// List of maker ask orders, to find best swap path with LR
     pub asks: Vec<RpcOrderbookEntryV2>,
@@ -70,11 +70,17 @@ pub struct LrQuotesForTokensResponse {
     pub quotes: Vec<QuotesDetails>,
 }
 
-/// Request to sell or buy maker order with doing atomic swap and LR
+/// Request to fill a maker order with atomic swap with LR steps
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LrFillMakerOrderRequest {
-    /// Sell or buy request to fill atomic swap maker order
+    /// Source swap amount, 
+    /// which can be optionaly routed via a LR provider,
+    /// then swapped with an atomic swap,
+    /// then again optionally routed via a LR provider
+    pub volume: MmNumber,
+
+    /// Sell or buy params for normal atomic swap
     pub sell_buy_req: SellBuyRequest,
 
     /// Params to create 1inch LR swap (from 1inch quote)

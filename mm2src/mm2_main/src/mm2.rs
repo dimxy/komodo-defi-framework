@@ -79,6 +79,7 @@ pub mod lp_network;
 pub mod lp_ordermatch;
 pub mod lp_stats;
 pub mod lp_swap;
+pub mod lr_swap;
 pub mod lp_wallet;
 pub mod rpc;
 mod swap_versioning;

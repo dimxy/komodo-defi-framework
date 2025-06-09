@@ -1,4 +1,5 @@
-use super::errors::FromApiValueError;
+//! Structs to access external trading providers
+
 use coins::eth::erc20::{get_erc20_ticker_by_contract_address, get_platform_ticker};
 use coins::eth::{u256_to_big_decimal, wei_to_eth_decimal, wei_to_gwei_decimal};
 use coins::Ticker;
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::str::FromStr;
+use super::ext_api_errors::FromApiValueError;
 use trading_api::one_inch_api::{self,
                                 classic_swap_types::{ProtocolImage, ProtocolInfo, TokenInfo as LrTokenInfo},
                                 client::ApiClient};

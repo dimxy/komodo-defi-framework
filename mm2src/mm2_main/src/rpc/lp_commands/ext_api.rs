@@ -1,8 +1,10 @@
-use super::errors::ApiIntegrationRpcError;
-use super::types::{AggregationContractRequest, ClassicSwapCreateRequest, ClassicSwapLiquiditySourcesRequest,
+//! RPC implementation for use API of external trading service providers (1inch etc).
+
+use ext_api_errors::ExtApiRpcError;
+use ext_api_types::{AggregationContractRequest, ClassicSwapCreateRequest, ClassicSwapLiquiditySourcesRequest,
                    ClassicSwapLiquiditySourcesResponse, ClassicSwapQuoteRequest, ClassicSwapResponse,
                    ClassicSwapTokensRequest, ClassicSwapTokensResponse};
-use crate::rpc::lp_commands::lr_swap::lr_helpers::{check_if_one_inch_supports_pair, get_coin_for_one_inch};
+use crate::lr_swap::lr_helpers::{check_if_one_inch_supports_pair, get_coin_for_one_inch};
 use coins::eth::wei_from_big_decimal;
 use coins::hd_wallet::DisplayAddress;
 use coins::{CoinWithDerivationMethod, MmCoin};
@@ -12,12 +14,15 @@ use trading_api::one_inch_api::classic_swap_types::{ClassicSwapCreateParams, Cla
                                                     ProtocolsResponse, TokensResponse};
 use trading_api::one_inch_api::client::{ApiClient, SwapApiMethods, SwapUrlBuilder};
 
+pub mod ext_api_errors;
+pub mod ext_api_types;
+
 /// "1inch_v6_0_classic_swap_contract" rpc impl
 /// used to get contract address (for e.g. to approve funds)
 pub async fn one_inch_v6_0_classic_swap_contract_rpc(
     _ctx: MmArc,
     _req: AggregationContractRequest,
-) -> MmResult<String, ApiIntegrationRpcError> {
+) -> MmResult<String, ExtApiRpcError> {
     Ok(ApiClient::classic_swap_contract().to_owned())
 }
 
@@ -25,14 +30,14 @@ pub async fn one_inch_v6_0_classic_swap_contract_rpc(
 pub async fn one_inch_v6_0_classic_swap_quote_rpc(
     ctx: MmArc,
     req: ClassicSwapQuoteRequest,
-) -> MmResult<ClassicSwapResponse, ApiIntegrationRpcError> {
+) -> MmResult<ClassicSwapResponse, ExtApiRpcError> {
     let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await?;
     let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await?;
-    let base_chain_id = base.chain_id().ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
-    let rel_chain_id = rel.chain_id().ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
+    let base_chain_id = base.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
+    let rel_chain_id = rel.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
     check_if_one_inch_supports_pair(base_chain_id, rel_chain_id)?;
     let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
-        .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
+        .mm_err(|err| ExtApiRpcError::InvalidParam(err.to_string()))?;
     let query_params = ClassicSwapQuoteParams::new(
         base_contract.display_address(),
         rel_contract.display_address(),
@@ -56,7 +61,7 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
     let quote = ApiClient::call_api(url).await?;
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, quote) // use 'base' as amount in errors is in the src coin
         .await
-        .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))
+        .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
 }
 
 /// "1inch_classic_swap_create" rpc implementation
@@ -65,14 +70,14 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
 pub async fn one_inch_v6_0_classic_swap_create_rpc(
     ctx: MmArc,
     req: ClassicSwapCreateRequest,
-) -> MmResult<ClassicSwapResponse, ApiIntegrationRpcError> {
+) -> MmResult<ClassicSwapResponse, ExtApiRpcError> {
     let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await?;
     let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await?;
-    let base_chain_id = base.chain_id().ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
-    let rel_chain_id = rel.chain_id().ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
+    let base_chain_id = base.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
+    let rel_chain_id = rel.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
     check_if_one_inch_supports_pair(base_chain_id, rel_chain_id)?;
     let sell_amount = wei_from_big_decimal(&req.amount.to_decimal(), base.decimals())
-        .mm_err(|err| ApiIntegrationRpcError::InvalidParam(err.to_string()))?;
+        .mm_err(|err| ExtApiRpcError::InvalidParam(err.to_string()))?;
     let single_address = base.derivation_method().single_addr_or_err().await?;
 
     let query_params = ClassicSwapCreateParams::new(
@@ -108,7 +113,7 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
     let swap_with_tx = ApiClient::call_api(url).await?;
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, swap_with_tx)
         .await
-        .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))
+        .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
 }
 
 /// "1inch_v6_0_classic_swap_liquidity_sources" rpc implementation.
@@ -116,7 +121,7 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
 pub async fn one_inch_v6_0_classic_swap_liquidity_sources_rpc(
     ctx: MmArc,
     req: ClassicSwapLiquiditySourcesRequest,
-) -> MmResult<ClassicSwapLiquiditySourcesResponse, ApiIntegrationRpcError> {
+) -> MmResult<ClassicSwapLiquiditySourcesResponse, ExtApiRpcError> {
     let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::LiquiditySources)?.build()?;
     let response: ProtocolsResponse = ApiClient::call_api(url).await?;
     Ok(ClassicSwapLiquiditySourcesResponse {
@@ -129,7 +134,7 @@ pub async fn one_inch_v6_0_classic_swap_liquidity_sources_rpc(
 pub async fn one_inch_v6_0_classic_swap_tokens_rpc(
     ctx: MmArc,
     req: ClassicSwapTokensRequest,
-) -> MmResult<ClassicSwapTokensResponse, ApiIntegrationRpcError> {
+) -> MmResult<ClassicSwapTokensResponse, ExtApiRpcError> {
     let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::Tokens)?.build()?;
     let response: TokensResponse = ApiClient::call_api(url).await?;
     Ok(ClassicSwapTokensResponse {
@@ -139,9 +144,9 @@ pub async fn one_inch_v6_0_classic_swap_tokens_rpc(
 
 #[cfg(test)]
 mod tests {
-    use crate::rpc::lp_commands::one_inch::{rpcs::{one_inch_v6_0_classic_swap_create_rpc,
-                                                   one_inch_v6_0_classic_swap_quote_rpc},
-                                            types::{ClassicSwapCreateRequest, ClassicSwapQuoteRequest}};
+    use crate::rpc::lp_commands::ext_api::{{one_inch_v6_0_classic_swap_create_rpc,
+                                            one_inch_v6_0_classic_swap_quote_rpc},
+                                            ext_api_types::{ClassicSwapCreateRequest, ClassicSwapQuoteRequest}};
     use coins::eth::EthCoin;
     use coins_activation::platform_for_tests::init_platform_coin_with_tokens_loop;
     use common::block_on;

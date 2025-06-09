@@ -3,7 +3,7 @@ use crate::lp_swap::swap_v2_rpcs::MySwapStatusError;
 use coins::CoinFindError;
 use enum_derives::EnumFromStringify;
 use ethereum_types::U256;
-use trading_api::one_inch_api::errors::ApiClientError;
+use trading_api::one_inch_api::errors::OneInchError;
 
 #[derive(Debug, Display, EnumFromStringify)]
 pub enum LrSwapError {
@@ -31,7 +31,7 @@ pub enum LrSwapError {
         allowance: U256,
         amount: U256,
     },
-    OneInchError(ApiClientError),
+    OneInchError(OneInchError), // TODO: do not attach the whole error but extract only message
     StateError(String),
     BestLrSwapNotFound,
     AtomicSwapError(String),
@@ -42,6 +42,7 @@ pub enum LrSwapError {
     #[from_stringify("coins::RawTransactionError")]
     SignTransactionError(String),
     InternalError(String),
+    CheckBalanceError(String),
 }
 
 impl From<CoinFindError> for LrSwapError {
@@ -68,17 +69,17 @@ impl From<MySwapStatusError> for LrSwapError {
     }
 }
 
-impl From<ApiClientError> for LrSwapError {
-    fn from(error: ApiClientError) -> Self {
+impl From<OneInchError> for LrSwapError {
+    fn from(error: OneInchError) -> Self {
         match error {
-            ApiClientError::InvalidParam(error) => LrSwapError::InvalidParam(error),
-            ApiClientError::OutOfBounds { param, value, min, max } => {
+            OneInchError::InvalidParam(error) => LrSwapError::InvalidParam(error),
+            OneInchError::OutOfBounds { param, value, min, max } => {
                 LrSwapError::OutOfBounds { param, value, min, max }
             },
-            ApiClientError::TransportError(_)
-            | ApiClientError::ParseBodyError { .. }
-            | ApiClientError::GeneralApiError { .. } => LrSwapError::OneInchError(error),
-            ApiClientError::AllowanceNotEnough { allowance, amount, .. } => {
+            OneInchError::TransportError(_)
+            | OneInchError::ParseBodyError { .. }
+            | OneInchError::GeneralApiError { .. } => LrSwapError::OneInchError(error),
+            OneInchError::AllowanceNotEnough { allowance, amount, .. } => {
                 LrSwapError::OneInchAllowanceNotEnough { allowance, amount }
             },
         }

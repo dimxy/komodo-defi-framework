@@ -5,7 +5,8 @@ use super::taker_swap::TakerSavedSwap;
 use super::taker_swap_v2::TakerSwapEvent;
 use super::{active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, AGG_TAKER_SWAP_TYPE,
             LEGACY_SWAP_TYPE, MAKER_SWAP_V2_TYPE, TAKER_SWAP_V2_TYPE};
-use crate::rpc::lp_commands::lr_swap::lr_swap_state_machine::AggTakerSwapEvent;
+use crate::lr_swap::lr_swap_state_machine::AggTakerSwapEvent;
+use crate::rpc::lp_commands::ext_api::ext_api_types::ClassicSwapCreateRequest;
 use common::log::{error, warn};
 use common::{calc_total_pages, HttpStatusCode, PagingOptions};
 use derive_more::Display;
@@ -33,6 +34,7 @@ cfg_wasm32!(
     use super::taker_swap_v2::TakerSwapDbRepr;
     use crate::lp_swap::swap_wasm_db::{MySwapsFiltersTable, SavedSwapTable};
     use mm2_db::indexed_db::{DbTransactionError, DbTransactionResult, InitDbError};
+    use crate::lr_swap::lr_swap_state_machine::AggTakerSwapDbRepr;
 );
 
 #[cfg(not(target_arch = "wasm32"))]
