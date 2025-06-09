@@ -34,6 +34,7 @@ pub(crate) fn check_if_one_inch_supports_pair(base_chain_id: u64, rel_chain_id: 
     Ok(())
 }
 
+// TODO: make this impl for SellBuyRequest
 #[allow(clippy::result_large_err)]
 pub(crate) fn maker_coin_from_req(sell_buy_req: &SellBuyRequest) -> MmResult<Ticker, LrSwapError> {
     match sell_buy_method(sell_buy_req)? {

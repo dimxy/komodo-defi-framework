@@ -520,8 +520,19 @@ pub(crate) async fn active_swaps_rpc(
 /// Represents data of the aggregated taker swap used for RPC, omits fields that should be kept in secret
 #[derive(Debug, Serialize)]
 pub(crate) struct MyAggSwapForRpc<T> {
+    /// Source coin or token ticker for liquidity routing before atomic swap (within the aggregated swap). None if no liquidity routing before atomic swap
+    source_coin: Option<String>,
+    /// My coin or token ticker for the atomic swap (within the aggregated swap)
     my_coin: String,
+    /// Other party coin or token ticker for the atomic swap (within the aggregated swap)
     other_coin: String,
+    /// Destination coin or token ticker for liquidity routing after atomic swap (within the aggregated swap). None if no liquidity routing after atomic swap
+    destination_coin: Option<String>,
+    /// Initial volume to start an aggregated taker swap with LR
+    source_volume: MmNumberMultiRepr,
+    /// Received volume as result of an aggregated taker swap with LR 
+    /// TODO: not set yet
+    received_volume: MmNumberMultiRepr,
     uuid: Uuid,
     started_at: i64,
     is_finished: bool,
@@ -532,6 +543,8 @@ pub(crate) struct MyAggSwapForRpc<T> {
 impl<T: DeserializeOwned> MyAggSwapForRpc<T> {
     #[cfg(not(target_arch = "wasm32"))]
     fn from_row(row: &Row) -> SqlResult<Self> {
+        let lr_swap_0 = serde_json::from_str::<ClassicSwapCreateRequest>(&row.get::<_, String>(9)?).ok();
+        let lr_swap_1 = serde_json::from_str::<ClassicSwapCreateRequest>(&row.get::<_, String>(10)?).ok();
         Ok(Self {
             my_coin: row.get(0)?,
             other_coin: row.get(1)?,
@@ -543,13 +556,23 @@ impl<T: DeserializeOwned> MyAggSwapForRpc<T> {
             is_finished: row.get(4)?,
             events: serde_json::from_str(&row.get::<_, String>(5)?)
                 .map_err(|e| SqlError::FromSqlConversionFailure(5, SqlType::Text, Box::new(e)))?,
-            swap_version: row.get(15)?,
+            // source_volume is set from the 'taker_volume' db field
+            source_volume: MmNumber::from_fraction_string(&row.get::<_, String>(6)?)
+                .map_err(|e| SqlError::FromSqlConversionFailure(6, SqlType::Text, Box::new(e)))?
+                .into(),
+            // TODO: received_volume is set from the 'maker_volume' db field (it is not calculated and not set in db yet)
+            received_volume: MmNumber::from_fraction_string(&row.get::<_, String>(7)?)
+                .map_err(|e| SqlError::FromSqlConversionFailure(7, SqlType::Text, Box::new(e)))?
+                .into(),
+            swap_version: row.get(8)?,
+            source_coin: if let Some(lr_swap_0) = lr_swap_0 { Some(lr_swap_0.base) } else { None },
+            destination_coin: if let Some(lr_swap_1) = lr_swap_1 { Some(lr_swap_1.rel) } else { None },
         })
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) async fn get_agg_taker_swap_data_for_rpc(
+pub(crate) async fn get_agg_taker_swap_data_for_rpc(
     ctx: &MmArc,
     uuid: &Uuid,
 ) -> MmResult<Option<MyAggSwapForRpc<AggTakerSwapEvent>>, SqlError> {
@@ -570,7 +593,7 @@ pub(super) async fn get_agg_taker_swap_data_for_rpc(
 
 // TODO: add wasm support
 #[cfg(target_arch = "wasm32")]
-pub(super) async fn get_agg_taker_swap_data_for_rpc(
+pub(crate) async fn get_agg_taker_swap_data_for_rpc(
     ctx: &MmArc,
     uuid: &Uuid,
 ) -> MmResult<Option<MyAggSwapForRpc<AggTakerSwapEvent>>, SwapV2DbError> {
@@ -578,15 +601,28 @@ pub(super) async fn get_agg_taker_swap_data_for_rpc(
     let db = swaps_ctx.swap_db().await?;
     let transaction = db.transaction().await?;
     let table = transaction.table::<SavedSwapTable>().await?;
-    let _item = match table.get_item_by_unique_index("uuid", uuid).await? {
+    let item = match table.get_item_by_unique_index("uuid", uuid).await? {
         Some((_item_id, item)) => item,
         None => return Ok(None),
     };
 
     let filters_table = transaction.table::<MySwapsFiltersTable>().await?;
-    let _filter_item = match filters_table.get_item_by_unique_index("uuid", uuid).await? {
+    let filter_item = match filters_table.get_item_by_unique_index("uuid", uuid).await? {
         Some((_item_id, item)) => item,
         None => return Ok(None),
     };
-    Ok(None)
+    let json_repr: AggTakerSwapDbRepr = serde_json::from_value(item.saved_swap)?;
+    Ok(Some(MyAggSwapForRpc {
+        my_coin: json_repr.taker_coin,
+        other_coin: json_repr.maker_coin,
+        uuid: json_repr.uuid,
+        started_at: json_repr.started_at as i64,
+        is_finished: filter_item.is_finished.as_bool(),
+        events: json_repr.events,
+        swap_version: json_repr.swap_version,
+        source_coin: if let Some(lr_swap_0) = json_repr.lr_swap_0 { Some(lr_swap_0.base) } else { None },
+        destination_coin: if let Some(lr_swap_1) = json_repr.lr_swap_1 { Some(lr_swap_1.rel) } else { None },
+        source_volume: json_repr.source_volume,
+        received_volume: Default::default(), // TODO: not calculted yet
+    }))
 }

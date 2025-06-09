@@ -310,7 +310,7 @@ pub type ValidateTakerFundingSpendPreimageResult = MmResult<(), ValidateTakerFun
 pub type ValidateTakerPaymentSpendPreimageResult = MmResult<(), ValidateTakerPaymentSpendPreimageError>;
 
 pub type IguanaPrivKey = Secp256k1Secret;
-pub type Ticker = String;
+pub type Ticker = String; // TODO: refactor as a newtype pattern
 
 // Constants for logs used in tests
 pub const INVALID_SENDER_ERR_LOG: &str = "Invalid sender";

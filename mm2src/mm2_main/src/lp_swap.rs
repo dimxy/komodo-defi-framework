@@ -144,6 +144,7 @@ pub use taker_swap::{calc_max_taker_vol, check_balance_for_taker_swap, max_taker
                      TakerSwapData, TakerSwapPreparedParams, TakerTradePreimage, MAKER_PAYMENT_SPENT_BY_WATCHER_LOG,
                      REFUND_TEST_FAILURE_LOG, WATCHER_MESSAGE_SENT_LOG};
 pub use trade_preimage::trade_preimage_rpc;
+pub use check_balance::check_my_coin_balance_for_swap;
 
 pub const SWAP_PREFIX: TopicPrefix = "swap";
 pub const SWAP_V2_PREFIX: TopicPrefix = "swapv2";

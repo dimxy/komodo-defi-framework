@@ -266,7 +266,7 @@ pub(super) fn clean_up_context_impl(ctx: &MmArc, uuid: &Uuid, maker_coin: &str, 
     }
 }
 
-pub(crate) fn clean_up_agg_swap_context_impl(ctx: &MmArc, uuid: &Uuid, _maker_coin: &str, _taker_coin: &str) {
+pub(crate) fn clean_up_agg_swap_context_impl(ctx: &MmArc, uuid: &Uuid) {
     let swap_ctx = SwapsContext::from_ctx(ctx).expect("SwapsContext::from_ctx should not fail");
     swap_ctx.active_swaps_v2_infos.lock().unwrap().remove(uuid);
 }

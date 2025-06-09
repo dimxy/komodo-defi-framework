@@ -1,7 +1,7 @@
 //! Structs to call 1inch classic swap api
 
 use super::client::QueryParams;
-use super::errors::ApiClientError;
+use super::errors::OneInchError;
 use common::{def_with_opt_param, push_if_some};
 use ethereum_types::Address;
 use mm2_err_handle::mm_error::MmResult;
@@ -64,7 +64,7 @@ impl ClassicSwapQuoteParams {
     def_with_opt_param!(connector_tokens, String);
 
     #[allow(clippy::result_large_err)]
-    pub fn build_query_params(&self) -> MmResult<QueryParams, ApiClientError> {
+    pub fn build_query_params(&self) -> MmResult<QueryParams, OneInchError> {
         self.validate_params()?;
 
         let mut params = vec![
@@ -89,7 +89,7 @@ impl ClassicSwapQuoteParams {
 
     /// Validate params by 1inch rules (to avoid extra requests)
     #[allow(clippy::result_large_err)]
-    fn validate_params(&self) -> MmResult<(), ApiClientError> {
+    fn validate_params(&self) -> MmResult<(), OneInchError> {
         validate_fee(&self.fee)?;
         validate_complexity_level(&self.complexity_level)?;
         validate_gas_limit(&self.gas_limit)?;
@@ -162,7 +162,7 @@ impl ClassicSwapCreateParams {
     def_with_opt_param!(use_permit2, bool);
 
     #[allow(clippy::result_large_err)]
-    pub fn build_query_params(&self) -> MmResult<QueryParams, ApiClientError> {
+    pub fn build_query_params(&self) -> MmResult<QueryParams, OneInchError> {
         self.validate_params()?;
 
         let mut params = vec![
@@ -198,7 +198,7 @@ impl ClassicSwapCreateParams {
 
     /// Validate params by 1inch rules (to avoid extra requests)
     #[allow(clippy::result_large_err)]
-    fn validate_params(&self) -> MmResult<(), ApiClientError> {
+    fn validate_params(&self) -> MmResult<(), OneInchError> {
         validate_slippage(self.slippage)?;
         validate_fee(&self.fee)?;
         validate_complexity_level(&self.complexity_level)?;
@@ -308,9 +308,9 @@ mod serde_one_inch_link {
 }
 
 #[allow(clippy::result_large_err)]
-fn validate_slippage(slippage: f32) -> MmResult<(), ApiClientError> {
+fn validate_slippage(slippage: f32) -> MmResult<(), OneInchError> {
     if !(0.0..=ONE_INCH_MAX_SLIPPAGE).contains(&slippage) {
-        return Err(ApiClientError::OutOfBounds {
+        return Err(OneInchError::OutOfBounds {
             param: "slippage".to_owned(),
             value: slippage.to_string(),
             min: 0.0.to_string(),
@@ -322,10 +322,10 @@ fn validate_slippage(slippage: f32) -> MmResult<(), ApiClientError> {
 }
 
 #[allow(clippy::result_large_err)]
-fn validate_fee(fee: &Option<f32>) -> MmResult<(), ApiClientError> {
+fn validate_fee(fee: &Option<f32>) -> MmResult<(), OneInchError> {
     if let Some(fee) = fee {
         if !(0.0..=ONE_INCH_MAX_FEE_SHARE).contains(fee) {
-            return Err(ApiClientError::OutOfBounds {
+            return Err(OneInchError::OutOfBounds {
                 param: "fee".to_owned(),
                 value: fee.to_string(),
                 min: 0.0.to_string(),
@@ -338,10 +338,10 @@ fn validate_fee(fee: &Option<f32>) -> MmResult<(), ApiClientError> {
 }
 
 #[allow(clippy::result_large_err)]
-fn validate_gas_limit(gas_limit: &Option<u128>) -> MmResult<(), ApiClientError> {
+fn validate_gas_limit(gas_limit: &Option<u128>) -> MmResult<(), OneInchError> {
     if let Some(gas_limit) = gas_limit {
         if gas_limit > &ONE_INCH_MAX_GAS {
-            return Err(ApiClientError::OutOfBounds {
+            return Err(OneInchError::OutOfBounds {
                 param: "gas_limit".to_owned(),
                 value: gas_limit.to_string(),
                 min: 0.to_string(),
@@ -354,10 +354,10 @@ fn validate_gas_limit(gas_limit: &Option<u128>) -> MmResult<(), ApiClientError> 
 }
 
 #[allow(clippy::result_large_err)]
-fn validate_parts(parts: &Option<u32>) -> MmResult<(), ApiClientError> {
+fn validate_parts(parts: &Option<u32>) -> MmResult<(), OneInchError> {
     if let Some(parts) = parts {
         if parts > &ONE_INCH_MAX_PARTS {
-            return Err(ApiClientError::OutOfBounds {
+            return Err(OneInchError::OutOfBounds {
                 param: "parts".to_owned(),
                 value: parts.to_string(),
                 min: 0.to_string(),
@@ -370,10 +370,10 @@ fn validate_parts(parts: &Option<u32>) -> MmResult<(), ApiClientError> {
 }
 
 #[allow(clippy::result_large_err)]
-fn validate_main_route_parts(main_route_parts: &Option<u32>) -> MmResult<(), ApiClientError> {
+fn validate_main_route_parts(main_route_parts: &Option<u32>) -> MmResult<(), OneInchError> {
     if let Some(main_route_parts) = main_route_parts {
         if main_route_parts > &ONE_INCH_MAX_MAIN_ROUTE_PARTS {
-            return Err(ApiClientError::OutOfBounds {
+            return Err(OneInchError::OutOfBounds {
                 param: "main route parts".to_owned(),
                 value: main_route_parts.to_string(),
                 min: 0.to_string(),
@@ -386,10 +386,10 @@ fn validate_main_route_parts(main_route_parts: &Option<u32>) -> MmResult<(), Api
 }
 
 #[allow(clippy::result_large_err)]
-fn validate_complexity_level(complexity_level: &Option<u32>) -> MmResult<(), ApiClientError> {
+fn validate_complexity_level(complexity_level: &Option<u32>) -> MmResult<(), OneInchError> {
     if let Some(complexity_level) = complexity_level {
         if complexity_level > &ONE_INCH_MAX_COMPLEXITY_LEVEL {
-            return Err(ApiClientError::OutOfBounds {
+            return Err(OneInchError::OutOfBounds {
                 param: "complexity level".to_owned(),
                 value: complexity_level.to_string(),
                 min: 0.to_string(),
@@ -402,8 +402,8 @@ fn validate_complexity_level(complexity_level: &Option<u32>) -> MmResult<(), Api
 }
 
 /// Check if url is valid and is a subdomain of 1inch domain (simple anti-phishing check)
-fn validate_one_inch_link(s: &str) -> Result<String, ApiClientError> {
-    let url = Url::parse(s).map_err(|_err| ApiClientError::ParseBodyError {
+fn validate_one_inch_link(s: &str) -> Result<String, OneInchError> {
+    let url = Url::parse(s).map_err(|_err| OneInchError::ParseBodyError {
         error_msg: BAD_URL_IN_RESPONSE_ERROR.to_owned(),
     })?;
     if let Some(host) = url.host() {
@@ -411,7 +411,7 @@ fn validate_one_inch_link(s: &str) -> Result<String, ApiClientError> {
             return Ok(s.to_owned());
         }
     }
-    Err(ApiClientError::ParseBodyError {
+    Err(OneInchError::ParseBodyError {
         error_msg: BAD_URL_IN_RESPONSE_ERROR.to_owned(),
     })
 }

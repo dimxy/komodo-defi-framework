@@ -143,13 +143,18 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
             { "ticker": &token_3_ticker }
         ]),
     ));
+    let bob_eth_info = bob_enable_tokens["result"]["eth_addresses_infos"]
+        .as_object()
+        .unwrap();
+
     let bob_enable_doc = block_on(enable_electrum_json(&mm_bob, DOC, false, doc_electrums()));
-    println!(
-        "Bob address={:?}, DOC balance={:?} unspendable_balance={:?}",
+    println!("Bob DOC address={:?} balance={:?} unspendable_balance={:?}",
         bob_enable_doc["address"].as_str().unwrap(),
         bob_enable_doc["balance"],
-        bob_enable_doc["unspendable_balance"]
-    );
+        bob_enable_doc["unspendable_balance"]);
+    println!("Bob MATIC address={:?} balance={:?}",
+        bob_eth_info.iter().next().unwrap().0,
+        bob_eth_info.iter().next().unwrap().1["balances"].as_object().unwrap());
 
     let alice_enable_tokens = block_on(enable_eth_coin_v2(
         &mm_alice,
@@ -172,10 +177,10 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let alice_erc20_info = alice_enable_tokens["result"]["erc20_addresses_infos"]
         .as_object()
         .unwrap();
-    println!(
-        "Alice address={}, MATIC balance={:?}\ntoken balances:\n{:?}={:?}\n{:?}={:?}\n{:?}={:?}",
+    println!("Alice MATIC address={} balance={:?}",
         alice_eth_info.iter().next().unwrap().0,
-        alice_eth_info.iter().next().unwrap().1["balances"].as_object().unwrap(),
+        alice_eth_info.iter().next().unwrap().1["balances"].as_object().unwrap());
+    println!("Alice token balances: {:?}={:?}, {:?}={:?}, {:?}={:?}",    
         token_1_ticker,
         alice_erc20_info.iter().next().unwrap().1["balances"][token_1_ticker.clone()]
             .as_object()
@@ -187,8 +192,7 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
         token_3_ticker,
         alice_erc20_info.iter().next().unwrap().1["balances"][token_3_ticker.clone()]
             .as_object()
-            .unwrap(),
-    );
+            .unwrap());
 
     let order_res_1 = block_on(create_maker_order(&mut mm_bob, DOC, &token_1_ticker, 0.002));
     let order_res_2 = block_on(create_maker_order(&mut mm_bob, DOC, &token_2_ticker, 0.002));
@@ -474,7 +478,8 @@ async fn start_agg_swap(
                     }
                 },
                 "lr_swap_0": lr_swap_0,
-                "lr_swap_1": lr_swap_1
+                "lr_swap_1": lr_swap_1,
+                "volume": volume
             }
         }))
         .await
