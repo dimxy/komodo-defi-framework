@@ -1149,11 +1149,13 @@ pub fn polygon_conf() -> Json {
         "fname": "Polygon",
         "rpcport": 80,
         "mm2": 1,
-        "chain_id": 137,
         "avg_blocktime": 0.03,
         "required_confirmations": 3,
         "protocol": {
-            "type": "ETH"
+            "type": "ETH",
+            "protocol_data": {
+                "chain_id": 137
+            }
         }
     })
 }
