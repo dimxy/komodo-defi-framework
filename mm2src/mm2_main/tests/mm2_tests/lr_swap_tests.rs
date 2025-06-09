@@ -423,11 +423,11 @@ async fn find_best_lr_swap(
     amount: &str,
     my_token: &str,
 ) -> Result<LrBestQuoteResponse, String> {
-    common::log::info!("Issue lr_best_quote {}/{} request", base, my_token);
+    common::log::info!("Issue lr::best_quote {}/{} request", base, my_token);
     let rc = taker
         .rpc(&json!({
             "userpass": taker.userpass,
-            "method": "preview::lr_best_quote",
+            "method": "experimental::lr::best_quote",
             "mmrpc": "2.0",
             "params": {
                 "base": base,
@@ -454,12 +454,12 @@ async fn start_agg_swap(
     lr_swap_1: Option<ClassicSwapCreateRequest>,
     volume: f64,
 ) -> Result<Uuid, String> {
-    common::log::info!("Issue taker {}/{} lr_fill_order request", base, order_entry.coin);
+    common::log::info!("Issue taker {}/{} lr::fill_order request", base, order_entry.coin);
 
     let rc = taker
         .rpc(&json!({
             "userpass": taker.userpass,
-            "method": "preview::lr_fill_order",
+            "method": "experimental::lr::fill_order",
             "mmrpc": "2.0",
             "params": {
                 "sell_buy_req": {

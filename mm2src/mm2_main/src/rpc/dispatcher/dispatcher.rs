@@ -164,7 +164,9 @@ async fn experimental_rpcs_dispatcher(
     if let Some(staking_method) = experimental_method.strip_prefix("staking::") {
         return staking_dispatcher(request, ctx, staking_method).await;
     }
-
+    if let Some(lr_method) = experimental_method.strip_prefix("lr::") {
+        return liquidity_routing_dispatcher(request, ctx, lr_method).await;
+    }
     MmError::err(DispatcherError::NoSuchMethod)
 }
 
@@ -262,9 +264,6 @@ async fn dispatcher_v2(request: MmRpcRequest, ctx: MmArc) -> DispatcherResult<Re
             handle_mmrpc(ctx, request, one_inch_v6_0_classic_swap_liquidity_sources_rpc).await
         },
         "1inch_v6_0_classic_swap_tokens" => handle_mmrpc(ctx, request, one_inch_v6_0_classic_swap_tokens_rpc).await,
-        "experimental::lr_best_quote" => handle_mmrpc(ctx, request, lr_best_quote_rpc).await,
-        "experimental::lr_quotes_for_tokens" => handle_mmrpc(ctx, request, lr_quotes_for_tokens_rpc).await,
-        "experimental::lr_fill_order" => handle_mmrpc(ctx, request, lr_fill_order_rpc).await,
         "wc_new_connection" => handle_mmrpc(ctx, request, new_connection).await,
         "wc_get_session" => handle_mmrpc(ctx, request, get_session).await,
         "wc_get_sessions" => handle_mmrpc(ctx, request, get_all_sessions).await,
@@ -494,6 +493,19 @@ async fn staking_dispatcher(
         "claim_rewards" => handle_mmrpc(ctx, request, claim_staking_rewards).await,
         "delegate" => handle_mmrpc(ctx, request, add_delegation).await,
         "undelegate" => handle_mmrpc(ctx, request, remove_delegation).await,
+        _ => MmError::err(DispatcherError::NoSuchMethod),
+    }
+}
+
+async fn liquidity_routing_dispatcher(
+    request: MmRpcRequest,
+    ctx: MmArc,
+    lr_method: &str,
+) -> DispatcherResult<Response<Vec<u8>>> {
+    match lr_method {
+        "best_quote" => handle_mmrpc(ctx, request, lr_best_quote_rpc).await,
+        "quotes_for_tokens" => handle_mmrpc(ctx, request, lr_quotes_for_tokens_rpc).await,
+        "fill_order" => handle_mmrpc(ctx, request, lr_fill_order_rpc).await,
         _ => MmError::err(DispatcherError::NoSuchMethod),
     }
 }
