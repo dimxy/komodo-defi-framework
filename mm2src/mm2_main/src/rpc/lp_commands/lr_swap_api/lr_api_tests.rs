@@ -5,7 +5,7 @@ use coins::eth::EthCoin;
 use coins_activation::platform_for_tests::init_platform_coin_with_tokens_loop;
 use crypto::CryptoCtx;
 use mm2_number::{MmNumber, MmNumberMultiRepr};
-use mm2_test_helpers::for_tests::{btc_with_spv_conf, mm_ctx_with_custom_db_with_conf};
+use mm2_test_helpers::for_tests::{btc_with_spv_conf, mm_ctx_with_custom_db_with_conf, ETH_MAINNET_NODES};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -15,7 +15,6 @@ use uuid::Uuid;
 /// TODO: make it mockable to run within CI
 #[tokio::test]
 async fn test_find_best_lr_swap_for_order_list() {
-    let main_net_url: String = std::env::var("ETH_MAIN_NET_URL_FOR_TEST").unwrap_or_default();
     let platform_coin = "ETH".to_owned();
     let base_conf = btc_with_spv_conf();
     let platform_coin_conf = json!({
@@ -122,9 +121,7 @@ async fn test_find_best_lr_swap_for_order_list() {
         serde_json::from_value(json!({
             "ticker": platform_coin.clone(),
             "rpc_mode": "Default",
-            "nodes": [
-                {"url": main_net_url}
-            ],
+            "nodes": ETH_MAINNET_NODES.iter().map(|u| json!({"url": u})).collect::<Vec<_>>(),
             "swap_contract_address": "0xeA6D65434A15377081495a9E7C5893543E7c32cB",
             "erc20_tokens_requests": [
                 {"ticker": weth_ticker.clone()},
@@ -190,7 +187,7 @@ async fn test_find_best_lr_swap_for_order_list() {
 
     let response = super::lr_best_quote_rpc(ctx, req).await;
     println!("response={:?}", response);
-    assert!(response.is_ok());
+    assert!(response.is_ok(), "response={:?}", response);
 
     // BTC / WETH price around 35.0
     println!("response total_price={}", response.unwrap().total_price.to_decimal());

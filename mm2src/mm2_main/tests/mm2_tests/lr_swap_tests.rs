@@ -254,8 +254,6 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     );
     check_my_agg_swap_final_status(&taker_swap_status);
 
-    //assert!(taker_swap_status[])
-
     //block_on(check_recent_swaps(&mm_bob, 1));
     //block_on(check_recent_swaps(&mm_alice, 1));
     block_on(cancel_order(&mm_bob, &token_1_order.uuid));
