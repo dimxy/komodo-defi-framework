@@ -480,11 +480,11 @@ pub enum Mm2InitPrivKeyPolicy {
     GlobalHDAccount,
 }
 
-pub fn zombie_conf() -> Json { zombie_conf_inner(None) }
+pub fn zombie_conf() -> Json { zombie_conf_inner(None, 0) }
 
-pub fn zombie_conf_for_docker() -> Json { zombie_conf_inner(Some(10)) }
+pub fn zombie_conf_for_docker() -> Json { zombie_conf_inner(Some(10), 1) }
 
-pub fn zombie_conf_inner(custom_blocktime: Option<u8>) -> Json {
+pub fn zombie_conf_inner(custom_blocktime: Option<u8>, required_confirmations: u8) -> Json {
     json!({
         "coin":"ZOMBIE",
         "asset":"ZOMBIE",
@@ -511,7 +511,7 @@ pub fn zombie_conf_inner(custom_blocktime: Option<u8>) -> Json {
                 "z_derivation_path": "m/32'/133'",
             }
         },
-        "required_confirmations":0,
+        "required_confirmations": required_confirmations,
         "derivation_path": "m/44'/133'",
     })
 }
