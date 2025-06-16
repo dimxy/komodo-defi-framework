@@ -7,6 +7,7 @@ mod z_coin_errors;
 mod z_htlc;
 mod z_rpc;
 mod z_tx_history;
+#[cfg(all(test, not(target_arch = "wasm32")))] mod z_unit_tests;
 
 use crate::coin_errors::{AddressFromPubkeyError, MyAddressError, ValidatePaymentResult};
 use crate::hd_wallet::{HDAddressSelector, HDPathAccountToAddressId};
@@ -130,6 +131,8 @@ const DEX_FEE_OVK: OutgoingViewingKey = OutgoingViewingKey([7; 32]);
 const DEX_FEE_Z_ADDR: &str = "zs1rp6426e9r6jkq2nsanl66tkd34enewrmr0uvj0zelhkcwmsy0uvxz2fhm9eu9rl3ukxvgzy2v9f";
 const DEX_BURN_Z_ADDR: &str = "zs1ntx28kyurgvsc7rxgkdhasz8p6wzv63nqpcayvnh7c4r6cs4wfkz8ztkwazjzdsxkgaq6erscyl";
 cfg_native!(
+    #[cfg(test)]
+    const DOWNLOAD_URL: &str = "https://komodoplatform.com/downloads";
     const SAPLING_OUTPUT_NAME: &str = "sapling-output.params";
     const SAPLING_SPEND_NAME: &str = "sapling-spend.params";
     const BLOCKS_TABLE: &str = "blocks";
@@ -809,6 +812,8 @@ pub enum ZcoinRpcMode {
         /// Will use `sync_params` if no last synced block found.
         skip_sync_params: Option<bool>,
     },
+    #[cfg(test)]
+    UnitTests,
 }
 
 #[derive(Clone, Deserialize)]
@@ -967,6 +972,8 @@ impl<'a> UtxoCoinBuilder for ZCoinBuilder<'a> {
                 )
                 .await?
             },
+            #[cfg(test)]
+            ZcoinRpcMode::UnitTests => z_unit_tests::create_test_sync_connector(&self).await,
         };
 
         let z_fields = Arc::new(ZCoinFields {
@@ -1010,6 +1017,12 @@ impl<'a> ZCoinBuilder<'a> {
                 servers: electrum_servers.clone(),
                 min_connected: *min_connected,
                 max_connected: *max_connected,
+            },
+            #[cfg(test)]
+            ZcoinRpcMode::UnitTests => UtxoRpcMode::Electrum {
+                servers: vec![],
+                min_connected: None,
+                max_connected: Some(1),
             },
         };
         let utxo_params = UtxoActivationParams {
@@ -1072,6 +1085,9 @@ impl<'a> ZCoinBuilder<'a> {
             None => default_params_folder().or_mm_err(|| ZCoinBuildError::ZCashParamsNotFound)?,
             Some(file_path) => PathBuf::from(file_path),
         };
+
+        #[cfg(test)]
+        z_unit_tests::download_parameters_for_tests(&params_dir).await;
 
         async_blocking(move || {
             let (spend_path, output_path) = get_spend_output_paths(params_dir)?;
@@ -2196,54 +2212,4 @@ fn rseed_to_string(rseed: &Rseed) -> String {
         Rseed::BeforeZip212(rcm) => rcm.to_string(),
         Rseed::AfterZip212(rseed) => jubjub::Fr::from_bytes_wide(prf_expand(rseed, &INPUT).as_array()).to_string(),
     }
-}
-
-#[test]
-fn derive_z_key_from_mm_seed() {
-    use crypto::privkey::key_pair_from_seed;
-    use zcash_client_backend::encoding::encode_extended_spending_key;
-
-    let seed = "spice describe gravity federal blast come thank unfair canal monkey style afraid";
-    let secp_keypair = key_pair_from_seed(seed).unwrap();
-    let z_spending_key = ExtendedSpendingKey::master(&*secp_keypair.private().secret);
-    let encoded = encode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, &z_spending_key);
-    assert_eq!(encoded, "secret-extended-key-main1qqqqqqqqqqqqqqytwz2zjt587n63kyz6jawmflttqu5rxavvqx3lzfs0tdr0w7g5tgntxzf5erd3jtvva5s52qx0ms598r89vrmv30r69zehxy2r3vesghtqd6dfwdtnauzuj8u8eeqfx7qpglzu6z54uzque6nzzgnejkgq569ax4lmk0v95rfhxzxlq3zrrj2z2kqylx2jp8g68lqu6alczdxd59lzp4hlfuj3jp54fp06xsaaay0uyass992g507tdd7psua5w6q76dyq3");
-
-    let (_, address) = z_spending_key.default_address().unwrap();
-    let encoded_addr = encode_payment_address(z_mainnet_constants::HRP_SAPLING_PAYMENT_ADDRESS, &address);
-    assert_eq!(
-        encoded_addr,
-        "zs182ht30wnnnr8jjhj2j9v5dkx3qsknnr5r00jfwk2nczdtqy7w0v836kyy840kv2r8xle5gcl549"
-    );
-
-    let seed = "also shoot benefit prefer juice shell elder veteran woman mimic image kidney";
-    let secp_keypair = key_pair_from_seed(seed).unwrap();
-    let z_spending_key = ExtendedSpendingKey::master(&*secp_keypair.private().secret);
-    let encoded = encode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, &z_spending_key);
-    assert_eq!(encoded, "secret-extended-key-main1qqqqqqqqqqqqqq8jnhc9stsqwts6pu5ayzgy4szplvy03u227e50n3u8e6dwn5l0q5s3s8xfc03r5wmyh5s5dq536ufwn2k89ngdhnxy64sd989elwas6kr7ygztsdkw6k6xqyvhtu6e0dhm4mav8rus0fy8g0hgy9vt97cfjmus0m2m87p4qz5a00um7gwjwk494gul0uvt3gqyjujcclsqry72z57kr265jsajactgfn9m3vclqvx8fsdnwp4jwj57ffw560vvwks9g9hpu");
-
-    let (_, address) = z_spending_key.default_address().unwrap();
-    let encoded_addr = encode_payment_address(z_mainnet_constants::HRP_SAPLING_PAYMENT_ADDRESS, &address);
-    assert_eq!(
-        encoded_addr,
-        "zs1funuwrjr2stlr6fnhkdh7fyz3p7n0p8rxase9jnezdhc286v5mhs6q3myw0phzvad5mvqgfxpam"
-    );
-}
-
-#[test]
-fn test_interpret_memo_string() {
-    use std::str::FromStr;
-    use zcash_primitives::memo::Memo;
-
-    let actual = interpret_memo_string("68656c6c6f207a63617368").unwrap();
-    let expected = Memo::from_str("68656c6c6f207a63617368").unwrap().encode();
-    assert_eq!(actual, expected);
-
-    let actual = interpret_memo_string("A custom memo").unwrap();
-    let expected = Memo::from_str("A custom memo").unwrap().encode();
-    assert_eq!(actual, expected);
-
-    let actual = interpret_memo_string("0x68656c6c6f207a63617368").unwrap();
-    let expected = MemoBytes::from_bytes(&hex::decode("68656c6c6f207a63617368").unwrap()).unwrap();
-    assert_eq!(actual, expected);
 }
