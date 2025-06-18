@@ -52,38 +52,19 @@ pub(crate) fn insert_new_lr_swap(ctx: &MmArc, params: &[(&str, &dyn ToSql)]) -> 
     conn.execute(INSERT_LR_SWAP, params).map(|_| ())
 }
 
-/// The SQL query selecting data for a swap with LR and send it to user through RPC API
-/// Swap with LR includes an ordinary atomic swap, you may need its uuid, it could be obtained from the StartAtomicSwap event
-/// NOTE: 'maker_volume' is not set for now
-/// NOTE: 'taker_volume' used as source_volume
-pub(crate) const SELECT_LR_SWAP_FOR_RPC_BY_UUID: &str = r#"SELECT
-    my_coin,
-    other_coin,
-    uuid,
-    started_at,
-    is_finished,
-    events_json,
-    maker_volume,
-    taker_volume,
-    swap_version,
-    lr_swap_0,
-    lr_swap_1
-FROM my_swaps
-WHERE uuid = :uuid;
-"#;
-
 /// The SQL query selecting swap with LR required to re-initialize the swap e.g., on restart.
-/// NOTE: 'maker_volume' is not set for now
+/// TODO: 'maker_volume' is not set for now, add estimation for it
 /// NOTE: 'taker_volume' used as source_volume
 pub(crate) const SELECT_LR_SWAP_BY_UUID: &str = r#"SELECT
     my_coin,
     other_coin,
     uuid,
     started_at,
+    is_finished,
     events_json,
-    maker_volume,
-    taker_volume,
     swap_version,
+    taker_volume,
+    maker_volume,
     lr_swap_0,
     sell_buy_req,
     lr_swap_1

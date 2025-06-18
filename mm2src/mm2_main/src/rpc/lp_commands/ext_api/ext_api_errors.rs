@@ -25,6 +25,8 @@ pub enum ExtApiRpcError {
     DifferentChains,
     MyAddressError(String),
     ConversionError(String),
+    #[display(fmt = "No token info in LR params")]
+    NoLrTokenInfo,
     InvalidParam(String),
     #[display(fmt = "Parameter {param} out of bounds, value: {value}, min: {min} max: {max}")]
     OutOfBounds {
@@ -62,6 +64,7 @@ impl HttpStatusCode for ExtApiRpcError {
             | ExtApiRpcError::ChainNotSupported
             | ExtApiRpcError::DifferentChains
             | ExtApiRpcError::MyAddressError(_)
+            | ExtApiRpcError::NoLrTokenInfo
             | ExtApiRpcError::InvalidParam(_)
             | ExtApiRpcError::OutOfBounds { .. }
             | ExtApiRpcError::OneInchAllowanceNotEnough { .. }
@@ -104,13 +107,15 @@ impl From<CoinFindError> for ExtApiRpcError {
 }
 
 impl From<CheckBalanceError> for ExtApiRpcError {
-    fn from(err: CheckBalanceError) -> Self {
-        ExtApiRpcError::CheckBalanceError(err.to_string())
-    }
+    fn from(err: CheckBalanceError) -> Self { ExtApiRpcError::CheckBalanceError(err.to_string()) }
 }
 
 impl From<UnexpectedDerivationMethod> for ExtApiRpcError {
     fn from(err: UnexpectedDerivationMethod) -> Self { Self::MyAddressError(err.to_string()) }
+}
+
+impl From<NumConversError> for ExtApiRpcError {
+    fn from(err: NumConversError) -> Self { Self::ConversionError(err.to_string()) }
 }
 
 /// Error aggregator for errors of conversion of api returned values

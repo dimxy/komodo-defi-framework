@@ -21,11 +21,12 @@ const ONE_INCH_DOMAIN: &str = "1inch.io";
 
 /// API params builder for swap quote
 #[derive(Default)]
-pub struct ClassicSwapQuoteParams {
+pub struct ClassicSwapQuoteCallBuilder {
     /// Source token address
     src: String,
     /// Destination token address
     dst: String,
+    /// Source amount, decimal in coin units
     amount: String,
     // Optional fields
     fee: Option<f32>,
@@ -41,7 +42,7 @@ pub struct ClassicSwapQuoteParams {
     connector_tokens: Option<String>,
 }
 
-impl ClassicSwapQuoteParams {
+impl ClassicSwapQuoteCallBuilder {
     pub fn new(src: String, dst: String, amount: String) -> Self {
         Self {
             src,
@@ -100,14 +101,14 @@ impl ClassicSwapQuoteParams {
 }
 
 /// API params builder to create a tx for swap
-#[derive(Default)]
-pub struct ClassicSwapCreateParams {
-    src: String,
-    dst: String,
-    amount: String,
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ClassicSwapCreateCallBuilder {
+    pub src: String,
+    pub dst: String,
+    /// Amount in token smallest units
+    pub amount: String,
     from: String,
     slippage: f32,
-    // Optional fields
     fee: Option<f32>,
     protocols: Option<String>,
     gas_price: Option<String>,
@@ -129,7 +130,7 @@ pub struct ClassicSwapCreateParams {
     use_permit2: Option<bool>,
 }
 
-impl ClassicSwapCreateParams {
+impl ClassicSwapCreateCallBuilder {
     pub fn new(src: String, dst: String, amount: String, from: String, slippage: f32) -> Self {
         Self {
             src,
@@ -245,7 +246,7 @@ pub struct ProtocolInfo {
 /// Returned data from an API call to get quote or create swap
 #[derive(Clone, Deserialize, Debug)]
 pub struct ClassicSwapData {
-    /// dst token amount to receive, in api is a decimal number as string
+    /// dst token amount to receive, integer number as string (1inch API format)
     #[serde(rename = "dstAmount")]
     pub dst_amount: String,
     #[serde(rename = "srcToken")]
@@ -264,12 +265,12 @@ pub struct TxFields {
     pub from: Address,
     pub to: Address,
     pub data: String,
-    /// tx value, in api is a decimal number as string
+    /// tx value, integer number as string, in smallest units (1inch API format)
     pub value: String,
-    /// gas price, in api is a decimal number as string
+    /// gas price, integer number as string, in wei (1inch API format)
     #[serde(rename = "gasPrice")]
     pub gas_price: String,
-    /// gas limit, in api is a decimal number
+    /// gas limit
     pub gas: u128,
 }
 

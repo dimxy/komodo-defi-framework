@@ -187,7 +187,7 @@ impl ApiClient {
         Ok(Url::parse(url_cfg)?)
     }
 
-    pub const fn eth_special_contract() -> &'static str { ONE_INCH_ETH_SPECIAL_CONTRACT }
+    pub const fn eth_special_contract() -> &'static str { ONE_INCH_ETH_SPECIAL_CONTRACT } // TODO: must use the 1inch call, not a const (on zk chain it's not const)
 
     pub const fn classic_swap_contract() -> &'static str { ONE_INCH_AGGREGATION_ROUTER_CONTRACT_V6_0 }
 

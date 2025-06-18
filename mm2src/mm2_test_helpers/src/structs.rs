@@ -1234,172 +1234,77 @@ pub struct TokenInfoResponse {
     pub info: TokenInfo,
 }
 
-#[derive(Clone, Deserialize, Debug, Serialize)]
-pub struct TxFieldsRpc {
-    pub from: Address,
-    pub to: Address,
-    pub data: BytesJson,
-    pub value: BigDecimal,
-    /// Estimated gas price in gwei
-    pub gas_price: BigDecimal,
-    pub gas: u128,
-}
+pub mod lr_test_structs {
+    use super::*;
 
-#[derive(Clone, Deserialize, Debug, Serialize)]
-pub struct LrTokenInfo {
-    pub address: Address,
-    pub symbol: String,
-    pub name: String,
-    pub decimals: u32,
-    pub eip2612: bool,
-    #[serde(rename = "isFoT", default)]
-    pub is_fot: bool,
-    #[serde(rename = "logoURI")]
-    pub logo_uri: Option<String>,
-    pub tags: Vec<String>,
-    pub symbol_kdf: Option<Ticker>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct LrProtocolInfo {
-    pub name: String,
-    pub part: f64,
-    #[serde(rename = "fromTokenAddress")]
-    pub from_token_address: Address,
-    #[serde(rename = "toTokenAddress")]
-    pub to_token_address: Address,
-}
-
-/// Details to create classic swap calls
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ClassicSwapDetails {
-    /// Destination token amount, in coins (with fraction)
-    pub dst_amount: DetailedAmount,
-    /// Source (base) token info
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub src_token: Option<LrTokenInfo>,
-    /// Destination (rel) token info
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dst_token: Option<LrTokenInfo>,
-    /// Used liquidity sources
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub protocols: Option<Vec<Vec<Vec<LrProtocolInfo>>>>,
-    /// Swap tx fields (returned only for create swap rpc)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx: Option<TxFieldsRpc>,
-    /// Estimated gas limit as hex (returned only for quote rpc)
-    pub gas: Option<u128>,
-}
-
-pub type ClassicSwapResponse = ClassicSwapDetails;
-
-/// Response for find best swap path with LR
-#[derive(Debug, Deserialize, Serialize)]
-pub struct LrBestQuoteResponse {
-    /// Swap tx data (from 1inch quote)
-    pub lr_swap_details: ClassicSwapDetails,
-    /// found best order which can be filled with LR swap
-    pub best_order: RpcOrderbookEntryV2,
-    /// base/rel price including the price of the LR swap part
-    pub total_price: MmNumber,
-    // /// Fees to pay, including LR swap fee
-    // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
-}
-
-/// Response to sell or buy order with LR for tests
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LrFillMakerOrderResponse {
-    pub uuid: Uuid,
-}
-
-/// Request to create transaction for 1inch classic swap for tests
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ClassicSwapCreateRequest {
-    pub base: Ticker,
-    pub rel: Ticker,
-    pub amount: MmNumber,
-    pub slippage: f32,
-    pub fee: Option<f32>,
-    pub protocols: Option<String>,
-    pub gas_price: Option<String>,
-    pub complexity_level: Option<u32>,
-    pub parts: Option<u32>,
-    pub main_route_parts: Option<u32>,
-    pub gas_limit: Option<u128>,
-    pub include_tokens_info: bool,
-    pub include_protocols: bool,
-    pub include_gas: bool,
-    pub connector_tokens: Option<String>,
-    pub excluded_protocols: Option<String>,
-    pub permit: Option<String>,
-    pub compatibility: Option<bool>,
-    pub receiver: Option<String>,
-    pub referrer: Option<String>,
-    pub disable_estimate: Option<bool>,
-    pub allow_partial_fill: Option<bool>,
-    pub use_permit2: Option<bool>,
-}
-
-impl ClassicSwapCreateRequest {
-    pub fn new(base: Ticker, rel: Ticker, amount: MmNumber, slippage: f32) -> Self {
-        Self {
-            base,
-            rel,
-            amount,
-            slippage,
-            fee: None,
-            protocols: None,
-            gas_price: None,
-            complexity_level: None,
-            parts: None,
-            main_route_parts: None,
-            gas_limit: None,
-            include_tokens_info: true,
-            include_protocols: false,
-            include_gas: false,
-            connector_tokens: None,
-            excluded_protocols: None,
-            permit: None,
-            compatibility: None,
-            receiver: None,
-            referrer: None,
-            disable_estimate: None,
-            allow_partial_fill: None,
-            use_permit2: None,
-        }
+    #[derive(Clone, Deserialize, Debug, Serialize)]
+    pub struct TxFieldsRpc {
+        pub from: Address,
+        pub to: Address,
+        pub data: BytesJson,
+        pub value: BigDecimal,
+        /// Estimated gas price in gwei
+        pub gas_price: BigDecimal,
+        pub gas: u128,
     }
 
-    pub fn new_from_details(details: &ClassicSwapDetails, value: &str, slippage: f32) -> Self {
-        let base = details.src_token.as_ref().unwrap().symbol_kdf.as_ref().unwrap().clone();
-        let rel = details.dst_token.as_ref().unwrap().symbol_kdf.as_ref().unwrap().clone();
-        assert!(!base.is_empty(), "base can't be empty");
-        assert!(!rel.is_empty(), "rel can't be empty");
-        Self {
-            base,
-            rel,
-            amount: MmNumber::from(value),
-            slippage,
-            fee: None,
-            protocols: None,
-            gas_price: None,
-            complexity_level: None,
-            parts: None,
-            main_route_parts: None,
-            gas_limit: None,
-            include_tokens_info: true,
-            include_protocols: false,
-            include_gas: false,
-            connector_tokens: None,
-            excluded_protocols: None,
-            permit: None,
-            compatibility: None,
-            receiver: None,
-            referrer: None,
-            disable_estimate: None,
-            allow_partial_fill: None,
-            use_permit2: None,
-        }
+    #[derive(Clone, Deserialize, Debug, Serialize)]
+    pub struct LrTokenInfo {
+        pub address: Address,
+        pub symbol: String,
+        pub name: String,
+        pub decimals: u32,
+        pub eip2612: bool,
+        #[serde(rename = "isFoT", default)]
+        pub is_fot: bool,
+        #[serde(rename = "logoURI")]
+        pub logo_uri: Option<String>,
+        pub tags: Vec<String>,
+        pub symbol_kdf: Option<Ticker>,
+    }
+
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct LrProtocolInfo {
+        pub name: String,
+        pub part: f64,
+        #[serde(rename = "fromTokenAddress")]
+        pub from_token_address: Address,
+        #[serde(rename = "toTokenAddress")]
+        pub to_token_address: Address,
+    }
+
+    /// Details to create classic swap calls
+    #[derive(Clone, Serialize, Deserialize, Debug)]
+    pub struct ClassicSwapDetails {
+        pub src_amount: MmNumber,
+        pub dst_amount: DetailedAmount,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub src_token: Option<LrTokenInfo>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub dst_token: Option<LrTokenInfo>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub protocols: Option<Vec<Vec<Vec<LrProtocolInfo>>>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub tx: Option<TxFieldsRpc>,
+        pub gas: Option<u128>,
+    }
+
+    pub type ClassicSwapResponse = ClassicSwapDetails;
+
+    /// Response for find best swap path with LR
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct LrBestQuoteResponse {
+        pub lr_swap_details: ClassicSwapDetails,
+        pub best_order: RpcOrderbookEntryV2,
+        pub total_price: MmNumber,
+        // /// Fees to pay, including LR swap fee
+        // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
+    }
+
+    /// Response to sell or buy order with LR for tests
+    #[derive(Debug, Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct LrFillMakerOrderResponse {
+        pub uuid: Uuid,
     }
 }

@@ -2,24 +2,23 @@
 //! Swaps with LR run additional interim swaps in EVM chains to convert one token into another token suitable to do a normal atomic swap.
 
 use super::lr_errors::LrSwapError;
-use super::lr_helpers::get_coin_for_one_inch;
+use super::lr_helpers::{get_coin_for_one_inch, u256_from_coins_mm_number};
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
-use coins::eth::{u256_to_big_decimal, wei_from_big_decimal};
+use crate::lr_swap::lr_helpers::{mm_number_from_u256, mm_number_to_u256};
+use crate::lr_swap::ClassicSwapDataExt;
 use coins::hd_wallet::AddrToString;
 use coins::lp_coinfind_or_err;
 use coins::MmCoin;
-use coins::NumConversResult;
 use coins::Ticker;
 use common::log;
-use ethereum_types::Address as EthAddress;
-use ethereum_types::{FromDecStrErr, U256};
+use ethereum_types::{Address as EthAddress, U256};
 use futures::future::join_all;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::MmNumber;
 use num_traits::CheckedDiv;
 use std::collections::HashMap;
-use trading_api::one_inch_api::classic_swap_types::{ClassicSwapData, ClassicSwapQuoteParams};
+use trading_api::one_inch_api::classic_swap_types::{ClassicSwapData, ClassicSwapQuoteCallBuilder};
 use trading_api::one_inch_api::client::{ApiClient, PortfolioApiMethods, PortfolioUrlBuilder, SwapApiMethods,
                                         SwapUrlBuilder};
 use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesSeries, DataGranularity};
@@ -29,38 +28,19 @@ const CROSS_PRICES_GRANULARITY: DataGranularity = DataGranularity::FiveMin;
 /// Use no more than 1 price history samples to estimate src/dst price
 const CROSS_PRICES_LIMIT: u32 = 1;
 
-#[inline]
-fn mm_number_to_u256(mm_number: &MmNumber) -> Result<U256, FromDecStrErr> {
-    U256::from_dec_str(mm_number.to_ratio().to_integer().to_string().as_str())
-}
-
-#[inline]
-fn mm_number_from_u256(u256: U256) -> MmNumber { MmNumber::from(u256.to_string().as_str()) }
-
-#[inline]
-fn wei_from_coins_mm_number(mm_number: &MmNumber, decimals: u8) -> NumConversResult<U256> {
-    wei_from_big_decimal(&mm_number.to_decimal(), decimals)
-}
-
-#[inline]
-#[allow(unused)]
-fn wei_to_coins_mm_number(u256: U256, decimals: u8) -> NumConversResult<MmNumber> {
-    Ok(MmNumber::from(u256_to_big_decimal(u256, decimals)?))
-}
-
 /// Internal struct to collect data for selecting the best swap with LR
 struct LrData {
     /// Order to fill
     order: RpcOrderbookEntryV2,
     /// Source token contract address (to do interim LR swap from)
     src_contract: Option<EthAddress>,
-    /// Source token amount in wei
+    /// Source token amount (estimated) in smallest units
     src_amount: Option<U256>,
     /// Source token decimals
     src_decimals: Option<u8>,
     /// Destination token contract address (to do interim LR swap into)
     dst_contract: Option<EthAddress>,
-    /// Destination token amount in wei
+    /// Destination token amount in smallest units
     dst_amount: Option<U256>,
     /// Destination token decimals
     dst_decimals: Option<u8>,
@@ -122,7 +102,7 @@ impl LrDataMap {
         }
     }
 
-    /// Calculate amounts of destination tokens required to fill ask orders for the requested base_amount:
+    /// Calculate amounts of LR-swap-0 destination tokens required to fill ask orders for the requested base_amount:
     /// multiplies base_amount by the order price. Base_amount must be in coin units (with decimals)
     async fn calc_destination_token_amounts(
         &mut self,
@@ -132,12 +112,14 @@ impl LrDataMap {
         for lr_data in self.inner.values_mut() {
             let price: MmNumber = lr_data.order.price.rational.clone().into();
             let dst_amount = base_amount * &price;
-            let coin = lp_coinfind_or_err(ctx, &lr_data.order.coin).await?;
-            lr_data.dst_amount = Some(wei_from_coins_mm_number(&dst_amount, coin.decimals())?);
+            let dst_coin = lp_coinfind_or_err(ctx, &lr_data.order.coin).await?;
+            lr_data.dst_amount = Some(u256_from_coins_mm_number(&dst_amount, dst_coin.decimals())?);
             log::debug!(
-                "calc_destination_token_amounts lr_data.order.coin={} coin.decimals()={} lr_data.dst_amount={:?}",
+                "calc_destination_token_amounts base_amount[coins]={} lr_data.order.coin={} price={} dst_coin.decimals()={} lr_data.dst_amount[smallest]={:?}",
+                base_amount.to_decimal(),
                 lr_data.order.coin,
-                coin.decimals(),
+                price.to_decimal(),
+                dst_coin.decimals(),
                 lr_data.dst_amount
             );
         }
@@ -227,7 +209,7 @@ impl LrDataMap {
             if let Some(src_amount) = &dst_amount.checked_div(dst_price) {
                 lr_data.src_amount = Some(mm_number_to_u256(src_amount)?);
                 log::debug!(
-                    "estimate_source_token_amounts lr_data.order.coin={} dst_price={} lr_data.src_amount={:?}",
+                    "estimate_source_token_amounts lr_data.order.coin={} dst_price={} lr_data.src_amount[smallest]={:?}",
                     lr_data.order.coin,
                     dst_price.to_decimal(),
                     lr_data.src_amount
@@ -246,7 +228,7 @@ impl LrDataMap {
                 continue;
             };
             let (src_contract, dst_contract, chain_id) = lr_data.get_chain_contract_info()?;
-            let query_params = ClassicSwapQuoteParams::new(src_contract, dst_contract, src_amount.to_string())
+            let query_params = ClassicSwapQuoteCallBuilder::new(src_contract, dst_contract, src_amount.to_string())
                 .with_include_tokens_info(Some(true))
                 .with_include_gas(Some(true))
                 .build_query_params()?;
@@ -265,7 +247,7 @@ impl LrDataMap {
 
     /// Select the best swap path, by minimum of total swap price (including order and LR swap)
     #[allow(clippy::result_large_err)]
-    fn select_best_swap(&self) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), LrSwapError> {
+    fn select_best_swap(&self) -> MmResult<(ClassicSwapDataExt, RpcOrderbookEntryV2, MmNumber), LrSwapError> {
         // Calculate swap's total_price (filling the order plus LR swap) as src_amount / order_amount
         // where src_amount is user tokens to pay for the swap with LR, 'order_amount' is amount which will fill the order
         // Tx fee is not accounted here because it is in the platform coin, not token, so we can't compare LR swap tx fee directly here.
@@ -274,10 +256,10 @@ impl LrDataMap {
             let src_amount = mm_number_from_u256(src_amount);
             let order_price = MmNumber::from(order.price.rational.clone());
             let dst_amount = MmNumber::from(lr_swap.dst_amount.as_str());
-            let order_amount = dst_amount.checked_div(&order_price)?;
-            let total_price = src_amount.checked_div(&order_amount);
-            log::debug!("select_best_swap order.coin={} lr_swap.dst_amount(wei)={} order_amount(to fill order, wei)={} total_price(with LR)={}", 
-                order.coin, lr_swap.dst_amount, order_amount.to_decimal(), total_price.clone().unwrap_or(MmNumber::from(0)).to_decimal());
+            let amount_to_fill_order = dst_amount.checked_div(&order_price)?;
+            let total_price = src_amount.checked_div(&amount_to_fill_order);
+            log::debug!("select_best_swap order.coin={} lr_swap.dst_amount=[smallest]{} amount_to_fill_order[smallest]={} total_price={}", 
+                order.coin, lr_swap.dst_amount, amount_to_fill_order.to_decimal(), total_price.as_ref().unwrap_or(&MmNumber::from(0)).to_decimal());
             total_price
         };
 
@@ -292,23 +274,30 @@ impl LrDataMap {
             })
             // calculate total price and filter out orders for which we could not calculate the total price
             .filter_map(|(src_amount, lr_swap_data, order)| {
-                calc_total_price(src_amount, &lr_swap_data, &order)
-                    .map(|total_price| (lr_swap_data, order, total_price))
+                calc_total_price(src_amount, &lr_swap_data, &order).map(|total_price| {
+                    (
+                        ClassicSwapDataExt {
+                            api_details: lr_swap_data,
+                            src_amount,
+                        },
+                        order,
+                        total_price,
+                    )
+                })
             })
             .min_by(|(_, _, price_0), (_, _, price_1)| price_0.cmp(price_1))
-            .map(|(lr_swap_data, order, price)| (lr_swap_data, order, price))
             .ok_or(MmError::new(LrSwapError::BestLrSwapNotFound))
     }
 }
 
-/// Finds the best swap path to buy order's best "UTXO" coins, including LR quotes to sell my token for the rel tokens from the orders
+/// Finds the best swap path to fill ask order. The path includes an LR-swap quote to sell my_token for the rel tokens from the orders
 /// base_amount is amount of UTXO coins user would like to buy
 pub async fn find_best_fill_ask_with_lr(
     ctx: &MmArc,
     user_token: Ticker,
     orders: Vec<RpcOrderbookEntryV2>,
     base_amount: &MmNumber,
-) -> MmResult<(ClassicSwapData, RpcOrderbookEntryV2, MmNumber), LrSwapError> {
+) -> MmResult<(ClassicSwapDataExt, RpcOrderbookEntryV2, MmNumber), LrSwapError> {
     let mut lr_data_map = LrDataMap::new_with_src_token(user_token, orders);
     lr_data_map.update_with_contracts(ctx).await?;
     lr_data_map.calc_destination_token_amounts(ctx, base_amount).await?;
@@ -336,7 +325,7 @@ fn cross_prices_average(series: Option<CrossPricesSeries>) -> Option<MmNumber> {
 fn log_cross_prices(prices: &HashMap<(Ticker, Ticker), Option<MmNumber>>) {
     for p in prices {
         log::debug!(
-            "cross prices api src/dst price={:?} {:?}",
+            "1inch cross_prices result(averaged)={:?} {:?}",
             p,
             p.1.clone().map(|v| v.to_decimal())
         );

@@ -164,9 +164,10 @@ use erc20::get_token_decimals;
 pub(crate) mod eth_swap_v2;
 use eth_swap_v2::{extract_id_from_tx_data, EthPaymentType, PaymentMethod, SpendTxSearchParams};
 
+pub mod tron;
+
 pub const ETH_PROTOCOL_TYPE: &str = "ETH";
 pub const ERC20_PROTOCOL_TYPE: &str = "ERC20";
-pub mod tron;
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
@@ -6225,6 +6226,7 @@ pub fn u256_to_big_decimal(number: U256, decimals: u8) -> NumConversResult<BigDe
 }
 
 /// Shifts 'number' with decimal point right by 'decimals' places and converts it to U256 value
+/// TODO: suggestion: rename fn wei_... to u256_... as it could not be always 'wei' but also smallest token units
 pub fn wei_from_big_decimal(amount: &BigDecimal, decimals: u8) -> NumConversResult<U256> {
     let mut amount = amount.to_string();
     let dot = amount.find(|c| c == '.');

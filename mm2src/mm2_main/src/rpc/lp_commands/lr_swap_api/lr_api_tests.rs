@@ -1,6 +1,6 @@
+use super::LrBestQuoteRequest;
 use crate::lp_ordermatch::{OrderbookAddress, RpcOrderbookEntryV2};
 use crate::rpc::lp_commands::legacy::electrum;
-use super::LrBestQuoteRequest;
 use coins::eth::EthCoin;
 use coins_activation::platform_for_tests::init_platform_coin_with_tokens_loop;
 use crypto::CryptoCtx;
@@ -15,6 +15,8 @@ use uuid::Uuid;
 /// TODO: make it mockable to run within CI
 #[tokio::test]
 async fn test_find_best_lr_swap_for_order_list() {
+    let _ = env_logger::try_init(); // to print log::info! log::debug! etc messages from the impl code (also use RUST_LOG)
+
     let platform_coin = "ETH".to_owned();
     let base_conf = btc_with_spv_conf();
     let platform_coin_conf = json!({
@@ -186,10 +188,9 @@ async fn test_find_best_lr_swap_for_order_list() {
     };
 
     let response = super::lr_best_quote_rpc(ctx, req).await;
-    println!("response={:?}", response);
+    log!("response={:?}", response);
     assert!(response.is_ok(), "response={:?}", response);
 
     // BTC / WETH price around 35.0
-    println!("response total_price={}", response.unwrap().total_price.to_decimal());
+    log!("response total_price={}", response.unwrap().total_price.to_decimal());
 }
-

@@ -1,15 +1,18 @@
 use super::lr_errors::LrSwapError;
-use coins::{lp_coinfind_or_err, MmCoinEnum, Ticker};
-use coins::eth::{EthCoin, EthCoinType};
-use ethereum_types::Address as EthAddress;
+use coins::eth::{u256_to_big_decimal, wei_from_big_decimal, EthCoin, EthCoinType};
+use coins::{lp_coinfind_or_err, MmCoinEnum, NumConversResult, Ticker};
+use ethereum_types::{Address as EthAddress, FromDecStrErr, U256};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use mm2_rpc::data::legacy::{SellBuyRequest, TakerAction};
 use mm2_number::MmNumber;
+use mm2_rpc::data::legacy::TakerAction;
 use std::str::FromStr;
 use trading_api::one_inch_api::client::ApiClient;
 
-pub(crate) async fn get_coin_for_one_inch(ctx: &MmArc, ticker: &Ticker) -> MmResult<(EthCoin, EthAddress), LrSwapError> {
+pub(crate) async fn get_coin_for_one_inch(
+    ctx: &MmArc,
+    ticker: &Ticker,
+) -> MmResult<(EthCoin, EthAddress), LrSwapError> {
     let coin = match lp_coinfind_or_err(ctx, ticker).await? {
         MmCoinEnum::EthCoin(coin) => coin,
         _ => return Err(MmError::new(LrSwapError::CoinTypeError)),
@@ -34,26 +37,9 @@ pub(crate) fn check_if_one_inch_supports_pair(base_chain_id: u64, rel_chain_id: 
     Ok(())
 }
 
-// TODO: make this impl for SellBuyRequest
 #[allow(clippy::result_large_err)]
-pub(crate) fn maker_coin_from_req(sell_buy_req: &SellBuyRequest) -> MmResult<Ticker, LrSwapError> {
-    match sell_buy_method(sell_buy_req)? {
-        TakerAction::Buy => Ok(sell_buy_req.base.clone()),
-        TakerAction::Sell => Ok(sell_buy_req.rel.clone()),
-    }
-}
-
-#[allow(clippy::result_large_err)]
-pub(crate) fn taker_coin_from_req(sell_buy_req: &SellBuyRequest) -> MmResult<Ticker, LrSwapError> {
-    match sell_buy_method(sell_buy_req)? {
-        TakerAction::Buy => Ok(sell_buy_req.rel.clone()),
-        TakerAction::Sell => Ok(sell_buy_req.base.clone()),
-    }
-}
-
-#[allow(clippy::result_large_err)]
-pub(crate) fn sell_buy_method(sell_buy_req: &SellBuyRequest) -> MmResult<TakerAction, LrSwapError> {
-    match sell_buy_req.method.as_str() {
+pub(crate) fn sell_buy_method(method: &str) -> MmResult<TakerAction, LrSwapError> {
+    match method {
         "buy" => Ok(TakerAction::Buy),
         "sell" => Ok(TakerAction::Sell),
         _ => MmError::err(LrSwapError::InvalidParam(
@@ -62,21 +48,21 @@ pub(crate) fn sell_buy_method(sell_buy_req: &SellBuyRequest) -> MmResult<TakerAc
     }
 }
 
-/*
-/// Maker volume as atomic swap maker volume 
-#[allow(clippy::result_large_err)]
-pub(crate) fn maker_volume_from_req(sell_buy_req: &SellBuyRequest) -> MmResult<MmNumber, LrSwapError> {
-    match sell_buy_method(sell_buy_req)? {
-        TakerAction::Buy => Ok(sell_buy_req.volume.clone()),
-        TakerAction::Sell => Ok(&sell_buy_req.volume * &sell_buy_req.price),
-    }
-}*/
+#[inline]
+pub(crate) fn mm_number_to_u256(mm_number: &MmNumber) -> Result<U256, FromDecStrErr> {
+    U256::from_dec_str(mm_number.to_ratio().to_integer().to_string().as_str())
+}
 
-/// Taker volume as atomic swap taker volume 
-#[allow(clippy::result_large_err)]
-pub(crate) fn taker_volume_from_req(sell_buy_req: &SellBuyRequest) -> MmResult<MmNumber, LrSwapError> {
-    match sell_buy_method(sell_buy_req)? {
-        TakerAction::Buy => Ok(&sell_buy_req.volume * &sell_buy_req.price),
-        TakerAction::Sell => Ok(sell_buy_req.volume.clone()),
-    }
+#[inline]
+pub(crate) fn mm_number_from_u256(u256: U256) -> MmNumber { MmNumber::from(u256.to_string().as_str()) }
+
+#[inline]
+pub(crate) fn u256_from_coins_mm_number(mm_number: &MmNumber, decimals: u8) -> NumConversResult<U256> {
+    wei_from_big_decimal(&mm_number.to_decimal(), decimals)
+}
+
+#[inline]
+#[allow(unused)]
+pub(crate) fn u256_to_coins_mm_number(u256: U256, decimals: u8) -> NumConversResult<MmNumber> {
+    Ok(MmNumber::from(u256_to_big_decimal(u256, decimals)?))
 }

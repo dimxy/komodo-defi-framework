@@ -131,7 +131,6 @@ where
         drop_mutability!(events);
         let serialized_events = serde_json::to_string(&events)?;
         update_swap_events(&ctx.sqlite_connection(), &id_str, &serialized_events)?;
-        println!("store_swap_event updated events={}", serialized_events);
         Ok(())
     })
     .await

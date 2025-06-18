@@ -1,10 +1,11 @@
 //! Types for LR swaps rpc
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
-use crate::rpc::lp_commands::ext_api::ext_api_types::{ClassicSwapCreateRequest, ClassicSwapDetails};
+use crate::rpc::lp_commands::ext_api::ext_api_errors::ExtApiRpcError;
+use crate::rpc::lp_commands::ext_api::ext_api_types::{ClassicSwapCreateOptParams, ClassicSwapDetails};
 use coins::Ticker;
 use mm2_number::MmNumber;
-use mm2_rpc::data::legacy::SellBuyRequest;
+use mm2_rpc::data::legacy::{MatchBy, OrderType};
 use uuid::Uuid;
 
 /// Request to find best swap path with LR to fill an order from list.
@@ -70,27 +71,67 @@ pub struct LrQuotesForTokensResponse {
     pub quotes: Vec<QuotesDetails>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LrSwapRpcParams {
+    pub slippage: f32,
+    pub swap_details: ClassicSwapDetails,
+    pub opt_params: Option<ClassicSwapCreateOptParams>,
+}
+
+impl LrSwapRpcParams {
+    pub fn get_source_token(&self) -> Result<Ticker, ExtApiRpcError> {
+        Ok(self
+            .swap_details
+            .src_token
+            .as_ref()
+            .ok_or(ExtApiRpcError::NoLrTokenInfo)?
+            .symbol_kdf
+            .as_ref()
+            .ok_or(ExtApiRpcError::NoLrTokenInfo)?
+            .clone())
+    }
+    pub fn get_destination_token(&self) -> Result<Ticker, ExtApiRpcError> {
+        Ok(self
+            .swap_details
+            .dst_token
+            .as_ref()
+            .ok_or(ExtApiRpcError::NoLrTokenInfo)?
+            .symbol_kdf
+            .as_ref()
+            .ok_or(ExtApiRpcError::NoLrTokenInfo)?
+            .clone())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AtomicSwapRpcParams {
+    pub volume: Option<MmNumber>,
+    pub base: Ticker,
+    pub rel: Ticker,
+    pub price: MmNumber,
+    pub method: String,
+    #[serde(default)]
+    pub match_by: MatchBy,
+    #[serde(default)]
+    pub order_type: OrderType,
+    // TODO: add opt params
+}
+
 /// Request to fill a maker order with atomic swap with LR steps
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LrFillMakerOrderRequest {
-    /// Source swap amount, 
-    /// which can be optionaly routed via a LR provider,
-    /// then swapped with an atomic swap,
-    /// then again optionally routed via a LR provider
-    pub volume: MmNumber,
-
-    /// Sell or buy params for normal atomic swap
-    pub sell_buy_req: SellBuyRequest,
+    /// Sell or buy params for the atomic swap step
+    pub atomic_swap: AtomicSwapRpcParams,
 
     /// Params to create 1inch LR swap (from 1inch quote)
     /// TODO: make this an enum to allow other LR providers
-    //    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lr_swap_0: Option<ClassicSwapCreateRequest>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub lr_swap_0: Option<LrSwapRpcParams>,
 
     /// Params to create 1inch LR swap (from 1inch quote)
-    //    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lr_swap_1: Option<ClassicSwapCreateRequest>,
+    //#[serde(skip_serializing_if = "Option::is_none")]
+    pub lr_swap_1: Option<LrSwapRpcParams>,
 }
 
 /// Response to sell or buy order with LR

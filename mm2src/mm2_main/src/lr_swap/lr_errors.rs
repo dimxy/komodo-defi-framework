@@ -73,9 +73,7 @@ impl From<OneInchError> for LrSwapError {
     fn from(error: OneInchError) -> Self {
         match error {
             OneInchError::InvalidParam(error) => LrSwapError::InvalidParam(error),
-            OneInchError::OutOfBounds { param, value, min, max } => {
-                LrSwapError::OutOfBounds { param, value, min, max }
-            },
+            OneInchError::OutOfBounds { param, value, min, max } => LrSwapError::OutOfBounds { param, value, min, max },
             OneInchError::TransportError(_)
             | OneInchError::ParseBodyError { .. }
             | OneInchError::GeneralApiError { .. } => LrSwapError::OneInchError(error),
