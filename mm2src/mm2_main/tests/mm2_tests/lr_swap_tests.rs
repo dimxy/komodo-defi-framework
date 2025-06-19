@@ -264,32 +264,10 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
         0.0000037313793103,
         1.0,
     )); // AAVE
-    if order_res_1.is_err() || order_res_2.is_err() || order_res_3.is_err() || order_res_4.is_err() {
-        log!(
-            "maker orders created with errors: order_1=\"{}\" order_2=\"{}\" order_3=\"{}\" order_4=\"{}\"",
-            if order_res_1.is_err() {
-                order_res_1.unwrap_err()
-            } else {
-                "".to_owned()
-            },
-            if order_res_2.is_err() {
-                order_res_2.unwrap_err()
-            } else {
-                "".to_owned()
-            },
-            if order_res_3.is_err() {
-                order_res_3.unwrap_err()
-            } else {
-                "".to_owned()
-            },
-            if order_res_4.is_err() {
-                order_res_4.unwrap_err()
-            } else {
-                "".to_owned()
-            },
-        );
-        panic!("could not create maker orders for test");
-    }
+    check_results(
+        &[order_res_1, order_res_2, order_res_3, order_res_4],
+        "maker orders created with errors",
+    );
 
     let token_1_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_1_ticker, 60)).unwrap();
     let token_2_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_2_ticker, 60)).unwrap();
@@ -662,4 +640,17 @@ async fn cancel_order(mm: &MarketMakerIt, uuid: &Uuid) {
         }))
         .await
         .unwrap();
+}
+
+fn check_results<T: std::fmt::Debug>(results: &[Result<T, String>], msg: &str) {
+    let mut err_msg = "".to_owned();
+    for (i, r) in results.iter().enumerate() {
+        if r.is_err() {
+            err_msg += format!(" result[{i}]={}", r.as_ref().unwrap_err()).as_str();
+        }
+    }
+    if !err_msg.is_empty() {
+        log!("{},{}", msg, err_msg);
+        panic!("{}", msg);
+    }
 }
