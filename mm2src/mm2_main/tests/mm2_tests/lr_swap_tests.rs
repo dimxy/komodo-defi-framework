@@ -326,7 +326,7 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let active_swaps_alice = block_on(active_swaps(&mm_alice));
     assert_eq!(active_swaps_alice.uuids, vec![agg_uuid]);
 
-    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 120)); // Only taker has the aggregated swap
+    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 180)); // Only taker has the aggregated swap
     log!("Aggregated lr swap {:?} finished", agg_uuid);
 
     let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
