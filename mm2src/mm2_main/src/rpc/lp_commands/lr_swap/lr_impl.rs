@@ -262,7 +262,7 @@ impl LrDataMap {
             src_dst.push((src_token.clone(), dst_token.clone()));
         }
         let swap_data = join_all(quote_futs).await.into_iter().map(|res| res.ok()); // if a bad result received (for e.g. low liguidity) set to None to preserve swap_data length
-        let swap_data_map = src_dst.into_iter().zip(swap_data.into_iter()).collect();
+        let swap_data_map = src_dst.into_iter().zip(swap_data).collect();
         self.update_with_lr_swap_data(swap_data_map);
         Ok(())
     }
