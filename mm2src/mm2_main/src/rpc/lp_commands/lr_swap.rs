@@ -108,6 +108,7 @@ mod tests {
     /// TODO: make it mockable to run within CI
     #[tokio::test]
     async fn test_find_best_lr_swap_for_order_list() {
+        // let _ = env_logger::try_init(); // enable to print log messages in the impl
         let main_net_url: String = std::env::var("ETH_MAIN_NET_URL_FOR_TEST").unwrap_or_default();
         let platform_coin = "ETH".to_owned();
         let base_conf = btc_with_spv_conf();
@@ -282,10 +283,10 @@ mod tests {
         };
 
         let response = super::lr_best_quote_rpc(ctx, req).await;
-        println!("response={:?}", response);
+        // log!("response={:?}", response); // enable to investigate the response
         assert!(response.is_ok());
 
         // BTC / WETH price around 35.0
-        println!("response total_price={}", response.unwrap().total_price.to_decimal());
+        log!("response total_price={}", response.unwrap().total_price.to_decimal());
     }
 }

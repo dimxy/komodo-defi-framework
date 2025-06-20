@@ -4078,6 +4078,7 @@ dependencies = [
  "either",
  "enum-primitive-derive",
  "enum_derives",
+ "env_logger",
  "ethabi",
  "ethcore-transaction",
  "ethereum-types",
