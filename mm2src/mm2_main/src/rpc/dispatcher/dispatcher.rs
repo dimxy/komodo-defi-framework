@@ -163,7 +163,7 @@ async fn experimental_rpcs_dispatcher(
     if let Some(staking_method) = experimental_method.strip_prefix("staking::") {
         return staking_dispatcher(request, ctx, staking_method).await;
     }
-    if let Some(lr_method) = experimental_method.strip_prefix("lr::") {
+    if let Some(lr_method) = experimental_method.strip_prefix("liquidity_routing::") {
         return liquidity_routing_dispatcher(request, ctx, lr_method).await;
     }
     if let Some(one_inch_method) = experimental_method.strip_prefix("1inch_v6_0::") {
