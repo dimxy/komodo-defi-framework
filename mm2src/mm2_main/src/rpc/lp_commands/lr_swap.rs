@@ -6,7 +6,8 @@ use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
 use lr_impl::find_best_fill_ask_with_lr;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError, mm_error::MmResult};
-use types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillOrderRequest, LrFillOrderResponse, LrQuotesForTokensRequest};
+use types::{LrExecuteRoutedTradeRequest, LrExecuteRoutedTradeResponse, LrFindBestQuoteRequest,
+            LrFindBestQuoteResponse, LrGetQuotesForTokensRequest};
 
 mod lr_impl;
 mod types;
@@ -29,10 +30,10 @@ mod types;
 /// bid orders with rel=token_x, with routing token_x into my_token after the dex-swap
 /// ask orders with base=token_x, with routing token_x into my_token after the dex-swap
 /// bid orders with base=token_x, with routing User's my_token into token_x before the dex-swap
-pub async fn lr_best_quote_rpc(
+pub async fn lr_find_best_quote_rpc(
     ctx: MmArc,
-    req: LrBestQuoteRequest,
-) -> MmResult<LrBestQuoteResponse, ApiIntegrationRpcError> {
+    req: LrFindBestQuoteRequest,
+) -> MmResult<LrFindBestQuoteResponse, ApiIntegrationRpcError> {
     // TODO: add validation:
     // order.base_min_volume << req.amount <= order.base_max_volume
     // order.coin is supported in 1inch
@@ -40,16 +41,16 @@ pub async fn lr_best_quote_rpc(
     // when best order is selected validate against req.rel_max_volume and req.rel_min_volume
     // coins in orders should be unique
 
-    let (my_eth_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
-    let my_chain_id = my_eth_coin
+    let (user_rel_coin, _) = get_coin_for_one_inch(&ctx, &req.user_rel).await?;
+    let user_rel_chain = user_rel_coin
         .chain_id()
         .ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
     let (swap_data, best_order, total_price) =
-        find_best_fill_ask_with_lr(&ctx, req.my_token, req.asks, &req.amount).await?;
-    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, my_chain_id, swap_data)
+        find_best_fill_ask_with_lr(&ctx, req.user_base, req.user_rel, req.asks, req.bids, &req.volume).await?;
+    let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain, swap_data)
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;
-    Ok(LrBestQuoteResponse {
+    Ok(LrFindBestQuoteResponse {
         lr_swap_details,
         best_order,
         total_price,
@@ -73,27 +74,27 @@ pub async fn lr_best_quote_rpc(
 /// That is, it's up to the User to select the most cost effective swap, for e.g. comparing token fiat value.
 /// In fact, this could be done even in this RPC as 1inch also can get value in fiat but maybe User evaludation is more prefferable.
 /// Again, it's a TODO.
-pub async fn lr_quotes_for_tokens_rpc(
+pub async fn lr_get_quotes_for_tokens_rpc(
     _ctx: MmArc,
-    _req: LrQuotesForTokensRequest,
-) -> MmResult<LrBestQuoteResponse, ApiIntegrationRpcError> {
+    _req: LrGetQuotesForTokensRequest,
+) -> MmResult<LrFindBestQuoteResponse, ApiIntegrationRpcError> {
     // TODO: impl later
     todo!()
 }
 
 /// Run a swap with LR to fill a maker order
-pub async fn lr_fill_order_rpc(
+pub async fn lr_execute_routed_trade_rpc(
     _ctx: MmArc,
-    _req: LrFillOrderRequest,
-) -> MmResult<LrFillOrderResponse, ApiIntegrationRpcError> {
+    _req: LrExecuteRoutedTradeRequest,
+) -> MmResult<LrExecuteRoutedTradeResponse, ApiIntegrationRpcError> {
     todo!()
 }
 
 #[cfg(all(test, feature = "test-ext-api", not(target_arch = "wasm32")))]
 mod tests {
+    use super::types::{AsksForCoin, LrFindBestQuoteRequest};
     use crate::lp_ordermatch::{OrderbookAddress, RpcOrderbookEntryV2};
     use crate::rpc::lp_commands::legacy::electrum;
-    use crate::rpc::lp_commands::lr_swap::LrBestQuoteRequest;
     use coins::eth::EthCoin;
     use coins_activation::platform_for_tests::init_platform_coin_with_tokens_loop;
     use crypto::CryptoCtx;
@@ -233,56 +234,62 @@ mod tests {
         .await
         .unwrap();
 
-        let asks = vec![
-            RpcOrderbookEntryV2 {
-                coin: bnb_ticker,
-                address: OrderbookAddress::Transparent("RLL6n4ayAv1haokcEd1QUEYniyeoiYkn7W".into()),
-                price: MmNumberMultiRepr::from(MmNumber::from("145.69")),
-                pubkey: "02f3578fbc0fc76056eae34180a71e9190ee08ad05d40947aab7a286666e2ce798".to_owned(),
-                uuid: Uuid::from_str("7f26dc6a-39ab-4685-b5f1-55f12268ea50").unwrap(),
-                is_mine: false,
-                base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
-                base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
-                rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("145.69")),
-                rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("14.569")),
-                conf_settings: Default::default(),
-            },
-            RpcOrderbookEntryV2 {
-                coin: aave_ticker,
-                address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
-                price: MmNumberMultiRepr::from(MmNumber::from("370.334")),
-                pubkey: "02470bfb8e7710be4a7c2b8e9ba4bcfc5362a71643e64fc2e33b0d64c844ee9123".to_owned(),
-                uuid: Uuid::from_str("2aadf450-6a8e-4e4e-8b89-19ca10f23cc3").unwrap(),
-                is_mine: false,
-                base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
-                base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
-                rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("370.334")),
-                rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("37.0334")),
-                conf_settings: Default::default(),
-            },
-            RpcOrderbookEntryV2 {
-                coin: cnc_ticker,
-                address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
-                price: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
-                pubkey: "03de96cb66dcfaceaa8b3d4993ce8914cd5fe84e3fd53cefdae45add8032792a12".to_owned(),
-                uuid: Uuid::from_str("89ab019f-b2fe-4d89-9764-96ac4a3fbf8e").unwrap(),
-                is_mine: false,
-                base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
-                base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
-                rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
-                rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("69930.069")),
-                conf_settings: Default::default(),
-            },
-        ];
+        let asks = vec![AsksForCoin {
+            base: base_ticker.clone(),
+            orders: vec![
+                RpcOrderbookEntryV2 {
+                    coin: bnb_ticker,
+                    address: OrderbookAddress::Transparent("RLL6n4ayAv1haokcEd1QUEYniyeoiYkn7W".into()),
+                    price: MmNumberMultiRepr::from(MmNumber::from("145.69")),
+                    pubkey: "02f3578fbc0fc76056eae34180a71e9190ee08ad05d40947aab7a286666e2ce798".to_owned(),
+                    uuid: Uuid::from_str("7f26dc6a-39ab-4685-b5f1-55f12268ea50").unwrap(),
+                    is_mine: false,
+                    base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
+                    base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
+                    rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("145.69")),
+                    rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("14.569")),
+                    conf_settings: Default::default(),
+                },
+                RpcOrderbookEntryV2 {
+                    coin: aave_ticker,
+                    address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
+                    price: MmNumberMultiRepr::from(MmNumber::from("370.334")),
+                    pubkey: "02470bfb8e7710be4a7c2b8e9ba4bcfc5362a71643e64fc2e33b0d64c844ee9123".to_owned(),
+                    uuid: Uuid::from_str("2aadf450-6a8e-4e4e-8b89-19ca10f23cc3").unwrap(),
+                    is_mine: false,
+                    base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
+                    base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
+                    rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("370.334")),
+                    rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("37.0334")),
+                    conf_settings: Default::default(),
+                },
+                RpcOrderbookEntryV2 {
+                    coin: cnc_ticker,
+                    address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
+                    price: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
+                    pubkey: "03de96cb66dcfaceaa8b3d4993ce8914cd5fe84e3fd53cefdae45add8032792a12".to_owned(),
+                    uuid: Uuid::from_str("89ab019f-b2fe-4d89-9764-96ac4a3fbf8e").unwrap(),
+                    is_mine: false,
+                    base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
+                    base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
+                    rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
+                    rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("69930.069")),
+                    conf_settings: Default::default(),
+                },
+            ],
+        }];
+        let bids = vec![];
 
-        let req = LrBestQuoteRequest {
-            base: base_ticker,
-            amount: "0.123".into(),
+        let req = LrFindBestQuoteRequest {
+            user_base: base_ticker,
+            volume: "0.123".into(),
             asks,
-            my_token: weth_ticker,
+            method: "buy".to_string(),
+            bids,
+            user_rel: weth_ticker,
         };
 
-        let response = super::lr_best_quote_rpc(ctx, req).await;
+        let response = super::lr_find_best_quote_rpc(ctx, req).await;
         // log!("response={:?}", response); // enable to investigate the response
         assert!(response.is_ok());
 
