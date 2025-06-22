@@ -13,7 +13,8 @@ use crate::lp_swap::swap_v2_rpcs::{active_swaps_rpc, my_recent_swaps_rpc, my_swa
 use crate::lp_swap::{get_locked_amount_rpc, max_maker_vol, recreate_swap_data, trade_preimage_rpc};
 use crate::lp_wallet::{change_mnemonic_password, get_mnemonic_rpc, get_wallet_names_rpc};
 use crate::rpc::lp_commands::db_id::get_shared_db_id;
-use crate::rpc::lp_commands::lr_swap::{lr_best_quote_rpc, lr_fill_order_rpc, lr_quotes_for_tokens_rpc};
+use crate::rpc::lp_commands::lr_swap::{lr_execute_routed_trade_rpc, lr_find_best_quote_rpc,
+                                       lr_get_quotes_for_tokens_rpc};
 use crate::rpc::lp_commands::one_inch::rpcs::{one_inch_v6_0_classic_swap_contract_rpc,
                                               one_inch_v6_0_classic_swap_create_rpc,
                                               one_inch_v6_0_classic_swap_liquidity_sources_rpc,
@@ -515,9 +516,9 @@ async fn liquidity_routing_dispatcher(
     lr_method: &str,
 ) -> DispatcherResult<Response<Vec<u8>>> {
     match lr_method {
-        "best_quote" => handle_mmrpc(ctx, request, lr_best_quote_rpc).await,
-        "quotes_for_tokens" => handle_mmrpc(ctx, request, lr_quotes_for_tokens_rpc).await,
-        "fill_order" => handle_mmrpc(ctx, request, lr_fill_order_rpc).await,
+        "find_best_quote" => handle_mmrpc(ctx, request, lr_find_best_quote_rpc).await,
+        "get_quotes_for_tokens" => handle_mmrpc(ctx, request, lr_get_quotes_for_tokens_rpc).await,
+        "execute_routed_trade" => handle_mmrpc(ctx, request, lr_execute_routed_trade_rpc).await,
         _ => MmError::err(DispatcherError::NoSuchMethod),
     }
 }
