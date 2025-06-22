@@ -20,7 +20,7 @@ use mm2_err_handle::prelude::*;
 use mm2_number::MmNumber;
 use num_traits::CheckedDiv;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use trading_api::one_inch_api::classic_swap_types::{ClassicSwapData, ClassicSwapQuoteParams};
 use trading_api::one_inch_api::client::{ApiClient, PortfolioApiMethods, PortfolioUrlBuilder, SwapApiMethods,
                                         SwapUrlBuilder};
@@ -116,8 +116,8 @@ struct LrSwapCandidateInfo {
 struct LrSwapCandidates {
     // The array of swaps with LR candidated is indexed by HashMaps with LR_0 and LR_1 base/rel pairs (to easily access and updated)
     // TODO: maybe this is overcomplicated and just a vector of candidates would be sufficicent
-    inner0: HashMap<(Ticker, Ticker), Arc<Mutex<LrSwapCandidateInfo>>>,
-    _inner1: HashMap<(Ticker, Ticker), Arc<Mutex<LrSwapCandidateInfo>>>,
+    inner0: HashMap<(Ticker, Ticker), Arc<RwLock<LrSwapCandidateInfo>>>,
+    _inner1: HashMap<(Ticker, Ticker), Arc<RwLock<LrSwapCandidateInfo>>>,
 }
 
 impl LrSwapCandidates {
@@ -147,7 +147,7 @@ impl LrSwapCandidates {
                     },
                     _lr_data_1: None, // TODO: add support for LR 1
                 };
-                let candidate = Arc::new(Mutex::new(candidate));
+                let candidate = Arc::new(RwLock::new(candidate));
                 inner0.insert((src_token.clone(), order.coin.clone()), candidate);
                 // TODO: add support for inner1
             }
@@ -166,18 +166,18 @@ impl LrSwapCandidates {
         base_amount: &MmNumber,
     ) -> MmResult<(), ApiIntegrationRpcError> {
         for candidate in self.inner0.values_mut() {
-            let ticker = candidate.lock().unwrap().atomic_swap_order.order().coin.clone();
+            let ticker = candidate.read().unwrap().atomic_swap_order.order().coin.clone();
             let coin = lp_coinfind_or_err(ctx, &ticker).await?;
-            let mut candidate_guard = candidate.lock().unwrap();
-            let price: MmNumber = candidate_guard.atomic_swap_order.order().price.rational.clone().into();
+            let mut candidate_write = candidate.write().unwrap();
+            let price: MmNumber = candidate_write.atomic_swap_order.order().price.rational.clone().into();
             let dst_amount = base_amount * &price;
-            let Some(ref mut lr_data_0) = candidate_guard.lr_data_0 else {
+            let Some(ref mut lr_data_0) = candidate_write.lr_data_0 else {
                 continue;
             };
             lr_data_0.dst_amount = Some(wei_from_coins_mm_number(&dst_amount, coin.decimals())?);
             log::debug!(
                 "calc_destination_token_amounts atomic_swap_order.order.coin={} coin.decimals()={} lr_data_0.dst_amount={:?}",
-                candidate.lock().unwrap().atomic_swap_order.order().coin,
+                candidate.read().unwrap().atomic_swap_order.order().coin,
                 coin.decimals(),
                 lr_data_0.dst_amount
             );
@@ -187,7 +187,7 @@ impl LrSwapCandidates {
 
     fn update_with_lr_prices(&mut self, mut lr_prices: HashMap<(Ticker, Ticker), Option<MmNumber>>) {
         for (key, val) in self.inner0.iter_mut() {
-            if let Some(ref mut lr_data_0) = val.lock().unwrap().lr_data_0 {
+            if let Some(ref mut lr_data_0) = val.write().unwrap().lr_data_0 {
                 lr_data_0.lr_price = lr_prices.remove(key).flatten();
             }
         }
@@ -195,7 +195,7 @@ impl LrSwapCandidates {
 
     fn update_with_lr_swap_data(&mut self, mut lr_swap_data: HashMap<(Ticker, Ticker), Option<ClassicSwapData>>) {
         for (key, val) in self.inner0.iter_mut() {
-            if let Some(ref mut lr_data_0) = val.lock().unwrap().lr_data_0 {
+            if let Some(ref mut lr_data_0) = val.write().unwrap().lr_data_0 {
                 lr_data_0.lr_swap_data = lr_swap_data.remove(key).flatten();
             }
         }
@@ -205,8 +205,8 @@ impl LrSwapCandidates {
         for ((src_token, dst_token), candidate) in self.inner0.iter_mut() {
             let (src_coin, src_contract) = get_coin_for_one_inch(ctx, src_token).await?;
             let (dst_coin, dst_contract) = get_coin_for_one_inch(ctx, dst_token).await?;
-            let mut candidate = candidate.lock().unwrap();
-            let Some(ref mut lr_data_0) = candidate.lr_data_0 else {
+            let mut candidate_write = candidate.write().unwrap();
+            let Some(ref mut lr_data_0) = candidate_write.lr_data_0 else {
                 continue;
             };
             let src_decimals = src_coin.decimals();
@@ -233,8 +233,8 @@ impl LrSwapCandidates {
         let mut prices_futs = vec![];
         let mut src_dst = vec![];
         for ((src_token, dst_token), candidate) in self.inner0.iter() {
-            let candidate = candidate.lock().unwrap();
-            let Some(ref lr_data_0) = candidate.lr_data_0 else {
+            let candidate_read = candidate.read().unwrap();
+            let Some(ref lr_data_0) = candidate_read.lr_data_0 else {
                 continue;
             };
             let (src_contract, dst_contract, chain_id) = lr_data_0.get_chain_contract_info()?;
@@ -270,8 +270,8 @@ impl LrSwapCandidates {
     #[allow(clippy::result_large_err)]
     fn estimate_source_token_amounts(&mut self) -> MmResult<(), ApiIntegrationRpcError> {
         for candidate in self.inner0.values_mut() {
-            let mut candidate_guard = candidate.lock().unwrap();
-            let Some(ref mut lr_data_0) = candidate_guard.lr_data_0 else {
+            let mut candidate_write = candidate.write().unwrap();
+            let Some(ref mut lr_data_0) = candidate_write.lr_data_0 else {
                 continue;
             };
             let Some(ref dst_price) = lr_data_0.lr_price else {
@@ -285,7 +285,7 @@ impl LrSwapCandidates {
                 lr_data_0.src_amount = Some(mm_number_to_u256(src_amount)?);
                 log::debug!(
                     "estimate_source_token_amounts lr_data.order.coin={} dst_price={} lr_data.src_amount={:?}",
-                    candidate.lock().unwrap().atomic_swap_order.order().coin,
+                    candidate.read().unwrap().atomic_swap_order.order().coin,
                     dst_price.to_decimal(),
                     lr_data_0.src_amount
                 );
@@ -299,8 +299,8 @@ impl LrSwapCandidates {
         let mut src_dst = vec![];
         let mut quote_futs = vec![];
         for ((src_token, dst_token), candidate) in self.inner0.iter() {
-            let candidate = candidate.lock().unwrap();
-            let Some(ref lr_data_0) = candidate.lr_data_0 else {
+            let candidate_read = candidate.read().unwrap();
+            let Some(ref lr_data_0) = candidate_read.lr_data_0 else {
                 continue;
             };
             let Some(src_amount) = lr_data_0.src_amount else {
@@ -345,9 +345,9 @@ impl LrSwapCandidates {
         self.inner0
             .values()
             .filter_map(|candidate| {
-                let candidate_guard = candidate.lock().unwrap();
-                let atomic_swap_order = candidate_guard.atomic_swap_order.clone();
-                candidate_guard
+                let candidate_read = candidate.read().unwrap();
+                let atomic_swap_order = candidate_read.atomic_swap_order.clone();
+                candidate_read
                     .lr_data_0
                     .as_ref()
                     .map(|lr_data_0| (atomic_swap_order, lr_data_0.clone()))
