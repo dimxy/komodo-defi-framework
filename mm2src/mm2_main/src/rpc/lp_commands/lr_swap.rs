@@ -25,11 +25,11 @@ mod types;
 /// and returns the most price-effective swap path, taking into account order and LR prices.
 /// TODO: should also returns total fees.
 ///
-/// TODO: currently supported only ask orders with rel=token_x, with routing User's my_token into token_x before the dex-swap.
-/// The RPC should also support:
-/// bid orders with rel=token_x, with routing token_x into my_token after the dex-swap
-/// ask orders with base=token_x, with routing token_x into my_token after the dex-swap
-/// bid orders with base=token_x, with routing User's my_token into token_x before the dex-swap
+/// TODO: currently the RPC supports filling only maker ask orders with rel=token_x, with routing 'user_rel' into maker 'rel' before the 'buy' atomic swap.
+/// The RPC should also support other options:
+/// filling maker bid orders with routing maker 'rel' into 'user_base' after the 'sell' atomic swap
+/// filling maker ask orders with routing maker 'base' into 'user_rel' after the 'buy' atomic-swap
+/// filling maker bid orders with routing 'user_base' token into maker 'base' before the 'sell' atomic swap
 pub async fn lr_find_best_quote_rpc(
     ctx: MmArc,
     req: LrFindBestQuoteRequest,
