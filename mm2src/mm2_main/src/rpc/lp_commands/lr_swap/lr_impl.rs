@@ -166,20 +166,21 @@ impl LrSwapCandidates {
         base_amount: &MmNumber,
     ) -> MmResult<(), ApiIntegrationRpcError> {
         for candidate in self.inner0.values_mut() {
-            let ticker = candidate.read().unwrap().atomic_swap_order.order().coin.clone();
-            let coin = lp_coinfind_or_err(ctx, &ticker).await?;
+            let order_ticker = candidate.read().unwrap().atomic_swap_order.order().coin.clone();
+            let coin = lp_coinfind_or_err(ctx, &order_ticker).await?;
             let mut candidate_write = candidate.write().unwrap();
             let price: MmNumber = candidate_write.atomic_swap_order.order().price.rational.clone().into();
             let dst_amount = base_amount * &price;
             let Some(ref mut lr_data_0) = candidate_write.lr_data_0 else {
                 continue;
             };
-            lr_data_0.dst_amount = Some(wei_from_coins_mm_number(&dst_amount, coin.decimals())?);
+            let dst_amount = wei_from_coins_mm_number(&dst_amount, coin.decimals())?;
+            lr_data_0.dst_amount = Some(dst_amount);
             log::debug!(
                 "calc_destination_token_amounts atomic_swap_order.order.coin={} coin.decimals()={} lr_data_0.dst_amount={:?}",
-                candidate.read().unwrap().atomic_swap_order.order().coin,
+                order_ticker,
                 coin.decimals(),
-                lr_data_0.dst_amount
+                dst_amount
             );
         }
         Ok(())
@@ -270,6 +271,7 @@ impl LrSwapCandidates {
     #[allow(clippy::result_large_err)]
     fn estimate_source_token_amounts(&mut self) -> MmResult<(), ApiIntegrationRpcError> {
         for candidate in self.inner0.values_mut() {
+            let order_ticker = candidate.read().unwrap().atomic_swap_order.order().coin.clone();
             let mut candidate_write = candidate.write().unwrap();
             let Some(ref mut lr_data_0) = candidate_write.lr_data_0 else {
                 continue;
@@ -285,9 +287,9 @@ impl LrSwapCandidates {
                 lr_data_0.src_amount = Some(mm_number_to_u256(src_amount)?);
                 log::debug!(
                     "estimate_source_token_amounts lr_data.order.coin={} dst_price={} lr_data.src_amount={:?}",
-                    candidate.read().unwrap().atomic_swap_order.order().coin,
+                    order_ticker,
                     dst_price.to_decimal(),
-                    lr_data_0.src_amount
+                    src_amount
                 );
             }
         }
