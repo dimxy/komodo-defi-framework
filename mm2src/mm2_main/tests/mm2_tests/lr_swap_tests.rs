@@ -37,8 +37,7 @@ use ethereum_types::{Address, H160, H256, U256};
 use lazy_static::lazy_static;
 use mm2_test_helpers::electrums::{doc_electrums, marty_electrums};
 use mm2_test_helpers::for_tests::{best_orders_v2, best_orders_v2_by_number, enable_eth_coin_v2, orderbook_v2};
-use mm2_test_helpers::structs::lr_test_structs::{ClassicSwapDetails, ClassicSwapResponse, LrBestQuoteResponse,
-                                                 LrFillMakerOrderResponse};
+use mm2_test_helpers::structs::lr_test_structs::{AskOrBidOrder, ClassicSwapDetails, ClassicSwapResponse, LrExecuteRoutedTradeResponse, LrFindBestQuoteResponse};
 use mm2_test_helpers::structs::{GetPublicKeyResult, OrderbookV2Response, RpcOrderbookEntryV2, RpcV2Response,
                                 SetPriceResponse};
 use std::collections::HashSet;
@@ -530,12 +529,12 @@ async fn find_best_lr_swap(
     asks: &[RpcOrderbookEntryV2],
     amount_to_buy: &BigDecimal,
     my_token: &str,
-) -> Result<LrBestQuoteResponse, String> {
+) -> Result<LrFindBestQuoteResponse, String> {
     common::log::info!("Issue lr::best_quote {}/{} request", base, my_token);
     let rc = taker
         .rpc(&json!({
             "userpass": taker.userpass,
-            "method": "experimental::lr::best_quote",
+            "method": "experimental::liquidity_routing::find_best_quote",
             "mmrpc": "2.0",
             "params": {
                 "base": base,
@@ -547,7 +546,7 @@ async fn find_best_lr_swap(
         .await
         .unwrap();
     if rc.0.is_success() {
-        let resp: RpcV2Response<LrBestQuoteResponse> = serde_json::from_str(&rc.1).unwrap();
+        let resp: RpcV2Response<LrFindBestQuoteResponse> = serde_json::from_str(&rc.1).unwrap();
         Ok(resp.result)
     } else {
         Err(rc.1)
@@ -560,10 +559,10 @@ async fn create_and_start_agg_taker_swap(
     atomic_swap_volume: Option<&BigDecimal>,
     slippage: f32,
     lr_swap_details_0: Option<ClassicSwapDetails>,
-    order_entry: RpcOrderbookEntryV2,
+    order_entry: AskOrBidOrder,
     lr_swap_details_1: Option<ClassicSwapDetails>,
 ) -> Result<Uuid, String> {
-    common::log::info!("Issue taker {}/{} lr::fill_order request", base, order_entry.coin);
+    common::log::info!("Issue taker {}/{} lr::fill_order request", base, order_entry.order().coin);
 
     assert!(
         lr_swap_details_0.is_some() && atomic_swap_volume.is_none()
@@ -585,18 +584,18 @@ async fn create_and_start_agg_taker_swap(
     let rc = taker
         .rpc(&json!({
             "userpass": taker.userpass,
-            "method": "experimental::lr::fill_order",
+            "method": "experimental::liquidity_routing::execute_routed_trade",
             "mmrpc": "2.0",
             "params": {
                 "atomic_swap": {
                     "volume": atomic_swap_volume,
                     "base": base,
-                    "rel": order_entry.coin,
-                    "price": order_entry.price.rational,
+                    "rel": order_entry.order().coin,
+                    "price": order_entry.order().price.rational,
                     "method": "buy",
                     "match_by": {
                         "type": "Orders",
-                        "data": [order_entry.uuid]
+                        "data": [order_entry.order().uuid]
                     }
                 },
                 "lr_swap_0": lr_swap_0,
@@ -606,7 +605,7 @@ async fn create_and_start_agg_taker_swap(
         .await
         .unwrap();
     if rc.0.is_success() {
-        let resp: RpcV2Response<LrFillMakerOrderResponse> = serde_json::from_str(&rc.1).unwrap();
+        let resp: RpcV2Response<LrExecuteRoutedTradeResponse> = serde_json::from_str(&rc.1).unwrap();
         Ok(resp.result.uuid)
     } else {
         Err(rc.1)

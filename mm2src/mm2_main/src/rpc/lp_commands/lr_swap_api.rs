@@ -9,8 +9,7 @@ use crate::lr_swap::lr_swap_state_machine::lp_start_agg_taker_swap;
 use crate::lr_swap::{AtomicSwapParams, LrSwapParams};
 use coins::eth::u256_to_big_decimal;
 use coins::{lp_coinfind_or_err, CoinWithDerivationMethod, FeeApproxStage, MmCoin};
-use lr_api_types::{LrBestQuoteRequest, LrBestQuoteResponse, LrFillMakerOrderRequest, LrFillMakerOrderResponse,
-                   LrQuotesForTokensRequest};
+use lr_api_types::{LrFindBestQuoteRequest, LrFindBestQuoteResponse, LrGetQuotesForTokensRequest, LrGetQuotesForTokensResponse, LrExecuteRoutedTradeRequest, LrExecuteRoutedTradeResponse};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
@@ -26,20 +25,23 @@ pub(crate) mod lr_api_types;
 ///
 /// More info:
 /// User is interested in buying some coin. There are orders available with the desired coin but User does not have tokens to fill those orders.
-/// User may fill the order with User my_token running an interim LR swap combined with an ordinary atomic swap (using a LR provider like 1inch for the LR swap).
+/// User may fill the order with User my_token running an preliminary LR swap combined with the ordinary dex-swap (using 1inch as the LR provider).
 /// Or, User may convert the tokens from the order into my_token with a subsequent LR swap.
 ///
 /// User calls this RPC with an ask/bid order list, base or rel coin, amount to buy or sell and User token name to fill the order with.
 /// The RPC runs 1inch swap quotes to convert User's my_token into orders' tokens (or backwards)
 /// and returns the most price-effective swap path, taking into account order and LR prices.
-/// TODO: should also return total fees.
+/// TODO: should also returns total fees.
 ///
-/// TODO: currently supported only ask orders with rel=token_x, with routing User's my_token into token_x before the atomic swap.
-/// The RPC should also support:
-/// bid orders with rel=token_x, with routing token_x into my_token after the atomic swap
-/// ask orders with base=token_x, with routing token_x into my_token after the atomic swap
-/// bid orders with base=token_x, with routing User's my_token into token_x before the atomic swap
-pub async fn lr_best_quote_rpc(ctx: MmArc, req: LrBestQuoteRequest) -> MmResult<LrBestQuoteResponse, ExtApiRpcError> {
+/// TODO: currently the RPC supports filling only maker ask orders with rel=token_x, with routing 'user_rel' into maker 'rel' before the 'buy' atomic swap.
+/// The RPC should also support other options:
+/// filling maker bid orders with routing maker 'rel' into 'user_base' after the 'sell' atomic swap
+/// filling maker ask orders with routing maker 'base' into 'user_rel' after the 'buy' atomic-swap
+/// filling maker bid orders with routing 'user_base' token into maker 'base' before the 'sell' atomic swap
+pub async fn lr_find_best_quote_rpc(
+    ctx: MmArc,
+    req: LrFindBestQuoteRequest,
+) -> MmResult<LrFindBestQuoteResponse, ExtApiRpcError> {
     // TODO: add validation:
     // order.base_min_volume << req.amount <= order.base_max_volume
     // order.coin is supported in 1inch
@@ -47,16 +49,19 @@ pub async fn lr_best_quote_rpc(ctx: MmArc, req: LrBestQuoteRequest) -> MmResult<
     // when best order is selected validate against req.rel_max_volume and req.rel_min_volume
     // coins in orders should be unique
 
-    let (src_coin, _) = get_coin_for_one_inch(&ctx, &req.my_token).await?;
-    let src_chain_id = src_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
+    let (user_rel_coin, _) = get_coin_for_one_inch(&ctx, &req.user_rel).await?;
+    let user_rel_chain = user_rel_coin
+        .chain_id()
+        .ok_or(ExtApiRpcError::ChainNotSupported)?;
+
     let (lr_data, best_order, total_price) =
-        find_best_fill_ask_with_lr(&ctx, req.my_token, req.asks, &req.amount).await?;
-    let src_amount = MmNumber::from(u256_to_big_decimal(lr_data.src_amount, src_coin.decimals())?);
+        find_best_fill_ask_with_lr(&ctx, req.user_base, req.user_rel, req.asks, req.bids, &req.volume).await?;
+    let src_amount = MmNumber::from(u256_to_big_decimal(lr_data.src_amount, user_rel_coin.decimals())?);
     let lr_swap_details =
-        ClassicSwapDetails::from_api_classic_swap_data(&ctx, src_chain_id, src_amount, lr_data.api_details)
+        ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain, src_amount, lr_data.api_details)
             .await
             .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))?;
-    Ok(LrBestQuoteResponse {
+    Ok(LrFindBestQuoteResponse {
         lr_swap_details,
         best_order,
         total_price,
@@ -80,19 +85,19 @@ pub async fn lr_best_quote_rpc(ctx: MmArc, req: LrBestQuoteRequest) -> MmResult<
 /// That is, it's up to the User to select the most cost effective swap, for e.g. comparing token fiat value.
 /// In fact, this could be done even in this RPC as 1inch also can get value in fiat but maybe User evaludation is more prefferable.
 /// Again, it's a TODO.
-pub async fn lr_quotes_for_tokens_rpc(
+pub async fn lr_get_quotes_for_tokens_rpc(
     _ctx: MmArc,
-    _req: LrQuotesForTokensRequest,
-) -> MmResult<LrBestQuoteResponse, ExtApiRpcError> {
+    _req: LrGetQuotesForTokensRequest,
+) -> MmResult<LrGetQuotesForTokensResponse, ExtApiRpcError> {
     // TODO: impl later
     todo!()
 }
 
 /// Run a swap with LR to fill a maker order
-pub async fn lr_fill_order_rpc(
+pub async fn lr_execute_routed_trade_rpc(
     ctx: MmArc,
-    req: LrFillMakerOrderRequest,
-) -> MmResult<LrFillMakerOrderResponse, ExtApiRpcError> {
+    req: LrExecuteRoutedTradeRequest,
+) -> MmResult<LrExecuteRoutedTradeResponse, ExtApiRpcError> {
     let atomic_swap_params = AtomicSwapParams {
         action: sell_buy_method(&req.atomic_swap.method)?,
         base: req.atomic_swap.base.clone(),
@@ -246,5 +251,5 @@ pub async fn lr_fill_order_rpc(
         None
     };
     let swap_uuid = lp_start_agg_taker_swap(ctx, lr_swap_params_0, lr_swap_params_1, atomic_swap_params).await?;
-    Ok(LrFillMakerOrderResponse { uuid: swap_uuid })
+    Ok(LrExecuteRoutedTradeResponse { uuid: swap_uuid })
 }

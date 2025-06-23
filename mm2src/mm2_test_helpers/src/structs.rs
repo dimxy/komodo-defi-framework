@@ -1291,11 +1291,27 @@ pub mod lr_test_structs {
 
     pub type ClassicSwapResponse = ClassicSwapDetails;
 
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[serde(tag = "type")]
+    pub enum AskOrBidOrder {
+        Ask { base: Ticker, order: RpcOrderbookEntryV2 },
+        Bid { rel: Ticker, order: RpcOrderbookEntryV2 },
+    }
+
+    impl AskOrBidOrder {
+        pub fn order(&self) -> &RpcOrderbookEntryV2 {
+            match self {
+                AskOrBidOrder::Ask { base: _, order } => order,
+                AskOrBidOrder::Bid { rel: _, order } => order,
+            }
+        }
+    }
+
     /// Response for find best swap path with LR
     #[derive(Debug, Deserialize, Serialize)]
-    pub struct LrBestQuoteResponse {
+    pub struct LrFindBestQuoteResponse {
         pub lr_swap_details: ClassicSwapDetails,
-        pub best_order: RpcOrderbookEntryV2,
+        pub best_order: AskOrBidOrder,
         pub total_price: MmNumber,
         // /// Fees to pay, including LR swap fee
         // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
@@ -1304,7 +1320,7 @@ pub mod lr_test_structs {
     /// Response to sell or buy order with LR for tests
     #[derive(Debug, Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
-    pub struct LrFillMakerOrderResponse {
+    pub struct LrExecuteRoutedTradeResponse {
         pub uuid: Uuid,
     }
 }

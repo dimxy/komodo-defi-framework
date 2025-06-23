@@ -1,4 +1,4 @@
-use super::LrBestQuoteRequest;
+use super::lr_api_types::{AsksForCoin, LrFindBestQuoteRequest};
 use crate::lp_ordermatch::{OrderbookAddress, RpcOrderbookEntryV2};
 use crate::rpc::lp_commands::legacy::electrum;
 use coins::eth::EthCoin;
@@ -138,56 +138,62 @@ async fn test_find_best_lr_swap_for_order_list() {
     .await
     .unwrap();
 
-    let asks = vec![
-        RpcOrderbookEntryV2 {
-            coin: bnb_ticker,
-            address: OrderbookAddress::Transparent("RLL6n4ayAv1haokcEd1QUEYniyeoiYkn7W".into()),
-            price: MmNumberMultiRepr::from(MmNumber::from("145.69")),
-            pubkey: "02f3578fbc0fc76056eae34180a71e9190ee08ad05d40947aab7a286666e2ce798".to_owned(),
-            uuid: Uuid::from_str("7f26dc6a-39ab-4685-b5f1-55f12268ea50").unwrap(),
-            is_mine: false,
-            base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
-            base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
-            rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("145.69")),
-            rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("14.569")),
-            conf_settings: Default::default(),
-        },
-        RpcOrderbookEntryV2 {
-            coin: aave_ticker,
-            address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
-            price: MmNumberMultiRepr::from(MmNumber::from("370.334")),
-            pubkey: "02470bfb8e7710be4a7c2b8e9ba4bcfc5362a71643e64fc2e33b0d64c844ee9123".to_owned(),
-            uuid: Uuid::from_str("2aadf450-6a8e-4e4e-8b89-19ca10f23cc3").unwrap(),
-            is_mine: false,
-            base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
-            base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
-            rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("370.334")),
-            rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("37.0334")),
-            conf_settings: Default::default(),
-        },
-        RpcOrderbookEntryV2 {
-            coin: cnc_ticker,
-            address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
-            price: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
-            pubkey: "03de96cb66dcfaceaa8b3d4993ce8914cd5fe84e3fd53cefdae45add8032792a12".to_owned(),
-            uuid: Uuid::from_str("89ab019f-b2fe-4d89-9764-96ac4a3fbf8e").unwrap(),
-            is_mine: false,
-            base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
-            base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
-            rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
-            rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("69930.069")),
-            conf_settings: Default::default(),
-        },
-    ];
+    let asks = vec![AsksForCoin {
+        base: base_ticker.clone(),
+        orders: vec![
+            RpcOrderbookEntryV2 {
+                coin: bnb_ticker,
+                address: OrderbookAddress::Transparent("RLL6n4ayAv1haokcEd1QUEYniyeoiYkn7W".into()),
+                price: MmNumberMultiRepr::from(MmNumber::from("145.69")),
+                pubkey: "02f3578fbc0fc76056eae34180a71e9190ee08ad05d40947aab7a286666e2ce798".to_owned(),
+                uuid: Uuid::from_str("7f26dc6a-39ab-4685-b5f1-55f12268ea50").unwrap(),
+                is_mine: false,
+                base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
+                base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
+                rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("145.69")),
+                rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("14.569")),
+                conf_settings: Default::default(),
+            },
+            RpcOrderbookEntryV2 {
+                coin: aave_ticker,
+                address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
+                price: MmNumberMultiRepr::from(MmNumber::from("370.334")),
+                pubkey: "02470bfb8e7710be4a7c2b8e9ba4bcfc5362a71643e64fc2e33b0d64c844ee9123".to_owned(),
+                uuid: Uuid::from_str("2aadf450-6a8e-4e4e-8b89-19ca10f23cc3").unwrap(),
+                is_mine: false,
+                base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
+                base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
+                rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("370.334")),
+                rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("37.0334")),
+                conf_settings: Default::default(),
+            },
+            RpcOrderbookEntryV2 {
+                coin: cnc_ticker,
+                address: OrderbookAddress::Transparent("RK1JDwZ1LvH47Tvqm6pQM7aSqC2Zo6JwRF".into()),
+                price: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
+                pubkey: "03de96cb66dcfaceaa8b3d4993ce8914cd5fe84e3fd53cefdae45add8032792a12".to_owned(),
+                uuid: Uuid::from_str("89ab019f-b2fe-4d89-9764-96ac4a3fbf8e").unwrap(),
+                is_mine: false,
+                base_max_volume: MmNumberMultiRepr::from(MmNumber::from("1")),
+                base_min_volume: MmNumberMultiRepr::from(MmNumber::from("0.1")),
+                rel_max_volume: MmNumberMultiRepr::from(MmNumber::from("699300.69")),
+                rel_min_volume: MmNumberMultiRepr::from(MmNumber::from("69930.069")),
+                conf_settings: Default::default(),
+            },
+        ],
+    }];
+    let bids = vec![];
 
-    let req = LrBestQuoteRequest {
-        base: base_ticker,
-        amount: "0.123".into(),
+    let req = LrFindBestQuoteRequest {
         asks,
-        my_token: weth_ticker,
+        user_base: base_ticker,
+        bids,
+        volume: "0.123".into(),
+        method: "find_best_quote".into(),
+        user_rel: weth_ticker,
     };
 
-    let response = super::lr_best_quote_rpc(ctx, req).await;
+    let response = super::lr_find_best_quote_rpc(ctx, req).await;
     log!("response={:?}", response);
     assert!(response.is_ok(), "response={:?}", response);
 

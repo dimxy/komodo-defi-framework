@@ -2,46 +2,80 @@
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::ext_api::ext_api_errors::ExtApiRpcError;
-use crate::rpc::lp_commands::ext_api::ext_api_types::{ClassicSwapCreateOptParams, ClassicSwapDetails};
+use crate::rpc::lp_commands::ext_api::ext_api_types::{ClassicSwapDetails, ClassicSwapCreateOptParams};
 use coins::Ticker;
 use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::{MatchBy, OrderType};
 use uuid::Uuid;
 
+#[derive(Debug, Deserialize)]
+pub struct AsksForCoin {
+    /// Base coin for ask orders
+    pub base: Ticker,
+    /// Best maker ask orders that could be filled with liquidity routing from the User source_token into ask's rel token
+    pub orders: Vec<RpcOrderbookEntryV2>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BidsForCoin {
+    /// Rel coin for bid orders
+    pub rel: Ticker,
+    /// Best maker ask orders that could be filled with liquidity routing from the User source_token into ask's rel token
+    pub orders: Vec<RpcOrderbookEntryV2>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type")]
+pub enum AskOrBidOrder {
+    Ask { base: Ticker, order: RpcOrderbookEntryV2 },
+    Bid { rel: Ticker, order: RpcOrderbookEntryV2 },
+}
+
+impl AskOrBidOrder {
+    pub fn order(&self) -> &RpcOrderbookEntryV2 {
+        match self {
+            AskOrBidOrder::Ask { base: _, order } => order,
+            AskOrBidOrder::Bid { rel: _, order } => order,
+        }
+    }
+}
+
 /// Request to find best swap path with LR to fill an order from list.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LrBestQuoteRequest {
-    /// Order base coin ticker (from the orderbook).
-    pub base: Ticker,
-    /// Source amount in base coins to sell (with fraction)
-    pub amount: MmNumber,
-    /// List of maker ask orders, to find best swap path with LR
-    pub asks: Vec<RpcOrderbookEntryV2>,
-    // TODO: impl later
-    // /// List of maker bid orders, to find best swap path with LR
-    // pub bids: Vec<RpcOrderbookEntryV2>,
-    /// User token to fill order with LR
-    pub my_token: Ticker,
+pub struct LrFindBestQuoteRequest {
+    /// Base coin to fill an atomic swap maker order with possible liquidity routing from this coin over a coin/token in an ask/bid
+    pub user_base: Ticker,
+    /// List of maker atomic swap ask orders, to find best swap path with liquidity routing from user_base or user_rel coin
+    pub asks: Vec<AsksForCoin>,
+    /// List of maker atomic swap bid orders, to find best swap path with liquidity routing from user_base or user_rel coin
+    pub bids: Vec<BidsForCoin>,
+    /// Buy or sell volume (in coin units, i.e. with fraction)
+    pub volume: MmNumber,
+    /// Method buy or sell
+    /// TODO: use this field, now we support 'buy' only
+    pub method: String,
+    /// Rel coin to fill an atomic swap maker order with possible liquidity routing from this coin over a coin/token in an ask/bid
+    pub user_rel: Ticker,
 }
 
 /// Response for find best swap path with LR
 #[derive(Debug, Serialize)]
-pub struct LrBestQuoteResponse {
+pub struct LrFindBestQuoteResponse {
     /// Swap tx data (from 1inch quote)
     pub lr_swap_details: ClassicSwapDetails,
     /// found best order which can be filled with LR swap
-    pub best_order: RpcOrderbookEntryV2,
+    pub best_order: AskOrBidOrder,
     /// base/rel price including the price of the LR swap part
-    pub total_price: MmNumber, // TODO: add as BigDecimal and Rational like other prices
-                               // /// Fees to pay, including LR swap fee
-                               // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
+    pub total_price: MmNumber,
+    // /// Fees to pay, including LR swap fee
+    // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
 }
 
 /// Request to get quotes with possible swap paths to fill order with multiple tokens with LR
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LrQuotesForTokensRequest {
+pub struct LrGetQuotesForTokensRequest {
     /// Order base coin ticker (from the orderbook).
     pub base: Ticker,
     /// Swap amount in base coins to sell (with fraction)
@@ -67,9 +101,10 @@ pub struct QuotesDetails {
 
 /// Response for quotes to fill order with LR
 #[derive(Debug, Serialize)]
-pub struct LrQuotesForTokensResponse {
+pub struct LrGetQuotesForTokensResponse {
     pub quotes: Vec<QuotesDetails>,
 }
+
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LrSwapRpcParams {
@@ -120,7 +155,7 @@ pub struct AtomicSwapRpcParams {
 /// Request to fill a maker order with atomic swap with LR steps
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LrFillMakerOrderRequest {
+pub struct LrExecuteRoutedTradeRequest {
     /// Sell or buy params for the atomic swap step
     pub atomic_swap: AtomicSwapRpcParams,
 
@@ -137,7 +172,7 @@ pub struct LrFillMakerOrderRequest {
 /// Response to sell or buy order with LR
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct LrFillMakerOrderResponse {
+pub struct LrExecuteRoutedTradeResponse {
     /// Created aggregated swap uuid for tracking the swap
     pub uuid: Uuid,
 }
