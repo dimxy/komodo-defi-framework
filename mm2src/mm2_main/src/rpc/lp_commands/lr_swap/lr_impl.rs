@@ -5,12 +5,12 @@ use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::lr_swap::types::{AskOrBidOrder, AsksForCoin, BidsForCoin};
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
+use coins::eth::{mm_number_from_u256, mm_number_to_u256, wei_from_coins_mm_number};
 use coins::hd_wallet::DisplayAddress;
 use coins::lp_coinfind_or_err;
 use coins::MmCoin;
 use coins::Ticker;
 use common::log;
-use coins::eth::{wei_from_coins_mm_number, mm_number_from_u256, mm_number_to_u256};
 use ethereum_types::Address as EthAddress;
 use ethereum_types::U256;
 use futures::future::join_all;
@@ -352,7 +352,8 @@ impl LrSwapCandidates {
     }
 }
 
-/// Finds the optimal swap path (with the lowest total price) from the `user_base` coin to the `user_rel` coin (aggregated taker swap path).
+/// Implementation code to find the optimal swap path (with the lowest total price) from the `user_base` coin to the `user_rel` coin
+/// (`Aggregated taker swap` path).
 /// This path includes:
 /// - An atomic swap step: used to fill a specific ask (or, in future, bid) order provided in the parameters.
 /// - A liquidity routing (LR) step before and/or after (todo) the atomic swap: converts `user_base` or `user_sell` into the coin in the order.

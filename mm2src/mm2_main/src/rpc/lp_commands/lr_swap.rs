@@ -12,24 +12,64 @@ use types::{LrExecuteRoutedTradeRequest, LrExecuteRoutedTradeResponse, LrFindBes
 mod lr_impl;
 mod types;
 
-/// Find the best swap with liquidity routing of EVM tokens, to select from multiple orders.
-/// For the provided list of orderbook entries this RPC will find out the most price-effective swap with LR.
+/// Finds the most cost-effective swap path using liquidity routing (LR) for EVM-compatible tokens (`Aggregated taker swap` path),
+/// by selecting the best option from a list of orderbook entries (ask/bid orders).
+/// This RPC returns the data needed for actual execution of the swap with LR .
 ///
-/// More info:
-/// User is interested in buying some coin. There are orders available with the desired coin but User does not have tokens to fill those orders.
-/// User may fill the order with User my_token running an preliminary LR swap combined with the ordinary dex-swap (using 1inch as the LR provider).
-/// Or, User may convert the tokens from the order into my_token with a subsequent LR swap.
+/// # Overview
+/// This RPC helps users execute token swaps even if they do not directly hold the tokens required
+/// by the maker orders. It uses external liquidity routing (e.g., via 1inch provider) to perform necessary conversions, currently for EVM networks
 ///
-/// User calls this RPC with an ask/bid order list, base or rel coin, amount to buy or sell and User token name to fill the order with.
-/// The RPC runs 1inch swap quotes to convert User's my_token into orders' tokens (or backwards)
-/// and returns the most price-effective swap path, taking into account order and LR prices.
-/// TODO: should also returns total fees.
+/// A swap path may consist of:
+/// - A liquidity routing (LR) step before or after the atomic swap.
+/// - An atomic swap step to fill the selected maker order (ask or bid).
 ///
-/// TODO: currently the RPC supports filling only maker ask orders with rel=token_x, with routing 'user_rel' into maker 'rel' before the 'buy' atomic swap.
-/// The RPC should also support other options:
-/// filling maker bid orders with routing maker 'rel' into 'user_base' after the 'sell' atomic swap
-/// filling maker ask orders with routing maker 'base' into 'user_rel' after the 'buy' atomic-swap
-/// filling maker bid orders with routing 'user_base' token into maker 'base' before the 'sell' atomic swap
+/// Use Case
+/// The user wants to buy a specific amount of a token `user_base`, but only holds a different token `user_rel`.  
+/// This RPC evaluates possible swap paths by combining:
+/// - Converting `user_rel` (`user_base`) to the token required by a maker order via LR.
+/// - Filling the order through an atomic swap.
+/// - Converting the token required by a maker order to `user_base` (`user_rel`) via LR.
+/// It then selects and returns the most price-effective path, taking into account:
+/// - prices of orders (provided in the params)
+/// - 1inch LR quotes
+/// - (TODO) Total swap and routing fees
+/// Sell requests are processed in a similar way.
+///
+/// Example
+/// A user wants to buy 1 BTC with their USDT, but the best available order sells 1 BTC for DAI.
+/// This RPC calculates the total cost of liquidity routing the user's USDT into DAI and then using the
+/// acquired DAI to take the BTC order. It compares this path against other potential candidates
+/// (e.g., a order selling BTC for USDC and routing the user's USDT into USDC via LR) to find the cheapest option.
+///
+/// Inputs
+/// - A list of maker ask or bid orders (orderbook entries)
+/// - Trade method (`buy` or `sell`)
+/// - Target or source amount to buy/sell
+/// - User’s tokens `user_rel` and `user_base` to be used for the swap
+///
+/// Outputs
+/// - The best swap path including any required LR steps
+///
+/// Current Limitations
+/// - Only supports filling ask orders with:
+///   - `user_rel` (sell request)
+///   - Liquidity routing before the atomic swap: `user_rel` -> maker `rel`
+/// - Does not yet support:
+///   - User's buy request
+///   - Filling bid orders
+///   - Liquidity routing after the atomic swap
+///
+/// TODO:
+/// - Return full trade fee breakdown (e.g., DEX fees, LR fees)
+/// - Support the following additional aggregated swap configurations:
+///   - Filling ask orders with LR after the atomic swap
+///   - Filling bid orders with LR before and after the atomic swap
+/// - Support user's buy request
+///
+/// Notes:
+/// - This function relies on external quote APIs (currently 1inch) and may incur latency.
+/// - Use this RPC when a direct atomic swap is not available or optimal, and pre/post-routing is needed.
 pub async fn lr_find_best_quote_rpc(
     ctx: MmArc,
     req: LrFindBestQuoteRequest,
