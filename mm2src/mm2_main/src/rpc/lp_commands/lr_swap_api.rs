@@ -9,7 +9,8 @@ use crate::lr_swap::lr_swap_state_machine::lp_start_agg_taker_swap;
 use crate::lr_swap::{AtomicSwapParams, LrSwapParams};
 use coins::eth::u256_to_big_decimal;
 use coins::{lp_coinfind_or_err, CoinWithDerivationMethod, FeeApproxStage, MmCoin};
-use lr_api_types::{LrFindBestQuoteRequest, LrFindBestQuoteResponse, LrGetQuotesForTokensRequest, LrGetQuotesForTokensResponse, LrExecuteRoutedTradeRequest, LrExecuteRoutedTradeResponse};
+use lr_api_types::{LrExecuteRoutedTradeRequest, LrExecuteRoutedTradeResponse, LrFindBestQuoteRequest,
+                   LrFindBestQuoteResponse, LrGetQuotesForTokensRequest, LrGetQuotesForTokensResponse};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
@@ -50,9 +51,7 @@ pub async fn lr_find_best_quote_rpc(
     // coins in orders should be unique
 
     let (user_rel_coin, _) = get_coin_for_one_inch(&ctx, &req.user_rel).await?;
-    let user_rel_chain = user_rel_coin
-        .chain_id()
-        .ok_or(ExtApiRpcError::ChainNotSupported)?;
+    let user_rel_chain = user_rel_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
 
     let (lr_data, best_order, total_price) =
         find_best_fill_ask_with_lr(&ctx, req.user_base, req.user_rel, req.asks, req.bids, &req.volume).await?;

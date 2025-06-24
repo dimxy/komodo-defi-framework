@@ -37,9 +37,11 @@ use ethereum_types::{Address, H160, H256, U256};
 use lazy_static::lazy_static;
 use mm2_test_helpers::electrums::{doc_electrums, marty_electrums};
 use mm2_test_helpers::for_tests::{best_orders_v2, best_orders_v2_by_number, enable_eth_coin_v2, orderbook_v2};
+use mm2_test_helpers::structs::lr_test_structs::{AskOrBidOrder, AsksForCoin, BidsForCoin, ClassicSwapDetails,
+                                                 ClassicSwapResponse, LrExecuteRoutedTradeResponse,
+                                                 LrFindBestQuoteResponse};
 use mm2_test_helpers::structs::{GetPublicKeyResult, OrderbookV2Response, RpcOrderbookEntryV2, RpcV2Response,
                                 SetPriceResponse};
-use mm2_test_helpers::structs::lr_test_structs::{AskOrBidOrder, AsksForCoin, BidsForCoin, ClassicSwapDetails, ClassicSwapResponse, LrExecuteRoutedTradeResponse, LrFindBestQuoteResponse};
 use std::collections::HashSet;
 
 lazy_static! {
@@ -569,7 +571,11 @@ async fn create_and_start_agg_taker_swap(
     order_entry: AskOrBidOrder,
     lr_swap_details_1: Option<ClassicSwapDetails>,
 ) -> Result<Uuid, String> {
-    common::log::info!("Issue taker {}/{} lr::fill_order request", base, order_entry.order().coin);
+    common::log::info!(
+        "Issue taker {}/{} lr::fill_order request",
+        base,
+        order_entry.order().coin
+    );
 
     assert!(
         lr_swap_details_0.is_some() && atomic_swap_volume.is_none()

@@ -260,7 +260,7 @@ impl LrSwapCandidates {
                 .ok_or(LrSwapError::InternalError("no dst_amount".to_owned()))?;
             let dst_amount = mm_number_from_u256(dst_amount);
             if let Some(src_amount) = &dst_amount.checked_div(dst_price) {
-                lr_data_0.src_amount = Some(mm_number_to_u256(src_amount)?);                
+                lr_data_0.src_amount = Some(mm_number_to_u256(src_amount)?);
                 log::debug!(
                     "estimate_source_token_amounts lr_data.order.coin={} dst_price={} lr_data.src_amount={:?}",
                     order_ticker,

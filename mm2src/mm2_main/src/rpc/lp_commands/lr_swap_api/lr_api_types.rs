@@ -2,7 +2,7 @@
 
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::ext_api::ext_api_errors::ExtApiRpcError;
-use crate::rpc::lp_commands::ext_api::ext_api_types::{ClassicSwapDetails, ClassicSwapCreateOptParams};
+use crate::rpc::lp_commands::ext_api::ext_api_types::{ClassicSwapCreateOptParams, ClassicSwapDetails};
 use coins::Ticker;
 use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::{MatchBy, OrderType};
@@ -104,7 +104,6 @@ pub struct QuotesDetails {
 pub struct LrGetQuotesForTokensResponse {
     pub quotes: Vec<QuotesDetails>,
 }
-
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LrSwapRpcParams {
