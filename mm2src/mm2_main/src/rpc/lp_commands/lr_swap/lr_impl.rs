@@ -372,12 +372,18 @@ impl LrSwapCandidates {
     }
 }
 
-/// Finds the best (by total price) swap path from user_base to user_rel coin, 
-/// including an atomic swap (to fill an ask or bid order from the params) 
-/// and liquidity routing to convert user_base or user_sell coin into coin in the order 
-/// (An aggregated taker swap path)
-/// TODO: add support for LR step after the atomic swap (currently only LR before the atomic swap is implemented)
-/// TODO: add support for bid orders and the 'buy' request (currently only ask orders and the sell request is implemented)
+/// Finds the optimal swap path (with the lowest total price) from the `user_base` coin to the `user_rel` coin (aggregated taker swap path).
+/// This path includes:
+/// - An atomic swap step: used to fill a specific ask (or, in future, bid) order provided in the parameters.
+/// - A liquidity routing (LR) step before and/or after (todo) the atomic swap: converts `user_base` or `user_sell` into the coin in the order.
+///
+/// This function currently supports only:
+/// - Ask orders and User 'sell' requests.
+/// - Liquidity routing before the atomic swap.
+///
+/// TODO:
+/// - Support bid orders and User 'buy' requests.
+/// - Support liquidity routing after the atomic swap (e.g., to convert the output coin into `user_rel`).
 pub async fn find_best_swap_path_with_lr(
     ctx: &MmArc,
     _user_base: Ticker,
