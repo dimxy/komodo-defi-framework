@@ -5,15 +5,14 @@ use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::lr_swap::types::{AskOrBidOrder, AsksForCoin, BidsForCoin};
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
-use coins::eth::{u256_to_big_decimal, wei_from_big_decimal};
 use coins::hd_wallet::DisplayAddress;
 use coins::lp_coinfind_or_err;
 use coins::MmCoin;
-use coins::NumConversResult;
 use coins::Ticker;
 use common::log;
+use coins::eth::{wei_from_coins_mm_number, mm_number_from_u256, mm_number_to_u256};
 use ethereum_types::Address as EthAddress;
-use ethereum_types::{FromDecStrErr, U256};
+use ethereum_types::U256;
 use futures::future::join_all;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
@@ -30,25 +29,6 @@ use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesSe
 const CROSS_PRICES_GRANULARITY: DataGranularity = DataGranularity::FiveMin;
 /// Use no more than 1 price history samples to estimate src/dst price
 const CROSS_PRICES_LIMIT: u32 = 1;
-
-#[inline]
-fn mm_number_to_u256(mm_number: &MmNumber) -> Result<U256, FromDecStrErr> {
-    U256::from_dec_str(mm_number.to_ratio().to_integer().to_string().as_str())
-}
-
-#[inline]
-fn mm_number_from_u256(u256: U256) -> MmNumber { MmNumber::from(u256.to_string().as_str()) }
-
-#[inline]
-fn wei_from_coins_mm_number(mm_number: &MmNumber, decimals: u8) -> NumConversResult<U256> {
-    wei_from_big_decimal(&mm_number.to_decimal(), decimals)
-}
-
-#[inline]
-#[allow(unused)]
-fn wei_to_coins_mm_number(u256: U256, decimals: u8) -> NumConversResult<MmNumber> {
-    Ok(MmNumber::from(u256_to_big_decimal(u256, decimals)?))
-}
 
 /// Internal struct to collect data for LR swap step
 #[allow(dead_code)] // 'Clone' is detected as dead code in one combinator
