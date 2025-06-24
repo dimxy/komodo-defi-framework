@@ -37,9 +37,9 @@ use ethereum_types::{Address, H160, H256, U256};
 use lazy_static::lazy_static;
 use mm2_test_helpers::electrums::{doc_electrums, marty_electrums};
 use mm2_test_helpers::for_tests::{best_orders_v2, best_orders_v2_by_number, enable_eth_coin_v2, orderbook_v2};
-use mm2_test_helpers::structs::lr_test_structs::{AskOrBidOrder, ClassicSwapDetails, ClassicSwapResponse, LrExecuteRoutedTradeResponse, LrFindBestQuoteResponse};
 use mm2_test_helpers::structs::{GetPublicKeyResult, OrderbookV2Response, RpcOrderbookEntryV2, RpcV2Response,
                                 SetPriceResponse};
+use mm2_test_helpers::structs::lr_test_structs::{AskOrBidOrder, AsksForCoin, BidsForCoin, ClassicSwapDetails, ClassicSwapResponse, LrExecuteRoutedTradeResponse, LrFindBestQuoteResponse};
 use std::collections::HashSet;
 
 lazy_static! {
@@ -281,7 +281,11 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let best_quote = block_on(find_best_lr_swap(
         &mut mm_alice,
         DOC,
-        &entries,
+        &[AsksForCoin {
+            base: DOC.to_owned(),
+            orders: entries,
+        }],
+        &[],
         &doc_amount_to_buy,
         MATIC,
     ))
@@ -525,22 +529,25 @@ async fn wait_for_orderbook(
 
 async fn find_best_lr_swap(
     taker: &mut MarketMakerIt,
-    base: &str,
-    asks: &[RpcOrderbookEntryV2],
-    amount_to_buy: &BigDecimal,
-    my_token: &str,
+    my_base_coin: &str,
+    asks: &[AsksForCoin],
+    bids: &[BidsForCoin],
+    volume_to_buy: &BigDecimal,
+    my_rel_coin: &str,
 ) -> Result<LrFindBestQuoteResponse, String> {
-    common::log::info!("Issue lr::best_quote {}/{} request", base, my_token);
+    common::log::info!("Issue lr::best_quote {}/{} request", my_base_coin, my_rel_coin);
     let rc = taker
         .rpc(&json!({
             "userpass": taker.userpass,
             "method": "experimental::liquidity_routing::find_best_quote",
             "mmrpc": "2.0",
             "params": {
-                "base": base,
-                "amount": amount_to_buy,
+                "user_base": my_base_coin,
+                "volume": volume_to_buy,
                 "asks": asks,
-                "my_token": my_token
+                "bids": bids,
+                "method": "buy",
+                "user_rel": my_rel_coin
             }
         }))
         .await

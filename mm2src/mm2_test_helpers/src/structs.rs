@@ -1291,6 +1291,18 @@ pub mod lr_test_structs {
 
     pub type ClassicSwapResponse = ClassicSwapDetails;
 
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct AsksForCoin {
+        pub base: Ticker,
+        pub orders: Vec<RpcOrderbookEntryV2>,
+    }
+
+    #[derive(Debug, Deserialize, Serialize)]
+    pub struct BidsForCoin {
+        pub rel: Ticker,
+        pub orders: Vec<RpcOrderbookEntryV2>,
+    }
+
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(tag = "type")]
     pub enum AskOrBidOrder {
