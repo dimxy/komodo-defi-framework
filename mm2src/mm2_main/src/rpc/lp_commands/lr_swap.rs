@@ -3,7 +3,7 @@
 use super::one_inch::types::ClassicSwapDetails;
 use crate::rpc::lp_commands::one_inch::errors::ApiIntegrationRpcError;
 use crate::rpc::lp_commands::one_inch::rpcs::get_coin_for_one_inch;
-use lr_impl::find_best_fill_ask_with_lr;
+use lr_impl::find_best_swap_path_with_lr;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError, mm_error::MmResult};
 use types::{LrExecuteRoutedTradeRequest, LrExecuteRoutedTradeResponse, LrFindBestQuoteRequest,
@@ -46,7 +46,7 @@ pub async fn lr_find_best_quote_rpc(
         .chain_id()
         .ok_or(ApiIntegrationRpcError::ChainNotSupported)?;
     let (swap_data, best_order, total_price) =
-        find_best_fill_ask_with_lr(&ctx, req.user_base, req.user_rel, req.asks, req.bids, &req.volume).await?;
+        find_best_swap_path_with_lr(&ctx, req.user_base, req.user_rel, req.asks, req.bids, &req.volume).await?;
     let lr_swap_details = ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain, swap_data)
         .await
         .mm_err(|err| ApiIntegrationRpcError::ApiDataError(err.to_string()))?;

@@ -372,9 +372,13 @@ impl LrSwapCandidates {
     }
 }
 
-/// Finds the best swap path to buy order's best "UTXO" coins, including LR quotes to sell my token for the rel tokens from the orders
-/// base_amount is amount of UTXO coins user would like to buy
-pub async fn find_best_fill_ask_with_lr(
+/// Finds the best (by total price) swap path from user_base to user_rel coin, 
+/// including an atomic swap (to fill an ask or bid order from the params) 
+/// and liquidity routing to convert user_base or user_sell coin into coin in the order 
+/// (An aggregated taker swap path)
+/// TODO: add support for LR step after the atomic swap (currently only LR before the atomic swap is implemented)
+/// TODO: add support for bid orders and the 'buy' request (currently only ask orders and the sell request is implemented)
+pub async fn find_best_swap_path_with_lr(
     ctx: &MmArc,
     _user_base: Ticker,
     user_rel: Ticker,
