@@ -4,7 +4,7 @@ use super::ext_api::ext_api_errors::ExtApiRpcError;
 use super::ext_api::ext_api_types::ClassicSwapDetails;
 use crate::lp_swap::check_balance_for_taker_swap;
 use crate::lr_swap::lr_helpers::{check_if_one_inch_supports_pair, get_coin_for_one_inch, sell_buy_method};
-use crate::lr_swap::lr_quote::find_best_fill_ask_with_lr;
+use crate::lr_swap::lr_quote::find_best_swap_path_with_lr;
 use crate::lr_swap::lr_swap_state_machine::lp_start_agg_taker_swap;
 use crate::lr_swap::{AtomicSwapParams, LrSwapParams};
 use coins::eth::u256_to_big_decimal;
@@ -54,7 +54,7 @@ pub async fn lr_find_best_quote_rpc(
     let user_rel_chain = user_rel_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
 
     let (lr_data, best_order, total_price) =
-        find_best_fill_ask_with_lr(&ctx, req.user_base, req.user_rel, req.asks, req.bids, &req.volume).await?;
+        find_best_swap_path_with_lr(&ctx, req.user_base, req.user_rel, req.asks, req.bids, &req.volume).await?;
     let src_amount = MmNumber::from(u256_to_big_decimal(lr_data.src_amount, user_rel_coin.decimals())?);
     let lr_swap_details =
         ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain, src_amount, lr_data.api_details)

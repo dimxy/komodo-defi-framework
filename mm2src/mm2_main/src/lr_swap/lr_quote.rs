@@ -2,11 +2,11 @@
 //! Swaps with LR run additional interim swaps in EVM chains to convert one token into another token suitable to do a normal atomic swap.
 
 use super::lr_errors::LrSwapError;
-use super::lr_helpers::{get_coin_for_one_inch, u256_from_coins_mm_number};
+use super::lr_helpers::get_coin_for_one_inch;
 use crate::lp_ordermatch::RpcOrderbookEntryV2;
-use crate::lr_swap::lr_helpers::{mm_number_from_u256, mm_number_to_u256};
 use crate::lr_swap::ClassicSwapDataExt;
 use crate::rpc::lp_commands::lr_swap_api::lr_api_types::{AskOrBidOrder, AsksForCoin, BidsForCoin};
+use coins::eth::{mm_number_from_u256, mm_number_to_u256, u256_from_coins_mm_number};
 use coins::hd_wallet::AddrToString;
 use coins::lp_coinfind_or_err;
 use coins::MmCoin;
@@ -355,9 +355,20 @@ impl LrSwapCandidates {
     }
 }
 
-/// Finds the best swap path to fill ask order. The path includes an LR-swap quote to sell my_token for the rel tokens from the orders
-/// base_amount is amount of UTXO coins user would like to buy
-pub async fn find_best_fill_ask_with_lr(
+/// Implementation code to find the optimal swap path (with the lowest total price) from the `user_base` coin to the `user_rel` coin
+/// (`Aggregated taker swap` path).
+/// This path includes:
+/// - An atomic swap step: used to fill a specific ask (or, in future, bid) order provided in the parameters.
+/// - A liquidity routing (LR) step before and/or after (todo) the atomic swap: converts `user_base` or `user_sell` into the coin in the order.
+///
+/// This function currently supports only:
+/// - Ask orders and User 'sell' requests.
+/// - Liquidity routing before the atomic swap.
+///
+/// TODO:
+/// - Support bid orders and User 'buy' requests.
+/// - Support liquidity routing after the atomic swap (e.g., to convert the output coin into `user_rel`).
+pub async fn find_best_swap_path_with_lr(
     ctx: &MmArc,
     _user_base: Ticker,
     user_rel: Ticker,

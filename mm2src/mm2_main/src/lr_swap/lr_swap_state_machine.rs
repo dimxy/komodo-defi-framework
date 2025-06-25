@@ -13,7 +13,7 @@ use crate::lp_swap::swap_v2_rpcs::{my_swap_status_rpc, MySwapStatusError, MySwap
 use crate::lp_swap::AGG_TAKER_SWAP_TYPE;
 use crate::rpc::lp_commands::ext_api::ext_api_helpers::{make_atomic_swap_request, make_classic_swap_create_params};
 use async_trait::async_trait;
-use coins::eth::{u256_to_big_decimal, wei_from_big_decimal};
+use coins::eth::{u256_from_big_decimal, u256_to_big_decimal};
 use coins::hd_wallet::DisplayAddress;
 use coins::MmCoin;
 use coins::{lp_coinfind_or_err, ConfirmPaymentInput, FeeApproxStage, MarketCoinOps, SignEthTransactionParams,
@@ -956,7 +956,7 @@ impl AggTakerSwapStateMachine {
             lr_swap_params.dst,
             src_amount.to_decimal()
         );
-        let src_amount = wei_from_big_decimal(&src_amount.to_decimal(), lr_swap_params.src_decimals)
+        let src_amount = u256_from_big_decimal(&src_amount.to_decimal(), lr_swap_params.src_decimals)
             .mm_err(|err| LrSwapError::InvalidParam(err.to_string()))?;
 
         let lr_swap_request = make_classic_swap_create_params(
