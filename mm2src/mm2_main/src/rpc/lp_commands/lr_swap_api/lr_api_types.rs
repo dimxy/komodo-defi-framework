@@ -8,6 +8,7 @@ use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::{MatchBy, OrderType};
 use uuid::Uuid;
 
+/// Struct to pass maker ask orders into liquidity routing RPCs
 #[derive(Debug, Deserialize)]
 pub struct AsksForCoin {
     /// Base coin for ask orders
@@ -16,6 +17,7 @@ pub struct AsksForCoin {
     pub orders: Vec<RpcOrderbookEntryV2>,
 }
 
+/// Struct to pass maker bid orders into liquidity routing RPCs
 #[derive(Debug, Deserialize)]
 pub struct BidsForCoin {
     /// Rel coin for bid orders
@@ -24,6 +26,7 @@ pub struct BidsForCoin {
     pub orders: Vec<RpcOrderbookEntryV2>,
 }
 
+/// Struct to return the best order from liquidity routing RPCs
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum AskOrBidOrder {
@@ -86,9 +89,9 @@ pub struct LrGetQuotesForTokensRequest {
     pub my_tokens: Vec<Ticker>,
 }
 
-/// Details with swap with LR
+/// Details for best swap with LR
 #[derive(Debug, Serialize)]
-pub struct QuotesDetails {
+pub struct QuoteDetails {
     /// interim token to route to/from
     pub dest_token: Ticker,
     /// Swap tx data (from 1inch quote)
@@ -102,7 +105,7 @@ pub struct QuotesDetails {
 /// Response for quotes to fill order with LR
 #[derive(Debug, Serialize)]
 pub struct LrGetQuotesForTokensResponse {
-    pub quotes: Vec<QuotesDetails>,
+    pub quotes: Vec<QuoteDetails>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
