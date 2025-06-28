@@ -1411,11 +1411,11 @@ fn test_maker_trade_preimage() {
     .unwrap();
     assert!(rc.0.is_success(), "!trade_preimage: {}", rc.1);
     let base_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000274", false); // txfee from get_sender_trade_fee
-    let rel_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.0000061", true);
+    let rel_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000992", true);
     let volume = MmNumber::from("9.99999726"); // 1.0 - 0.00000274 from calc_max_maker_vol
 
     let my_coin_total = TotalTradeFeeForTest::new("MYCOIN", "0.00000274", "0.00000274");
-    let my_coin1_total = TotalTradeFeeForTest::new("MYCOIN1", "0.0000061", "0");
+    let my_coin1_total = TotalTradeFeeForTest::new("MYCOIN1", "0.00000992", "0");
 
     let expected = TradePreimageResult::MakerPreimage(MakerPreimage {
         base_coin_fee,
@@ -1448,10 +1448,10 @@ fn test_maker_trade_preimage() {
     actual.result.sort_total_fees();
 
     let base_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000548", false);
-    let rel_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000305", true);
+    let rel_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000496", true);
     let volume = MmNumber::from("19.99999452");
 
-    let my_coin_total = TotalTradeFeeForTest::new("MYCOIN", "0.00000305", "0");
+    let my_coin_total = TotalTradeFeeForTest::new("MYCOIN", "0.00000496", "0");
     let my_coin1_total = TotalTradeFeeForTest::new("MYCOIN1", "0.00000548", "0.00000548");
     let expected = TradePreimageResult::MakerPreimage(MakerPreimage {
         base_coin_fee,
@@ -1483,9 +1483,9 @@ fn test_maker_trade_preimage() {
     actual.result.sort_total_fees();
 
     let base_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000891", false); // txfee updated for calculated max volume (not 616)
-    let rel_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000305", true);
+    let rel_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000496", true);
 
-    let total_my_coin = TotalTradeFeeForTest::new("MYCOIN", "0.00000305", "0");
+    let total_my_coin = TotalTradeFeeForTest::new("MYCOIN", "0.00000496", "0");
     let total_my_coin1 = TotalTradeFeeForTest::new("MYCOIN1", "0.00000891", "0.00000891");
 
     let expected = TradePreimageResult::MakerPreimage(MakerPreimage {
@@ -1577,12 +1577,12 @@ fn test_taker_trade_preimage() {
     actual.result.sort_total_fees();
 
     let base_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000274", false);
-    let rel_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.0000061", true);
+    let rel_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000992", true);
     let taker_fee = TradeFeeForTest::new("MYCOIN", "0.01", false);
     let fee_to_send_taker_fee = TradeFeeForTest::new("MYCOIN", "0.00000245", false);
 
     let my_coin_total_fee = TotalTradeFeeForTest::new("MYCOIN", "0.01000519", "0.01000519");
-    let my_coin1_total_fee = TotalTradeFeeForTest::new("MYCOIN1", "0.0000061", "0");
+    let my_coin1_total_fee = TotalTradeFeeForTest::new("MYCOIN1", "0.00000992", "0");
 
     let expected = TradePreimageResult::TakerPreimage(TakerPreimage {
         base_coin_fee,
@@ -1610,12 +1610,12 @@ fn test_taker_trade_preimage() {
     let mut actual: RpcSuccessResponse<TradePreimageResult> = serde_json::from_str(&rc.1).unwrap();
     actual.result.sort_total_fees();
 
-    let base_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000305", true);
+    let base_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000496", true);
     let rel_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000548", false); // fee to send taker payment
     let taker_fee = TradeFeeForTest::new("MYCOIN1", "0.02", false);
     let fee_to_send_taker_fee = TradeFeeForTest::new("MYCOIN1", "0.0000049", false);
 
-    let my_coin_total_fee = TotalTradeFeeForTest::new("MYCOIN", "0.00000305", "0");
+    let my_coin_total_fee = TotalTradeFeeForTest::new("MYCOIN", "0.00000496", "0");
     let my_coin1_total_fee = TotalTradeFeeForTest::new("MYCOIN1", "0.02001038", "0.02001038"); // taker_fee + rel_coin_fee + fee_to_send_taker_fee
 
     let expected = TradePreimageResult::TakerPreimage(TakerPreimage {
