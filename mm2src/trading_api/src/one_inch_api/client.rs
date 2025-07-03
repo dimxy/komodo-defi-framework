@@ -204,7 +204,10 @@ impl ApiClient {
         ]
     }
 
-    pub async fn call_api<T: DeserializeOwned>(api_url: Url) -> MmResult<T, ApiClientError> {
+    pub async fn call_api<T>(api_url: Url) -> MmResult<T, ApiClientError>
+    where
+        T: DeserializeOwned,
+    {
         #[cfg(feature = "test-ext-api")]
         let _guard = ApiClient::one_req_per_sec().await;
 

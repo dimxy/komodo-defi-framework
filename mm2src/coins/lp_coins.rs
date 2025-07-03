@@ -24,14 +24,14 @@
     forgetting_references,
     forgetting_copy_types,
     clippy::swap_ptr_to_ref,
-    clippy::forget_non_drop
+    clippy::forget_non_drop,
+    clippy::doc_lazy_continuation,
+    clippy::needless_lifetimes // mocktopus requires explicit lifetimes
 )]
 #![allow(uncommon_codepoints)]
-// #![feature(integer_atomics)]
-#![feature(async_closure)]
+#![feature(hash_raw_entry)]
 #![feature(stmt_expr_attributes)]
 #![feature(result_flattening)]
-#![feature(local_key_cell_methods)] // for tests
 
 #[macro_use] extern crate common;
 #[macro_use] extern crate gstuff;
@@ -846,7 +846,7 @@ pub enum SwapTxTypeWithSecretHash<'a> {
     },
 }
 
-impl<'a> SwapTxTypeWithSecretHash<'a> {
+impl SwapTxTypeWithSecretHash<'_> {
     pub fn redeem_script(&self, time_lock: u32, my_public: &Public, other_public: &Public) -> Script {
         match self {
             SwapTxTypeWithSecretHash::TakerOrMakerPayment { maker_secret_hash } => {
@@ -2518,7 +2518,7 @@ impl TransactionDetails {
     pub fn should_update_block_height(&self) -> bool {
         // checking for std::u64::MAX because there was integer overflow
         // in case of electrum returned -1 so there could be records with MAX confirmations
-        self.block_height == 0 || self.block_height == std::u64::MAX
+        self.block_height == 0 || self.block_height == u64::MAX
     }
 
     /// Whether the transaction timestamp should be updated (when tx is confirmed)
@@ -2562,7 +2562,7 @@ impl BalanceObjectOps for CoinBalanceMap {
 
     fn add(&mut self, other: Self) {
         for (ticker, balance) in other {
-            let total_balance = self.entry(ticker).or_insert_with(CoinBalance::default);
+            let total_balance = self.entry(ticker).or_default();
             *total_balance += balance;
         }
     }
@@ -3802,7 +3802,7 @@ pub enum DexFee {
 }
 
 impl DexFee {
-    const DEX_FEE_SHARE: &str = "0.75";
+    const DEX_FEE_SHARE: &'static str = "0.75";
 
     /// Recreates a `DexFee` from separate fields (usually stored in db).
     #[cfg(any(test, feature = "for-tests"))]
@@ -4788,12 +4788,12 @@ pub enum RpcClientType {
     Ethereum,
 }
 
-impl ToString for RpcClientType {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for RpcClientType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RpcClientType::Native => "native".into(),
-            RpcClientType::Electrum => "electrum".into(),
-            RpcClientType::Ethereum => "ethereum".into(),
+            RpcClientType::Native => write!(f, "native"),
+            RpcClientType::Electrum => write!(f, "electrum"),
+            RpcClientType::Ethereum => write!(f, "ethereum"),
         }
     }
 }
@@ -5225,11 +5225,9 @@ pub async fn remove_delegation(ctx: MmArc, req: RemoveDelegateRequest) -> Delega
 
         None => match coin {
             MmCoinEnum::QtumCoin(qtum) => qtum.remove_delegation().compat().await,
-            _ => {
-                return MmError::err(DelegationError::CoinDoesntSupportDelegation {
-                    coin: coin.ticker().to_string(),
-                })
-            },
+            _ => MmError::err(DelegationError::CoinDoesntSupportDelegation {
+                coin: coin.ticker().to_string(),
+            }),
         },
     }
 }

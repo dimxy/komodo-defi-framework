@@ -1,5 +1,6 @@
 use coins::{CoinFindError, NumConversError};
 use common::{HttpStatusCode, StatusCode};
+use derive_more::Display;
 use enum_derives::EnumFromStringify;
 use ethereum_types::U256;
 use ser_error_derive::SerializeErrorType;

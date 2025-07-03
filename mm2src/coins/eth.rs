@@ -2766,8 +2766,8 @@ type EthTxFut = Box<dyn Future<Item = SignedEthTx, Error = TransactionErr> + Sen
 /// A `nonce_lock` is returned so that the caller doesn't release it until the transaction is sent and the
 /// address nonce is updated on RPC nodes.
 #[allow(clippy::too_many_arguments)]
-async fn sign_transaction_with_keypair<'a>(
-    coin: &'a EthCoin,
+async fn sign_transaction_with_keypair(
+    coin: &EthCoin,
     key_pair: &KeyPair,
     value: U256,
     action: Action,
@@ -5742,7 +5742,7 @@ impl EthCoin {
                 let nonces: Vec<_> = join_all(futures)
                     .await
                     .into_iter()
-                    .zip(web3_instances.into_iter())
+                    .zip(web3_instances)
                     .filter_map(|(nonce_res, instance)| match nonce_res {
                         Ok(n) => Some((n, instance)),
                         Err(e) => {
@@ -6131,7 +6131,7 @@ impl TryToAddress for [u8] {
     fn try_to_address(&self) -> Result<Address, String> { (&self).try_to_address() }
 }
 
-impl<'a> TryToAddress for &'a [u8] {
+impl TryToAddress for &[u8] {
     fn try_to_address(&self) -> Result<Address, String> {
         if self.len() != Address::len_bytes() {
             return ERR!(
@@ -6502,7 +6502,7 @@ pub async fn eth_coin_from_conf_and_request(
     }
 
     // Convert `PrivKeyBuildPolicy` to `EthPrivKeyBuildPolicy` if it's possible.
-    let priv_key_policy = try_s!(EthPrivKeyBuildPolicy::try_from(priv_key_policy));
+    let priv_key_policy = From::from(priv_key_policy);
 
     let mut urls: Vec<String> = try_s!(json::from_value(req["urls"].clone()));
     if urls.is_empty() {
@@ -7223,7 +7223,7 @@ impl IguanaBalanceOps for EthCoin {
         let token_balances = self.get_tokens_balance_list().await?;
         let mut balances = CoinBalanceMap::new();
         balances.insert(self.ticker().to_string(), platform_balance);
-        balances.extend(token_balances.into_iter());
+        balances.extend(token_balances);
         Ok(balances)
     }
 }
