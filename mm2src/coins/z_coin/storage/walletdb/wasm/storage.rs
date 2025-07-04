@@ -33,7 +33,7 @@ use zcash_primitives::merkle_tree::{CommitmentTree, IncrementalWitness};
 use zcash_primitives::sapling::{Node, Nullifier, PaymentAddress};
 use zcash_primitives::transaction::components::Amount;
 use zcash_primitives::transaction::{Transaction, TxId};
-use zcash_primitives::zip32::{ExtendedFullViewingKey, ExtendedSpendingKey};
+use zcash_primitives::zip32::ExtendedFullViewingKey;
 
 const DB_NAME: &str = "wallet_db_cache";
 const DB_VERSION: u32 = 1;
@@ -54,7 +54,6 @@ impl<'a> WalletDbShared {
     pub async fn new(
         builder: &ZCoinBuilder<'a>,
         checkpoint_block: Option<CheckPointBlockInfo>,
-        z_spending_key: &ExtendedSpendingKey,
         continue_from_prev_sync: bool,
     ) -> ZcoinStorageRes<Self> {
         let ticker = builder.ticker;
@@ -62,7 +61,7 @@ impl<'a> WalletDbShared {
         let db = WalletIndexedDb::new(builder.ctx, ticker, consensus_params).await?;
         let extrema = db.block_height_extrema().await?;
         let get_evk = db.get_extended_full_viewing_keys().await?;
-        let evk = ExtendedFullViewingKey::from(z_spending_key);
+        let evk = ExtendedFullViewingKey::from(&builder.z_spending_key);
         let min_sync_height = extrema.map(|(min, _)| u32::from(min));
         let init_block_height = checkpoint_block.clone().map(|block| block.height);
 
@@ -1083,7 +1082,7 @@ impl WalletRead for WalletIndexedDb {
             let matching_tx = maybe_txs.iter().find(|(id_tx, _tx)| id_tx.to_bigint() == note.spent);
 
             if let Some((_, tx)) = matching_tx {
-                if tx.block.is_none() {
+                if tx.block.is_some() {
                     nullifiers.push((
                         AccountId(
                             note.account
@@ -1096,18 +1095,6 @@ impl WalletRead for WalletIndexedDb {
                         .unwrap(),
                     ));
                 }
-            } else {
-                nullifiers.push((
-                    AccountId(
-                        note.account
-                            .to_u32()
-                            .ok_or_else(|| ZcoinStorageError::GetFromStorageError("Invalid amount".to_string()))?,
-                    ),
-                    Nullifier::from_slice(&note.nf.clone().ok_or_else(|| {
-                        ZcoinStorageError::GetFromStorageError("Error while putting tx_meta".to_string())
-                    })?)
-                    .unwrap(),
-                ));
             }
         }
 

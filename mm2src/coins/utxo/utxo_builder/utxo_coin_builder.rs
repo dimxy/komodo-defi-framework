@@ -5,7 +5,7 @@ use crate::utxo::rpc_clients::{ElectrumClient, ElectrumClientSettings, ElectrumC
 use crate::utxo::tx_cache::{UtxoVerboseCacheOps, UtxoVerboseCacheShared};
 use crate::utxo::utxo_block_header_storage::BlockHeaderStorage;
 use crate::utxo::utxo_builder::utxo_conf_builder::{UtxoConfBuilder, UtxoConfError};
-use crate::utxo::{output_script, ElectrumBuilderArgs, RecentlySpentOutPoints, TxFee, UtxoCoinConf, UtxoCoinFields,
+use crate::utxo::{output_script, ElectrumBuilderArgs, FeeRate, RecentlySpentOutPoints, UtxoCoinConf, UtxoCoinFields,
                   UtxoHDWallet, UtxoRpcMode, UtxoSyncStatus, UtxoSyncStatusLoopHandle, UTXO_DUST_AMOUNT};
 use crate::{BlockchainNetwork, CoinTransportMetrics, DerivationMethod, HistorySyncState, IguanaPrivKey,
             PrivKeyBuildPolicy, PrivKeyPolicy, PrivKeyPolicyNotAllowed, RpcClientType,
@@ -19,7 +19,6 @@ use derive_more::Display;
 use futures::channel::mpsc::{channel, Receiver as AsyncReceiver};
 use futures::compat::Future01CompatExt;
 use futures::lock::Mutex as AsyncMutex;
-use keys::bytes::Bytes;
 pub use keys::{Address, AddressBuilder, AddressFormat as UtxoAddressFormat, AddressHashEnum, AddressScriptType,
                KeyPair, Private, Public, Secret};
 use mm2_core::mm_ctx::MmArc;
@@ -298,11 +297,6 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
         }
         let hd_wallet_rmd160 = self.trezor_wallet_rmd160()?;
 
-        // For now, use a default script pubkey.
-        // TODO change the type of `recently_spent_outpoints` to `AsyncMutex<HashMap<Bytes, RecentlySpentOutPoints>>`
-        let my_script_pubkey = Bytes::new();
-        let recently_spent_outpoints = AsyncMutex::new(RecentlySpentOutPoints::new(my_script_pubkey));
-
         let address_format = self.address_format()?;
         let path_to_coin = conf
             .derivation_path
@@ -326,6 +320,9 @@ pub trait UtxoFieldsWithHardwareWalletBuilder: UtxoCoinBuilderCommonOps {
             },
             address_format,
         };
+
+        // TODO: Creating a dummy output script for now. We better set it to the enabled address output script.
+        let recently_spent_outpoints = AsyncMutex::new(RecentlySpentOutPoints::new(Default::default()));
 
         // Create an abortable system linked to the `MmCtx` so if the context is stopped via `MmArc::stop`,
         // all spawned futures related to this `UTXO` coin will be aborted as well.
@@ -467,9 +464,9 @@ pub trait UtxoCoinBuilderCommonOps {
         Ok(self.conf()["decimals"].as_u64().unwrap_or(8) as u8)
     }
 
-    async fn tx_fee(&self, rpc_client: &UtxoRpcClientEnum) -> UtxoCoinBuildResult<TxFee> {
+    async fn tx_fee(&self, rpc_client: &UtxoRpcClientEnum) -> UtxoCoinBuildResult<FeeRate> {
         let tx_fee = match self.conf()["txfee"].as_u64() {
-            None => TxFee::FixedPerKb(1000),
+            None => FeeRate::FixedPerKb(1000),
             Some(0) => {
                 let fee_method = match &rpc_client {
                     UtxoRpcClientEnum::Electrum(_) => EstimateFeeMethod::Standard,
@@ -479,9 +476,9 @@ pub trait UtxoCoinBuilderCommonOps {
                         .await
                         .map_to_mm(UtxoCoinBuildError::ErrorDetectingFeeMethod)?,
                 };
-                TxFee::Dynamic(fee_method)
+                FeeRate::Dynamic(fee_method)
             },
-            Some(fee) => TxFee::FixedPerKb(fee),
+            Some(fee) => FeeRate::FixedPerKb(fee),
         };
         Ok(tx_fee)
     }
@@ -681,7 +678,7 @@ pub trait UtxoCoinBuilderCommonOps {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn tx_cache_path(&self) -> PathBuf { self.ctx().dbdir().join("TX_CACHE") }
+    fn tx_cache_path(&self) -> PathBuf { self.ctx().global_dir().join("TX_CACHE") }
 
     fn block_header_status_channel(
         &self,

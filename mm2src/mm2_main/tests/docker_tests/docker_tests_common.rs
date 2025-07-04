@@ -65,7 +65,7 @@ lazy_static! {
     // Due to the SLP protocol limitations only 19 outputs (18 + change) can be sent in one transaction, which is sufficient for now though.
     // Supply more privkeys when 18 will be not enough.
     pub static ref SLP_TOKEN_OWNERS: Mutex<Vec<[u8; 32]>> = Mutex::new(Vec::with_capacity(18));
-    pub static ref MM_CTX: MmArc = MmCtxBuilder::new().with_conf(json!({"use_trading_proto_v2": true})).into_mm_arc();
+    pub static ref MM_CTX: MmArc = MmCtxBuilder::new().with_conf(json!({"coins":[eth_dev_conf()],"use_trading_proto_v2": true})).into_mm_arc();
     /// We need a second `MmCtx` instance when we use the same private keys for Maker and Taker across various tests.
     /// When enabling coins for both Maker and Taker, two distinct coin instances are created.
     /// This means that different instances of the same coin should have separate global nonce locks.
@@ -239,7 +239,7 @@ impl CoinDockerOps for ZCoinAssetDockerOps {
 
 impl ZCoinAssetDockerOps {
     pub fn new() -> ZCoinAssetDockerOps {
-        let (ctx, coin) = block_on(z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe"));
+        let (ctx, coin) = block_on(z_coin_from_spending_key("secret-extended-key-main1q0k2ga2cqqqqpq8m8j6yl0say83cagrqp53zqz54w38ezs8ly9ly5ptamqwfpq85u87w0df4k8t2lwyde3n9v0gcr69nu4ryv60t0kfcsvkr8h83skwqex2nf0vr32794fmzk89cpmjptzc22lgu5wfhhp8lgf3f5vn2l3sge0udvxnm95k6dtxj2jwlfyccnum7nz297ecyhmd5ph526pxndww0rqq0qly84l635mec0x4yedf95hzn6kcgq8yxts26k98j9g32kjc8y83fe", "fe"));
 
         ZCoinAssetDockerOps { ctx, coin }
     }
@@ -978,6 +978,7 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".to_string(),
         None,
@@ -1124,10 +1125,10 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
     ));
 
     log!("Checking alice status..");
-    block_on(wait_check_stats_swap_status(&mm_alice, &uuid, 30));
+    block_on(wait_check_stats_swap_status(&mm_alice, &uuid, 240));
 
     log!("Checking bob status..");
-    block_on(wait_check_stats_swap_status(&mm_bob, &uuid, 30));
+    block_on(wait_check_stats_swap_status(&mm_bob, &uuid, 240));
 
     log!("Checking alice recent swaps..");
     block_on(check_recent_swaps(&mm_alice, 1));
@@ -1154,6 +1155,7 @@ pub fn slp_supplied_node() -> MarketMakerIt {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".to_string(),
         None,

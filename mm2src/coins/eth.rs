@@ -20,6 +20,7 @@
 //
 //  Copyright © 2023 Pampex LTD and TillyHK LTD. All rights reserved.
 //
+use self::wallet_connect::{send_transaction_with_walletconnect, WcEthTxParams};
 use super::eth::Action::{Call, Create};
 use super::watcher_common::{validate_watcher_reward, REWARD_GAS_AMOUNT};
 use super::*;
@@ -58,6 +59,7 @@ use common::executor::{abortable_queue::AbortableQueue, AbortSettings, Abortable
                        Timer};
 use common::log::{debug, error, info, warn};
 use common::number_type_casting::SafeTypeCastingNumbers;
+use common::wait_until_sec;
 use common::{now_sec, small_rng, DEX_FEE_ADDR_RAW_PUBKEY};
 use crypto::privkey::key_pair_from_secret;
 use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
@@ -77,6 +79,7 @@ use futures::compat::Future01CompatExt;
 use futures::future::{join, join_all, select_ok, try_join_all, Either, FutureExt, TryFutureExt};
 use futures01::Future;
 use http::Uri;
+use kdf_walletconnect::{WalletConnectCtx, WalletConnectOps};
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, BigUint, MmNumber};
@@ -100,9 +103,8 @@ use web3::types::{Action as TraceAction, BlockId, BlockNumber, Bytes, CallReques
 use web3::{self, Web3};
 
 cfg_wasm32! {
-    use common::{now_ms, wait_until_ms};
     use crypto::MetamaskArc;
-    use ethereum_types::{H264, H520};
+    use ethereum_types::H520;
     use mm2_metamask::MetamaskError;
     use web3::types::TransactionRequest;
 }
@@ -137,6 +139,7 @@ mod eth_rpc;
 #[cfg(target_arch = "wasm32")] mod eth_wasm_tests;
 #[cfg(any(test, target_arch = "wasm32"))] mod for_tests;
 pub(crate) mod nft_swap_v2;
+pub mod wallet_connect;
 mod web3_transport;
 use web3_transport::{http_transport::HttpTransportNode, Web3Transport};
 
@@ -160,6 +163,8 @@ pub mod erc20;
 use erc20::get_token_decimals;
 pub(crate) mod eth_swap_v2;
 use eth_swap_v2::{extract_id_from_tx_data, EthPaymentType, PaymentMethod, SpendTxSearchParams};
+
+pub mod tron;
 
 /// https://github.com/artemii235/etomic-swap/blob/master/contracts/EtomicSwap.sol
 /// Dev chain (195.201.137.5:8565) contract address: 0x83965C539899cC0F918552e5A26915de40ee8852
@@ -762,6 +767,30 @@ struct SavedErc20Events {
     latest_block: U64,
 }
 
+/// Specifies which blockchain the EthCoin operates on: EVM-compatible or TRON.
+/// This distinction allows unified logic for EVM & TRON coins.
+#[derive(Clone, Debug)]
+pub enum ChainSpec {
+    Evm { chain_id: u64 },
+    Tron { network: tron::Network },
+}
+
+impl ChainSpec {
+    pub fn chain_id(&self) -> Option<u64> {
+        match self {
+            ChainSpec::Evm { chain_id } => Some(*chain_id),
+            ChainSpec::Tron { .. } => None,
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ChainSpec::Evm { .. } => "EVM",
+            ChainSpec::Tron { .. } => "TRON",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EthCoinType {
     /// Ethereum itself or it's forks: ETC/others
@@ -784,6 +813,11 @@ pub enum EthPrivKeyBuildPolicy {
     #[cfg(target_arch = "wasm32")]
     Metamask(MetamaskArc),
     Trezor,
+    WalletConnect {
+        address: Address,
+        public_key_uncompressed: H520,
+        session_topic: String,
+    },
 }
 
 impl EthPrivKeyBuildPolicy {
@@ -816,6 +850,8 @@ impl From<PrivKeyBuildPolicy> for EthPrivKeyBuildPolicy {
 pub struct EthCoinImpl {
     ticker: String,
     pub coin_type: EthCoinType,
+    /// Specifies the underlying blockchain (EVM or TRON).
+    pub chain_spec: ChainSpec,
     pub(crate) priv_key_policy: EthPrivKeyPolicy,
     /// Either an Iguana address or a 'EthHDWallet' instance.
     /// Arc is used to use the same hd wallet from platform coin if we need to.
@@ -836,7 +872,6 @@ pub struct EthCoinImpl {
     /// Coin needs access to the context in order to reuse the logging and shutdown facilities.
     /// Using a weak reference by default in order to avoid circular references and leaks.
     pub ctx: MmWeak,
-    chain_id: u64,
     /// The name of the coin with which Trezor wallet associates this asset.
     trezor_coin: Option<String>,
     /// the block range used for eth_getLogs
@@ -913,7 +948,7 @@ macro_rules! tx_type_from_pay_for_gas_option {
 impl EthCoinImpl {
     #[cfg(not(target_arch = "wasm32"))]
     fn eth_traces_path(&self, ctx: &MmArc, my_address: Address) -> PathBuf {
-        ctx.dbdir()
+        ctx.address_dir(&my_address.display_address())
             .join("TRANSACTIONS")
             .join(format!("{}_{:#02x}_trace.json", self.ticker, my_address))
     }
@@ -921,7 +956,8 @@ impl EthCoinImpl {
     /// Load saved ETH traces from local DB
     #[cfg(not(target_arch = "wasm32"))]
     fn load_saved_traces(&self, ctx: &MmArc, my_address: Address) -> Option<SavedTraces> {
-        let content = gstuff::slurp(&self.eth_traces_path(ctx, my_address));
+        let path = self.eth_traces_path(ctx, my_address);
+        let content = gstuff::slurp(&path);
         if content.is_empty() {
             None
         } else {
@@ -943,9 +979,8 @@ impl EthCoinImpl {
     #[cfg(not(target_arch = "wasm32"))]
     fn store_eth_traces(&self, ctx: &MmArc, my_address: Address, traces: &SavedTraces) {
         let content = json::to_vec(traces).unwrap();
-        let tmp_file = format!("{}.tmp", self.eth_traces_path(ctx, my_address).display());
-        std::fs::write(&tmp_file, content).unwrap();
-        std::fs::rename(tmp_file, self.eth_traces_path(ctx, my_address)).unwrap();
+        let path = self.eth_traces_path(ctx, my_address);
+        mm2_io::fs::write(&path, &content, true).unwrap();
     }
 
     /// Store ETH traces to local DB
@@ -957,7 +992,7 @@ impl EthCoinImpl {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn erc20_events_path(&self, ctx: &MmArc, my_address: Address) -> PathBuf {
-        ctx.dbdir()
+        ctx.address_dir(&my_address.display_address())
             .join("TRANSACTIONS")
             .join(format!("{}_{:#02x}_events.json", self.ticker, my_address))
     }
@@ -966,9 +1001,8 @@ impl EthCoinImpl {
     #[cfg(not(target_arch = "wasm32"))]
     fn store_erc20_events(&self, ctx: &MmArc, my_address: Address, events: &SavedErc20Events) {
         let content = json::to_vec(events).unwrap();
-        let tmp_file = format!("{}.tmp", self.erc20_events_path(ctx, my_address).display());
-        std::fs::write(&tmp_file, content).unwrap();
-        std::fs::rename(tmp_file, self.erc20_events_path(ctx, my_address)).unwrap();
+        let path = self.erc20_events_path(ctx, my_address);
+        mm2_io::fs::write(&path, &content, true).unwrap();
     }
 
     /// Store ERC20 events to local DB
@@ -981,7 +1015,8 @@ impl EthCoinImpl {
     /// Load saved ERC20 events from local DB
     #[cfg(not(target_arch = "wasm32"))]
     fn load_saved_erc20_events(&self, ctx: &MmArc, my_address: Address) -> Option<SavedErc20Events> {
-        let content = gstuff::slurp(&self.erc20_events_path(ctx, my_address));
+        let path = self.erc20_events_path(ctx, my_address);
+        let content = gstuff::slurp(&path);
         if content.is_empty() {
             None
         } else {
@@ -1043,7 +1078,7 @@ impl EthCoinImpl {
     }
 
     #[inline(always)]
-    pub fn chain_id(&self) -> u64 { self.chain_id }
+    pub fn chain_id(&self) -> Option<u64> { self.chain_spec.chain_id() }
 }
 
 async fn get_raw_transaction_impl(coin: EthCoin, req: RawTransactionRequest) -> RawTransactionResult {
@@ -1161,7 +1196,16 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
         .build()
         .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
     let secret = eth_coin.priv_key_policy.activated_key_or_err()?.secret();
-    let signed = tx.sign(secret, Some(eth_coin.chain_id))?;
+    let chain_id = match eth_coin.chain_spec {
+        ChainSpec::Evm { chain_id } => chain_id,
+        // Todo: Add support for Tron NFTs
+        ChainSpec::Tron { .. } => {
+            return MmError::err(WithdrawError::InternalError(
+                "Tron is not supported for withdraw_erc1155 yet".to_owned(),
+            ))
+        },
+    };
+    let signed = tx.sign(secret, Some(chain_id))?;
     let signed_bytes = rlp::encode(&signed);
     let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
 
@@ -1252,7 +1296,16 @@ pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> Withd
         .build()
         .map_to_mm(|e| WithdrawError::InternalError(e.to_string()))?;
     let secret = eth_coin.priv_key_policy.activated_key_or_err()?.secret();
-    let signed = tx.sign(secret, Some(eth_coin.chain_id))?;
+    let chain_id = match eth_coin.chain_spec {
+        ChainSpec::Evm { chain_id } => chain_id,
+        // Todo: Add support for Tron NFTs
+        ChainSpec::Tron { .. } => {
+            return MmError::err(WithdrawError::InternalError(
+                "Tron is not supported for withdraw_erc721 yet".to_owned(),
+            ))
+        },
+    };
+    let signed = tx.sign(secret, Some(chain_id))?;
     let signed_bytes = rlp::encode(&signed);
     let fee_details = EthTxFeeDetails::new(gas, pay_for_gas_option, fee_coin)?;
 
@@ -1527,7 +1580,7 @@ impl SwapOps for EthCoin {
                 activated_key: ref key_pair,
                 ..
             } => key_pair_from_secret(key_pair.secret().as_fixed_bytes()).expect("valid key"),
-            EthPrivKeyPolicy::Trezor => todo!(),
+            EthPrivKeyPolicy::Trezor | EthPrivKeyPolicy::WalletConnect { .. } => todo!(),
             #[cfg(target_arch = "wasm32")]
             EthPrivKeyPolicy::Metamask(_) => todo!(),
         }
@@ -1545,6 +1598,7 @@ impl SwapOps for EthCoin {
                 .public_slice()
                 .try_into()
                 .expect("valid key length!"),
+            EthPrivKeyPolicy::WalletConnect { public_key, .. } => public_key.into(),
             EthPrivKeyPolicy::Trezor => todo!(),
             #[cfg(target_arch = "wasm32")]
             EthPrivKeyPolicy::Metamask(ref metamask_policy) => metamask_policy.public_key.0,
@@ -2284,6 +2338,11 @@ impl MarketCoinOps for EthCoin {
         }
     }
 
+    fn address_from_pubkey(&self, pubkey: &H264Json) -> MmResult<String, AddressFromPubkeyError> {
+        let addr = addr_from_raw_pubkey(&pubkey.0).map_err(AddressFromPubkeyError::InternalError)?;
+        Ok(addr.display_address())
+    }
+
     async fn get_public_key(&self) -> Result<String, MmError<UnexpectedDerivationMethod>> {
         match self.priv_key_policy {
             EthPrivKeyPolicy::Iguana(ref key_pair)
@@ -2311,6 +2370,10 @@ impl MarketCoinOps for EthCoin {
             EthPrivKeyPolicy::Metamask(ref metamask_policy) => {
                 Ok(format!("{:02x}", metamask_policy.public_key_uncompressed))
             },
+            EthPrivKeyPolicy::WalletConnect {
+                public_key_uncompressed,
+                ..
+            } => Ok(format!("{public_key_uncompressed:02x}")),
         }
     }
 
@@ -2328,10 +2391,25 @@ impl MarketCoinOps for EthCoin {
         Some(keccak256(&stream.out()).take())
     }
 
-    fn sign_message(&self, message: &str) -> SignatureResult<String> {
+    fn sign_message(&self, message: &str, address: Option<HDAddressSelector>) -> SignatureResult<String> {
         let message_hash = self.sign_message_hash(message).ok_or(SignatureError::PrefixNotFound)?;
-        let privkey = &self.priv_key_policy.activated_key_or_err()?.secret();
-        let signature = sign(privkey, &H256::from(message_hash))?;
+
+        let secret = if let Some(address) = address {
+            let path_to_coin = self.priv_key_policy.path_to_coin_or_err()?;
+            let derivation_path = address
+                .valid_derivation_path(path_to_coin)
+                .mm_err(|err| SignatureError::InvalidRequest(err.to_string()))?;
+            let privkey = self
+                .priv_key_policy
+                .hd_wallet_derived_priv_key_or_err(&derivation_path)?;
+            ethkey::Secret::from_slice(privkey.as_slice()).ok_or(MmError::new(SignatureError::InternalError(
+                "failed to derive ethkey::Secret".to_string(),
+            )))?
+        } else {
+            self.priv_key_policy.activated_key_or_err()?.secret().clone()
+        };
+        let signature = sign(&secret, &H256::from(message_hash))?;
+
         Ok(format!("0x{}", signature))
     }
 
@@ -2578,6 +2656,7 @@ impl MarketCoinOps for EthCoin {
             EthPrivKeyPolicy::Trezor => ERR!("'display_priv_key' is not supported for Hardware Wallets"),
             #[cfg(target_arch = "wasm32")]
             EthPrivKeyPolicy::Metamask(_) => ERR!("'display_priv_key' is not supported for MetaMask"),
+            EthPrivKeyPolicy::WalletConnect { .. } => ERR!("'display_priv_key' is not supported for WalletConnect"),
         }
     }
 
@@ -2635,15 +2714,23 @@ async fn sign_transaction_with_keypair<'a>(
     if !coin.is_tx_type_supported(&tx_type) {
         return Err(TransactionErr::Plain("Eth transaction type not supported".into()));
     }
+
     let tx_builder = UnSignedEthTxBuilder::new(tx_type, nonce, gas, action, value, data);
     let tx_builder = tx_builder_with_pay_for_gas_option(coin, tx_builder, pay_for_gas_option)
         .map_err(|e| TransactionErr::Plain(e.get_inner().to_string()))?;
     let tx = tx_builder.build()?;
+    let chain_id = match coin.chain_spec {
+        ChainSpec::Evm { chain_id } => chain_id,
+        // Todo: Add Tron signing logic
+        ChainSpec::Tron { .. } => {
+            return Err(TransactionErr::Plain(
+                "Tron is not supported for sign_transaction_with_keypair yet".into(),
+            ))
+        },
+    };
+    let signed_tx = tx.sign(key_pair.secret(), Some(chain_id))?;
 
-    Ok((
-        tx.sign(key_pair.secret(), Some(coin.chain_id))?,
-        web3_instances_with_latest_nonce,
-    ))
+    Ok((signed_tx, web3_instances_with_latest_nonce))
 }
 
 /// Sign and send eth transaction with provided keypair,
@@ -2717,7 +2804,7 @@ async fn sign_and_send_transaction_with_metamask(
 
     // It's important to return the transaction hex for the swap,
     // so wait up to 60 seconds for the transaction to appear on the RPC node.
-    let wait_rpc_timeout = 60_000;
+    let wait_rpc_timeout = 60;
     let check_every = 1.;
 
     // Please note that this method may take a long time
@@ -2784,12 +2871,69 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
             })
             .map_to_mm(|err| RawTransactionError::TransactionError(err.get_plain_text_format()))
         },
+        EthPrivKeyPolicy::WalletConnect { .. } => {
+            // NOTE: doesn't work with wallets that doesn't support `eth_signTransaction`.
+            // e.g Metamask
+            let wc = {
+                let ctx = MmArc::from_weak(&coin.ctx).expect("No context");
+                WalletConnectCtx::from_ctx(&ctx)
+                    .expect("TODO: handle error when enable kdf initialization without key.")
+            };
+            // Todo: Tron will have to be set with `ChainSpec::Evm` to work with walletconnect.
+            // This means setting the protocol as `ETH` in coin config and having a different coin for this mode.
+            let chain_id = coin.chain_spec.chain_id().ok_or(RawTransactionError::InvalidParam(
+                "WalletConnect needs chain_id to be set".to_owned(),
+            ))?;
+            let my_address = coin
+                .derivation_method
+                .single_addr_or_err()
+                .await
+                .mm_err(|e| RawTransactionError::InternalError(e.to_string()))?;
+            let address_lock = coin.get_address_lock(my_address.to_string()).await;
+            let _nonce_lock = address_lock.lock().await;
+            let pay_for_gas_option = if let Some(ref pay_for_gas) = args.pay_for_gas {
+                pay_for_gas.clone().try_into()?
+            } else {
+                // use legacy gas_price() if not set
+                info!(target: "sign-and-send", "get_gas_price…");
+                let gas_price = coin.get_gas_price().await?;
+                PayForGasOption::Legacy(LegacyGasPrice { gas_price })
+            };
+            let (nonce, _) = coin
+                .clone()
+                .get_addr_nonce(my_address)
+                .compat()
+                .await
+                .map_to_mm(RawTransactionError::InvalidParam)?;
+            let (max_fee_per_gas, max_priority_fee_per_gas) = pay_for_gas_option.get_fee_per_gas();
+
+            info!(target: "sign-and-send", "WalletConnect signing and sending tx…");
+            let (signed_tx, _) = coin
+                .wc_sign_tx(&wc, WcEthTxParams {
+                    my_address,
+                    gas_price: pay_for_gas_option.get_gas_price(),
+                    action,
+                    value,
+                    gas: args.gas_limit,
+                    data: &data,
+                    nonce,
+                    chain_id,
+                    max_fee_per_gas,
+                    max_priority_fee_per_gas,
+                })
+                .await
+                .mm_err(|err| RawTransactionError::TransactionError(err.to_string()))?;
+
+            Ok(RawTransactionRes {
+                tx_hex: signed_tx.tx_hex().into(),
+            })
+        },
+        EthPrivKeyPolicy::Trezor => MmError::err(RawTransactionError::InvalidParam(
+            "sign raw eth tx not implemented for Trezor".into(),
+        )),
         #[cfg(target_arch = "wasm32")]
         EthPrivKeyPolicy::Metamask(_) => MmError::err(RawTransactionError::InvalidParam(
             "sign raw eth tx not implemented for Metamask".into(),
-        )),
-        EthPrivKeyPolicy::Trezor => MmError::err(RawTransactionError::InvalidParam(
-            "sign raw eth tx not implemented for Trezor".into(),
         )),
     }
 }
@@ -3733,7 +3877,22 @@ impl EthCoin {
                         .single_addr_or_err()
                         .await
                         .map_err(|e| TransactionErr::Plain(ERRL!("{}", e)))?;
+
                     sign_and_send_transaction_with_keypair(&coin, key_pair, address, value, action, data, gas).await
+                },
+                EthPrivKeyPolicy::WalletConnect { .. } => {
+                    let wc = {
+                        let ctx = MmArc::from_weak(&coin.ctx).expect("No context");
+                        WalletConnectCtx::from_ctx(&ctx)
+                            .expect("TODO: handle error when enable kdf initialization without key.")
+                    };
+                    let address = coin
+                        .derivation_method
+                        .single_addr_or_err()
+                        .await
+                        .map_err(|e| TransactionErr::Plain(ERRL!("{}", e)))?;
+
+                    send_transaction_with_walletconnect(coin, &wc, address, value, action, &data, gas).await
                 },
                 EthPrivKeyPolicy::Trezor => Err(TransactionErr::Plain(ERRL!("Trezor is not supported for swaps yet!"))),
                 #[cfg(target_arch = "wasm32")]
@@ -5368,15 +5527,14 @@ impl EthCoin {
     }
 
     /// Returns `None` if the transaction hasn't appeared on the RPC nodes at the specified time.
-    #[cfg(target_arch = "wasm32")]
     async fn wait_for_tx_appears_on_rpc(
         &self,
         tx_hash: H256,
-        wait_rpc_timeout_ms: u64,
+        wait_rpc_timeout_s: u64,
         check_every: f64,
     ) -> Web3RpcResult<Option<SignedEthTx>> {
-        let wait_until = wait_until_ms(wait_rpc_timeout_ms);
-        while now_ms() < wait_until {
+        let wait_until = wait_until_sec(wait_rpc_timeout_s);
+        while now_sec() < wait_until {
             let maybe_tx = self.transaction(TransactionId::Hash(tx_hash)).await?;
             if let Some(tx) = maybe_tx {
                 let signed_tx = signed_tx_from_web3_tx(tx).map_to_mm(Web3RpcError::InvalidResponse)?;
@@ -5386,10 +5544,10 @@ impl EthCoin {
             Timer::sleep(check_every).await;
         }
 
-        let timeout_s = wait_rpc_timeout_ms / 1000;
         warn!(
-            "Couldn't fetch the '{tx_hash:02x}' transaction hex as it hasn't appeared on the RPC node in {timeout_s}s"
+            "Couldn't fetch the '{tx_hash:02x}' transaction hex as it hasn't appeared on the RPC node in {wait_rpc_timeout_s}s"
         );
+
         Ok(None)
     }
 
@@ -6314,6 +6472,27 @@ pub async fn eth_coin_from_conf_and_request(
     protocol: CoinProtocol,
     priv_key_policy: PrivKeyBuildPolicy,
 ) -> Result<EthCoin, String> {
+    fn get_chain_id_from_platform(ctx: &MmArc, ticker: &str, platform: &str) -> Result<u64, String> {
+        let platform_conf = coin_conf(ctx, platform);
+        if platform_conf.is_null() {
+            return ERR!(
+                "Failed to activate ERC20 token '{}': the platform '{}' is not defined in the coins config.",
+                ticker,
+                platform
+            );
+        }
+        let platform_protocol: CoinProtocol = json::from_value(platform_conf["protocol"].clone())
+            .map_err(|e| ERRL!("Error parsing platform protocol for '{}': {}", platform, e))?;
+        match platform_protocol {
+            CoinProtocol::ETH { chain_id } => Ok(chain_id),
+            protocol => ERR!(
+                "Failed to activate ERC20 token '{}': the platform protocol '{:?}' must be ETH",
+                ticker,
+                protocol
+            ),
+        }
+    }
+
     // Convert `PrivKeyBuildPolicy` to `EthPrivKeyBuildPolicy` if it's possible.
     let priv_key_policy = try_s!(EthPrivKeyBuildPolicy::try_from(priv_key_policy));
 
@@ -6402,8 +6581,8 @@ pub async fn eth_coin_from_conf_and_request(
         return ERR!("Failed to get client version for all urls");
     }
 
-    let (coin_type, decimals) = match protocol {
-        CoinProtocol::ETH => (EthCoinType::Eth, ETH_DECIMALS),
+    let (coin_type, decimals, chain_id) = match protocol {
+        CoinProtocol::ETH { chain_id } => (EthCoinType::Eth, ETH_DECIMALS, chain_id),
         CoinProtocol::ERC20 {
             platform,
             contract_address,
@@ -6422,9 +6601,13 @@ pub async fn eth_coin_from_conf_and_request(
                 ),
                 Some(d) => d as u8,
             };
-            (EthCoinType::Erc20 { platform, token_addr }, decimals)
+            let chain_id = get_chain_id_from_platform(ctx, ticker, &platform)?;
+            (EthCoinType::Erc20 { platform, token_addr }, decimals, chain_id)
         },
-        CoinProtocol::NFT { platform } => (EthCoinType::Nft { platform }, ETH_DECIMALS),
+        CoinProtocol::NFT { platform } => {
+            let chain_id = get_chain_id_from_platform(ctx, ticker, &platform)?;
+            (EthCoinType::Nft { platform }, ETH_DECIMALS, chain_id)
+        },
         _ => return ERR!("Expect ETH, ERC20 or NFT protocol"),
     };
 
@@ -6443,10 +6626,6 @@ pub async fn eth_coin_from_conf_and_request(
     }
 
     let sign_message_prefix: Option<String> = json::from_value(conf["sign_message_prefix"].clone()).unwrap_or(None);
-
-    let chain_id = try_s!(conf["chain_id"]
-        .as_u64()
-        .ok_or_else(|| format!("chain_id is not set for {}", ticker)));
 
     let trezor_coin: Option<String> = json::from_value(conf["trezor_coin"].clone()).unwrap_or(None);
 
@@ -6480,6 +6659,8 @@ pub async fn eth_coin_from_conf_and_request(
         priv_key_policy: key_pair,
         derivation_method: Arc::new(derivation_method),
         coin_type,
+        // Tron is not supported for v1 activation
+        chain_spec: ChainSpec::Evm { chain_id },
         sign_message_prefix,
         swap_contract_address,
         swap_v2_contracts: None,
@@ -6493,7 +6674,6 @@ pub async fn eth_coin_from_conf_and_request(
         max_eth_tx_type,
         ctx: ctx.weak(),
         required_confirmations,
-        chain_id,
         trezor_coin,
         logs_block_range: conf["logs_block_range"].as_u64().unwrap_or(DEFAULT_LOGS_BLOCK_RANGE),
         address_nonce_locks,
@@ -6782,6 +6962,8 @@ fn calc_total_fee(gas: U256, pay_for_gas_option: &PayForGasOption) -> NumConvers
     }
 }
 
+// Todo: Tron have a different concept from gas (Energy, Bandwidth and Free Transaction), it should be added as a different function
+// and this should be part of a trait abstracted over both types
 #[allow(clippy::result_large_err)]
 fn tx_builder_with_pay_for_gas_option(
     eth_coin: &EthCoin,
@@ -6793,9 +6975,14 @@ fn tx_builder_with_pay_for_gas_option(
         PayForGasOption::Eip1559(Eip1559FeePerGas {
             max_priority_fee_per_gas,
             max_fee_per_gas,
-        }) => tx_builder
-            .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
-            .with_chain_id(eth_coin.chain_id),
+        }) => {
+            let chain_id = eth_coin
+                .chain_id()
+                .ok_or_else(|| WithdrawError::InternalError("chain_id should be set for an EVM coin".to_string()))?;
+            tx_builder
+                .with_priority_fee_per_gas(max_fee_per_gas, max_priority_fee_per_gas)
+                .with_chain_id(chain_id)
+        },
     };
     Ok(tx_builder)
 }
@@ -7279,6 +7466,15 @@ impl CommonSwapOpsV2 for EthCoin {
                     .expect("slice with incorrect length");
                 Public::from_slice(&pubkey_bytes)
             },
+            EthPrivKeyPolicy::WalletConnect {
+                public_key_uncompressed,
+                ..
+            } => {
+                let pubkey_bytes: [u8; 64] = public_key_uncompressed[1..65]
+                    .try_into()
+                    .expect("slice with incorrect length");
+                Public::from_slice(&pubkey_bytes)
+            },
         }
     }
 
@@ -7299,6 +7495,7 @@ impl EthCoin {
         let coin = EthCoinImpl {
             ticker: self.ticker.clone(),
             coin_type: new_coin_type,
+            chain_spec: self.chain_spec.clone(),
             priv_key_policy: self.priv_key_policy.clone(),
             derivation_method: Arc::clone(&self.derivation_method),
             sign_message_prefix: self.sign_message_prefix.clone(),
@@ -7315,7 +7512,6 @@ impl EthCoin {
             swap_txfee_policy: Mutex::new(self.swap_txfee_policy.lock().unwrap().clone()),
             max_eth_tx_type: self.max_eth_tx_type,
             ctx: self.ctx.clone(),
-            chain_id: self.chain_id,
             trezor_coin: self.trezor_coin.clone(),
             logs_block_range: self.logs_block_range,
             address_nonce_locks: Arc::clone(&self.address_nonce_locks),
