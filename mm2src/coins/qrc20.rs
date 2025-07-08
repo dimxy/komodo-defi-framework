@@ -1522,9 +1522,3 @@ fn transfer_event_from_log(log: &LogEntry) -> Result<TransferEventDetails, Strin
         receiver,
     })
 }
-
-impl Eip1559Ops for Qrc20Coin {
-    fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy { SwapTxFeePolicy::Unsupported }
-
-    fn set_swap_transaction_fee_policy(&self, _swap_txfee_policy: SwapTxFeePolicy) {}
-}

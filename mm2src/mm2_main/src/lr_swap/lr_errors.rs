@@ -1,8 +1,10 @@
 use crate::lp_swap::swap_v2_common::SwapStateMachineError;
 use crate::lp_swap::swap_v2_rpcs::MySwapStatusError;
+use crate::lp_swap::CheckBalanceError;
 use coins::CoinFindError;
 use enum_derives::EnumFromStringify;
 use ethereum_types::U256;
+use mm2_number::BigDecimal;
 use trading_api::one_inch_api::errors::OneInchError;
 
 #[derive(Debug, Display, EnumFromStringify)]
@@ -42,7 +44,31 @@ pub enum LrSwapError {
     #[from_stringify("coins::RawTransactionError")]
     SignTransactionError(String),
     InternalError(String),
-    CheckBalanceError(String),
+    #[display(
+        fmt = "Not enough {} for swap: available {}, required at least {}, locked by swaps {:?}",
+        coin,
+        available,
+        required,
+        locked_by_swaps
+    )]
+    NotSufficientBalance {
+        coin: String,
+        available: BigDecimal,
+        required: BigDecimal,
+        locked_by_swaps: Option<BigDecimal>,
+    },
+    #[display(
+        fmt = "The volume {} of the {} coin less than minimum transaction amount {}",
+        volume,
+        coin,
+        threshold
+    )]
+    VolumeTooLow {
+        coin: String,
+        volume: BigDecimal,
+        threshold: BigDecimal,
+    },
+    TransportError(String),
 }
 
 impl From<CoinFindError> for LrSwapError {
@@ -80,6 +106,46 @@ impl From<OneInchError> for LrSwapError {
             OneInchError::AllowanceNotEnough { allowance, amount, .. } => {
                 LrSwapError::OneInchAllowanceNotEnough { allowance, amount }
             },
+        }
+    }
+}
+
+impl From<CheckBalanceError> for LrSwapError {
+    fn from(err: CheckBalanceError) -> Self {
+        match err {
+            CheckBalanceError::NotSufficientBalance {
+                coin,
+                available,
+                required,
+                locked_by_swaps,
+            } => Self::NotSufficientBalance {
+                coin,
+                available,
+                required,
+                locked_by_swaps,
+            },
+            CheckBalanceError::NotSufficientBaseCoinBalance {
+                coin,
+                available,
+                required,
+                locked_by_swaps,
+            } => Self::NotSufficientBalance {
+                coin,
+                available,
+                required,
+                locked_by_swaps,
+            },
+            CheckBalanceError::VolumeTooLow {
+                coin,
+                volume,
+                threshold,
+            } => Self::VolumeTooLow {
+                coin,
+                volume,
+                threshold,
+            },
+            CheckBalanceError::Transport(nested_err) => Self::TransportError(nested_err),
+            CheckBalanceError::InternalError(nested_err) => Self::InternalError(nested_err),
         }
     }
 }
