@@ -1007,7 +1007,7 @@ impl MarketCoinOps for LightningCoin {
         Box::new(fut.boxed().compat())
     }
 
-    fn base_coin_balance(&self) -> BalanceFut<BigDecimal> { Box::new(self.my_balance().map(|res| res.spendable)) }
+    fn platform_coin_balance(&self) -> BalanceFut<BigDecimal> { Box::new(self.my_balance().map(|res| res.spendable)) }
 
     fn platform_ticker(&self) -> &str { self.platform_coin().ticker() }
 
