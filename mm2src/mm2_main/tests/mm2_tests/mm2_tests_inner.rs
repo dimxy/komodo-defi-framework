@@ -6902,9 +6902,9 @@ mod trezor_tests {
                 "rpc_mode": "Default",
                 "nodes": [
                     {"url": "https://sepolia.drpc.org"},
-                    {"url": "https://ethereum-sepolia-rpc.publicnode.com"},
-                    {"url": "https://rpc2.sepolia.org"},
-                    {"url": "https://rpc.sepolia.org/"}
+                    {"url": "https://ethereum-sepolia-rpc.publicnode.com"}
+                //    {"url": "https://rpc2.sepolia.org"},
+                //    {"url": "https://rpc.sepolia.org/"}
                 ],
                 "swap_contract_address": ETH_SEPOLIA_SWAP_CONTRACT,
                 "erc20_tokens_requests": [{"ticker": ticker_token}],

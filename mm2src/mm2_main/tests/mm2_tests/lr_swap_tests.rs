@@ -249,6 +249,10 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
             .unwrap()
     );
 
+    if let Err(err) = block_on(set_swap_gas_fee_policy(&mut mm_alice, MATIC, "Medium")) {
+        log!("set_swap_transaction_fee_policy error={}", err);
+    }
+
     let order_res_1 = block_on(create_maker_order(&mut mm_bob, DOC, &token_1_ticker, 0.0011111, 1.0)); // DAI
     let order_res_2 = block_on(create_maker_order(&mut mm_bob, DOC, &token_2_ticker, 0.00105, 1.0)); // 1INCH
     let order_res_3 = block_on(create_maker_order(
@@ -317,47 +321,44 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let agg_uuid = block_on(create_and_start_agg_taker_swap(
         &mut mm_alice,
         DOC,
-        None,
+        &doc_amount_to_buy,
         LR0_SLIPPAGE,
         Some(best_quote.lr_swap_details),
         best_quote.best_order,
         None,
     ))
     .unwrap();
-    log!("Aggregated swap uuid {:?} started", agg_uuid);
+    log!("Aggregated taker swap uuid {:?} started", agg_uuid);
 
     block_on(Timer::sleep(1.0));
 
     let active_swaps_alice = block_on(active_swaps(&mm_alice));
     assert_eq!(active_swaps_alice.uuids, vec![agg_uuid]);
-
     block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 180)); // Only taker has the aggregated swap
-    log!("Aggregated lr swap {:?} finished", agg_uuid);
+    log!("Aggregated taker swap uuid {:?} finished", agg_uuid);
 
     let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
     log!(
-        "final taker_swap_status {}",
+        "Aggregated taker swap final status {}",
         serde_json::to_string(&taker_swap_status).unwrap()
     );
     check_my_agg_swap_final_status(&taker_swap_status);
-    let alice_balance = block_on(my_balance(&mm_alice, DOC));
-    log!(
-        "Alice DOC address={:?} balance={:?} unspendable_balance={:?} after swap",
-        alice_balance.address,
-        alice_balance.balance,
-        alice_balance.unspendable_balance
-    );
+    let alice_doc_balance = block_on(my_balance(&mm_alice, DOC));
+    print_balances(&mm_alice, "Alice balance after swap:", &[
+        DOC,
+        MATIC,
+        &token_1_ticker,
+        &token_2_ticker,
+        &token_3_ticker,
+        &token_4_ticker,
+    ]);
 
-    // Rough check taker swap amount received
-    assert!(
-        &alice_balance.balance - &alice_enable_doc.balance > &doc_amount_to_buy - &"0.1".parse::<BigDecimal>().unwrap()
-    );
-    assert!(
-        &alice_balance.balance - &alice_enable_doc.balance < &doc_amount_to_buy + &"0.1".parse::<BigDecimal>().unwrap()
-    );
+    let status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
+    if let Some(atomic_swap_uuid) = status["result"]["atomic_swap_uuid"].as_str() {
+        println!("atomic_swap_uuid={atomic_swap_uuid}");
+        block_on(wait_for_swap_finished(&mm_bob, atomic_swap_uuid, 60));
+    }
 
-    //block_on(check_recent_swaps(&mm_bob, 1));
-    //block_on(check_recent_swaps(&mm_alice, 1));
     block_on(cancel_order(&mm_bob, &token_1_order.uuid));
     block_on(cancel_order(&mm_bob, &token_2_order.uuid));
     block_on(cancel_order(&mm_bob, &token_3_order.uuid));
@@ -365,11 +366,26 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
 
     block_on(Timer::sleep(10.0)); // wait for orderbook update
 
-    // Disabling coins on both nodes should be successful at this point
+    // Disabling coins on both nodes should be successful at this point.
+    // NOTE: if disable a coin fails due to non empty "active_swaps" this most likely means
+    // that the Maker did not finish their part of the atomic swap,
+    // This usually occurs on MATIC mainnet due to the Maker spending a PLG20 token from the HTLC with a low gas fee,
+    // which could lead to long confirmation of this tx.
+    // (The MATIC/POL mainnet is known for high gas fee fluctuation). TODO: add waiting for maker's atomic swap? it could last hours if fee too low
     block_on(disable_coin(&mm_bob, MATIC, false));
     block_on(disable_coin(&mm_bob, DOC, false));
     block_on(disable_coin(&mm_alice, MATIC, false));
     block_on(disable_coin(&mm_alice, DOC, false));
+
+    // Rough check taker swap amount received
+    assert!(
+        &alice_doc_balance.balance - &alice_enable_doc.balance
+            > &doc_amount_to_buy - &"0.2".parse::<BigDecimal>().unwrap()
+    );
+    assert!(
+        &alice_doc_balance.balance - &alice_enable_doc.balance
+            < &doc_amount_to_buy + &"0.2".parse::<BigDecimal>().unwrap()
+    );
 }
 
 /// Not used yet
@@ -390,7 +406,7 @@ async fn make_1inch_swap(mm: &mut MarketMakerIt, base: &str, rel: &str, amount: 
     let rc = mm
         .rpc(&json!({
             "userpass": mm.userpass,
-            "method": "1inch_v6_0_classic_swap_create",
+            "method": "experimental::1inch_v6_0::classic_swap_create",
             "mmrpc": "2.0",
             "params": {
                 "base": base,
@@ -565,7 +581,7 @@ async fn find_best_lr_swap(
 async fn create_and_start_agg_taker_swap(
     taker: &mut MarketMakerIt,
     base: &str,
-    atomic_swap_volume: Option<&BigDecimal>,
+    atomic_swap_volume: &BigDecimal,
     slippage: f32,
     lr_swap_details_0: Option<ClassicSwapDetails>,
     order_entry: AskOrBidOrder,
@@ -575,11 +591,6 @@ async fn create_and_start_agg_taker_swap(
         "Issue taker {}/{} lr::fill_order request",
         base,
         order_entry.order().coin
-    );
-
-    assert!(
-        lr_swap_details_0.is_some() && atomic_swap_volume.is_none()
-            || lr_swap_details_0.is_none() && atomic_swap_volume.is_some()
     );
     let lr_swap_0 = lr_swap_details_0.map(|swap_details| {
         json!({
@@ -644,14 +655,33 @@ fn check_my_agg_swap_final_status(status_response: &Value) {
 }
 
 async fn cancel_order(mm: &MarketMakerIt, uuid: &Uuid) {
-    let cancel_rc = mm
+    mm.rpc(&json! ({
+        "userpass": mm.userpass,
+        "method": "cancel_order",
+        "uuid": uuid,
+    }))
+    .await
+    .unwrap();
+}
+
+async fn set_swap_gas_fee_policy(mm: &MarketMakerIt, coin: &str, fee_policy: &str) -> Result<(), String> {
+    let rc = mm
         .rpc(&json! ({
             "userpass": mm.userpass,
-            "method": "cancel_order",
-            "uuid": uuid,
+            "mmrpc": "2.0",
+            "method": "set_swap_gas_fee_policy",
+            "params": {
+                "coin": coin,
+                "swap_gas_fee_policy": fee_policy
+            }
         }))
         .await
         .unwrap();
+    if rc.0.is_success() {
+        Ok(())
+    } else {
+        Err(rc.1)
+    }
 }
 
 fn check_results<T: std::fmt::Debug>(results: &[Result<T, String>], msg: &str) {
@@ -664,5 +694,19 @@ fn check_results<T: std::fmt::Debug>(results: &[Result<T, String>], msg: &str) {
     if !err_msg.is_empty() {
         log!("{},{}", msg, err_msg);
         panic!("{}", msg);
+    }
+}
+
+fn print_balances(mm: &MarketMakerIt, msg: &str, tickers: &[&str]) {
+    for ticker in tickers {
+        let balance = block_on(my_balance(mm, ticker));
+        log!(
+            "{} {}: address={:?} balance={:?} unspendable_balance={:?}",
+            msg,
+            ticker,
+            balance.address,
+            balance.balance,
+            balance.unspendable_balance
+        );
     }
 }

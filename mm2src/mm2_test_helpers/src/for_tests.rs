@@ -261,7 +261,8 @@ pub const ETH_SEPOLIA_TOKEN_CONTRACT: &str = "0x09d0d71FBC00D7CCF9CFf132f5E6825C
 pub const BCHD_TESTNET_URLS: &[&str] = &["https://bchd-testnet.greyh.at:18335"];
 
 pub const POLYGON_MAINNET_NODES: &[&str] = &[
-    "https://polygon-mainnet.g.alchemy.com/v2/9YYl6iMLmXXLoflMPHnMTC4Dcm2L2tFH",
+    //"https://polygon-mainnet.g.alchemy.com/v2/9YYl6iMLmXXLoflMPHnMTC4Dcm2L2tFH",
+    "https://polygon-mainnet.infura.io/v3/41c2e47faa94449da71f1a410de8dea7"
 ];
 pub const POLYGON_MAINNET_SWAP_CONTRACT: &str = "0x9130b257d37a52e52f21054c4da3450c72f595ce";
 pub const POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT: &str = "0xC56DEB4bEd9Fa7C226Abc730A9a49f07aa5d8025";
@@ -915,7 +916,7 @@ fn set_chain_id(conf: &mut Json, chain_id: u64) { conf["chain_id"] = json!(chain
 
 pub fn eth_sepolia_conf() -> Json {
     json!({
-        "coin": "ETH",
+        "coin": "ETH", // TODO: better use tETH
         "name": "ethereum",
         "derivation_path": "m/44'/60'",
         "protocol": {
@@ -985,7 +986,7 @@ pub fn jst_sepolia_trezor_conf() -> Json {
         "protocol": {
             "type": "ERC20",
             "protocol_data": {
-                "platform": "ETH",
+                "platform": "tETH", // TODO: better use tETH everywhere
                 "contract_address": ETH_SEPOLIA_TOKEN_CONTRACT
             }
         }
@@ -1151,6 +1152,10 @@ pub fn polygon_conf() -> Json {
         "mm2": 1,
         "avg_blocktime": 0.03,
         "required_confirmations": 3,
+        "max_eth_tx_type": 2,
+        "gas_price_mult": 2.0,
+        "gas_fee_base_adjust": [1.0, 2.0, 3.0],
+        "gas_fee_priority_adjust": [1.0, 2.0, 3.0],
         "protocol": {
             "type": "ETH",
             "protocol_data": {
