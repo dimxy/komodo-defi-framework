@@ -28,7 +28,7 @@ pub struct LrSwapParams {
 /// Atomic swap data for the aggregated taker swap state machine
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AtomicSwapParams {
-    pub base_volume: Option<MmNumber>,
+    pub base_volume: MmNumber,
     pub base: String,
     pub rel: String,
     pub price: MmNumber,
@@ -54,10 +54,18 @@ impl AtomicSwapParams {
         }
     }
 
-    pub(crate) fn taker_volume(&self) -> Option<MmNumber> {
+    pub(crate) fn taker_volume(&self) -> MmNumber {
         match self.action {
-            TakerAction::Buy => Some(self.base_volume.as_ref()? * &self.price),
+            TakerAction::Buy => &self.base_volume * &self.price,
             TakerAction::Sell => self.base_volume.clone(),
+        }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn maker_volume(&self) -> MmNumber {
+        match self.action {
+            TakerAction::Buy => self.base_volume.clone(),
+            TakerAction::Sell => &self.base_volume * &self.price,
         }
     }
 }
@@ -65,5 +73,6 @@ impl AtomicSwapParams {
 /// Struct to return extra data (src_amount) in addition to 1inch swap details
 pub struct ClassicSwapDataExt {
     pub api_details: ClassicSwapData,
+    /// Estimated source amount for a liquidity routing swap step, includes needed amount to fill the order, plus dex and trade fees (if needed)
     pub src_amount: U256,
 }

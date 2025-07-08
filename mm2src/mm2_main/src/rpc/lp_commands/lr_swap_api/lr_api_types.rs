@@ -37,8 +37,27 @@ pub enum AskOrBidOrder {
 impl AskOrBidOrder {
     pub fn order(&self) -> &RpcOrderbookEntryV2 {
         match self {
-            AskOrBidOrder::Ask { base: _, order } => order,
-            AskOrBidOrder::Bid { rel: _, order } => order,
+            AskOrBidOrder::Ask { order, .. } => order,
+            AskOrBidOrder::Bid { order, .. } => order,
+        }
+    }
+    pub fn maker_ticker(&self) -> Ticker {
+        match self {
+            AskOrBidOrder::Ask { base, .. } => base.clone(),
+            AskOrBidOrder::Bid { rel, .. } => rel.clone(),
+        }
+    }
+    pub fn taker_ticker(&self) -> Ticker {
+        match self {
+            AskOrBidOrder::Ask { order, .. } => order.coin.clone(),
+            AskOrBidOrder::Bid { order, .. } => order.coin.clone(),
+        }
+    }
+
+    pub fn sell_price(&self) -> MmNumber {
+        match self {
+            AskOrBidOrder::Ask { order, .. } => order.price.rational.clone().into(),
+            AskOrBidOrder::Bid { order, .. } => &MmNumber::from(1) / &order.price.rational.clone().into(),
         }
     }
 }
@@ -142,7 +161,7 @@ impl LrSwapRpcParams {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AtomicSwapRpcParams {
-    pub volume: Option<MmNumber>,
+    pub volume: MmNumber,
     pub base: Ticker,
     pub rel: Ticker,
     pub price: MmNumber,

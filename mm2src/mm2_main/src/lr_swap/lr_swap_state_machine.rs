@@ -6,18 +6,17 @@ use super::{AtomicSwapParams, LrSwapParams};
 use crate::common::executor::SpawnAbortable;
 use crate::common::log::LogOnError;
 use crate::lp_ordermatch::lp_auto_buy;
-use crate::lp_swap::check_balance_for_taker_swap;
 use crate::lp_swap::swap_lock::SwapLock;
 use crate::lp_swap::swap_v2_common::*;
 use crate::lp_swap::swap_v2_rpcs::{my_swap_status_rpc, MySwapStatusError, MySwapStatusRequest, SwapRpcData};
-use crate::lp_swap::AGG_TAKER_SWAP_TYPE;
+use crate::lp_swap::{check_balance_for_taker_swap, AGG_TAKER_SWAP_TYPE};
 use crate::rpc::lp_commands::ext_api::ext_api_helpers::{make_atomic_swap_request, make_classic_swap_create_params};
 use async_trait::async_trait;
-use coins::eth::{u256_from_big_decimal, u256_to_big_decimal};
+use coins::eth::{u256_from_big_decimal, u256_to_big_decimal, EthCoinType};
 use coins::hd_wallet::DisplayAddress;
-use coins::MmCoin;
 use coins::{lp_coinfind_or_err, ConfirmPaymentInput, FeeApproxStage, MarketCoinOps, SignEthTransactionParams,
             SignRawTransactionEnum, SignRawTransactionRequest};
+use coins::{DexFee, Eip1559Ops, GasPriceRpcParam, MmCoin};
 use coins::{MmCoinEnum, Ticker};
 use common::executor::abortable_queue::AbortableQueue;
 use common::executor::AbortSettings;
@@ -26,7 +25,7 @@ use common::executor::Timer;
 use common::log::{debug, info, warn};
 use common::Future01CompatExt;
 use common::{new_uuid, now_sec};
-use ethereum_types::U256;
+use ethereum_types::{Address as EthAddress, U256};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::map_mm_error::MapMmError;
 use mm2_err_handle::prelude::*;
@@ -34,8 +33,10 @@ use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::{Mm2RpcResult, SellBuyResponse, TakerAction};
 use mm2_state_machine::prelude::*;
 use mm2_state_machine::storable_state_machine::*;
+use num_traits::CheckedDiv;
 use rpc::v1::types::Bytes as BytesJson;
 use std::ops::Deref;
+use std::str::FromStr;
 use std::sync::OnceLock;
 use trading_api::one_inch_api::classic_swap_types::ClassicSwapData;
 use trading_api::one_inch_api::client::{ApiClient, SwapApiMethods, SwapUrlBuilder};
@@ -59,6 +60,8 @@ cfg_wasm32!(
     use crate::swap_versioning::legacy_swap_version;
 );
 
+const LOG_PREFIX: &str = "Taker swap with LR";
+
 /// Represents events produced by aggregated taker swap states.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "event_type", content = "event_data")]
@@ -69,7 +72,7 @@ pub enum AggTakerSwapEvent {
     WaitingForLrTxConfirmation0 {
         coin: Ticker,
         tx_bytes: BytesJson,
-        atomic_swap_volume: MmNumber,
+        dst_amount: MmNumber,
         slippage: f32,
     },
     /// Atomic swap has been successfully started
@@ -81,7 +84,7 @@ pub enum AggTakerSwapEvent {
     /// Waiting for running atomic swap
     WaitingForAtomicSwap {
         atomic_swap_uuid: Uuid,
-        atomic_swap_maker_volume: MmNumber,
+        maker_volume: MmNumber,
     },
     /// Run LR-swap after atomic swap and get its result
     RunLrSwap1 {},
@@ -336,7 +339,7 @@ impl StorableStateMachine for AggTakerSwapStateMachine {
             taker_coin: self.atomic_swap_taker_coin(),
             uuid: self.uuid,
             started_at: self.started_at,
-            source_volume: self.source_volume().unwrap_or_default(),
+            source_volume: self.source_volume(),
             destination_volume: self.destination_volume(),
             is_finished: false,
             lr_swap_0: self.lr_swap_0.clone(),
@@ -490,11 +493,11 @@ mod states {
             state_machine: &mut Self::StateMachine,
         ) -> StateResult<Self::StateMachine> {
             info!(
-                "Aggregated taker swap with LR {} for {}/{} with amount {} starting...",
+                "{LOG_PREFIX} uuid: {} for {}/{} with amount {} starting...",
                 state_machine.uuid,
                 state_machine.source_coin(),
                 state_machine.destination_coin(),
-                state_machine.source_volume().unwrap_or_default().to_decimal()
+                state_machine.source_volume().to_decimal()
             );
             if let Some(ref lr_swap_params) = state_machine.lr_swap_0 {
                 let run_lr_swap = RunLrSwap0 {
@@ -502,14 +505,8 @@ mod states {
                 };
                 return Self::change_state(run_lr_swap, state_machine).await;
             }
-            let Some(volume) = state_machine.source_volume() else {
-                let next_state = Aborted {
-                    reason: AbortReason::SomeReason("Could not set volume for atomic swap".to_string()),
-                };
-                return Self::change_state(next_state, state_machine).await;
-            };
             let run_atomic_swap = StartAtomicSwap {
-                volume,
+                volume: state_machine.source_volume(),
                 action: state_machine.atomic_swap.action.clone(),
                 slippage: 0.0,
             };
@@ -546,13 +543,14 @@ mod states {
                         TakerAction::Buy => resp.request.base_amount_rat.into(),
                         TakerAction::Sell => resp.request.rel_amount_rat.into(),
                     };
-                    let next_state = WaitForAtomicSwap {
+                    let next_state = WaitingForAtomicSwap {
                         atomic_swap_uuid: resp.request.uuid,
-                        atomic_swap_maker_volume: maker_volume,
+                        maker_volume,
                     };
                     Self::change_state(next_state, state_machine).await
                 },
                 Err(err) => {
+                    info!("{LOG_PREFIX} failed: {}", err);
                     let next_state = Aborted {
                         reason: AbortReason::SomeReason(err.get_inner().to_string()),
                     };
@@ -578,13 +576,13 @@ mod states {
     impl TransitionFrom<WaitForLrTxConfirmation0> for StartAtomicSwap {}
 
     /// State to wait for the atomic swap step to finish
-    pub(super) struct WaitForAtomicSwap {
+    pub(super) struct WaitingForAtomicSwap {
         atomic_swap_uuid: Uuid,
-        atomic_swap_maker_volume: MmNumber,
+        maker_volume: MmNumber,
     }
 
     #[async_trait]
-    impl State for WaitForAtomicSwap {
+    impl State for WaitingForAtomicSwap {
         type StateMachine = AggTakerSwapStateMachine;
 
         async fn on_changed(
@@ -592,6 +590,7 @@ mod states {
             state_machine: &mut Self::StateMachine,
         ) -> StateResult<Self::StateMachine> {
             if let Err(err) = state_machine.wait_for_atomic_swap_finished().await {
+                info!("{LOG_PREFIX} failed: {}", err);
                 let next_state = Aborted {
                     reason: AbortReason::SomeReason(err.get_inner().to_string()),
                 };
@@ -600,7 +599,7 @@ mod states {
             if let Some(ref lr_swap) = state_machine.lr_swap_1 {
                 let run_lr_swap = RunLrSwap1 {
                     lr_swap_params: lr_swap.clone(),
-                    src_amount: self.atomic_swap_maker_volume,
+                    src_amount: self.maker_volume,
                 };
                 return Self::change_state(run_lr_swap, state_machine).await;
             }
@@ -609,18 +608,18 @@ mod states {
         }
     }
 
-    impl StorableState for WaitForAtomicSwap {
+    impl StorableState for WaitingForAtomicSwap {
         type StateMachine = AggTakerSwapStateMachine;
 
         fn get_event(&self) -> AggTakerSwapEvent {
             AggTakerSwapEvent::WaitingForAtomicSwap {
                 atomic_swap_uuid: self.atomic_swap_uuid,
-                atomic_swap_maker_volume: self.atomic_swap_maker_volume.clone(),
+                maker_volume: self.maker_volume.clone(),
             }
         }
     }
 
-    impl TransitionFrom<StartAtomicSwap> for WaitForAtomicSwap {}
+    impl TransitionFrom<StartAtomicSwap> for WaitingForAtomicSwap {}
 
     /// State to create and send a LR swap tx (before atomic swap)
     pub(super) struct RunLrSwap0 {
@@ -640,6 +639,7 @@ mod states {
                 // No src_amount to be set on LR swap 0
                 Ok((base_ticker, tx_bytes, dst_amount)) => (base_ticker, tx_bytes, dst_amount),
                 Err(err) => {
+                    info!("{LOG_PREFIX} failed: {}", err);
                     let aborted = Aborted {
                         reason: AbortReason::SomeReason(err.get_inner().to_string()),
                     };
@@ -647,14 +647,21 @@ mod states {
                 },
             };
             // Convert the LR0 resulting amount to the volume in the atomic swap taker order
-            let atomic_swap_volume = match state_machine.atomic_swap.action {
-                TakerAction::Buy => &dst_amount / &state_machine.atomic_swap.price, // dst_amount is in the taker's rel coin
-                TakerAction::Sell => dst_amount, // dst_amount is in the taker's base coin
+            /*let atomic_swap_volume = match state_machine.atomic_swap.action {
+                TakerAction::Buy => dst_amount.checked_div(&state_machine.atomic_swap.price), // dst_amount is in the taker's rel coin
+                TakerAction::Sell => Some(dst_amount), // dst_amount is in the taker's base coin
             };
+            let Some(atomic_swap_volume) = atomic_swap_volume else {
+                    info!("{LOG_PREFIX} failed: {}", err);
+                    let aborted = Aborted {
+                        reason: AbortReason::SomeReason("Could not calculate atomic swap volume".to_string()),
+                    };
+                    return Self::change_state(aborted, state_machine).await;
+            };*/
             let next_state = WaitForLrTxConfirmation0 {
                 coin: base_ticker,
                 tx_bytes,
-                atomic_swap_volume,
+                dst_amount,
                 slippage: self.lr_swap_params.slippage,
             };
             Self::change_state(next_state, state_machine).await
@@ -673,7 +680,7 @@ mod states {
     pub(super) struct WaitForLrTxConfirmation0 {
         coin: Ticker,
         tx_bytes: BytesJson,
-        atomic_swap_volume: MmNumber,
+        dst_amount: MmNumber,
         slippage: f32,
     }
 
@@ -689,14 +696,27 @@ mod states {
                 .wait_for_lr_tx_confirmation(&self.coin, self.tx_bytes.clone())
                 .await
             {
+                info!("{LOG_PREFIX} failed: {}", err);
                 let aborted = Aborted {
                     reason: AbortReason::SomeReason(err.get_inner().to_string()),
                 };
                 return Self::change_state(aborted, state_machine).await;
             }
+
+            let atomic_swap_volume = match state_machine.deduct_fees(self.dst_amount.clone()).await {
+                Ok(atomic_swap_volume) => atomic_swap_volume,
+                Err(err) => {
+                    info!("{LOG_PREFIX} failed: {}", err);
+                    let aborted = Aborted {
+                        reason: AbortReason::SomeReason(err.get_inner().to_string()),
+                    };
+                    return Self::change_state(aborted, state_machine).await;
+                },
+            };
+
             let run_atomic_swap = StartAtomicSwap {
-                volume: self.atomic_swap_volume,
-                action: TakerAction::Sell, // LR swaps currently are always "sell"
+                volume: atomic_swap_volume,
+                action: state_machine.atomic_swap.action.clone(),
                 slippage: self.slippage,
             };
             Self::change_state(run_atomic_swap, state_machine).await
@@ -710,7 +730,7 @@ mod states {
             AggTakerSwapEvent::WaitingForLrTxConfirmation0 {
                 coin: self.coin.clone(),
                 tx_bytes: self.tx_bytes.clone(),
-                atomic_swap_volume: self.atomic_swap_volume.clone(),
+                dst_amount: self.dst_amount.clone(),
                 slippage: self.slippage,
             }
         }
@@ -739,6 +759,7 @@ mod states {
                 // Set LR_swap_1 src amount as the atomic swap maker_volume
                 Ok((base_ticker, tx_bytes, dst_amount)) => (base_ticker, tx_bytes, dst_amount),
                 Err(err) => {
+                    info!("{LOG_PREFIX} failed: {}", err);
                     let aborted = Aborted {
                         reason: AbortReason::SomeReason(err.get_inner().to_string()),
                     };
@@ -759,7 +780,7 @@ mod states {
         fn get_event(&self) -> AggTakerSwapEvent { AggTakerSwapEvent::RunLrSwap1 {} }
     }
 
-    impl TransitionFrom<WaitForAtomicSwap> for RunLrSwap1 {}
+    impl TransitionFrom<WaitingForAtomicSwap> for RunLrSwap1 {}
 
     /// State to wait for confirmation of LR swap tx (after atomic swap)
     pub(super) struct WaitForLrTxConfirmation1 {
@@ -779,6 +800,7 @@ mod states {
                 .wait_for_lr_tx_confirmation(&self.coin, self.tx_bytes.clone())
                 .await
             {
+                info!("{LOG_PREFIX} failed: {}", err);
                 let aborted = Aborted {
                     reason: AbortReason::SomeReason(err.get_inner().to_string()),
                 };
@@ -802,7 +824,7 @@ mod states {
 
     impl TransitionFrom<RunLrSwap1> for WaitForLrTxConfirmation1 {}
 
-    /// Aggregated swap completed state
+    /// Aggregated taker swap with LR completed state
     pub(super) struct Completed {}
 
     impl StorableState for Completed {
@@ -819,15 +841,12 @@ mod states {
             self: Box<Self>,
             state_machine: &mut Self::StateMachine,
         ) -> <Self::StateMachine as StateMachineTrait>::Result {
-            info!(
-                "Aggregated taker swap with LR {} has been completed",
-                state_machine.uuid
-            );
+            info!("{LOG_PREFIX} {} has been completed", state_machine.uuid);
         }
     }
 
     impl TransitionFrom<WaitForLrTxConfirmation1> for Completed {}
-    impl TransitionFrom<WaitForAtomicSwap> for Completed {}
+    impl TransitionFrom<WaitingForAtomicSwap> for Completed {}
 
     /// Represents possible reasons of taker swap being aborted
     /// TODO: add reasons
@@ -836,7 +855,7 @@ mod states {
         SomeReason(String),
     }
 
-    /// Aggregated swap aborted state
+    /// Aggregated taker swap with LR aborted state
     struct Aborted {
         reason: AbortReason,
     }
@@ -868,7 +887,7 @@ mod states {
     impl TransitionFrom<WaitForLrTxConfirmation0> for Aborted {}
     impl TransitionFrom<RunLrSwap1> for Aborted {}
     impl TransitionFrom<WaitForLrTxConfirmation1> for Aborted {}
-    impl TransitionFrom<WaitForAtomicSwap> for Aborted {}
+    impl TransitionFrom<WaitingForAtomicSwap> for Aborted {}
     impl TransitionFrom<StartAtomicSwap> for Aborted {}
 }
 
@@ -876,9 +895,9 @@ impl AggTakerSwapStateMachine {
     /// Current agg swap version
     const AGG_SWAP_VERSION: u8 = 0;
 
-    pub(crate) fn source_volume(&self) -> Option<MmNumber> {
+    pub(crate) fn source_volume(&self) -> MmNumber {
         if let Some(ref lr_swap_0) = self.lr_swap_0 {
-            Some(lr_swap_0.src_amount.clone())
+            lr_swap_0.src_amount.clone()
         } else {
             self.atomic_swap.taker_volume()
         }
@@ -912,7 +931,7 @@ impl AggTakerSwapStateMachine {
 
     fn atomic_swap_taker_coin(&self) -> Ticker { self.atomic_swap.taker_coin() }
 
-    fn find_atomic_swap_uuid_in_events(events: &[AggTakerSwapEvent]) -> Option<Uuid> {
+    pub(crate) fn find_atomic_swap_uuid_in_events(events: &[AggTakerSwapEvent]) -> Option<Uuid> {
         events.iter().find_map(|event| {
             if let AggTakerSwapEvent::WaitingForAtomicSwap { atomic_swap_uuid, .. } = event {
                 Some(*atomic_swap_uuid)
@@ -924,12 +943,8 @@ impl AggTakerSwapStateMachine {
 
     fn find_atomic_swap_maker_volume_in_events(events: &[AggTakerSwapEvent]) -> Option<MmNumber> {
         events.iter().find_map(|event| {
-            if let AggTakerSwapEvent::WaitingForAtomicSwap {
-                atomic_swap_maker_volume,
-                ..
-            } = event
-            {
-                Some(atomic_swap_maker_volume.clone())
+            if let AggTakerSwapEvent::WaitingForAtomicSwap { maker_volume, .. } = event {
+                Some(maker_volume.clone())
             } else {
                 None
             }
@@ -951,13 +966,24 @@ impl AggTakerSwapStateMachine {
             lr_swap_params.src_amount.clone()
         };
         info!(
-            "Taker swap with LR: starting liquidity routing step for {}/{} for amount {}",
+            "{LOG_PREFIX}: starting liquidity routing step for {}/{} for amount {}",
             lr_swap_params.src,
             lr_swap_params.dst,
             src_amount.to_decimal()
         );
         let src_amount = u256_from_big_decimal(&src_amount.to_decimal(), lr_swap_params.src_decimals)
             .mm_err(|err| LrSwapError::InvalidParam(err.to_string()))?;
+
+        match src_coin.coin_type {
+            EthCoinType::Erc20 { .. } => {
+                let classic_swap_contract =
+                    EthAddress::from_str(ApiClient::classic_swap_contract()).expect("valid eth address");
+                src_coin
+                    .handle_allowance(classic_swap_contract, src_amount, LR_SWAP_WAIT_CONFIRM_TIMEOUT_SEC)
+                    .await?
+            },
+            _ => {},
+        }
 
         let lr_swap_request = make_classic_swap_create_params(
             lr_swap_params.src_contract,
@@ -984,7 +1010,12 @@ impl AggTakerSwapStateMachine {
             to: Some(tx_fields.to.display_address()),
             data: Some(tx_fields.data),
             gas_limit: U256::from(tx_fields.gas),
-            pay_for_gas: None, // TODO: use gas price from tx_fields? Maybe we can use our gas_price
+            pay_for_gas: Some(GasPriceRpcParam::GasPricePolicy(
+                src_coin
+                    .get_swap_gas_fee_policy() // Using our fns for gas price. TODO: Maybe use gas price from 1inch tx_fields?
+                    .await
+                    .mm_err(|_| LrSwapError::InternalError("Could not get gas price policy".to_string()))?,
+            )),
         });
 
         // TODO: maybe add another sign and send tx impl in trading_api?
@@ -1001,7 +1032,7 @@ impl AggTakerSwapStateMachine {
             .compat()
             .await
             .map_to_mm(LrSwapError::TransactionError)?;
-        info!("Taker swap with LR: liquidity routing tx {} sent okay", txid);
+        info!("{LOG_PREFIX}: liquidity routing tx {} sent okay", txid);
 
         let dst_amount = U256::from_dec_str(&swap_with_tx.dst_amount)?;
         let dst_amount = u256_to_big_decimal(dst_amount, lr_swap_params.dst_decimals)?;
@@ -1038,11 +1069,10 @@ impl AggTakerSwapStateMachine {
         };
 
         debug!(
-            "start_lp_auto_buy: checking taker balance {} for atomic swap {}/{} for agg swap uuid: {}",
-            taker_amount.to_decimal(),
+            "{LOG_PREFIX}: start_lp_auto_buy: checking taker balance for atomic swap for {}/{} taker_amount: {}",
             sell_base.ticker(),
             sell_rel.ticker(),
-            self.uuid
+            taker_amount.to_decimal(),
         );
         check_balance_for_taker_swap(
             &self.ctx,
@@ -1053,10 +1083,9 @@ impl AggTakerSwapStateMachine {
             None,
             FeeApproxStage::OrderIssue,
         )
-        .await
-        .mm_err(|err| LrSwapError::CheckBalanceError(err.to_string()))?;
+        .await?;
         info!(
-            "Taker swap with LR: starting atomic swap for {}/{}, action {:?}, amount {}",
+            "{LOG_PREFIX}: starting atomic swap for {}/{}, action {:?}, amount {}",
             self.atomic_swap.base,
             self.atomic_swap.rel,
             self.atomic_swap.action,
@@ -1124,8 +1153,8 @@ impl AggTakerSwapStateMachine {
             .get()
             .ok_or(LrSwapError::InternalError("atomic swap uuid not set".to_string()))?;
         info!(
-            "Taker swap with LR: waiting for atomic swap uuid {} to finish",
-            atomic_swap_uuid
+            "{LOG_PREFIX} {}: waiting for interim atomic swap uuid {} to finish",
+            self.uuid, atomic_swap_uuid
         );
         // We do not have any time limits for waiting the atomic swap to finish,
         // assuming the atomic swap code ensures it won't hang.
@@ -1139,14 +1168,17 @@ impl AggTakerSwapStateMachine {
             }
             Timer::sleep(5.).await;
         }
-        info!("Taker swap with LR: atomic swap finished");
+        info!(
+            "{LOG_PREFIX} {}: interim atomic swap uuid {} finished",
+            self.uuid, atomic_swap_uuid
+        );
         Ok(())
     }
 
     async fn wait_for_lr_tx_confirmation(&self, coin: &Ticker, tx_bytes: BytesJson) -> MmResult<(), LrSwapError> {
         match lp_coinfind_or_err(&self.ctx, coin).await? {
             MmCoinEnum::EthCoin(eth_coin) => {
-                info!("Taker swap with LR: waiting for liquidity routing tx to confirm");
+                info!("{LOG_PREFIX}: waiting for liquidity routing tx to confirm");
                 let confirm_lr_swap_input = ConfirmPaymentInput {
                     payment_tx: tx_bytes.0,
                     confirmations: LR_SWAP_CONFIRMATIONS,
@@ -1159,11 +1191,65 @@ impl AggTakerSwapStateMachine {
                     .compat()
                     .await
                     .map_to_mm(LrSwapError::TransactionError)?;
-                info!("Taker swap with LR: liquidity routing tx confirmed");
+                info!("{LOG_PREFIX}: liquidity routing tx confirmed");
                 Ok(())
             },
             _ => MmError::err(LrSwapError::CoinTypeError),
         }
+    }
+
+    /// Deduct fees from the input volume (which is the LR swap destination amount)
+    /// and convert it to the atomic swap buy or sell volume
+    async fn deduct_fees(&self, volume_with_fees: MmNumber) -> MmResult<MmNumber, LrSwapError> {
+        let taker_ticker = self.atomic_swap.taker_coin();
+        let maker_ticker = self.atomic_swap.maker_coin();
+        // Try to estimate the original taker volume. This works for EVM as there no min tx amount
+        let dex_fee_rate = DexFee::dex_fee_rate(&taker_ticker, &maker_ticker);
+
+        /*
+        let taker_volume_0 = &volume_with_fees / &(&MmNumber::from("1") + &dex_fee_rate);
+        // Get approx dex_fee just for trade fee calc
+        let dex_fee_0 = DexFee::new_from_taker_coin(taker_coin.deref(), &maker_ticker, &taker_volume_0);
+
+        //let taker_swap_params = create_taker_swap_default_params(base_coin.deref(), rel_coin.deref(), amount.clone(), FeeApproxStage::StartSwap).await?;
+
+        // The dex_fee_0 and swap_volume_0 are approx amounts.
+        // Getting trade fees for them works for EVM though.
+        let fee_to_send_dex_fee = taker_coin
+            .get_fee_to_send_taker_fee(dex_fee_0.clone(), FeeApproxStage::StartSwap)
+            .await
+            .mm_err(|_e| LrSwapError::InternalError("could not get trade fee".to_string()))?;
+        let preimage_value = TradePreimageValue::Exact(taker_volume_0.to_decimal());
+        let taker_payment_trade_fee = taker_coin
+            .get_sender_trade_fee(preimage_value, FeeApproxStage::StartSwap, INCLUDE_REFUND_FEE)
+            .await
+            .mm_err(|_e| LrSwapError::InternalError("could not get trade fee".to_string()))?;
+
+        //amount_with_fees -= taker_swap_params.dex_fee;
+        // deduct trade fee if platform coin
+        if taker_ticker == fee_to_send_dex_fee.coin {
+            volume_with_fees -= fee_to_send_dex_fee.amount;
+        }
+        if taker_ticker == taker_payment_trade_fee.coin {
+            volume_with_fees -= taker_payment_trade_fee.amount;
+        }*/
+
+        // Recalculate swap_volume with the tarde fees removed:
+        let taker_volume = volume_with_fees.clone() / (MmNumber::from("1") + dex_fee_rate);
+        println!(
+            "deduct_fees volume_with_fees={volume_with_fees} taker_volume={taker_volume} dex_fee_diff={}",
+            &volume_with_fees - &taker_volume
+        );
+
+        let swap_volume = match self.atomic_swap.action {
+            TakerAction::Buy => taker_volume
+                .checked_div(&self.atomic_swap.price) // make the amount how it was in the buy order
+                .ok_or(MmError::new(LrSwapError::ConversionError(
+                    "Could not calculate swap amount".to_string(),
+                )))?,
+            TakerAction::Sell => taker_volume,
+        };
+        Ok(swap_volume)
     }
 }
 

@@ -214,7 +214,7 @@ fn check_decoded_length(decoded: &Vec<Token>, expected_len: usize) -> Result<(),
 }
 
 impl EthCoin {
-    async fn handle_allowance(
+    pub async fn handle_allowance(
         &self,
         swap_contract: Address,
         payment_amount: U256,

@@ -35,7 +35,7 @@ pub(crate) fn make_classic_swap_create_params(
     rel_contract: EthAddress,
     sell_amount: U256,
     my_address: EthAddress,
-    slippage: f32,
+    _slippage: f32,
     opt_params: ClassicSwapCreateOptParams,
 ) -> ClassicSwapCreateCallBuilder {
     ClassicSwapCreateCallBuilder::new(
@@ -43,7 +43,7 @@ pub(crate) fn make_classic_swap_create_params(
         rel_contract.display_address(),
         sell_amount.to_string(),
         my_address.display_address(),
-        slippage,
+        0.0, // TODO: enable slippage
     )
     .with_fee(opt_params.fee)
     .with_protocols(opt_params.protocols)
