@@ -257,7 +257,7 @@ fn test_classic_swap_response_conversion() {
     assert_eq!(quote_response.src_token.as_ref().unwrap().decimals, 18);
     assert_eq!(quote_response.dst_token.as_ref().unwrap().symbol, ticker_token);
     assert_eq!(quote_response.dst_token.as_ref().unwrap().decimals, 6);
-    assert_eq!(quote_response.gas.unwrap(), 452704_u128);
+    assert_eq!(quote_response.gas.unwrap(), 452704_u64);
 
     ApiClient::call_api::<ClassicSwapData>.mock_safe(move |_| {
         let response_create_raw = response_create_raw.clone();

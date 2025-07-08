@@ -11,7 +11,7 @@ use url::Url;
 
 const ONE_INCH_MAX_SLIPPAGE: f32 = 50.0;
 const ONE_INCH_MAX_FEE_SHARE: f32 = 3.0;
-const ONE_INCH_MAX_GAS: u128 = 11500000;
+const ONE_INCH_MAX_GAS: u64 = 11500000;
 const ONE_INCH_MAX_PARTS: u32 = 100;
 const ONE_INCH_MAX_MAIN_ROUTE_PARTS: u32 = 50;
 const ONE_INCH_MAX_COMPLEXITY_LEVEL: u32 = 3;
@@ -35,7 +35,7 @@ pub struct ClassicSwapQuoteCallBuilder {
     complexity_level: Option<u32>,
     parts: Option<u32>,
     main_route_parts: Option<u32>,
-    gas_limit: Option<u128>,
+    gas_limit: Option<u64>, // originally in 1inch was u128 but we made it u64 as serde does not support u128
     include_tokens_info: Option<bool>,
     include_protocols: Option<bool>,
     include_gas: Option<bool>,
@@ -58,7 +58,7 @@ impl ClassicSwapQuoteCallBuilder {
     def_with_opt_param!(complexity_level, u32);
     def_with_opt_param!(parts, u32);
     def_with_opt_param!(main_route_parts, u32);
-    def_with_opt_param!(gas_limit, u128);
+    def_with_opt_param!(gas_limit, u64);
     def_with_opt_param!(include_tokens_info, bool);
     def_with_opt_param!(include_protocols, bool);
     def_with_opt_param!(include_gas, bool);
@@ -115,7 +115,7 @@ pub struct ClassicSwapCreateCallBuilder {
     complexity_level: Option<u32>,
     parts: Option<u32>,
     main_route_parts: Option<u32>,
-    gas_limit: Option<u128>,
+    gas_limit: Option<u64>, // originally in 1inch was u128 but we made it u64 as serde does not support u128
     include_tokens_info: Option<bool>,
     include_protocols: Option<bool>,
     include_gas: Option<bool>,
@@ -148,7 +148,7 @@ impl ClassicSwapCreateCallBuilder {
     def_with_opt_param!(complexity_level, u32);
     def_with_opt_param!(parts, u32);
     def_with_opt_param!(main_route_parts, u32);
-    def_with_opt_param!(gas_limit, u128);
+    def_with_opt_param!(gas_limit, u64);
     def_with_opt_param!(include_tokens_info, bool);
     def_with_opt_param!(include_protocols, bool);
     def_with_opt_param!(include_gas, bool);
@@ -257,7 +257,8 @@ pub struct ClassicSwapData {
     /// Returned from create swap call
     pub tx: Option<TxFields>,
     /// Returned from quote call
-    pub gas: Option<u128>,
+    /// NOTE: in the 1inch API this field is u128 but this type is not supported by serde. u64 should be enough
+    pub gas: Option<u64>,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -271,7 +272,7 @@ pub struct TxFields {
     #[serde(rename = "gasPrice")]
     pub gas_price: String,
     /// gas limit
-    pub gas: u128,
+    pub gas: u64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -339,7 +340,7 @@ fn validate_fee(fee: &Option<f32>) -> MmResult<(), OneInchError> {
 }
 
 #[allow(clippy::result_large_err)]
-fn validate_gas_limit(gas_limit: &Option<u128>) -> MmResult<(), OneInchError> {
+fn validate_gas_limit(gas_limit: &Option<u64>) -> MmResult<(), OneInchError> {
     if let Some(gas_limit) = gas_limit {
         if gas_limit > &ONE_INCH_MAX_GAS {
             return Err(OneInchError::OutOfBounds {

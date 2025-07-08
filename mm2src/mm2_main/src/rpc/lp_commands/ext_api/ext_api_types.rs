@@ -61,7 +61,7 @@ pub struct ClassicSwapQuoteOptParams {
     pub main_route_parts: Option<u32>,
     /// Maximum amount of gas for a swap.
     /// Should be the same for a quote and swap. Default: 11500000; max: 11500000
-    pub gas_limit: Option<u128>,
+    pub gas_limit: Option<u64>,
     /// Return fromToken and toToken info in response (default is true)
     #[serde(default = "true_f")]
     pub include_tokens_info: bool,
@@ -117,7 +117,7 @@ pub struct ClassicSwapCreateOptParams {
     pub main_route_parts: Option<u32>,
     /// Maximum amount of gas for a swap.
     /// Should be the same for a quote and swap. Default: 11500000; max: 11500000
-    pub gas_limit: Option<u128>,
+    pub gas_limit: Option<u64>,
     /// Return fromToken and toToken info in response (default is true)
     #[serde(default = "true_f")]
     pub include_tokens_info: bool,
@@ -195,7 +195,7 @@ pub struct ClassicSwapDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tx: Option<TxFields>,
     /// Estimated (returned only for quote rpc)
-    pub gas: Option<u128>,
+    pub gas: Option<u64>,
 }
 
 /// Response for both classic swap quote or create swap calls
@@ -263,7 +263,10 @@ pub struct TxFields {
     pub value: BigDecimal,
     /// Estimated gas price in gwei
     pub gas_price: BigDecimal,
-    pub gas: u128, // TODO: in eth EthTxFeeDetails rpc we use u64. Better have identical u128 everywhere
+    /// Estimated gas.
+    /// NOTE: Originally in 1inch this field is u128 (changed because u128 is not supported by serde)
+    /// TODO: 1inch advice is to increase this value by 25%
+    pub gas: u64,
 }
 
 impl TxFields {
