@@ -81,7 +81,7 @@ impl MarketCoinOps for TestCoin {
 
     fn my_balance(&self) -> BalanceFut<CoinBalance> { unimplemented!() }
 
-    fn base_coin_balance(&self) -> BalanceFut<BigDecimal> { unimplemented!() }
+    fn platform_coin_balance(&self) -> BalanceFut<BigDecimal> { unimplemented!() }
 
     fn platform_ticker(&self) -> &str { &self.ticker }
 

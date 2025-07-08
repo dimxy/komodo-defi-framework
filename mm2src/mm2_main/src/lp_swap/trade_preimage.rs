@@ -198,7 +198,7 @@ pub enum TradePreimageRpcError {
         locked_by_swaps: Option<BigDecimal>,
     },
     #[display(
-        fmt = "Not enough base coin {} balance for swap: available {}, required at least {}, locked by swaps {:?}",
+        fmt = "Not enough platform coin {} balance for swap: available {}, required at least {}, locked by swaps {:?}",
         coin,
         available,
         required,

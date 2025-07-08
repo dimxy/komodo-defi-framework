@@ -53,21 +53,24 @@ pub async fn check_my_coin_balance_for_swap(
     let total_trade_fee = if ticker == trade_fee.coin {
         trade_fee.amount
     } else {
-        let base_coin_balance: MmNumber = coin.base_coin_balance().compat().await.map_mm_err()?.into();
-        check_base_coin_balance_for_swap(ctx, &base_coin_balance, trade_fee, swap_uuid)
-            .await
-            .map_mm_err()?;
+        let platform_coin_balance: MmNumber = coin.platform_coin_balance().compat().await.map_mm_err()?.into();
+        check_platform_coin_balance_for_swap(ctx, &platform_coin_balance, trade_fee, swap_uuid).await.map_mm_err()?;
         MmNumber::from(0)
     };
 
     debug!(
-        "{} balance {:?}, locked {:?}, volume {:?}, fee {:?}, dex_fee {:?}",
+        "my_coin: {} balance: {:?} ({}), locked: {:?} ({}), volume: {:?} ({}), total_trade_fee: {:?} ({}), dex_fee: {:?} ({}",
         ticker,
         balance.to_fraction(),
+        balance.to_decimal(),
         locked.to_fraction(),
+        locked.to_decimal(),
         volume.to_fraction(),
+        volume.to_decimal(),
         total_trade_fee.to_fraction(),
-        dex_fee.to_fraction()
+        total_trade_fee.to_decimal(),
+        dex_fee.to_fraction(),
+        dex_fee.to_decimal()
     );
 
     let required = volume + total_trade_fee + dex_fee;
@@ -95,7 +98,10 @@ pub async fn check_other_coin_balance_for_swap(
         return Ok(());
     }
     let ticker = coin.ticker();
-    debug!("Check other_coin '{}' balance for swap", ticker);
+    debug!(
+        "Check other_coin '{}' balance for swap to pay trade fee, trade_fee coin {}",
+        ticker, trade_fee.coin
+    );
     let balance: MmNumber = coin.my_spendable_balance().compat().await.map_mm_err()?.into();
 
     let locked = match swap_uuid {
@@ -107,11 +113,14 @@ pub async fn check_other_coin_balance_for_swap(
         let available = &balance - &locked;
         let required = trade_fee.amount;
         debug!(
-            "{} balance {:?}, locked {:?}, required {:?}",
+            "other coin: {} balance: {:?} ({}), locked: {:?} ({}), required: {:?} ({})",
             ticker,
             balance.to_fraction(),
+            balance.to_decimal(),
             locked.to_fraction(),
+            locked.to_decimal(),
             required.to_fraction(),
+            required.to_decimal(),
         );
         if available < required {
             return MmError::err(CheckBalanceError::NotSufficientBalance {
@@ -122,26 +131,25 @@ pub async fn check_other_coin_balance_for_swap(
             });
         }
     } else {
-        let base_coin_balance: MmNumber = coin.base_coin_balance().compat().await.map_mm_err()?.into();
-        check_base_coin_balance_for_swap(ctx, &base_coin_balance, trade_fee, swap_uuid)
-            .await
-            .map_mm_err()?;
+        let platform_coin_balance: MmNumber = coin.platform_coin_balance().compat().await.map_mm_err()?.into();
+        check_platform_coin_balance_for_swap(ctx, &platform_coin_balance, trade_fee, swap_uuid).await.map_mm_err()?;
     }
 
     Ok(())
 }
 
-pub async fn check_base_coin_balance_for_swap(
+pub async fn check_platform_coin_balance_for_swap(
     ctx: &MmArc,
     balance: &MmNumber,
     trade_fee: TradeFee,
     swap_uuid: Option<&Uuid>,
 ) -> CheckBalanceResult<()> {
     let ticker = trade_fee.coin.as_str();
-    let trade_fee_fraction = trade_fee.amount.to_fraction();
     debug!(
-        "Check if the base coin '{}' has sufficient balance to pay the trade fee {:?}",
-        ticker, trade_fee_fraction
+        "Check if the platform coin '{}' has sufficient balance to pay the trade fee {:?} ({})",
+        ticker,
+        trade_fee.amount.to_fraction(),
+        trade_fee.amount.to_decimal()
     );
 
     let required = trade_fee.amount;
@@ -152,10 +160,12 @@ pub async fn check_base_coin_balance_for_swap(
     let available = balance - &locked;
 
     debug!(
-        "{} balance {:?}, locked {:?}",
+        "Platform coin: {} balance: {:?} ({}), locked: {:?} ({})",
         ticker,
         balance.to_fraction(),
-        locked.to_fraction()
+        balance.to_decimal(),
+        locked.to_fraction(),
+        locked.to_decimal()
     );
     if available < required {
         MmError::err(CheckBalanceError::NotSufficientBaseCoinBalance {
@@ -191,7 +201,7 @@ pub enum CheckBalanceError {
         locked_by_swaps: Option<BigDecimal>,
     },
     #[display(
-        fmt = "Not enough base coin {} balance for swap: available {}, required at least {}, locked by swaps {:?}",
+        fmt = "Not enough platform coin {} balance for swap: available {}, required at least {}, locked by swaps {:?}",
         coin,
         available,
         required,

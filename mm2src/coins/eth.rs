@@ -2506,7 +2506,7 @@ impl MarketCoinOps for EthCoin {
         Box::new(fut)
     }
 
-    fn base_coin_balance(&self) -> BalanceFut<BigDecimal> {
+    fn platform_coin_balance(&self) -> BalanceFut<BigDecimal> {
         Box::new(
             self.eth_balance()
                 .and_then(move |result| u256_to_big_decimal(result, ETH_DECIMALS).map_mm_err()),

@@ -369,7 +369,7 @@ impl MarketCoinOps for SiaCoin {
         Box::new(fut.boxed().compat())
     }
 
-    fn base_coin_balance(&self) -> BalanceFut<BigDecimal> { unimplemented!() }
+    fn platform_coin_balance(&self) -> BalanceFut<BigDecimal> { unimplemented!() }
 
     fn platform_ticker(&self) -> &str { "FOO" } // TODO Alright
 
