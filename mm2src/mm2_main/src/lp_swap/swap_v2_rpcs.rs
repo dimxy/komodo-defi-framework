@@ -541,6 +541,7 @@ pub(crate) struct MyAggSwapForRpc<T> {
     /// Received volume as result of an aggregated taker swap with LR
     destination_volume: MmNumberMultiRepr,
     uuid: Uuid,
+    atomic_swap_uuid: Option<Uuid>,
     started_at: i64,
     is_finished: bool,
     events: Vec<T>,
@@ -552,8 +553,7 @@ pub(crate) async fn get_agg_taker_swap_data_for_rpc(
     ctx: &MmArc,
     uuid: &Uuid,
 ) -> MmResult<Option<MyAggSwapForRpc<AggTakerSwapEvent>>, SqlError> {
-    //let ctx = ctx.clone();
-    //let uuid = uuid.to_string();
+    use crate::lr_swap::lr_swap_state_machine::AggTakerSwapStateMachine;
 
     let db_repr = AggTakerSwapDbRepr::get_repr_impl(ctx, uuid).await?;
     Ok(Some(MyAggSwapForRpc {
@@ -564,6 +564,7 @@ pub(crate) async fn get_agg_taker_swap_data_for_rpc(
         source_volume: db_repr.source_volume.into(),
         destination_volume: db_repr.destination_volume.into(),
         uuid: db_repr.uuid,
+        atomic_swap_uuid: AggTakerSwapStateMachine::find_atomic_swap_uuid_in_events(&db_repr.events),
         started_at: db_repr.started_at as i64,
         is_finished: db_repr.is_finished,
         events: db_repr.events,
@@ -598,6 +599,7 @@ pub(crate) async fn get_agg_taker_swap_data_for_rpc(
         routing_coin_0: json_repr.routing_coin_0(),
         routing_coin_1: json_repr.routing_coin_1(),
         uuid: json_repr.uuid,
+        atomic_swap_uuid: AggTakerSwapStateMachine::find_atomic_swap_uuid_in_events(&json_repr.events),
         started_at: json_repr.started_at as i64,
         is_finished: filter_item.is_finished.as_bool(),
         swap_version: json_repr.swap_version,
