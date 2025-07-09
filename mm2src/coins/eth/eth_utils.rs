@@ -197,7 +197,7 @@ pub(super) fn get_gas_fee_base_adjust_conf(
                 return Err(format!("{GAS_FEE_BASE_ADJUST} in coins has invalid size"));
             }
             let gas_fee_base_adjust: Result<Vec<f64>, _> = gas_fee_base_adjust
-                .into_iter()
+                .iter()
                 .map(|v| {
                     v.as_f64()
                         .ok_or_else(|| format!("{GAS_FEE_BASE_ADJUST} in coins has invalid value"))
@@ -226,7 +226,7 @@ pub(super) fn get_gas_fee_priority_adjust_conf(
                 return Err(format!("{GAS_FEE_PRIORITY_ADJUST} in coins has invalid size"));
             }
             let gas_fee_priority_adjust: Result<Vec<f64>, _> = gas_fee_priority_adjust
-                .into_iter()
+                .iter()
                 .map(|v| {
                     v.as_f64()
                         .ok_or_else(|| format!("{GAS_FEE_PRIORITY_ADJUST} in coins has invalid value"))

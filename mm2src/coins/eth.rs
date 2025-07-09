@@ -6613,9 +6613,9 @@ pub async fn eth_coin_from_conf_and_request(
     let abortable_system = try_s!(ctx.abortable_system.create_subsystem());
 
     let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type)?;
-    let gas_price_mult = get_gas_price_mult_conf(&ctx, conf, &coin_type)?;
-    let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(&ctx, conf, &coin_type)?;
-    let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(&ctx, conf, &coin_type)?;
+    let gas_price_mult = get_gas_price_mult_conf(ctx, conf, &coin_type)?;
+    let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(ctx, conf, &coin_type)?;
+    let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(ctx, conf, &coin_type)?;
     let gas_limit: EthGasLimit = extract_gas_limit_from_conf(conf)?;
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)?;
     let swap_gas_fee_policy: SwapGasFeePolicy =

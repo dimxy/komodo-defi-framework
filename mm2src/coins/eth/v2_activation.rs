@@ -707,9 +707,9 @@ pub async fn eth_coin_from_conf_and_request_v2(
     let abortable_system = ctx.abortable_system.create_subsystem()?;
     let coin_type = EthCoinType::Eth;
     let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type)?;
-    let gas_price_mult = get_gas_price_mult_conf(&ctx, conf, &coin_type)?;
-    let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(&ctx, conf, &coin_type)?;
-    let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(&ctx, conf, &coin_type)?;
+    let gas_price_mult = get_gas_price_mult_conf(ctx, conf, &coin_type)?;
+    let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(ctx, conf, &coin_type)?;
+    let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(ctx, conf, &coin_type)?;
     let gas_limit: EthGasLimit = extract_gas_limit_from_conf(conf)
         .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?;
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)

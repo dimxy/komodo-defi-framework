@@ -5954,7 +5954,7 @@ pub async fn set_swap_gas_fee_policy(ctx: MmArc, req: SwapGasFeePolicyRequest) -
     let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
     match coin {
         MmCoinEnum::EthCoin(eth_coin) => {
-            let _ = eth_coin.set_swap_gas_fee_policy(req.swap_gas_fee_policy).await?;
+            eth_coin.set_swap_gas_fee_policy(req.swap_gas_fee_policy).await?;
             Ok(eth_coin.get_swap_gas_fee_policy().await?)
         },
         _ => MmError::err(SwapGasFeePolicyError::NotSupported(req.coin)),
