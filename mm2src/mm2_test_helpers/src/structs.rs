@@ -1245,7 +1245,7 @@ pub mod lr_test_structs {
         pub value: BigDecimal,
         /// Estimated gas price in gwei
         pub gas_price: BigDecimal,
-        pub gas: u128,
+        pub gas: u64,
     }
 
     #[derive(Clone, Deserialize, Debug, Serialize)]
@@ -1286,7 +1286,7 @@ pub mod lr_test_structs {
         pub protocols: Option<Vec<Vec<Vec<LrProtocolInfo>>>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub tx: Option<TxFieldsRpc>,
-        pub gas: Option<u128>,
+        pub gas: Option<u64>,
     }
 
     pub type ClassicSwapResponse = ClassicSwapDetails;
@@ -1322,7 +1322,8 @@ pub mod lr_test_structs {
     /// Response for find best swap path with LR
     #[derive(Debug, Deserialize, Serialize)]
     pub struct LrFindBestQuoteResponse {
-        pub lr_swap_details: ClassicSwapDetails,
+        pub lr_data_0: Option<ClassicSwapDetails>,
+        pub lr_data_1: Option<ClassicSwapDetails>,
         pub best_order: AskOrBidOrder,
         pub total_price: MmNumber,
         // /// Fees to pay, including LR swap fee

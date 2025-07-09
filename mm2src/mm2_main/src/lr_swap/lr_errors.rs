@@ -35,7 +35,9 @@ pub enum LrSwapError {
     },
     OneInchError(OneInchError), // TODO: do not attach the whole error but extract only message
     StateError(String),
-    BestLrSwapNotFound,
+    BestLrSwapNotFound {
+        candidates: u32,
+    },
     AtomicSwapError(String),
     #[from_stringify("serde_json::Error")]
     ResponseParseError(String),

@@ -179,7 +179,7 @@ impl Default for ClassicSwapCreateOptParams {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ClassicSwapDetails {
     /// Original source token amount, in eth units. We add it for use ClassicSwapDetails in other rpcs
-    pub src_amount: MmNumber,
+    pub src_amount: MmNumber, // TODO: DetailedAmount?
     /// Destination token amount, in eth units
     pub dst_amount: DetailedAmount,
     /// Source (base) token info
@@ -203,7 +203,7 @@ pub type ClassicSwapResponse = ClassicSwapDetails;
 
 impl ClassicSwapDetails {
     /// Get token name as it is defined in the coins file by contract address  
-    async fn token_name_kdf(ctx: &MmArc, chain_id: u64, token_info: &LrTokenInfo) -> Option<Ticker> {
+    fn token_name_kdf(ctx: &MmArc, chain_id: u64, token_info: &LrTokenInfo) -> Option<Ticker> {
         let special_contract =
             Address::from_str(ApiClient::eth_special_contract()).expect("1inch special address must be valid"); // TODO: must call 1inch to get it, instead of burned consts
 
@@ -215,7 +215,7 @@ impl ClassicSwapDetails {
         }
     }
 
-    pub(crate) async fn from_api_classic_swap_data(
+    pub(crate) fn from_api_classic_swap_data(
         ctx: &MmArc,
         chain_id: u64,
         src_amount: MmNumber,
@@ -231,8 +231,8 @@ impl ClassicSwapDetails {
             .decimals
             .try_into()
             .map_to_mm(|_| FromApiValueError::new("invalid decimals in destination TokenInfo".to_owned()))?;
-        let src_token_kdf = Self::token_name_kdf(ctx, chain_id, &src_token_info).await;
-        let dst_token_kdf = Self::token_name_kdf(ctx, chain_id, &dst_token_info).await;
+        let src_token_kdf = Self::token_name_kdf(ctx, chain_id, &src_token_info);
+        let dst_token_kdf = Self::token_name_kdf(ctx, chain_id, &dst_token_info);
         Ok(Self {
             src_amount,
             dst_amount: MmNumber::from(u256_to_big_decimal(

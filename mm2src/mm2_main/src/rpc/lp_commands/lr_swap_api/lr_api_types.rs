@@ -84,8 +84,10 @@ pub struct LrFindBestQuoteRequest {
 /// Response for find best swap path with LR
 #[derive(Debug, Serialize)]
 pub struct LrFindBestQuoteResponse {
-    /// Swap tx data (from 1inch quote)
-    pub lr_swap_details: ClassicSwapDetails,
+    /// LR_0 tx data (from 1inch quote)
+    pub lr_data_0: Option<ClassicSwapDetails>,
+    /// LR_1 tx data (from 1inch quote)
+    pub lr_data_1: Option<ClassicSwapDetails>,
     /// found best order which can be filled with LR swap
     pub best_order: AskOrBidOrder,
     /// base/rel price including the price of the LR swap part
@@ -135,6 +137,7 @@ pub struct LrSwapRpcParams {
 }
 
 impl LrSwapRpcParams {
+    #[allow(clippy::result_large_err)]
     pub fn get_source_token(&self) -> Result<Ticker, ExtApiRpcError> {
         Ok(self
             .swap_details
@@ -146,6 +149,8 @@ impl LrSwapRpcParams {
             .ok_or(ExtApiRpcError::NoLrTokenInfo)?
             .clone())
     }
+
+    #[allow(clippy::result_large_err)]
     pub fn get_destination_token(&self) -> Result<Ticker, ExtApiRpcError> {
         Ok(self
             .swap_details

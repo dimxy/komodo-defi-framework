@@ -51,8 +51,10 @@ pub enum ExtApiRpcError {
     TransactionError(String),
     #[display(fmt = "Sign transaction error {}", _0)]
     SignTransactionError(String),
-    #[display(fmt = "best liquidity routing swap not found")]
-    BestLrSwapNotFound,
+    #[display(fmt = "best liquidity routing swap not found, candidates: {}", candidates)]
+    BestLrSwapNotFound {
+        candidates: u32,
+    },
     #[display(
         fmt = "Not enough {} for swap: available {}, required at least {}, locked by swaps {:?}",
         coin,
@@ -98,7 +100,7 @@ impl HttpStatusCode for ExtApiRpcError {
             | ExtApiRpcError::NotSufficientBalance { .. }
             | ExtApiRpcError::VolumeTooLow { .. } => StatusCode::BAD_REQUEST,
             ExtApiRpcError::OneInchError(_)
-            | ExtApiRpcError::BestLrSwapNotFound
+            | ExtApiRpcError::BestLrSwapNotFound { .. }
             | ExtApiRpcError::OneInchDataError(_)
             | ExtApiRpcError::TransactionError(_)
             | ExtApiRpcError::TransportError(_) => StatusCode::BAD_GATEWAY,
@@ -245,7 +247,7 @@ impl From<LrSwapError> for ExtApiRpcError {
             LrSwapError::DifferentChains => ExtApiRpcError::DifferentChains,
             LrSwapError::InvalidParam(msg) => ExtApiRpcError::InvalidParam(msg),
             LrSwapError::MyAddressError(msg) => ExtApiRpcError::MyAddressError(msg),
-            LrSwapError::BestLrSwapNotFound => ExtApiRpcError::BestLrSwapNotFound,
+            LrSwapError::BestLrSwapNotFound { candidates } => ExtApiRpcError::BestLrSwapNotFound { candidates },
             LrSwapError::OutOfBounds { param, value, min, max } => {
                 ExtApiRpcError::OutOfBounds { param, value, min, max }
             },

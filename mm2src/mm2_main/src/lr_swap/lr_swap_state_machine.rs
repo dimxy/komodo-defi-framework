@@ -696,9 +696,12 @@ mod states {
                 .wait_for_lr_tx_confirmation(&self.coin, self.tx_bytes.clone())
                 .await
             {
-                info!("{LOG_PREFIX} failed: {}", err);
+                info!("{LOG_PREFIX} LR tx confirmation failed: {}", err);
                 let aborted = Aborted {
-                    reason: AbortReason::SomeReason(err.get_inner().to_string()),
+                    reason: AbortReason::SomeReason(format!(
+                        "LR tx confirmation failed: {}",
+                        err.get_inner().to_string()
+                    )),
                 };
                 return Self::change_state(aborted, state_machine).await;
             }
@@ -974,15 +977,12 @@ impl AggTakerSwapStateMachine {
         let src_amount = u256_from_big_decimal(&src_amount.to_decimal(), lr_swap_params.src_decimals)
             .mm_err(|err| LrSwapError::InvalidParam(err.to_string()))?;
 
-        match src_coin.coin_type {
-            EthCoinType::Erc20 { .. } => {
-                let classic_swap_contract =
-                    EthAddress::from_str(ApiClient::classic_swap_contract()).expect("valid eth address");
-                src_coin
-                    .handle_allowance(classic_swap_contract, src_amount, LR_SWAP_WAIT_CONFIRM_TIMEOUT_SEC)
-                    .await?
-            },
-            _ => {},
+        if let EthCoinType::Erc20 { .. } = src_coin.coin_type {
+            let classic_swap_contract =
+                EthAddress::from_str(ApiClient::classic_swap_contract()).expect("valid eth address");
+            src_coin
+                .handle_allowance(classic_swap_contract, src_amount, LR_SWAP_WAIT_CONFIRM_TIMEOUT_SEC)
+                .await?
         }
 
         let lr_swap_request = make_classic_swap_create_params(

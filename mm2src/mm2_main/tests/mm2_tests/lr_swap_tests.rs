@@ -180,20 +180,8 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
             { "ticker": &token_4_ticker }
         ]),
     ));
-    let bob_eth_info = bob_enable_tokens["result"]["eth_addresses_infos"].as_object().unwrap();
-
     let bob_enable_doc = block_on(enable_electrum_json(&mm_bob, DOC, false, doc_electrums()));
-    log!(
-        "Bob DOC address={:?} balance={:?} unspendable_balance={:?}",
-        bob_enable_doc["address"].as_str().unwrap(),
-        bob_enable_doc["balance"],
-        bob_enable_doc["unspendable_balance"]
-    );
-    log!(
-        "Bob MATIC address={:?} balance={:?}",
-        bob_eth_info.iter().next().unwrap().0,
-        bob_eth_info.iter().next().unwrap().1["balances"].as_object().unwrap()
-    );
+    print_balances(&mm_bob, "Bob balance before swap:", &[DOC, MATIC]);
 
     let alice_enable_tokens = block_on(enable_eth_coin_v2(
         &mm_alice,
@@ -211,43 +199,14 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     ));
     let alice_enable_doc = block_on(enable_electrum_json(&mm_alice, DOC, false, doc_electrums()));
     let alice_enable_doc = serde_json::from_value::<CoinInitResponse>(alice_enable_doc).unwrap();
-    log!(
-        "Alice DOC address={:?} balance={:?} unspendable_balance={:?}",
-        alice_enable_doc.address,
-        alice_enable_doc.balance,
-        alice_enable_doc.unspendable_balance
-    );
-
-    let alice_eth_info = alice_enable_tokens["result"]["eth_addresses_infos"]
-        .as_object()
-        .unwrap();
-    let alice_erc20_info = alice_enable_tokens["result"]["erc20_addresses_infos"]
-        .as_object()
-        .unwrap();
-    log!(
-        "Alice {MATIC} address={} balance={:?}",
-        alice_eth_info.iter().next().unwrap().0,
-        alice_eth_info.iter().next().unwrap().1["balances"].as_object().unwrap()
-    );
-    log!(
-        "Alice token balances: {:?}={:?}, {:?}={:?}, {:?}={:?}, {:?}={:?}",
-        token_1_ticker,
-        alice_erc20_info.iter().next().unwrap().1["balances"][token_1_ticker.clone()]
-            .as_object()
-            .unwrap(),
-        token_2_ticker,
-        alice_erc20_info.iter().next().unwrap().1["balances"][token_2_ticker.clone()]
-            .as_object()
-            .unwrap(),
-        token_3_ticker,
-        alice_erc20_info.iter().next().unwrap().1["balances"][token_3_ticker.clone()]
-            .as_object()
-            .unwrap(),
-        token_4_ticker,
-        alice_erc20_info.iter().next().unwrap().1["balances"][token_4_ticker.clone()]
-            .as_object()
-            .unwrap()
-    );
+    print_balances(&mm_alice, "Alice balance before swap:", &[
+        DOC,
+        MATIC,
+        &token_1_ticker,
+        &token_2_ticker,
+        &token_3_ticker,
+        &token_4_ticker,
+    ]);
 
     if let Err(err) = block_on(set_swap_gas_fee_policy(&mut mm_alice, MATIC, "Medium")) {
         log!("set_swap_transaction_fee_policy error={}", err);
@@ -296,34 +255,13 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
         MATIC,
     ))
     .expect("best quote should be found");
-    log!(
-        "Found best quote for swap with LR0: lr_swap_details: src_token={} src_amount={} dst_token={} dst_amount={}",
-        best_quote
-            .lr_swap_details
-            .src_token
-            .as_ref()
-            .unwrap()
-            .symbol_kdf
-            .as_ref()
-            .unwrap(),
-        best_quote.lr_swap_details.src_amount.to_decimal(),
-        best_quote
-            .lr_swap_details
-            .dst_token
-            .as_ref()
-            .unwrap()
-            .symbol_kdf
-            .as_ref()
-            .unwrap(),
-        best_quote.lr_swap_details.dst_amount.as_ratio().to_f64().unwrap(),
-    );
-
+    print_quote_resp(&best_quote);
     let agg_uuid = block_on(create_and_start_agg_taker_swap(
         &mut mm_alice,
         DOC,
         &doc_amount_to_buy,
         LR0_SLIPPAGE,
-        Some(best_quote.lr_swap_details),
+        best_quote.lr_data_0,
         best_quote.best_order,
         None,
     ))
@@ -378,13 +316,17 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     block_on(disable_coin(&mm_alice, DOC, false));
 
     // Rough check taker swap amount received
+    let alice_bal_diff = &alice_doc_balance.balance - &alice_enable_doc.balance;
+    log!("Alice received amount {}: {}", DOC, alice_bal_diff);
     assert!(
-        &alice_doc_balance.balance - &alice_enable_doc.balance
-            > &doc_amount_to_buy - &"0.2".parse::<BigDecimal>().unwrap()
+        alice_bal_diff > &doc_amount_to_buy - &"0.2".parse::<BigDecimal>().unwrap(),
+        "too much received {}",
+        alice_bal_diff
     );
     assert!(
-        &alice_doc_balance.balance - &alice_enable_doc.balance
-            < &doc_amount_to_buy + &"0.2".parse::<BigDecimal>().unwrap()
+        alice_bal_diff < &doc_amount_to_buy + &"0.2".parse::<BigDecimal>().unwrap(),
+        "too low received {}",
+        alice_bal_diff
     );
 }
 
@@ -583,22 +525,22 @@ async fn create_and_start_agg_taker_swap(
     base: &str,
     atomic_swap_volume: &BigDecimal,
     slippage: f32,
-    lr_swap_details_0: Option<ClassicSwapDetails>,
+    lr_data_0: Option<ClassicSwapDetails>,
     order_entry: AskOrBidOrder,
-    lr_swap_details_1: Option<ClassicSwapDetails>,
+    lr_data_1: Option<ClassicSwapDetails>,
 ) -> Result<Uuid, String> {
     common::log::info!(
         "Issue taker {}/{} lr::fill_order request",
         base,
         order_entry.order().coin
     );
-    let lr_swap_0 = lr_swap_details_0.map(|swap_details| {
+    let lr_swap_0 = lr_data_0.map(|swap_details| {
         json!({
             "slippage": slippage,
             "swap_details": swap_details
         })
     });
-    let lr_swap_1 = lr_swap_details_1.map(|swap_details| {
+    let lr_swap_1 = lr_data_1.map(|swap_details| {
         json!({
             "slippage": slippage,
             "swap_details": swap_details
@@ -709,4 +651,20 @@ fn print_balances(mm: &MarketMakerIt, msg: &str, tickers: &[&str]) {
             balance.unspendable_balance
         );
     }
+}
+
+fn print_quote_resp(quote: &LrFindBestQuoteResponse) {
+    log!(
+        "Found best quote for swap with LR: lr_data_0: src_token={:?} src_amount={:?} dst_token={:?} dst_amount={:?}",
+        quote
+            .lr_data_0
+            .as_ref()
+            .and_then(|data| data.src_token.as_ref().unwrap().symbol_kdf.as_ref()),
+        quote.lr_data_0.as_ref().map(|data| data.src_amount.to_decimal()),
+        quote
+            .lr_data_0
+            .as_ref()
+            .and_then(|data| data.dst_token.as_ref().unwrap().symbol_kdf.as_ref()),
+        quote.lr_data_0.as_ref().map(|data| data.dst_amount.as_ratio().to_f64()),
+    );
 }

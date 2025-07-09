@@ -55,10 +55,10 @@ pub async fn lr_find_best_quote_rpc(
     // coins in orders should be unique
 
     let (user_rel_coin, _) = get_coin_for_one_inch(&ctx, &req.user_rel).await?;
-    let user_rel_chain = user_rel_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
+    let user_rel_chain_id = user_rel_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
     let action = sell_buy_method(&req.method)?;
 
-    let (lr_data, best_order, total_price) = find_best_swap_path_with_lr(
+    let (lr_data_0, best_order, lr_data_1, total_price) = find_best_swap_path_with_lr(
         &ctx,
         req.user_base,
         req.user_rel,
@@ -68,13 +68,24 @@ pub async fn lr_find_best_quote_rpc(
         &req.volume,
     )
     .await?;
-    let src_amount = MmNumber::from(u256_to_big_decimal(lr_data.src_amount, user_rel_coin.decimals())?);
-    let lr_swap_details =
-        ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain, src_amount, lr_data.api_details)
-            .await
-            .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))?;
+
+    let lr_data_0 = lr_data_0
+        .map(|lr_data| {
+            let src_amount = MmNumber::from(u256_to_big_decimal(lr_data.src_amount, user_rel_coin.decimals())?);
+            ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain_id, src_amount, lr_data.api_details)
+                .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
+        })
+        .transpose()?;
+    let lr_data_1 = lr_data_1
+        .map(|lr_data| {
+            let src_amount = MmNumber::from(u256_to_big_decimal(lr_data.src_amount, user_rel_coin.decimals())?);
+            ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain_id, src_amount, lr_data.api_details) // TODO: user_rel_chain_id incorrect
+                .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
+        })
+        .transpose()?;
     Ok(LrFindBestQuoteResponse {
-        lr_swap_details,
+        lr_data_0,
+        lr_data_1,
         best_order,
         total_price,
         // TODO: implement later
@@ -276,16 +287,8 @@ fn debug_print_routed_trade_req(req: &LrExecuteRoutedTradeRequest) {
         .as_ref()
         .map(|lr| {
             (
-                lr.swap_details
-                    .src_token
-                    .as_ref()
-                    .map(|t| t.symbol_kdf.as_ref())
-                    .flatten(),
-                lr.swap_details
-                    .dst_token
-                    .as_ref()
-                    .map(|t| t.symbol_kdf.as_ref())
-                    .flatten(),
+                lr.swap_details.src_token.as_ref().and_then(|t| t.symbol_kdf.as_ref()),
+                lr.swap_details.dst_token.as_ref().and_then(|t| t.symbol_kdf.as_ref()),
                 Some(&lr.swap_details.src_amount),
             )
         })
@@ -301,16 +304,8 @@ fn debug_print_routed_trade_req(req: &LrExecuteRoutedTradeRequest) {
         .as_ref()
         .map(|lr| {
             (
-                lr.swap_details
-                    .src_token
-                    .as_ref()
-                    .map(|t| t.symbol_kdf.as_ref())
-                    .flatten(),
-                lr.swap_details
-                    .dst_token
-                    .as_ref()
-                    .map(|t| t.symbol_kdf.as_ref())
-                    .flatten(),
+                lr.swap_details.src_token.as_ref().and_then(|t| t.symbol_kdf.as_ref()),
+                lr.swap_details.dst_token.as_ref().and_then(|t| t.symbol_kdf.as_ref()),
                 Some(&lr.swap_details.src_amount),
             )
         })

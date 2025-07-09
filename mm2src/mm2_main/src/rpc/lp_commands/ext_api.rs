@@ -46,7 +46,6 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
         .build()?;
     let quote = ApiClient::call_api(url).await?;
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, req.amount, quote) // use 'base' as amount in errors is in the src coin
-        .await
         .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
 }
 
@@ -80,7 +79,6 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
         .build()?;
     let swap_with_tx = ApiClient::call_api(url).await?;
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, req.amount, swap_with_tx)
-        .await
         .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
 }
 
