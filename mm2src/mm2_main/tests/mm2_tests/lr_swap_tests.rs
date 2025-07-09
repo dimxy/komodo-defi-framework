@@ -208,7 +208,7 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
         &token_4_ticker,
     ]);
 
-    if let Err(err) = block_on(set_swap_gas_fee_policy(&mut mm_alice, MATIC, "Medium")) {
+    if let Err(err) = block_on(set_swap_gas_fee_policy(&mm_alice, MATIC, "Medium")) {
         log!("set_swap_transaction_fee_policy error={}", err);
     }
 

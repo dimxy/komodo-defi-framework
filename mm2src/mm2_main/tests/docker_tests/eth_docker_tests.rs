@@ -398,6 +398,7 @@ fn global_nft_with_random_privkey(
         enable_params: Default::default(),
         path_to_address: Default::default(),
         gap_limit: None,
+        swap_gas_fee_policy: None,
     };
     let coin = block_on(eth_coin_from_conf_and_request_v2(
         &MM_CTX1,
@@ -472,6 +473,7 @@ fn sepolia_coin_from_privkey(ctx: &MmArc, secret: &'static str, ticker: &str, co
         enable_params: Default::default(),
         path_to_address: Default::default(),
         gap_limit: None,
+        swap_gas_fee_policy: None,
     };
     let coin = block_on(eth_coin_from_conf_and_request_v2(
         ctx,
@@ -564,10 +566,10 @@ pub fn fill_eth_erc20_with_private_key(priv_key: Secp256k1Secret) {
     fill_erc20(my_address, U256::from(10000000000u64));
 }
 
-fn send_and_refund_eth_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
+async fn send_and_refund_eth_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
     thread::sleep(Duration::from_secs(3));
     let eth_coin = eth_coin_with_random_privkey(swap_contract());
-    eth_coin.set_swap_gas_fee_policy(swap_txfee_policy);
+    assert!(eth_coin.set_swap_gas_fee_policy(swap_txfee_policy).await.is_ok());
 
     let time_lock = now_sec() - 100;
     let other_pubkey = &[
@@ -639,22 +641,25 @@ fn send_and_refund_eth_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
     assert_eq!(expected, search_tx);
 }
 
-#[test]
-fn send_and_refund_eth_maker_payment_internal_gas_policy() {
-    send_and_refund_eth_maker_payment_impl(SwapGasFeePolicy::Legacy);
+#[tokio::test]
+async fn send_and_refund_eth_maker_payment_internal_gas_policy() {
+    send_and_refund_eth_maker_payment_impl(SwapGasFeePolicy::Legacy).await;
 }
 
-#[test]
-fn send_and_refund_eth_maker_payment_priority_fee() {
-    send_and_refund_eth_maker_payment_impl(SwapGasFeePolicy::Medium);
+#[tokio::test]
+async fn send_and_refund_eth_maker_payment_priority_fee() {
+    send_and_refund_eth_maker_payment_impl(SwapGasFeePolicy::Medium).await;
 }
 
-fn send_and_spend_eth_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
+async fn send_and_spend_eth_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
     let maker_eth_coin = eth_coin_with_random_privkey(swap_contract());
     let taker_eth_coin = eth_coin_with_random_privkey(swap_contract());
 
-    maker_eth_coin.set_swap_gas_fee_policy(swap_txfee_policy.clone());
-    taker_eth_coin.set_swap_gas_fee_policy(swap_txfee_policy);
+    assert!(maker_eth_coin
+        .set_swap_gas_fee_policy(swap_txfee_policy.clone())
+        .await
+        .is_ok());
+    assert!(taker_eth_coin.set_swap_gas_fee_policy(swap_txfee_policy).await.is_ok());
 
     let time_lock = now_sec() + 1000;
     let maker_pubkey = maker_eth_coin.derive_htlc_pubkey(&[]);
@@ -726,18 +731,20 @@ fn send_and_spend_eth_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
     assert_eq!(expected, search_tx);
 }
 
-#[test]
-fn send_and_spend_eth_maker_payment_internal_gas_policy() {
-    send_and_spend_eth_maker_payment_impl(SwapGasFeePolicy::Legacy);
+#[tokio::test]
+async fn send_and_spend_eth_maker_payment_internal_gas_policy() {
+    send_and_spend_eth_maker_payment_impl(SwapGasFeePolicy::Legacy).await;
 }
 
-#[test]
-fn send_and_spend_eth_maker_payment_priority_fee() { send_and_spend_eth_maker_payment_impl(SwapGasFeePolicy::Medium); }
+#[tokio::test]
+async fn send_and_spend_eth_maker_payment_priority_fee() {
+    send_and_spend_eth_maker_payment_impl(SwapGasFeePolicy::Medium).await;
+}
 
-fn send_and_refund_erc20_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
+async fn send_and_refund_erc20_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
     thread::sleep(Duration::from_secs(10));
     let erc20_coin = erc20_coin_with_random_privkey(swap_contract());
-    erc20_coin.set_swap_gas_fee_policy(swap_txfee_policy);
+    assert!(erc20_coin.set_swap_gas_fee_policy(swap_txfee_policy).await.is_ok());
 
     let time_lock = now_sec() - 100;
     let other_pubkey = &[
@@ -810,23 +817,29 @@ fn send_and_refund_erc20_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy)
     assert_eq!(expected, search_tx);
 }
 
-#[test]
-fn send_and_refund_erc20_maker_payment_internal_gas_policy() {
-    send_and_refund_erc20_maker_payment_impl(SwapGasFeePolicy::Legacy);
+#[tokio::test]
+async fn send_and_refund_erc20_maker_payment_internal_gas_policy() {
+    send_and_refund_erc20_maker_payment_impl(SwapGasFeePolicy::Legacy).await;
 }
 
-#[test]
-fn send_and_refund_erc20_maker_payment_priority_fee() {
-    send_and_refund_erc20_maker_payment_impl(SwapGasFeePolicy::Medium);
+#[tokio::test]
+async fn send_and_refund_erc20_maker_payment_priority_fee() {
+    send_and_refund_erc20_maker_payment_impl(SwapGasFeePolicy::Medium).await;
 }
 
-fn send_and_spend_erc20_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
+async fn send_and_spend_erc20_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) {
     thread::sleep(Duration::from_secs(7));
     let maker_erc20_coin = erc20_coin_with_random_privkey(swap_contract());
     let taker_erc20_coin = erc20_coin_with_random_privkey(swap_contract());
 
-    maker_erc20_coin.set_swap_gas_fee_policy(swap_txfee_policy.clone());
-    taker_erc20_coin.set_swap_gas_fee_policy(swap_txfee_policy);
+    assert!(maker_erc20_coin
+        .set_swap_gas_fee_policy(swap_txfee_policy.clone())
+        .await
+        .is_ok());
+    assert!(taker_erc20_coin
+        .set_swap_gas_fee_policy(swap_txfee_policy)
+        .await
+        .is_ok());
 
     let time_lock = now_sec() + 1000;
     let maker_pubkey = maker_erc20_coin.derive_htlc_pubkey(&[]);
@@ -898,14 +911,14 @@ fn send_and_spend_erc20_maker_payment_impl(swap_txfee_policy: SwapGasFeePolicy) 
     assert_eq!(expected, search_tx);
 }
 
-#[test]
-fn send_and_spend_erc20_maker_payment_internal_gas_policy() {
-    send_and_spend_erc20_maker_payment_impl(SwapGasFeePolicy::Legacy);
+#[tokio::test]
+async fn send_and_spend_erc20_maker_payment_internal_gas_policy() {
+    send_and_spend_erc20_maker_payment_impl(SwapGasFeePolicy::Legacy).await;
 }
 
-#[test]
-fn send_and_spend_erc20_maker_payment_priority_fee() {
-    send_and_spend_erc20_maker_payment_impl(SwapGasFeePolicy::Medium);
+#[tokio::test]
+async fn send_and_spend_erc20_maker_payment_priority_fee() {
+    send_and_spend_erc20_maker_payment_impl(SwapGasFeePolicy::Medium).await;
 }
 
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
@@ -1472,6 +1485,7 @@ fn eth_coin_v2_activation_with_random_privkey(
         enable_params: Default::default(),
         path_to_address: Default::default(),
         gap_limit: None,
+        swap_gas_fee_policy: None,
     };
     let coin = block_on(eth_coin_from_conf_and_request_v2(
         ctx,
