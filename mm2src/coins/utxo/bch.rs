@@ -2,7 +2,8 @@ use super::*;
 use crate::coin_balance::{EnableCoinBalanceError, HDAddressBalance, HDWalletBalance, HDWalletBalanceOps};
 use crate::coin_errors::{AddressFromPubkeyError, MyAddressError, ValidatePaymentResult};
 use crate::hd_wallet::{ExtractExtendedPubkey, HDAddressSelector, HDCoinAddress, HDCoinWithdrawOps,
-                       HDExtractPubkeyError, HDXPubExtractor, TrezorCoinError, WithdrawSenderAddress};
+                       HDExtractPubkeyError, HDXPubExtractor, SettingEnabledAddressError, TrezorCoinError,
+                       WithdrawSenderAddress};
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxDetailsBuilder,
                               TxHistoryStorage};
 use crate::tx_history_storage::{GetTxHistoryFilters, WalletId};
@@ -113,7 +114,7 @@ impl BchUnspents {
             bch_unspent,
             slp_amount,
         };
-        self.slp.entry(token_id).or_insert_with(Vec::new).push(slp_unspent);
+        self.slp.entry(token_id).or_default().push(slp_unspent);
     }
 
     fn add_slp_baton(&mut self, utxo: UnspentInfo) { self.slp_batons.push(utxo) }
@@ -386,7 +387,7 @@ impl BchCoin {
             .await?;
         let maybe_op_return: Script = tx
             .outputs
-            .get(0)
+            .first()
             .ok_or(UtxoTxDetailsError::Internal(format!(
                 "Transaction {} has no outputs",
                 params.hash
@@ -1392,6 +1393,15 @@ impl HDWalletCoinOps for BchCoin {
     }
 
     fn trezor_coin(&self) -> MmResult<String, TrezorCoinError> { utxo_common::trezor_coin(self) }
+
+    async fn received_enabled_address_from_hw_wallet(
+        &self,
+        enabled_address: UtxoHDAddress,
+    ) -> MmResult<(), SettingEnabledAddressError> {
+        utxo_common::received_enabled_address_from_hw_wallet(self, enabled_address.address)
+            .await
+            .mm_err(SettingEnabledAddressError::Internal)
+    }
 }
 
 impl HDCoinWithdrawOps for BchCoin {}

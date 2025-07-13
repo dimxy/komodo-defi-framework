@@ -4,7 +4,8 @@ use crate::coin_balance::{self, EnableCoinBalanceError, EnabledCoinBalanceParams
                           HDWalletBalance, HDWalletBalanceOps};
 use crate::coin_errors::{AddressFromPubkeyError, MyAddressError, ValidatePaymentResult};
 use crate::hd_wallet::{ExtractExtendedPubkey, HDAddressSelector, HDCoinAddress, HDCoinWithdrawOps, HDConfirmAddress,
-                       HDExtractPubkeyError, HDXPubExtractor, TrezorCoinError, WithdrawSenderAddress};
+                       HDExtractPubkeyError, HDXPubExtractor, SettingEnabledAddressError, TrezorCoinError,
+                       WithdrawSenderAddress};
 use crate::my_tx_history_v2::{CoinWithTxHistoryV2, MyTxHistoryErrorV2, MyTxHistoryTarget, TxHistoryStorage};
 use crate::rpc_command::account_balance::{self, AccountBalanceParams, AccountBalanceRpcOps, HDAccountBalanceResponse};
 use crate::rpc_command::get_new_address::{self, GetNewAddressParams, GetNewAddressResponse, GetNewAddressRpcError,
@@ -194,7 +195,7 @@ pub struct QtumCoinBuilder<'a> {
 }
 
 #[async_trait]
-impl<'a> UtxoCoinBuilderCommonOps for QtumCoinBuilder<'a> {
+impl UtxoCoinBuilderCommonOps for QtumCoinBuilder<'_> {
     fn ctx(&self) -> &MmArc { self.ctx }
 
     fn conf(&self) -> &Json { self.conf }
@@ -206,14 +207,14 @@ impl<'a> UtxoCoinBuilderCommonOps for QtumCoinBuilder<'a> {
     fn check_utxo_maturity(&self) -> bool { self.activation_params().check_utxo_maturity.unwrap_or(true) }
 }
 
-impl<'a> UtxoFieldsWithIguanaSecretBuilder for QtumCoinBuilder<'a> {}
+impl UtxoFieldsWithIguanaSecretBuilder for QtumCoinBuilder<'_> {}
 
-impl<'a> UtxoFieldsWithGlobalHDBuilder for QtumCoinBuilder<'a> {}
+impl UtxoFieldsWithGlobalHDBuilder for QtumCoinBuilder<'_> {}
 
-impl<'a> UtxoFieldsWithHardwareWalletBuilder for QtumCoinBuilder<'a> {}
+impl UtxoFieldsWithHardwareWalletBuilder for QtumCoinBuilder<'_> {}
 
 #[async_trait]
-impl<'a> UtxoCoinBuilder for QtumCoinBuilder<'a> {
+impl UtxoCoinBuilder for QtumCoinBuilder<'_> {
     type ResultCoin = QtumCoin;
     type Error = UtxoCoinBuildError;
 
@@ -228,7 +229,7 @@ impl<'a> UtxoCoinBuilder for QtumCoinBuilder<'a> {
     }
 }
 
-impl<'a> MergeUtxoArcOps<QtumCoin> for QtumCoinBuilder<'a> {}
+impl MergeUtxoArcOps<QtumCoin> for QtumCoinBuilder<'_> {}
 
 impl<'a> QtumCoinBuilder<'a> {
     pub fn new(
@@ -1040,6 +1041,15 @@ impl HDWalletCoinOps for QtumCoin {
     }
 
     fn trezor_coin(&self) -> MmResult<String, TrezorCoinError> { utxo_common::trezor_coin(self) }
+
+    async fn received_enabled_address_from_hw_wallet(
+        &self,
+        enabled_address: UtxoHDAddress,
+    ) -> MmResult<(), SettingEnabledAddressError> {
+        utxo_common::received_enabled_address_from_hw_wallet(self, enabled_address.address)
+            .await
+            .mm_err(SettingEnabledAddressError::Internal)
+    }
 }
 
 impl HDCoinWithdrawOps for QtumCoin {}
