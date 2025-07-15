@@ -48,7 +48,7 @@ use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawTaskHandleShar
 use crate::rpc_command::{account_balance, get_new_address, init_account_balance, init_create_account,
                          init_scan_for_new_addresses};
 use crate::{coin_balance, scan_for_new_addresses_impl, BalanceResult, CoinWithDerivationMethod, DerivationMethod,
-            DexFee, Eip1559Ops, MakerNftSwapOpsV2, ParseCoinAssocTypes, ParseNftAssocTypes, PayForGasParams,
+            DexFee, Eip1559Ops, GasPriceRpcParam, MakerNftSwapOpsV2, ParseCoinAssocTypes, ParseNftAssocTypes,
             PrivKeyPolicy, RpcCommonOps, SendNftMakerPaymentArgs, SpendNftMakerPaymentArgs, ToBytes,
             ValidateNftMakerPaymentArgs, ValidateWatcherSpendInput, WatcherSpendType};
 use async_trait::async_trait;
@@ -119,9 +119,9 @@ use super::{coin_conf, lp_coinfind_or_err, AsyncMutex, BalanceError, BalanceFut,
             RawTransactionResult, RefundPaymentArgs, RewardTarget, RpcClientType, RpcTransportEventHandler,
             RpcTransportEventHandlerShared, SearchForSwapTxSpendInput, SendMakerPaymentSpendPreimageInput,
             SendPaymentArgs, SignEthTransactionParams, SignRawTransactionEnum, SignRawTransactionRequest,
-            SignatureError, SignatureResult, SpendPaymentArgs, SwapOps, SwapTxFeePolicy, TradeFee, TradePreimageError,
-            TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction, TransactionDetails,
-            TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxMarshalingErr,
+            SignatureError, SignatureResult, SpendPaymentArgs, SwapGasFeePolicy, SwapOps, TradeFee,
+            TradePreimageError, TradePreimageFut, TradePreimageResult, TradePreimageValue, Transaction,
+            TransactionDetails, TransactionEnum, TransactionErr, TransactionFut, TransactionType, TxMarshalingErr,
             UnexpectedDerivationMethod, ValidateAddressResult, ValidateFeeArgs, ValidateInstructionsErr,
             ValidateOtherPubKeyErr, ValidatePaymentError, ValidatePaymentFut, ValidatePaymentInput, VerificationError,
             VerificationResult, WaitForHTLCTxSpendArgs, WatcherOps, WatcherReward, WatcherRewardError,
@@ -132,9 +132,10 @@ use super::{coin_conf, lp_coinfind_or_err, AsyncMutex, BalanceError, BalanceFut,
 #[cfg(test)]
 pub(crate) use eth_utils::display_u256_with_decimal_point;
 pub use eth_utils::{addr_from_pubkey_str, addr_from_raw_pubkey, mm_number_from_u256, mm_number_to_u256,
-                    u256_to_big_decimal, wei_from_big_decimal, wei_from_coins_mm_number, wei_from_gwei_decimal,
-                    wei_to_coins_mm_number, wei_to_eth_decimal, wei_to_gwei_decimal};
-use eth_utils::{get_function_input_data, get_function_name};
+                    u256_from_big_decimal, u256_to_big_decimal, wei_from_coins_mm_number, wei_from_gwei_decimal,
+                    wei_to_eth_decimal, wei_to_gwei_decimal};
+use eth_utils::{get_function_input_data, get_function_name, get_gas_fee_base_adjust_conf,
+                get_gas_fee_priority_adjust_conf, get_gas_price_mult_conf, get_max_eth_tx_type_conf};
 
 pub use rlp;
 cfg_native! {
@@ -305,6 +306,8 @@ pub mod gas_limit_v2 {
         pub const ERC1155_MAKER_REFUND_SECRET: u64 = 100_000;
     }
 }
+
+pub(crate) use fee_estimation::eip1559::FEE_PRIORITY_LEVEL_N;
 
 /// Coin conf param to override default gas limits
 #[derive(Deserialize)]
@@ -535,56 +538,34 @@ pub type Web3RpcFut<T> = Box<dyn Future<Item = T, Error = MmError<Web3RpcError>>
 pub type Web3RpcResult<T> = Result<T, MmError<Web3RpcError>>;
 type EthPrivKeyPolicy = PrivKeyPolicy<KeyPair>;
 
-#[derive(Clone, Debug)]
-pub(crate) struct LegacyGasPrice {
-    pub(crate) gas_price: U256,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct Eip1559FeePerGas {
-    pub(crate) max_fee_per_gas: U256,
-    pub(crate) max_priority_fee_per_gas: U256,
-}
-
 /// Internal structure describing how transaction pays for gas unit:
 /// either legacy gas price or EIP-1559 fee per gas
 #[derive(Clone, Debug)]
 pub(crate) enum PayForGasOption {
-    Legacy(LegacyGasPrice),
-    Eip1559(Eip1559FeePerGas),
+    Legacy {
+        gas_price: U256,
+    },
+    Eip1559 {
+        max_fee_per_gas: U256,
+        max_priority_fee_per_gas: U256,
+    },
 }
 
 impl PayForGasOption {
     fn get_gas_price(&self) -> Option<U256> {
         match self {
-            PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => Some(*gas_price),
-            PayForGasOption::Eip1559(..) => None,
+            PayForGasOption::Legacy { gas_price } => Some(*gas_price),
+            PayForGasOption::Eip1559 { .. } => None,
         }
     }
 
     fn get_fee_per_gas(&self) -> (Option<U256>, Option<U256>) {
         match self {
-            PayForGasOption::Eip1559(Eip1559FeePerGas {
+            PayForGasOption::Eip1559 {
                 max_fee_per_gas,
                 max_priority_fee_per_gas,
-            }) => (Some(*max_fee_per_gas), Some(*max_priority_fee_per_gas)),
-            PayForGasOption::Legacy(..) => (None, None),
-        }
-    }
-}
-
-impl TryFrom<PayForGasParams> for PayForGasOption {
-    type Error = MmError<NumConversError>;
-
-    fn try_from(param: PayForGasParams) -> Result<Self, Self::Error> {
-        match param {
-            PayForGasParams::Legacy(legacy) => Ok(Self::Legacy(LegacyGasPrice {
-                gas_price: wei_from_gwei_decimal(&legacy.gas_price)?,
-            })),
-            PayForGasParams::Eip1559(eip1559) => Ok(Self::Eip1559(Eip1559FeePerGas {
-                max_fee_per_gas: wei_from_gwei_decimal(&eip1559.max_fee_per_gas)?,
-                max_priority_fee_per_gas: wei_from_gwei_decimal(&eip1559.max_priority_fee_per_gas)?,
-            })),
+            } => (Some(*max_fee_per_gas), Some(*max_priority_fee_per_gas)),
+            PayForGasOption::Legacy { .. } => (None, None),
         }
     }
 }
@@ -609,6 +590,8 @@ pub enum Web3RpcError {
     NftProtocolNotSupported,
     #[display(fmt = "Number conversion: {}", _0)]
     NumConversError(String),
+    #[display(fmt = "No such coin {}", coin)]
+    NoSuchCoin { coin: String },
 }
 
 impl From<web3::Error> for Web3RpcError {
@@ -634,6 +617,7 @@ impl From<Web3RpcError> for RawTransactionError {
             | Web3RpcError::Timeout(internal)
             | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => RawTransactionError::InternalError(internal),
+            Web3RpcError::NoSuchCoin { coin } => RawTransactionError::NoSuchCoin { coin },
             Web3RpcError::NftProtocolNotSupported => {
                 RawTransactionError::InternalError("Nft Protocol is not supported yet!".to_string())
             },
@@ -667,6 +651,14 @@ impl From<NumConversError> for Web3RpcError {
     fn from(e: NumConversError) -> Self { Web3RpcError::NumConversError(e.to_string()) }
 }
 
+impl From<CoinFindError> for Web3RpcError {
+    fn from(e: CoinFindError) -> Self {
+        match e {
+            CoinFindError::NoSuchCoin { coin } => Web3RpcError::NoSuchCoin { coin },
+        }
+    }
+}
+
 impl From<ethabi::Error> for WithdrawError {
     fn from(e: ethabi::Error) -> Self {
         // Currently, we use the `ethabi` crate to work with a smart contract ABI known at compile time.
@@ -687,6 +679,7 @@ impl From<Web3RpcError> for WithdrawError {
             | Web3RpcError::Timeout(internal)
             | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => WithdrawError::InternalError(internal),
+            Web3RpcError::NoSuchCoin { coin } => WithdrawError::NoSuchCoin { coin },
             Web3RpcError::NftProtocolNotSupported => WithdrawError::NftProtocolNotSupported,
         }
     }
@@ -708,6 +701,7 @@ impl From<Web3RpcError> for TradePreimageError {
             | Web3RpcError::Timeout(internal)
             | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => TradePreimageError::InternalError(internal),
+            Web3RpcError::NoSuchCoin { coin } => TradePreimageError::NoSuchCoin { coin },
             Web3RpcError::NftProtocolNotSupported => TradePreimageError::NftProtocolNotSupported,
         }
     }
@@ -741,6 +735,7 @@ impl From<Web3RpcError> for BalanceError {
             | Web3RpcError::Timeout(internal)
             | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => BalanceError::Internal(internal),
+            Web3RpcError::NoSuchCoin { coin } => BalanceError::NoSuchCoin { coin },
             Web3RpcError::NftProtocolNotSupported => {
                 BalanceError::Internal("Nft Protocol is not supported yet!".to_string())
             },
@@ -754,6 +749,10 @@ impl From<TxBuilderError> for TransactionErr {
 
 impl From<ethcore_transaction::Error> for TransactionErr {
     fn from(e: ethcore_transaction::Error) -> Self { TransactionErr::Plain(e.to_string()) }
+}
+
+impl From<crate::CoinFindError> for TransactionErr {
+    fn from(e: crate::CoinFindError) -> Self { TransactionErr::Plain(e.to_string()) }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -876,8 +875,11 @@ pub struct EthCoinImpl {
     decimals: u8,
     history_sync_state: Mutex<HistorySyncState>,
     required_confirmations: AtomicU64,
-    swap_txfee_policy: Mutex<SwapTxFeePolicy>,
+    swap_gas_fee_policy: Mutex<SwapGasFeePolicy>,
     max_eth_tx_type: Option<u64>,
+    gas_price_mult: Option<f64>,
+    gas_fee_base_adjust: Option<Vec<f64>>,
+    gas_fee_priority_adjust: Option<Vec<f64>>,
     /// Coin needs access to the context in order to reuse the logging and shutdown facilities.
     /// Using a weak reference by default in order to avoid circular references and leaks.
     pub ctx: MmWeak,
@@ -947,7 +949,7 @@ pub enum EthAddressFormat {
 #[macro_export]
 macro_rules! tx_type_from_pay_for_gas_option {
     ($pay_for_gas_option: expr) => {
-        if matches!($pay_for_gas_option, PayForGasOption::Eip1559(..)) {
+        if matches!($pay_for_gas_option, PayForGasOption::Eip1559 { .. }) {
             ethcore_transaction::TxType::Type2
         } else {
             ethcore_transaction::TxType::Legacy
@@ -1359,7 +1361,7 @@ impl SwapOps for EthCoin {
         let address = try_tx_s!(addr_from_raw_pubkey(self.dex_pubkey()));
         self.send_to_address(
             address,
-            try_tx_s!(wei_from_big_decimal(&dex_fee.fee_amount().into(), self.decimals)),
+            try_tx_s!(u256_from_big_decimal(&dex_fee.fee_amount().into(), self.decimals)),
         )
         .map(TransactionEnum::from)
         .compat()
@@ -1750,7 +1752,7 @@ impl WatcherOps for EthCoin {
             .watcher_reward
             .clone()
             .ok_or_else(|| ValidatePaymentError::WatcherRewardError("Watcher reward not found".to_string())));
-        let expected_reward_amount = try_f!(wei_from_big_decimal(&watcher_reward.amount, ETH_DECIMALS).map_mm_err());
+        let expected_reward_amount = try_f!(u256_from_big_decimal(&watcher_reward.amount, ETH_DECIMALS).map_mm_err());
 
         let expected_swap_contract_address = try_f!(input
             .swap_contract_address
@@ -1780,7 +1782,7 @@ impl WatcherOps for EthCoin {
             .map_to_mm(ValidatePaymentError::InvalidParameter)
             .map_mm_err());
 
-        let trade_amount = try_f!(wei_from_big_decimal(&(input.amount), decimals).map_mm_err());
+        let trade_amount = try_f!(u256_from_big_decimal(&(input.amount), decimals).map_mm_err());
         let fut = async move {
             match tx.unsigned().action() {
                 Call(contract_address) => {
@@ -2078,7 +2080,7 @@ impl WatcherOps for EthCoin {
                 .get_taker_watcher_reward(&input.maker_coin, None, None, None, input.wait_until)
                 .await
                 .map_err(|err| ValidatePaymentError::WatcherRewardError(err.into_inner().to_string()))?;
-            let expected_reward_amount = wei_from_big_decimal(&watcher_reward.amount, ETH_DECIMALS).map_mm_err()?;
+            let expected_reward_amount = u256_from_big_decimal(&watcher_reward.amount, ETH_DECIMALS).map_mm_err()?;
 
             match &selfi.coin_type {
                 EthCoinType::Eth => {
@@ -2812,10 +2814,8 @@ async fn sign_and_send_transaction_with_keypair(
     gas: U256,
 ) -> Result<SignedEthTx, TransactionErr> {
     info!(target: "sign-and-send", "get_gas_price…");
-    let pay_for_gas_option = try_tx_s!(
-        coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
-            .await
-    );
+    let pay_for_gas_policy = try_tx_s!(coin.get_swap_gas_fee_policy().await);
+    let pay_for_gas_option = try_tx_s!(coin.get_swap_pay_for_gas_option(pay_for_gas_policy).await);
     let address_lock = coin.get_address_lock(address.to_string()).await;
     let _nonce_lock = address_lock.lock().await;
     let (signed, web3_instances_with_latest_nonce) =
@@ -2850,7 +2850,7 @@ async fn sign_and_send_transaction_with_metamask(
     };
 
     let pay_for_gas_option = try_tx_s!(
-        coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
+        coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy().await?)
             .await
     );
     let my_address = try_tx_s!(coin.derivation_method.single_addr_or_err().await);
@@ -2894,7 +2894,7 @@ async fn sign_and_send_transaction_with_metamask(
 /// Sign eth transaction
 async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> RawTransactionResult {
     let value =
-        wei_from_big_decimal(args.value.as_ref().unwrap_or(&BigDecimal::from(0)), coin.decimals).map_mm_err()?;
+        u256_from_big_decimal(args.value.as_ref().unwrap_or(&BigDecimal::from(0)), coin.decimals).map_mm_err()?;
     let action = if let Some(to) = &args.to {
         Call(Address::from_str(to).map_to_mm(|err| RawTransactionError::InvalidParam(err.to_string()))?)
     } else {
@@ -2915,14 +2915,12 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
                 .mm_err(|e| RawTransactionError::InternalError(e.to_string()))?;
             let address_lock = coin.get_address_lock(my_address.to_string()).await;
             let _nonce_lock = address_lock.lock().await;
-            let pay_for_gas_option = if let Some(ref pay_for_gas) = args.pay_for_gas {
-                pay_for_gas.clone().try_into().map_mm_err()?
-            } else {
-                // use legacy gas_price() if not set
-                info!(target: "sign-and-send", "get_gas_price…");
-                let gas_price = coin.get_gas_price().await.map_mm_err()?;
-                PayForGasOption::Legacy(LegacyGasPrice { gas_price })
-            };
+            info!(target: "sign-and-send", "get_gas_price…");
+            let pay_for_gas_option = coin
+                .get_swap_pay_for_gas_option_from_rpc(&args.pay_for_gas)
+                .await
+                .map_mm_err()?;
+            info!("sign_raw_eth_tx pay_for_gas_option {:?}", pay_for_gas_option);
             sign_transaction_with_keypair(
                 coin,
                 key_pair,
@@ -2959,14 +2957,10 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
                 .mm_err(|e| RawTransactionError::InternalError(e.to_string()))?;
             let address_lock = coin.get_address_lock(my_address.to_string()).await;
             let _nonce_lock = address_lock.lock().await;
-            let pay_for_gas_option = if let Some(ref pay_for_gas) = args.pay_for_gas {
-                pay_for_gas.clone().try_into().map_mm_err()?
-            } else {
-                // use legacy gas_price() if not set
-                info!(target: "sign-and-send", "get_gas_price…");
-                let gas_price = coin.get_gas_price().await.map_mm_err()?;
-                PayForGasOption::Legacy(LegacyGasPrice { gas_price })
-            };
+            let pay_for_gas_option = coin
+                .get_swap_pay_for_gas_option_from_rpc(&args.pay_for_gas)
+                .await
+                .map_mm_err()?;
             let (nonce, _) = coin
                 .clone()
                 .get_addr_nonce(my_address)
@@ -3421,14 +3415,7 @@ impl EthCoin {
                         // TODO: create and use EthTxFeeDetails::from(web3_tx)
                         // It's relatively safe to unwrap `EthTxFeeDetails::new` as it may fail due to `u256_to_big_decimal` only.
                         // Also TX history is not used by any GUI and has significant disadvantages.
-                        Some(
-                            EthTxFeeDetails::new(
-                                gas_used,
-                                PayForGasOption::Legacy(LegacyGasPrice { gas_price }),
-                                fee_coin,
-                            )
-                            .unwrap(),
-                        )
+                        Some(EthTxFeeDetails::new(gas_used, PayForGasOption::Legacy { gas_price }, fee_coin).unwrap())
                     },
                     None => None,
                 };
@@ -3817,14 +3804,7 @@ impl EthCoin {
                         // It's relatively safe to unwrap `EthTxFeeDetails::new` as it may fail
                         // due to `u256_to_big_decimal` only.
                         // Also TX history is not used by any GUI and has significant disadvantages.
-                        Some(
-                            EthTxFeeDetails::new(
-                                gas_used,
-                                PayForGasOption::Legacy(LegacyGasPrice { gas_price }),
-                                fee_coin,
-                            )
-                            .unwrap(),
-                        )
+                        Some(EthTxFeeDetails::new(gas_used, PayForGasOption::Legacy { gas_price }, fee_coin).unwrap())
                     },
                     None => None,
                 };
@@ -4004,7 +3984,7 @@ impl EthCoin {
         let receiver_addr = try_tx_fus!(addr_from_raw_pubkey(args.other_pubkey));
         let swap_contract_address = try_tx_fus!(args.swap_contract_address.try_to_address());
         let id = self.etomic_swap_id(try_tx_fus!(args.time_lock.try_into()), args.secret_hash);
-        let trade_amount = try_tx_fus!(wei_from_big_decimal(&args.amount, self.decimals));
+        let trade_amount = try_tx_fus!(u256_from_big_decimal(&args.amount, self.decimals));
 
         let time_lock = U256::from(args.time_lock);
 
@@ -4022,7 +4002,7 @@ impl EthCoin {
                 let mut value = trade_amount;
                 let data = match &args.watcher_reward {
                     Some(reward) => {
-                        let reward_amount = try_tx_fus!(wei_from_big_decimal(&reward.amount, self.decimals));
+                        let reward_amount = try_tx_fus!(u256_from_big_decimal(&reward.amount, self.decimals));
                         if !matches!(reward.reward_target, RewardTarget::None) || reward.send_contract_reward_on_spend {
                             value += reward_amount;
                         }
@@ -4067,13 +4047,14 @@ impl EthCoin {
                     Some(reward) => {
                         let reward_amount = match reward.reward_target {
                             RewardTarget::Contract | RewardTarget::PaymentSender => {
-                                let eth_reward_amount = try_tx_fus!(wei_from_big_decimal(&reward.amount, ETH_DECIMALS));
+                                let eth_reward_amount =
+                                    try_tx_fus!(u256_from_big_decimal(&reward.amount, ETH_DECIMALS));
                                 value += eth_reward_amount;
                                 eth_reward_amount
                             },
                             RewardTarget::PaymentSpender => {
                                 let token_reward_amount =
-                                    try_tx_fus!(wei_from_big_decimal(&reward.amount, self.decimals));
+                                    try_tx_fus!(u256_from_big_decimal(&reward.amount, self.decimals));
                                 amount += token_reward_amount;
                                 token_reward_amount
                             },
@@ -4081,7 +4062,7 @@ impl EthCoin {
                                 // TODO tests passed without this change, need to research on how it worked
                                 if reward.send_contract_reward_on_spend {
                                     let eth_reward_amount =
-                                        try_tx_fus!(wei_from_big_decimal(&reward.amount, ETH_DECIMALS));
+                                        try_tx_fus!(u256_from_big_decimal(&reward.amount, ETH_DECIMALS));
                                     value += eth_reward_amount;
                                     eth_reward_amount
                                 } else {
@@ -4828,8 +4809,12 @@ impl EthCoin {
     async fn estimate_gas_for_contract_call(&self, contract_addr: Address, call_data: Bytes) -> Web3RpcResult<U256> {
         let coin = self.clone();
         let my_address = coin.derivation_method.single_addr_or_err().await.map_mm_err()?;
-        let fee_policy_for_estimate = get_swap_fee_policy_for_estimate(self.get_swap_transaction_fee_policy());
-        let pay_for_gas_option = coin.get_swap_pay_for_gas_option(fee_policy_for_estimate).await?;
+        let fee_policy_for_estimate =
+            get_swap_fee_policy_for_estimate(self.get_swap_gas_fee_policy().await.map_mm_err()?);
+        let pay_for_gas_option = coin
+            .get_swap_pay_for_gas_option(fee_policy_for_estimate)
+            .await
+            .map_mm_err()?;
         let eth_value = U256::zero();
         let estimate_gas_req = CallRequest {
             value: Some(eth_value),
@@ -5042,7 +5027,7 @@ impl EthCoin {
         } else {
             input.secret_hash.to_vec()
         };
-        let trade_amount = try_f!(wei_from_big_decimal(&(input.amount), decimals).map_mm_err());
+        let trade_amount = try_f!(u256_from_big_decimal(&(input.amount), decimals).map_mm_err());
         let fut = async move {
             let status = selfi
                 .payment_status(expected_swap_contract_address, Token::FixedBytes(swap_id.clone()))
@@ -5135,7 +5120,7 @@ impl EthCoin {
                         }
 
                         let expected_reward_amount =
-                            wei_from_big_decimal(&watcher_reward.amount, decimals).map_mm_err()?;
+                            u256_from_big_decimal(&watcher_reward.amount, decimals).map_mm_err()?;
                         let actual_reward_amount = decoded[6].clone().into_uint().ok_or_else(|| {
                             ValidatePaymentError::WrongPaymentTx("Invalid type for watcher reward argument".to_string())
                         })?;
@@ -5241,15 +5226,15 @@ impl EthCoin {
 
                         let expected_reward_amount = match watcher_reward.reward_target {
                             RewardTarget::Contract | RewardTarget::PaymentSender => {
-                                wei_from_big_decimal(&watcher_reward.amount, ETH_DECIMALS).map_mm_err()?
+                                u256_from_big_decimal(&watcher_reward.amount, ETH_DECIMALS).map_mm_err()?
                             },
                             RewardTarget::PaymentSpender => {
-                                wei_from_big_decimal(&watcher_reward.amount, selfi.decimals).map_mm_err()?
+                                u256_from_big_decimal(&watcher_reward.amount, selfi.decimals).map_mm_err()?
                             },
                             _ => {
                                 // TODO tests passed without this change, need to research on how it worked
                                 if watcher_reward.send_contract_reward_on_spend {
-                                    wei_from_big_decimal(&watcher_reward.amount, ETH_DECIMALS).map_mm_err()?
+                                    u256_from_big_decimal(&watcher_reward.amount, ETH_DECIMALS).map_mm_err()?
                                 } else {
                                     0.into()
                                 }
@@ -5450,8 +5435,9 @@ impl EthCoin {
     }
 
     pub async fn get_watcher_reward_amount(&self, wait_until: u64) -> Result<BigDecimal, MmError<WatcherRewardError>> {
+        let pay_for_gas_policy = self.get_swap_gas_fee_policy().await.map_mm_err()?;
         let pay_for_gas_option = repeatable!(async {
-            self.get_swap_pay_for_gas_option(self.get_swap_transaction_fee_policy())
+            self.get_swap_pay_for_gas_option(pay_for_gas_policy.clone())
                 .await
                 .retry_on_err()
         })
@@ -5498,10 +5484,23 @@ impl EthCoin {
         let (eth_gas_price, eth_fee_history_price) = join(eth_gas_price_fut, eth_fee_history_price_fut).await;
         // on editions < 2021 the compiler will resolve array.into_iter() as (&array).into_iter()
         // https://doc.rust-lang.org/edition-guide/rust-2021/IntoIterator-for-arrays.html#details
-        IntoIterator::into_iter([eth_gas_price, eth_fee_history_price])
+        let gas_price = IntoIterator::into_iter([eth_gas_price, eth_fee_history_price])
             .flatten()
             .max()
-            .or_mm_err(|| Web3RpcError::Internal("All requests failed".into()))
+            .or_mm_err(|| Web3RpcError::Internal("All requests failed".into()))?;
+        if let Some(mult) = self.gas_price_mult {
+            let gas_price = u256_to_big_decimal(gas_price, 0).map_mm_err()?;
+            let mult = BigDecimal::try_from(mult).map_err(|_| {
+                MmError::new(Web3RpcError::NumConversError(
+                    "gas_price_mult conversion error".to_string(),
+                ))
+            })?;
+            let gas_price_adjusted = gas_price * mult;
+            let gas_price_adjusted = u256_from_big_decimal(&gas_price_adjusted, 0).map_mm_err()?;
+            Ok(gas_price_adjusted)
+        } else {
+            Ok(gas_price)
+        }
     }
 
     /// Get gas base fee and suggest priority tip fees for the next block (see EIP-1559)
@@ -5541,33 +5540,65 @@ impl EthCoin {
             .await
     }
 
-    async fn get_swap_pay_for_gas_option(&self, swap_fee_policy: SwapTxFeePolicy) -> Web3RpcResult<PayForGasOption> {
+    async fn get_swap_pay_for_gas_option(&self, swap_fee_policy: SwapGasFeePolicy) -> Web3RpcResult<PayForGasOption> {
         let coin = self.clone();
-        match swap_fee_policy {
-            SwapTxFeePolicy::Internal => {
+        let pay_for_gas = match swap_fee_policy {
+            SwapGasFeePolicy::Legacy => {
                 let gas_price = coin.get_gas_price().await?;
-                Ok(PayForGasOption::Legacy(LegacyGasPrice { gas_price }))
+                Ok(PayForGasOption::Legacy { gas_price })
             },
-            SwapTxFeePolicy::Low | SwapTxFeePolicy::Medium | SwapTxFeePolicy::High => {
+            SwapGasFeePolicy::Low | SwapGasFeePolicy::Medium | SwapGasFeePolicy::High => {
                 let fee_per_gas = coin.get_eip1559_gas_fee(false).await?;
+                println!(
+                    "get_swap_pay_for_gas_option get_eip1559_gas_fee result={:?}",
+                    fee_per_gas
+                );
                 let pay_result = match swap_fee_policy {
-                    SwapTxFeePolicy::Low => PayForGasOption::Eip1559(Eip1559FeePerGas {
+                    SwapGasFeePolicy::Low => PayForGasOption::Eip1559 {
                         max_fee_per_gas: fee_per_gas.low.max_fee_per_gas,
                         max_priority_fee_per_gas: fee_per_gas.low.max_priority_fee_per_gas,
-                    }),
-                    SwapTxFeePolicy::Medium => PayForGasOption::Eip1559(Eip1559FeePerGas {
+                    },
+                    SwapGasFeePolicy::Medium => PayForGasOption::Eip1559 {
                         max_fee_per_gas: fee_per_gas.medium.max_fee_per_gas,
                         max_priority_fee_per_gas: fee_per_gas.medium.max_priority_fee_per_gas,
-                    }),
-                    _ => PayForGasOption::Eip1559(Eip1559FeePerGas {
+                    },
+                    _ => PayForGasOption::Eip1559 {
                         max_fee_per_gas: fee_per_gas.high.max_fee_per_gas,
                         max_priority_fee_per_gas: fee_per_gas.high.max_priority_fee_per_gas,
-                    }),
+                    },
                 };
                 Ok(pay_result)
             },
-            SwapTxFeePolicy::Unsupported => Err(MmError::new(Web3RpcError::Internal("swap fee policy not set".into()))),
-        }
+        };
+        println!("pay_for_gas={:?}", pay_for_gas);
+        pay_for_gas
+    }
+
+    /// Get pay for gas option from the sign_raw_tx rpc params GasPriceRpcParam.
+    /// The rpc params allow to set legacy or priority gas fee explicitly or make use GasPricePolicy value, set by a dedicated rpc.
+    async fn get_swap_pay_for_gas_option_from_rpc(
+        &self,
+        gas_price_param: &Option<GasPriceRpcParam>,
+    ) -> Web3RpcResult<PayForGasOption> {
+        let pay_for_gas_option = match gas_price_param {
+            Some(GasPriceRpcParam::GasPricePolicy(policy)) => self.get_swap_pay_for_gas_option(policy.clone()).await?,
+            Some(GasPriceRpcParam::Legacy { gas_price }) => PayForGasOption::Legacy {
+                gas_price: wei_from_gwei_decimal(gas_price).map_mm_err()?,
+            },
+            Some(GasPriceRpcParam::Eip1559 {
+                max_fee_per_gas,
+                max_priority_fee_per_gas,
+            }) => PayForGasOption::Eip1559 {
+                max_fee_per_gas: wei_from_gwei_decimal(max_fee_per_gas).map_mm_err()?,
+                max_priority_fee_per_gas: wei_from_gwei_decimal(max_priority_fee_per_gas).map_mm_err()?,
+            },
+            None => {
+                // use legacy gas_price() if not set
+                let gas_price = self.get_gas_price().await?;
+                PayForGasOption::Legacy { gas_price }
+            },
+        };
+        Ok(pay_for_gas_option)
     }
 
     /// Checks every second till at least one ETH node recognizes that nonce is increased.
@@ -5772,6 +5803,43 @@ impl EthCoin {
         };
         Box::new(Box::pin(fut).compat())
     }
+
+    /// Estimated trade fee for the provided gas limit
+    pub async fn estimate_trade_fee(&self, gas_limit: U256, stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
+        let pay_for_gas_option = self
+            .get_swap_pay_for_gas_option(self.get_swap_gas_fee_policy().await.map_mm_err()?)
+            .await
+            .map_mm_err()?;
+        let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
+        let total_fee = calc_total_fee(gas_limit, &pay_for_gas_option).map_mm_err()?;
+        let amount = u256_to_big_decimal(total_fee, ETH_DECIMALS).map_mm_err()?;
+        let fee_coin = match &self.coin_type {
+            EthCoinType::Eth => &self.ticker,
+            EthCoinType::Erc20 { platform, .. } => platform,
+            EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
+        };
+        Ok(TradeFee {
+            coin: fee_coin.into(),
+            amount: amount.into(),
+            paid_from_trading_vol: false,
+        })
+    }
+
+    pub async fn platform_coin(&self) -> CoinFindResult<EthCoin> {
+        match &self.coin_type {
+            EthCoinType::Eth => Ok(self.clone()),
+            EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => {
+                let ctx = MmArc::from_weak(&self.ctx).expect("No context"); // TODO: return internal error?
+                let platform_coin = lp_coinfind_or_err(&ctx, platform).await?;
+                match platform_coin {
+                    MmCoinEnum::EthCoin(eth_coin) => Ok(eth_coin),
+                    _ => MmError::err(CoinFindError::NoSuchCoin {
+                        coin: platform.to_string(),
+                    }),
+                }
+            },
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -5794,13 +5862,13 @@ impl EthTxFeeDetails {
         // Fees are always paid in ETH, can use 18 decimals by default
         let total_fee = u256_to_big_decimal(total_fee, ETH_DECIMALS)?;
         let (gas_price, max_fee_per_gas, max_priority_fee_per_gas) = match pay_for_gas_option {
-            PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => (gas_price, None, None),
+            PayForGasOption::Legacy { gas_price } => (gas_price, None, None),
             // Using max_fee_per_gas as estimated gas_price value for compatibility in caller not expecting eip1559 fee per gas values.
             // Normally the caller should pay attention to presence of max_fee_per_gas and max_priority_fee_per_gas in the result:
-            PayForGasOption::Eip1559(Eip1559FeePerGas {
+            PayForGasOption::Eip1559 {
                 max_fee_per_gas,
                 max_priority_fee_per_gas,
-            }) => (max_fee_per_gas, Some(max_fee_per_gas), Some(max_priority_fee_per_gas)),
+            } => (max_fee_per_gas, Some(max_fee_per_gas), Some(max_priority_fee_per_gas)),
         };
         let gas_price = u256_to_big_decimal(gas_price, ETH_DECIMALS)?;
         let (max_fee_per_gas, max_priority_fee_per_gas) = match (max_fee_per_gas, max_priority_fee_per_gas) {
@@ -5905,7 +5973,7 @@ impl MmCoin for EthCoin {
         Box::new(
             async move {
                 let pay_for_gas_option = coin
-                    .get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
+                    .get_swap_pay_for_gas_option(coin.get_swap_gas_fee_policy().await.map_err(|e| e.to_string())?)
                     .await
                     .map_err(|e| e.to_string())?;
 
@@ -5934,7 +6002,7 @@ impl MmCoin for EthCoin {
         include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         let pay_for_gas_option = self
-            .get_swap_pay_for_gas_option(self.get_swap_transaction_fee_policy())
+            .get_swap_pay_for_gas_option(self.get_swap_gas_fee_policy().await.map_mm_err()?)
             .await
             .map_mm_err()?;
         let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
@@ -5951,7 +6019,7 @@ impl MmCoin for EthCoin {
                 let mut gas = U256::from(self.gas_limit.erc20_payment);
                 let value = match value {
                     TradePreimageValue::Exact(value) | TradePreimageValue::UpperBound(value) => {
-                        wei_from_big_decimal(&value, self.decimals).map_mm_err()?
+                        u256_from_big_decimal(&value, self.decimals).map_mm_err()?
                     },
                 };
                 let allowed = self.allowance(self.swap_contract_address).compat().await.map_mm_err()?;
@@ -5997,7 +6065,7 @@ impl MmCoin for EthCoin {
         let coin = self.clone();
         let fut = async move {
             let pay_for_gas_option = coin
-                .get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy())
+                .get_swap_pay_for_gas_option(coin.get_swap_gas_fee_policy().await.map_mm_err()?)
                 .await
                 .map_mm_err()?;
             let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
@@ -6028,7 +6096,7 @@ impl MmCoin for EthCoin {
         dex_fee_amount: DexFee,
         stage: FeeApproxStage,
     ) -> TradePreimageResult<TradeFee> {
-        let dex_fee_amount = wei_from_big_decimal(&dex_fee_amount.fee_amount().into(), self.decimals).map_mm_err()?;
+        let dex_fee_amount = u256_from_big_decimal(&dex_fee_amount.fee_amount().into(), self.decimals).map_mm_err()?;
         // pass the dummy params
         let to_addr = addr_from_raw_pubkey(&DEX_FEE_ADDR_RAW_PUBKEY)
             .expect("addr_from_raw_pubkey should never fail with DEX_FEE_ADDR_RAW_PUBKEY");
@@ -6042,7 +6110,8 @@ impl MmCoin for EthCoin {
             },
             EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
         };
-        let fee_policy_for_estimate = get_swap_fee_policy_for_estimate(self.get_swap_transaction_fee_policy());
+        let fee_policy_for_estimate =
+            get_swap_fee_policy_for_estimate(self.get_swap_gas_fee_policy().await.map_mm_err()?);
         let pay_for_gas_option = self
             .get_swap_pay_for_gas_option(fee_policy_for_estimate)
             .await
@@ -6159,7 +6228,7 @@ fn validate_fee_impl(coin: EthCoin, validate_fee_args: EthValidateFeeArgs<'_>) -
     let min_block_number = validate_fee_args.min_block_number;
 
     let fut = async move {
-        let expected_value = wei_from_big_decimal(&amount, coin.decimals).map_mm_err()?;
+        let expected_value = u256_from_big_decimal(&amount, coin.decimals).map_mm_err()?;
         let tx_from_rpc = coin.transaction(TransactionId::Hash(fee_tx_hash)).await?;
 
         let tx_from_rpc = tx_from_rpc.as_ref().ok_or_else(|| {
@@ -6431,39 +6500,6 @@ fn rpc_event_handlers_for_eth_transport(ctx: &MmArc, ticker: String) -> Vec<RpcT
     vec![CoinTransportMetrics::new(metrics, ticker, RpcClientType::Ethereum).into_shared()]
 }
 
-async fn get_max_eth_tx_type_conf(ctx: &MmArc, conf: &Json, coin_type: &EthCoinType) -> Result<Option<u64>, String> {
-    fn check_max_eth_tx_type_conf(conf: &Json) -> Result<Option<u64>, String> {
-        if !conf["max_eth_tx_type"].is_null() {
-            let max_eth_tx_type = conf["max_eth_tx_type"]
-                .as_u64()
-                .ok_or_else(|| "max_eth_tx_type in coins is invalid".to_string())?;
-            if max_eth_tx_type > ETH_MAX_TX_TYPE {
-                return Err("max_eth_tx_type in coins is too big".to_string());
-            }
-            Ok(Some(max_eth_tx_type))
-        } else {
-            Ok(None)
-        }
-    }
-
-    match &coin_type {
-        EthCoinType::Eth => check_max_eth_tx_type_conf(conf),
-        EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => {
-            let coin_max_eth_tx_type = check_max_eth_tx_type_conf(conf)?;
-            // Normally we suppose max_eth_tx_type is in platform coin but also try to get it from tokens for tests to work:
-            if let Some(coin_max_eth_tx_type) = coin_max_eth_tx_type {
-                Ok(Some(coin_max_eth_tx_type))
-            } else {
-                let platform_coin = lp_coinfind_or_err(ctx, platform).await;
-                match platform_coin {
-                    Ok(MmCoinEnum::EthCoin(eth_coin)) => Ok(eth_coin.max_eth_tx_type),
-                    _ => Ok(None),
-                }
-            }
-        },
-    }
-}
-
 #[inline]
 fn new_nonce_lock() -> HashMap<String, Arc<AsyncMutex<()>>> { HashMap::new() }
 
@@ -6644,9 +6680,14 @@ pub async fn eth_coin_from_conf_and_request(
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = try_s!(ctx.abortable_system.create_subsystem());
 
-    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
+    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type)?;
+    let gas_price_mult = get_gas_price_mult_conf(ctx, conf, &coin_type)?;
+    let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(ctx, conf, &coin_type)?;
+    let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(ctx, conf, &coin_type)?;
     let gas_limit: EthGasLimit = extract_gas_limit_from_conf(conf)?;
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)?;
+    let swap_gas_fee_policy: SwapGasFeePolicy =
+        json::from_value(req["swap_gas_fee_policy"].clone()).unwrap_or_default();
 
     let coin = EthCoinImpl {
         priv_key_policy: key_pair,
@@ -6663,8 +6704,11 @@ pub async fn eth_coin_from_conf_and_request(
         ticker: ticker.into(),
         web3_instances: AsyncMutex::new(web3_instances),
         history_sync_state: Mutex::new(initial_history_state),
-        swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+        swap_gas_fee_policy: Mutex::new(swap_gas_fee_policy),
         max_eth_tx_type,
+        gas_price_mult,
+        gas_fee_base_adjust,
+        gas_fee_priority_adjust,
         ctx: ctx.weak(),
         required_confirmations,
         trezor_coin,
@@ -6730,7 +6774,7 @@ fn increase_by_percent_one_gwei(num: U256, percent: u64) -> U256 {
 }
 
 fn increase_gas_price_by_stage(pay_for_gas_option: PayForGasOption, level: &FeeApproxStage) -> PayForGasOption {
-    if let PayForGasOption::Legacy(LegacyGasPrice { gas_price }) = pay_for_gas_option {
+    if let PayForGasOption::Legacy { gas_price } = pay_for_gas_option {
         let new_gas_price = match level {
             FeeApproxStage::WithoutApprox => gas_price,
             FeeApproxStage::StartSwap => {
@@ -6746,9 +6790,9 @@ fn increase_gas_price_by_stage(pay_for_gas_option: PayForGasOption, level: &FeeA
                 increase_by_percent_one_gwei(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_WATCHER_PREIMAGE)
             },
         };
-        PayForGasOption::Legacy(LegacyGasPrice {
+        PayForGasOption::Legacy {
             gas_price: new_gas_price,
-        })
+        }
     } else {
         pay_for_gas_option
     }
@@ -6862,6 +6906,8 @@ pub enum EthGasDetailsErr {
     Transport(String),
     #[display(fmt = "Nft Protocol is not supported yet!")]
     NftProtocolNotSupported,
+    #[display(fmt = "No such coin {}", coin)]
+    NoSuchCoin { coin: String },
 }
 
 impl From<web3::Error> for EthGasDetailsErr {
@@ -6876,6 +6922,7 @@ impl From<Web3RpcError> for EthGasDetailsErr {
             | Web3RpcError::Timeout(internal)
             | Web3RpcError::NumConversError(internal)
             | Web3RpcError::InvalidGasApiConfig(internal) => EthGasDetailsErr::Internal(internal),
+            Web3RpcError::NoSuchCoin { coin } => EthGasDetailsErr::NoSuchCoin { coin },
             Web3RpcError::NftProtocolNotSupported => EthGasDetailsErr::NftProtocolNotSupported,
         }
     }
@@ -6905,34 +6952,31 @@ async fn get_eth_gas_details_from_withdraw_fee(
 ) -> MmResult<GasDetails, EthGasDetailsErr> {
     let pay_for_gas_option = match fee {
         Some(WithdrawFee::EthGas { gas_price, gas }) => {
-            let gas_price = wei_from_big_decimal(&gas_price, ETH_GWEI_DECIMALS).map_mm_err()?;
-            return Ok((gas.into(), PayForGasOption::Legacy(LegacyGasPrice { gas_price })));
+            let gas_price = u256_from_big_decimal(&gas_price, ETH_GWEI_DECIMALS).map_mm_err()?;
+            return Ok((gas.into(), PayForGasOption::Legacy { gas_price }));
         },
         Some(WithdrawFee::EthGasEip1559 {
             max_fee_per_gas,
             max_priority_fee_per_gas,
             gas_option: gas_limit,
         }) => {
-            let max_fee_per_gas = wei_from_big_decimal(&max_fee_per_gas, ETH_GWEI_DECIMALS).map_mm_err()?;
+            let max_fee_per_gas = u256_from_big_decimal(&max_fee_per_gas, ETH_GWEI_DECIMALS).map_mm_err()?;
             let max_priority_fee_per_gas =
-                wei_from_big_decimal(&max_priority_fee_per_gas, ETH_GWEI_DECIMALS).map_mm_err()?;
+                u256_from_big_decimal(&max_priority_fee_per_gas, ETH_GWEI_DECIMALS).map_mm_err()?;
             match gas_limit {
                 EthGasLimitOption::Set(gas) => {
-                    return Ok((
-                        gas.into(),
-                        PayForGasOption::Eip1559(Eip1559FeePerGas {
-                            max_fee_per_gas,
-                            max_priority_fee_per_gas,
-                        }),
-                    ))
+                    return Ok((gas.into(), PayForGasOption::Eip1559 {
+                        max_fee_per_gas,
+                        max_priority_fee_per_gas,
+                    }))
                 },
                 EthGasLimitOption::Calc =>
                 // go to gas estimate code
                 {
-                    PayForGasOption::Eip1559(Eip1559FeePerGas {
+                    PayForGasOption::Eip1559 {
                         max_fee_per_gas,
                         max_priority_fee_per_gas,
-                    })
+                    }
                 },
             }
         },
@@ -6944,7 +6988,7 @@ async fn get_eth_gas_details_from_withdraw_fee(
             // If WithdrawFee not set use legacy gas price (?)
             let gas_price = eth_coin.get_gas_price().await.map_mm_err()?;
             // go to gas estimate code
-            PayForGasOption::Legacy(LegacyGasPrice { gas_price })
+            PayForGasOption::Legacy { gas_price }
         },
     };
 
@@ -7013,10 +7057,10 @@ async fn get_eth_gas_details_from_withdraw_fee(
 /// Calc estimated total gas fee or price
 fn calc_total_fee(gas: U256, pay_for_gas_option: &PayForGasOption) -> NumConversResult<U256> {
     match *pay_for_gas_option {
-        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => gas
+        PayForGasOption::Legacy { gas_price } => gas
             .checked_mul(gas_price)
             .or_mm_err(|| NumConversError("total fee overflow".into())),
-        PayForGasOption::Eip1559(Eip1559FeePerGas { max_fee_per_gas, .. }) => gas
+        PayForGasOption::Eip1559 { max_fee_per_gas, .. } => gas
             .checked_mul(max_fee_per_gas)
             .or_mm_err(|| NumConversError("total fee overflow".into())),
     }
@@ -7031,11 +7075,11 @@ fn tx_builder_with_pay_for_gas_option(
     pay_for_gas_option: &PayForGasOption,
 ) -> MmResult<UnSignedEthTxBuilder, WithdrawError> {
     let tx_builder = match *pay_for_gas_option {
-        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => tx_builder.with_gas_price(gas_price),
-        PayForGasOption::Eip1559(Eip1559FeePerGas {
+        PayForGasOption::Legacy { gas_price } => tx_builder.with_gas_price(gas_price),
+        PayForGasOption::Eip1559 {
             max_priority_fee_per_gas,
             max_fee_per_gas,
-        }) => {
+        } => {
             let chain_id = eth_coin
                 .chain_id()
                 .ok_or_else(|| WithdrawError::InternalError("chain_id should be set for an EVM coin".to_string()))?;
@@ -7048,27 +7092,26 @@ fn tx_builder_with_pay_for_gas_option(
 }
 
 /// convert fee policy for gas estimate requests
-fn get_swap_fee_policy_for_estimate(swap_fee_policy: SwapTxFeePolicy) -> SwapTxFeePolicy {
+fn get_swap_fee_policy_for_estimate(swap_fee_policy: SwapGasFeePolicy) -> SwapGasFeePolicy {
     match swap_fee_policy {
-        SwapTxFeePolicy::Internal => SwapTxFeePolicy::Internal,
+        SwapGasFeePolicy::Legacy => SwapGasFeePolicy::Legacy,
         // always use 'high' for estimate to avoid max_fee_per_gas less than base_fee errors:
-        SwapTxFeePolicy::Low | SwapTxFeePolicy::Medium | SwapTxFeePolicy::High => SwapTxFeePolicy::High,
-        SwapTxFeePolicy::Unsupported => SwapTxFeePolicy::Unsupported,
+        SwapGasFeePolicy::Low | SwapGasFeePolicy::Medium | SwapGasFeePolicy::High => SwapGasFeePolicy::High,
     }
 }
 
 fn call_request_with_pay_for_gas_option(call_request: CallRequest, pay_for_gas_option: PayForGasOption) -> CallRequest {
     match pay_for_gas_option {
-        PayForGasOption::Legacy(LegacyGasPrice { gas_price }) => CallRequest {
+        PayForGasOption::Legacy { gas_price } => CallRequest {
             gas_price: Some(gas_price),
             max_fee_per_gas: None,
             max_priority_fee_per_gas: None,
             ..call_request
         },
-        PayForGasOption::Eip1559(Eip1559FeePerGas {
+        PayForGasOption::Eip1559 {
             max_fee_per_gas,
             max_priority_fee_per_gas,
-        }) => CallRequest {
+        } => CallRequest {
             gas_price: None,
             max_fee_per_gas: Some(max_fee_per_gas),
             max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
@@ -7373,11 +7416,20 @@ fn extract_gas_limit_from_conf<T: ExtractGasLimit>(coin_conf: &Json) -> Result<T
     }
 }
 
+#[async_trait]
 impl Eip1559Ops for EthCoin {
-    fn get_swap_transaction_fee_policy(&self) -> SwapTxFeePolicy { self.swap_txfee_policy.lock().unwrap().clone() }
+    /// Gets gas fee policy for swaps from the platform_coin, for any token
+    async fn get_swap_gas_fee_policy(&self) -> CoinFindResult<SwapGasFeePolicy> {
+        let platform_coin = self.platform_coin().await?;
+        let swap_txfee_policy = platform_coin.swap_gas_fee_policy.lock().unwrap().clone();
+        Ok(swap_txfee_policy)
+    }
 
-    fn set_swap_transaction_fee_policy(&self, swap_txfee_policy: SwapTxFeePolicy) {
-        *self.swap_txfee_policy.lock().unwrap() = swap_txfee_policy
+    /// Store gas fee policy for swaps in the platform_coin, for any token
+    async fn set_swap_gas_fee_policy(&self, swap_txfee_policy: SwapGasFeePolicy) -> CoinFindResult<()> {
+        let platform_coin = self.platform_coin().await?;
+        *platform_coin.swap_gas_fee_policy.lock().unwrap() = swap_txfee_policy;
+        Ok(())
     }
 }
 
@@ -7569,8 +7621,11 @@ impl EthCoin {
             required_confirmations: AtomicU64::new(
                 self.required_confirmations.load(std::sync::atomic::Ordering::SeqCst),
             ),
-            swap_txfee_policy: Mutex::new(self.swap_txfee_policy.lock().unwrap().clone()),
+            swap_gas_fee_policy: Mutex::new(SwapGasFeePolicy::default()),
             max_eth_tx_type: self.max_eth_tx_type,
+            gas_price_mult: self.gas_price_mult,
+            gas_fee_base_adjust: self.gas_fee_base_adjust.clone(),
+            gas_fee_priority_adjust: self.gas_fee_priority_adjust.clone(),
             ctx: self.ctx.clone(),
             trezor_coin: self.trezor_coin.clone(),
             logs_block_range: self.logs_block_range,

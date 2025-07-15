@@ -213,6 +213,7 @@ pub struct EthActivationV2Request {
     #[serde(default)]
     pub path_to_address: HDPathAccountToAddressId,
     pub gap_limit: Option<u32>,
+    pub swap_gas_fee_policy: Option<SwapGasFeePolicy>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -458,13 +459,17 @@ impl EthCoin {
             platform: protocol.platform,
             token_addr: protocol.token_addr,
         };
-        let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &token_conf, &coin_type).await?;
+        let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &token_conf, &coin_type)?;
+        let gas_price_mult = get_gas_price_mult_conf(&ctx, &token_conf, &coin_type)?;
+        let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(&ctx, &token_conf, &coin_type)?;
+        let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(&ctx, &token_conf, &coin_type)?;
         let gas_limit: EthGasLimit = extract_gas_limit_from_conf(&token_conf)
             .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))
             .map_mm_err()?;
         let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(&token_conf)
             .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))
             .map_mm_err()?;
+        let swap_gas_fee_policy = SwapGasFeePolicy::default();
 
         let token = EthCoinImpl {
             priv_key_policy: self.priv_key_policy.clone(),
@@ -483,8 +488,11 @@ impl EthCoin {
             ticker,
             web3_instances: AsyncMutex::new(self.web3_instances.lock().await.clone()),
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
-            swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+            swap_gas_fee_policy: Mutex::new(swap_gas_fee_policy),
             max_eth_tx_type,
+            gas_price_mult,
+            gas_fee_base_adjust,
+            gas_fee_priority_adjust,
             ctx: self.ctx.clone(),
             required_confirmations,
             trezor_coin: self.trezor_coin.clone(),
@@ -552,11 +560,15 @@ impl EthCoin {
         let coin_type = EthCoinType::Nft {
             platform: self.ticker.clone(),
         };
-        let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type).await?;
+        let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type)?;
+        let gas_price_mult = get_gas_price_mult_conf(&ctx, &conf, &coin_type)?;
+        let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(&ctx, &conf, &coin_type)?;
+        let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(&ctx, &conf, &coin_type)?;
         let gas_limit: EthGasLimit = extract_gas_limit_from_conf(&conf)
             .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?;
         let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(&conf)
             .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?;
+        let swap_gas_fee_policy = SwapGasFeePolicy::default();
 
         let global_nft = EthCoinImpl {
             ticker,
@@ -572,8 +584,11 @@ impl EthCoin {
             web3_instances: AsyncMutex::new(self.web3_instances.lock().await.clone()),
             decimals: self.decimals,
             history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
-            swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+            swap_gas_fee_policy: Mutex::new(swap_gas_fee_policy),
             max_eth_tx_type,
+            gas_price_mult,
+            gas_fee_base_adjust,
+            gas_fee_priority_adjust,
             required_confirmations,
             ctx: self.ctx.clone(),
             trezor_coin: self.trezor_coin.clone(),
@@ -692,11 +707,15 @@ pub async fn eth_coin_from_conf_and_request_v2(
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = ctx.abortable_system.create_subsystem()?;
     let coin_type = EthCoinType::Eth;
-    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type).await?;
+    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type)?;
+    let gas_price_mult = get_gas_price_mult_conf(ctx, conf, &coin_type)?;
+    let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(ctx, conf, &coin_type)?;
+    let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(ctx, conf, &coin_type)?;
     let gas_limit: EthGasLimit = extract_gas_limit_from_conf(conf)
         .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?;
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)
         .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?;
+    let swap_gas_fee_policy: SwapGasFeePolicy = req.swap_gas_fee_policy.unwrap_or_default();
 
     let coin = EthCoinImpl {
         priv_key_policy,
@@ -712,8 +731,11 @@ pub async fn eth_coin_from_conf_and_request_v2(
         ticker: ticker.to_string(),
         web3_instances: AsyncMutex::new(web3_instances),
         history_sync_state: Mutex::new(HistorySyncState::NotEnabled),
-        swap_txfee_policy: Mutex::new(SwapTxFeePolicy::Internal),
+        swap_gas_fee_policy: Mutex::new(swap_gas_fee_policy),
         max_eth_tx_type,
+        gas_price_mult,
+        gas_fee_base_adjust,
+        gas_fee_priority_adjust,
         ctx: ctx.weak(),
         required_confirmations,
         trezor_coin,
