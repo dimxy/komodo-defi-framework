@@ -875,6 +875,7 @@ pub struct EthCoinImpl {
     decimals: u8,
     history_sync_state: Mutex<HistorySyncState>,
     required_confirmations: AtomicU64,
+    #[cfg_attr(any(test, feature = "run-docker-tests"), allow(dead_code))]
     swap_gas_fee_policy: Mutex<SwapGasFeePolicy>,
     max_eth_tx_type: Option<u64>,
     gas_price_mult: Option<f64>,
@@ -7419,18 +7420,26 @@ fn extract_gas_limit_from_conf<T: ExtractGasLimit>(coin_conf: &Json) -> Result<T
 #[async_trait]
 impl Eip1559Ops for EthCoin {
     /// Gets gas fee policy for swaps from the platform_coin, for any token
+    #[cfg(not(any(test, feature = "run-docker-tests")))]
     async fn get_swap_gas_fee_policy(&self) -> CoinFindResult<SwapGasFeePolicy> {
         let platform_coin = self.platform_coin().await?;
         let swap_txfee_policy = platform_coin.swap_gas_fee_policy.lock().unwrap().clone();
         Ok(swap_txfee_policy)
     }
 
+    #[cfg(any(test, feature = "run-docker-tests"))]
+    async fn get_swap_gas_fee_policy(&self) -> CoinFindResult<SwapGasFeePolicy> { Ok(SwapGasFeePolicy::default()) }
+
     /// Store gas fee policy for swaps in the platform_coin, for any token
+    #[cfg(not(any(test, feature = "run-docker-tests")))]
     async fn set_swap_gas_fee_policy(&self, swap_txfee_policy: SwapGasFeePolicy) -> CoinFindResult<()> {
         let platform_coin = self.platform_coin().await?;
         *platform_coin.swap_gas_fee_policy.lock().unwrap() = swap_txfee_policy;
         Ok(())
     }
+
+    #[cfg(any(test, feature = "run-docker-tests"))]
+    async fn set_swap_gas_fee_policy(&self, _swap_txfee_policy: SwapGasFeePolicy) -> CoinFindResult<()> { Ok(()) }
 }
 
 #[async_trait]
