@@ -2,7 +2,7 @@
 
 use super::ext_api_errors::FromApiValueError;
 use coins::eth::erc20::{get_erc20_ticker_by_contract_address, get_platform_ticker};
-use coins::eth::{u256_to_big_decimal, wei_to_eth_decimal, wei_to_gwei_decimal};
+use coins::eth::{u256_to_coins_mm_number, wei_to_eth_decimal, wei_to_gwei_decimal};
 use coins::Ticker;
 use common::true_f;
 use ethereum_types::{Address, U256};
@@ -203,7 +203,7 @@ pub type ClassicSwapResponse = ClassicSwapDetails;
 
 impl ClassicSwapDetails {
     /// Get token name as it is defined in the coins file by contract address  
-    fn token_name_kdf(ctx: &MmArc, chain_id: u64, token_info: &LrTokenInfo) -> Option<Ticker> {
+    pub(crate) fn token_name_kdf(ctx: &MmArc, chain_id: u64, token_info: &LrTokenInfo) -> Option<Ticker> {
         let special_contract =
             Address::from_str(ApiClient::eth_special_contract()).expect("1inch special address must be valid"); // TODO: must call 1inch to get it, instead of burned consts
 
@@ -218,15 +218,19 @@ impl ClassicSwapDetails {
     pub(crate) fn from_api_classic_swap_data(
         ctx: &MmArc,
         chain_id: u64,
-        src_amount: MmNumber,
-        data: one_inch_api::classic_swap_types::ClassicSwapData,
+        src_amount: U256,
+        swap_data: one_inch_api::classic_swap_types::ClassicSwapData,
     ) -> MmResult<Self, FromApiValueError> {
-        let src_token_info = data
+        let src_token_info = swap_data
             .src_token
             .ok_or(FromApiValueError::new("Missing source TokenInfo".to_owned()))?;
-        let dst_token_info = data
+        let dst_token_info = swap_data
             .dst_token
             .ok_or(FromApiValueError::new("Missing destination TokenInfo".to_owned()))?;
+        let src_decimals: u8 = src_token_info
+            .decimals
+            .try_into()
+            .map_to_mm(|_| FromApiValueError::new("invalid decimals in source TokenInfo".to_owned()))?;
         let dst_decimals: u8 = dst_token_info
             .decimals
             .try_into()
@@ -234,12 +238,8 @@ impl ClassicSwapDetails {
         let src_token_kdf = Self::token_name_kdf(ctx, chain_id, &src_token_info);
         let dst_token_kdf = Self::token_name_kdf(ctx, chain_id, &dst_token_info);
         Ok(Self {
-            src_amount,
-            dst_amount: MmNumber::from(u256_to_big_decimal(
-                U256::from_dec_str(&data.dst_amount)?,
-                dst_decimals,
-            )?)
-            .into(),
+            src_amount: u256_to_coins_mm_number(src_amount, src_decimals)?,
+            dst_amount: u256_to_coins_mm_number(U256::from_dec_str(&swap_data.dst_amount)?, dst_decimals)?.into(),
             src_token: Some(LrTokenInfo {
                 symbol_kdf: src_token_kdf,
                 ..src_token_info
@@ -248,9 +248,9 @@ impl ClassicSwapDetails {
                 symbol_kdf: dst_token_kdf,
                 ..dst_token_info
             }),
-            protocols: data.protocols,
-            tx: data.tx.map(TxFields::from_api_tx_fields).transpose()?,
-            gas: data.gas,
+            protocols: swap_data.protocols,
+            tx: swap_data.tx.map(TxFields::from_api_tx_fields).transpose()?,
+            gas: swap_data.gas,
         })
     }
 }

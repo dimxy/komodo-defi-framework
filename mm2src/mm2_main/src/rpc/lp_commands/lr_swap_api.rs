@@ -8,16 +8,15 @@ use crate::lr_swap::lr_helpers::{check_if_one_inch_supports_pair, get_coin_for_o
 use crate::lr_swap::lr_quote::find_best_swap_path_with_lr;
 use crate::lr_swap::lr_swap_state_machine::lp_start_agg_taker_swap;
 use crate::lr_swap::{AtomicSwapParams, LrSwapParams};
-use coins::eth::u256_to_big_decimal;
 use coins::{lp_coinfind_or_err, CoinWithDerivationMethod, FeeApproxStage, MarketCoinOps, MmCoin, MmCoinEnum, TradeFee};
 use common::log::debug;
 use futures::compat::Future01CompatExt;
-use lr_api_types::{LrExecuteRoutedTradeRequest, LrExecuteRoutedTradeResponse, LrFindBestQuoteRequest,
-                   LrFindBestQuoteResponse, LrGetQuotesForTokensRequest, LrGetQuotesForTokensResponse};
+use lr_api_types::{AtomicSwapRpcParams, LrExecuteRoutedTradeRequest, LrExecuteRoutedTradeResponse,
+                   LrFindBestQuoteRequest, LrFindBestQuoteResponse, LrGetQuotesForTokensRequest,
+                   LrGetQuotesForTokensResponse};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
-use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::TakerAction;
 use std::ops::Deref;
 
@@ -54,15 +53,13 @@ pub async fn lr_find_best_quote_rpc(
     // when best order is selected validate against req.rel_max_volume and req.rel_min_volume
     // coins in orders should be unique
 
-    let (user_rel_coin, _) = get_coin_for_one_inch(&ctx, &req.user_rel).await?;
-    let user_rel_chain_id = user_rel_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
     let action = sell_buy_method(&req.method)?;
 
-    let (lr_data_0, best_order, lr_data_1, total_price) = find_best_swap_path_with_lr(
+    let (lr_data_0, best_order, atomic_swap_volume, lr_data_1, total_price) = find_best_swap_path_with_lr(
         &ctx,
         req.user_base,
         req.user_rel,
-        action,
+        &action,
         req.asks,
         req.bids,
         &req.volume,
@@ -71,22 +68,52 @@ pub async fn lr_find_best_quote_rpc(
 
     let lr_data_0 = lr_data_0
         .map(|lr_data| {
-            let src_amount = MmNumber::from(u256_to_big_decimal(lr_data.src_amount, user_rel_coin.decimals())?);
-            ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain_id, src_amount, lr_data.api_details)
-                .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
+            ClassicSwapDetails::from_api_classic_swap_data(
+                &ctx,
+                lr_data.chain_id,
+                lr_data.src_amount,
+                lr_data.api_details,
+            )
+            .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
         })
         .transpose()?;
     let lr_data_1 = lr_data_1
         .map(|lr_data| {
-            let src_amount = MmNumber::from(u256_to_big_decimal(lr_data.src_amount, user_rel_coin.decimals())?);
-            ClassicSwapDetails::from_api_classic_swap_data(&ctx, user_rel_chain_id, src_amount, lr_data.api_details) // TODO: user_rel_chain_id incorrect
-                .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
+            ClassicSwapDetails::from_api_classic_swap_data(
+                &ctx,
+                lr_data.chain_id,
+                lr_data.src_amount,
+                lr_data.api_details,
+            )
+            .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
         })
         .transpose()?;
+
+    let (base, rel, price) = match action {
+        TakerAction::Buy => (
+            best_order.maker_ticker(),
+            best_order.taker_ticker(),
+            best_order.sell_price(),
+        ),
+        TakerAction::Sell => (
+            best_order.taker_ticker(),
+            best_order.maker_ticker(),
+            best_order.buy_price(),
+        ),
+    };
     Ok(LrFindBestQuoteResponse {
         lr_data_0,
         lr_data_1,
-        best_order,
+        atomic_swap: AtomicSwapRpcParams {
+            volume: atomic_swap_volume,
+            base,
+            rel,
+            price,
+            method: req.method,
+            order_uuid: best_order.order().uuid,
+            match_by: None,
+            order_type: None,
+        },
         total_price,
         // TODO: implement later
         // trade_fee: ...
@@ -122,14 +149,33 @@ pub async fn lr_execute_routed_trade_rpc(
     req: LrExecuteRoutedTradeRequest,
 ) -> MmResult<LrExecuteRoutedTradeResponse, ExtApiRpcError> {
     debug_print_routed_trade_req(&req);
+
+    if req.lr_swap_0.is_none() && req.lr_swap_1.is_none() {
+        return MmError::err(ExtApiRpcError::InvalidParam("no LR params".to_owned()));
+    }
+    let action = sell_buy_method(&req.atomic_swap.method)?;
+    let atomic_swap_volume = match action {
+        TakerAction::Sell => {
+            if req.lr_swap_0.is_none() && req.atomic_swap.volume.is_none() {
+                return MmError::err(ExtApiRpcError::InvalidParam("no atomic swap sell amount".to_owned()));
+            }
+            req.atomic_swap.volume
+        },
+        TakerAction::Buy => {
+            if req.lr_swap_1.is_none() && req.atomic_swap.volume.is_none() {
+                return MmError::err(ExtApiRpcError::InvalidParam("no atomic swap buy amount".to_owned()));
+            }
+            req.atomic_swap.volume
+        },
+    };
     let atomic_swap_params = AtomicSwapParams {
-        action: sell_buy_method(&req.atomic_swap.method)?,
+        action,
         base: req.atomic_swap.base.clone(),
         rel: req.atomic_swap.rel.clone(),
         price: req.atomic_swap.price,
-        match_by: req.atomic_swap.match_by,
-        order_type: req.atomic_swap.order_type,
-        base_volume: req.atomic_swap.volume, // TODO: validation vs src_amount
+        match_by: req.atomic_swap.match_by.unwrap_or_default(),
+        order_type: req.atomic_swap.order_type.unwrap_or_default(),
+        base_volume: atomic_swap_volume,
     };
 
     // Validate LR step 0 (before the atomic swap):
@@ -143,9 +189,9 @@ pub async fn lr_execute_routed_trade_rpc(
         // Ensure correct token routing from LR-0 to atomic swap
         if lr_swap_0.get_destination_token()? != atomic_swap_params.taker_coin() {
             return MmError::err(ExtApiRpcError::InvalidParam(format!(
-                "Connecting tokens must be same: LR token {}, atomic swap token {}",
+                "Connecting tokens must be same: LR_0 dst_token: {}, taker_coin: {}",
                 lr_swap_0.get_destination_token()?,
-                req.atomic_swap.base
+                atomic_swap_params.taker_coin()
             )));
         }
         let single_address = src_coin.derivation_method().single_addr_or_err().await?;
@@ -199,7 +245,7 @@ pub async fn lr_execute_routed_trade_rpc(
             &ctx,
             taker_coin.deref(),
             maker_coin.deref(),
-            atomic_swap_params.taker_volume(),
+            atomic_swap_params.taker_volume()?,
             None,
             None,
             FeeApproxStage::OrderIssue,
@@ -250,8 +296,8 @@ pub async fn lr_execute_routed_trade_rpc(
         // Ensure correct token routing from atomic swap to LR_1
         if atomic_swap_params.maker_coin() != lr_swap_1.get_source_token()? {
             return MmError::err(ExtApiRpcError::InvalidParam(format!(
-                "Connecting tokens must be same: atomic swap token {}, LR token {}",
-                req.atomic_swap.rel,
+                "Connecting tokens must be same: maker coin: {}, LR_1 src_token: {}",
+                atomic_swap_params.maker_coin(),
                 lr_swap_1.get_source_token()?
             )));
         }
@@ -312,7 +358,7 @@ fn debug_print_routed_trade_req(req: &LrExecuteRoutedTradeRequest) {
         .unwrap_or_default();
     debug!("RPC execute_routed_trade entered with lr_0: [src: {:?} dst: {:?} src_amount: {:?}] atomic swap: [base: {:?} rel: {:?} method: {:?} volume: {:?}] lr_1 [src: {:?} dst: {:?} src_amount: {:?}] ", 
         lr_0_src, lr_0_dst, lr_0_src_amount.map(|v| v.to_decimal()),
-        base, rel, method, volume.to_decimal(),
+        base, rel, method, volume.as_ref().map(|v|v.to_decimal()),
         lr_1_src, lr_1_dst, lr_1_src_amount.map(|v| v.to_decimal()),
     );
 }

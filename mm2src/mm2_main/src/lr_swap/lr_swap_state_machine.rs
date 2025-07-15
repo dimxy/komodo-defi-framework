@@ -339,7 +339,7 @@ impl StorableStateMachine for AggTakerSwapStateMachine {
             taker_coin: self.atomic_swap_taker_coin(),
             uuid: self.uuid,
             started_at: self.started_at,
-            source_volume: self.source_volume(),
+            source_volume: self.source_volume().unwrap_or_default(), // Safe as swap must be aborted if no source_volume
             destination_volume: self.destination_volume(),
             is_finished: false,
             lr_swap_0: self.lr_swap_0.clone(),
@@ -445,15 +445,7 @@ impl StorableStateMachine for AggTakerSwapStateMachine {
     fn on_event(&mut self, event: &AggTakerSwapEvent) {
         match event {
             AggTakerSwapEvent::StartAtomicSwap { .. } => {
-                // TODO: need to lock LR swap amounts?
-                /*let swaps_ctx = SwapsContext::from_ctx(&self.ctx).expect("from_ctx should not fail at this point");
-                swaps_ctx
-                    .locked_amounts
-                    .lock()
-                    .unwrap()
-                    .entry(maker_coin_ticker)
-                    .or_insert_with(Vec::new)
-                    .push(new_locked);*/
+                // TODO: No need to lock LR swap amounts?
             },
             AggTakerSwapEvent::Aborted { .. } | AggTakerSwapEvent::Completed => (),
             _ => (),
@@ -497,7 +489,7 @@ mod states {
                 state_machine.uuid,
                 state_machine.source_coin(),
                 state_machine.destination_coin(),
-                state_machine.source_volume().to_decimal()
+                state_machine.source_volume().unwrap_or_default().to_decimal()
             );
             if let Some(ref lr_swap_params) = state_machine.lr_swap_0 {
                 let run_lr_swap = RunLrSwap0 {
@@ -505,8 +497,15 @@ mod states {
                 };
                 return Self::change_state(run_lr_swap, state_machine).await;
             }
+            let Ok(volume) = state_machine.source_volume() else {
+                info!("{LOG_PREFIX} failed: {}", "internal error: no source volume");
+                let next_state = Aborted {
+                    reason: AbortReason::SomeReason("internal error: no source volume".to_owned()),
+                };
+                return Self::change_state(next_state, state_machine).await;
+            };
             let run_atomic_swap = StartAtomicSwap {
-                volume: state_machine.source_volume(),
+                volume,
                 action: state_machine.atomic_swap.action.clone(),
                 slippage: 0.0,
             };
@@ -646,18 +645,6 @@ mod states {
                     return Self::change_state(aborted, state_machine).await;
                 },
             };
-            // Convert the LR0 resulting amount to the volume in the atomic swap taker order
-            /*let atomic_swap_volume = match state_machine.atomic_swap.action {
-                TakerAction::Buy => dst_amount.checked_div(&state_machine.atomic_swap.price), // dst_amount is in the taker's rel coin
-                TakerAction::Sell => Some(dst_amount), // dst_amount is in the taker's base coin
-            };
-            let Some(atomic_swap_volume) = atomic_swap_volume else {
-                    info!("{LOG_PREFIX} failed: {}", err);
-                    let aborted = Aborted {
-                        reason: AbortReason::SomeReason("Could not calculate atomic swap volume".to_string()),
-                    };
-                    return Self::change_state(aborted, state_machine).await;
-            };*/
             let next_state = WaitForLrTxConfirmation0 {
                 coin: base_ticker,
                 tx_bytes,
@@ -696,7 +683,7 @@ mod states {
                 .wait_for_lr_tx_confirmation(&self.coin, self.tx_bytes.clone())
                 .await
             {
-                info!("{LOG_PREFIX} LR tx confirmation failed: {}", err);
+                info!("{LOG_PREFIX}: liquidity routing tx confirmation failed: {}", err);
                 let aborted = Aborted {
                     reason: AbortReason::SomeReason(format!(
                         "LR tx confirmation failed: {}",
@@ -898,9 +885,10 @@ impl AggTakerSwapStateMachine {
     /// Current agg swap version
     const AGG_SWAP_VERSION: u8 = 0;
 
-    pub(crate) fn source_volume(&self) -> MmNumber {
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn source_volume(&self) -> Result<MmNumber, LrSwapError> {
         if let Some(ref lr_swap_0) = self.lr_swap_0 {
-            lr_swap_0.src_amount.clone()
+            Ok(lr_swap_0.src_amount.clone())
         } else {
             self.atomic_swap.taker_volume()
         }
@@ -969,7 +957,7 @@ impl AggTakerSwapStateMachine {
             lr_swap_params.src_amount.clone()
         };
         info!(
-            "{LOG_PREFIX}: starting liquidity routing step for {}/{} for amount {}",
+            "{LOG_PREFIX} starting liquidity routing step for {}/{} for amount {}",
             lr_swap_params.src,
             lr_swap_params.dst,
             src_amount.to_decimal()
@@ -981,7 +969,11 @@ impl AggTakerSwapStateMachine {
             let classic_swap_contract =
                 EthAddress::from_str(ApiClient::classic_swap_contract()).expect("valid eth address");
             src_coin
-                .handle_allowance(classic_swap_contract, src_amount, LR_SWAP_WAIT_CONFIRM_TIMEOUT_SEC)
+                .handle_allowance(
+                    classic_swap_contract,
+                    src_amount,
+                    now_sec() + LR_SWAP_WAIT_CONFIRM_TIMEOUT_SEC,
+                ) // TODO: Refactor as std::time::Instant;
                 .await?
         }
 
@@ -1056,7 +1048,7 @@ impl AggTakerSwapStateMachine {
             )));
         }
         debug!(
-            "start_lp_auto_buy: volume={} self.atomic_swap.price={} action={:?} base={} rel={}",
+            "{LOG_PREFIX} volume={} self.atomic_swap.price={} action={:?} base={} rel={}",
             volume.to_decimal(),
             self.atomic_swap.price.to_decimal(),
             self.atomic_swap.action,
@@ -1069,7 +1061,7 @@ impl AggTakerSwapStateMachine {
         };
 
         debug!(
-            "{LOG_PREFIX}: start_lp_auto_buy: checking taker balance for atomic swap for {}/{} taker_amount: {}",
+            "{LOG_PREFIX} checking taker balance for atomic swap for {}/{} taker_amount: {}",
             sell_base.ticker(),
             sell_rel.ticker(),
             taker_amount.to_decimal(),
@@ -1085,7 +1077,7 @@ impl AggTakerSwapStateMachine {
         )
         .await?;
         info!(
-            "{LOG_PREFIX}: starting atomic swap for {}/{}, action {:?}, amount {}",
+            "{LOG_PREFIX} starting atomic swap for {}/{}, action {:?}, amount {}",
             self.atomic_swap.base,
             self.atomic_swap.rel,
             self.atomic_swap.action,
@@ -1205,35 +1197,6 @@ impl AggTakerSwapStateMachine {
         let maker_ticker = self.atomic_swap.maker_coin();
         // Try to estimate the original taker volume. This works for EVM as there no min tx amount
         let dex_fee_rate = DexFee::dex_fee_rate(&taker_ticker, &maker_ticker);
-
-        /*
-        let taker_volume_0 = &volume_with_fees / &(&MmNumber::from("1") + &dex_fee_rate);
-        // Get approx dex_fee just for trade fee calc
-        let dex_fee_0 = DexFee::new_from_taker_coin(taker_coin.deref(), &maker_ticker, &taker_volume_0);
-
-        //let taker_swap_params = create_taker_swap_default_params(base_coin.deref(), rel_coin.deref(), amount.clone(), FeeApproxStage::StartSwap).await?;
-
-        // The dex_fee_0 and swap_volume_0 are approx amounts.
-        // Getting trade fees for them works for EVM though.
-        let fee_to_send_dex_fee = taker_coin
-            .get_fee_to_send_taker_fee(dex_fee_0.clone(), FeeApproxStage::StartSwap)
-            .await
-            .mm_err(|_e| LrSwapError::InternalError("could not get trade fee".to_string()))?;
-        let preimage_value = TradePreimageValue::Exact(taker_volume_0.to_decimal());
-        let taker_payment_trade_fee = taker_coin
-            .get_sender_trade_fee(preimage_value, FeeApproxStage::StartSwap, INCLUDE_REFUND_FEE)
-            .await
-            .mm_err(|_e| LrSwapError::InternalError("could not get trade fee".to_string()))?;
-
-        //amount_with_fees -= taker_swap_params.dex_fee;
-        // deduct trade fee if platform coin
-        if taker_ticker == fee_to_send_dex_fee.coin {
-            volume_with_fees -= fee_to_send_dex_fee.amount;
-        }
-        if taker_ticker == taker_payment_trade_fee.coin {
-            volume_with_fees -= taker_payment_trade_fee.amount;
-        }*/
-
         // Recalculate swap_volume with the tarde fees removed:
         let taker_volume = volume_with_fees.clone() / (MmNumber::from("1") + dex_fee_rate);
         println!(

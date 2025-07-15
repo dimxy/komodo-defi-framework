@@ -44,20 +44,28 @@ impl AskOrBidOrder {
     pub fn maker_ticker(&self) -> Ticker {
         match self {
             AskOrBidOrder::Ask { base, .. } => base.clone(),
-            AskOrBidOrder::Bid { rel, .. } => rel.clone(),
+            AskOrBidOrder::Bid { order, .. } => order.coin.clone(),
         }
     }
     pub fn taker_ticker(&self) -> Ticker {
         match self {
             AskOrBidOrder::Ask { order, .. } => order.coin.clone(),
-            AskOrBidOrder::Bid { order, .. } => order.coin.clone(),
+            AskOrBidOrder::Bid { rel, .. } => rel.clone(),
         }
     }
 
+    /// Convert to maker sell price
     pub fn sell_price(&self) -> MmNumber {
         match self {
             AskOrBidOrder::Ask { order, .. } => order.price.rational.clone().into(),
             AskOrBidOrder::Bid { order, .. } => &MmNumber::from(1) / &order.price.rational.clone().into(),
+        }
+    }
+    /// Convert to maker buy price
+    pub fn buy_price(&self) -> MmNumber {
+        match self {
+            AskOrBidOrder::Ask { order, .. } => &MmNumber::from(1) / &order.price.rational.clone().into(),
+            AskOrBidOrder::Bid { order, .. } => order.price.rational.clone().into(),
         }
     }
 }
@@ -89,7 +97,7 @@ pub struct LrFindBestQuoteResponse {
     /// LR_1 tx data (from 1inch quote)
     pub lr_data_1: Option<ClassicSwapDetails>,
     /// found best order which can be filled with LR swap
-    pub best_order: AskOrBidOrder,
+    pub atomic_swap: AtomicSwapRpcParams,
     /// base/rel price including the price of the LR swap part
     pub total_price: MmNumber,
     // /// Fees to pay, including LR swap fee
@@ -166,15 +174,16 @@ impl LrSwapRpcParams {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AtomicSwapRpcParams {
-    pub volume: MmNumber,
+    pub volume: Option<MmNumber>,
     pub base: Ticker,
     pub rel: Ticker,
     pub price: MmNumber,
     pub method: String,
+    pub order_uuid: Uuid,
     #[serde(default)]
-    pub match_by: MatchBy,
+    pub match_by: Option<MatchBy>,
     #[serde(default)]
-    pub order_type: OrderType,
+    pub order_type: Option<OrderType>,
     // TODO: add opt params
 }
 

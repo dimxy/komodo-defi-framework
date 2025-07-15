@@ -1,134 +1,279 @@
-#![allow(unused)]
+//! Non-CI tests for 'aggregated taker swaps with liquidity routing' (LR).
 
-use bitcrypto::dhash160;
-use coins::utxo::UtxoCommonOps;
 use coins::RawTransactionRes;
-use coins::{ConfirmPaymentInput, DexFee, FundingTxSpend, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs,
-            MakerCoinSwapOpsV2, MarketCoinOps, ParseCoinAssocTypes, RefundFundingSecretArgs,
-            RefundMakerPaymentSecretArgs, RefundMakerPaymentTimelockArgs, RefundTakerPaymentArgs,
-            SendMakerPaymentArgs, SendTakerFundingArgs, SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2, Transaction,
-            ValidateMakerPaymentArgs, ValidateTakerFundingArgs};
 use common::executor::Timer;
-use common::{block_on, block_on_f01, log, now_sec, DEX_FEE_ADDR_RAW_PUBKEY};
-use crypto::privkey::key_pair_from_seed;
-use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairPolicy};
+use common::{block_on, log};
+use ethereum_types::H256;
+use lazy_static::lazy_static;
+use mm2_number::bigdecimal::ToPrimitive;
 use mm2_number::BigDecimal;
-use mm2_number::{bigdecimal::ToPrimitive, MmNumber};
-use mm2_rpc::data::legacy::{CoinInitResponse, RpcOrderbookEntry};
-use mm2_test_helpers::for_tests::{active_swaps, check_recent_swaps, coins_needed_for_kickstart, disable_coin,
-                                  disable_coin_err, doc_conf, enable_electrum_json, enable_eth_coin, enable_native,
-                                  get_locked_amount, mm_dump, my_balance, my_swap_status, mycoin1_conf, mycoin_conf,
-                                  polygon_conf, start_swaps, wait_for_swap_finished, MarketMakerIt, Mm2TestConf,
-                                  SwapV2TestContracts, TestNode, DOC, POLYGON_MAINNET_NODES,
-                                  POLYGON_MAINNET_SWAP_CONTRACT, POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT,
-                                  POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT, POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT};
-use mm2_test_helpers::structs::{MmNumberMultiRepr, SetPriceResult};
-use script::{Builder, Opcode};
+use mm2_rpc::data::legacy::MatchBy;
+use mm2_test_helpers::electrums::doc_electrums;
+use mm2_test_helpers::for_tests::{active_swaps, disable_coin, doc_conf, enable_electrum_json, mm_dump, my_balance,
+                                  my_swap_status, polygon_conf, wait_for_swap_finished, MarketMakerIt, Mm2TestConf,
+                                  SwapV2TestContracts, TestNode, ARBITRUM_MAINNET_NODES,
+                                  ARBITRUM_MAINNET_SWAP_CONTRACT, ARBITRUM_MAINNET_SWAP_V2_MAKER_CONTRACT,
+                                  ARBITRUM_MAINNET_SWAP_V2_NFT_CONTRACT, ARBITRUM_MAINNET_SWAP_V2_TAKER_CONTRACT, DOC,
+                                  POLYGON_MAINNET_NODES, POLYGON_MAINNET_SWAP_CONTRACT,
+                                  POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT, POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT,
+                                  POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT};
+use mm2_test_helpers::for_tests::{best_orders_v2_by_number, enable_eth_coin_v2, orderbook_v2};
+use mm2_test_helpers::structs::lr_test_structs::{ClassicSwapResponse, LrExecuteRoutedTradeResponse,
+                                                 LrFindBestQuoteResponse};
+use mm2_test_helpers::structs::SetPriceResult;
+use mm2_test_helpers::structs::{OrderbookV2Response, RpcOrderbookEntryV2, RpcV2Response, SetPriceResponse};
 use serde_json::{json, Value};
-use serialization::serialize;
 use std::str::FromStr;
-use std::time::Duration;
 use uuid::Uuid;
 use web3::transports::Http;
 use web3::Web3;
-//use crate::generate_utxo_coin_with_privkey;
-use coins::eth::EthCoin;
-use ethereum_types::{Address, H160, H256, U256};
-use lazy_static::lazy_static;
-use mm2_test_helpers::electrums::{doc_electrums, marty_electrums};
-use mm2_test_helpers::for_tests::{best_orders_v2, best_orders_v2_by_number, enable_eth_coin_v2, orderbook_v2};
-use mm2_test_helpers::structs::lr_test_structs::{AskOrBidOrder, AsksForCoin, BidsForCoin, ClassicSwapDetails,
-                                                 ClassicSwapResponse, LrExecuteRoutedTradeResponse,
-                                                 LrFindBestQuoteResponse};
-use mm2_test_helpers::structs::{GetPublicKeyResult, OrderbookV2Response, RpcOrderbookEntryV2, RpcV2Response,
-                                SetPriceResponse};
-use std::collections::HashSet;
 
+const MATIC: &str = "MATIC";
 lazy_static! {
     pub static ref POLYGON_WEB3: Web3<Http> = Web3::new(Http::new(POLYGON_MAINNET_NODES[0]).unwrap());
 }
 
-/// This is a non-CI test that runs an 'aggregated taker swap with liquidity routing' (LR).
-/// Alice needs some coins on MATIC (POL) mainnet and Bob needs test DOC coins (Bob also needs some MATIC to pay tx fee in atomic swap).
-/// It swaps some MATIC coins to buy DOC coins with interim liquidity routing (via the 1inch LR provider) of user MATIC coins over one of some POLYGON tokens.
-/// For this the test first calls the LR find best quote rpc selecting the best priced swap path from 1inch quotes for MATIC to POL-tokens and POL-tokens to DOC KDF orders,
-/// then calls the LR fill order rpc to run an aggregated swap that does liquidity routing and then atomic swap.
+/// Test for an aggregated taker swap of MATIC for DOC with interim routing MATIC via a POL token
 #[test]
 fn test_aggregated_swap_mainnet_polygon_utxo() {
-    const MATIC: &str = "MATIC";
-    let bob_passphrase = std::env::var("BOB_DIMXY").expect("BOB_DIMXY env must be set");
-    let alice_passphrase = std::env::var("ALICE_DIMXY").expect("ALICE_DIMXY env must be set");
+    let bob_passphrase = std::env::var("BOB_MAINNET").expect("BOB_MAINNET env must be set");
+    let alice_passphrase = std::env::var("ALICE_MAINNET").expect("ALICE_MAINNET env must be set");
 
-    let bob_priv_key = key_pair_from_seed(&bob_passphrase).unwrap().private().secret;
-    let alice_priv_key = key_pair_from_seed(&alice_passphrase).unwrap().private().secret;
+    let user_base = DOC.to_owned(); // 0.0011111 USD
+    let user_rel = MATIC.to_owned(); // 0.24 USD
+    let swap_amount: BigDecimal = "1".parse().unwrap();
+    let method = "buy"; // Sell MATIC buy 1 DOC
+    let receive_token = match method {
+        "buy" => &user_base,
+        "sell" => &user_rel,
+        _ => panic!("method must be buy or sell"),
+    };
 
-    // 1 USD
-    let token_1_conf = json!({
-        "coin": "DAI-PLG20",
-        "name": "dai_plg20",
-        "derivation_path": "m/44'/966'",
-        "decimals": 18,
-        "protocol": {
-            "type": "ERC20",
-            "protocol_data": {
-                "platform": MATIC,
-                "contract_address": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063"
-            }
-        }
-    });
-    let token_2_conf = json!({
-        "coin": "1INCH-PLG20", // Note: crossprices API always returns 'token not in whitelist, unsupported token'
-        "name": "1inch_plg20",
-        "derivation_path": "m/44'/966'",
-        "decimals": 18,
-        "protocol": {
-            "type": "ERC20",
-            "protocol_data": {
-                "platform": MATIC,
-                "contract_address": "0x9c2C5fd7b07E95EE044DDeba0E97a665F142394f"
-            }
-        }
-    });
-    let token_3_conf = json!({
-        "coin": "AGIX-PLG20", // Note: crossprices API returns 'token not in whitelist, unsupported token' frequently
-        "name": "agix_plg20",
-        "derivation_path": "m/44'/966'",
-        "decimals": 18,
-        "protocol": {
-            "type": "ERC20",
-            "protocol_data": {
-                "platform": MATIC,
-                "contract_address": "0x190Eb8a183D22a4bdf278c6791b152228857c033"
-            }
-        }
-    });
-    // 289 USD
-    let token_4_conf = json!({
-        "coin": "AAVE-PLG20",
-        "name": "aave_plg20",
-        "derivation_path": "m/44'/966'",
-        "decimals": 18,
-        "protocol": {
-            "type": "ERC20",
-            "protocol_data": {
-                "platform": MATIC,
-                "contract_address": "0xD6DF932A45C0f255f85145f286eA0b292B21C90B"
-            }
-        }
-    });
+    let dai_conf = dai_plg20_conf(); // 1 USD
+    let oneinch_conf = oneinch_plg20_conf(); // Note: crossprices API always returns 'token not in whitelist, unsupported token'
+    let agix_conf = agix_plg20_conf(); // Note: crossprices API frequently returns 'token not in whitelist, unsupported token'
+    let aave_conf = aave_plg20_conf(); // 289 USD
 
-    let token_1_ticker = token_1_conf["coin"].as_str().unwrap().to_owned();
-    let token_2_ticker = token_2_conf["coin"].as_str().unwrap().to_owned();
-    let token_3_ticker = token_3_conf["coin"].as_str().unwrap().to_owned();
-    let token_4_ticker = token_4_conf["coin"].as_str().unwrap().to_owned();
+    let dai_ticker = dai_conf["coin"].as_str().unwrap().to_owned();
+    let oneinch_ticker = oneinch_conf["coin"].as_str().unwrap().to_owned();
+    let agix_ticker = agix_conf["coin"].as_str().unwrap().to_owned();
+    let aave_ticker = aave_conf["coin"].as_str().unwrap().to_owned();
+
+    let bob_coins = json!([doc_conf(), polygon_conf(), dai_conf, oneinch_conf, agix_conf, aave_conf,]);
+    let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &bob_coins); // Using legacy swaps until TPU contracts deployed on POLYGON
+    let mut mm_bob = block_on(MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, None)).unwrap();
+
+    let alice_coins = json!([doc_conf(), polygon_conf(), dai_conf, oneinch_conf, agix_conf, aave_conf,]);
+    let mut alice_conf = Mm2TestConf::light_node(&alice_passphrase, &alice_coins, &[&mm_bob.ip.to_string()]);
+    alice_conf.conf["1inch_api"] = "https://api.1inch.dev".into();
+    let mut mm_alice = block_on(MarketMakerIt::start_async(
+        alice_conf.conf,
+        alice_conf.rpc_password,
+        None,
+    ))
+    .unwrap();
+
+    let (_alice_dump_log, _alice_dump_dashboard) = mm_dump(&mm_alice.log_path);
+    log!("Alice log path: {}", mm_alice.log_path.display());
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    log!("Bob log path: {}", mm_bob.log_path.display());
+
+    let _bob_enable_pol_tokens = block_on(enable_pol_tokens(&mm_bob, &[
+        &dai_ticker,
+        &oneinch_ticker,
+        &agix_ticker,
+        &aave_ticker,
+    ]));
+    let _bob_enable_doc = block_on(enable_electrum_json(&mm_bob, DOC, false, doc_electrums()));
+    print_balances(&mm_bob, "Bob balance before swap:", &[MATIC, DOC]);
+
+    let _alice_enable_pol_tokens = block_on(enable_pol_tokens(&mm_alice, &[
+        &dai_ticker,
+        &oneinch_ticker,
+        &agix_ticker,
+        &aave_ticker,
+    ]));
+    let _alice_enable_doc = block_on(enable_electrum_json(&mm_alice, DOC, false, doc_electrums()));
+    print_balances(&mm_alice, "Alice balance before swap:", &[
+        DOC,
+        MATIC,
+        &dai_ticker,
+        &oneinch_ticker,
+        &agix_ticker,
+        &aave_ticker,
+    ]);
+
+    let alice_balance_before = block_on(my_balance(&mm_alice, receive_token));
+
+    if let Err(err) = block_on(set_swap_gas_fee_policy(&mm_alice, MATIC, "Medium")) {
+        log!("set_swap_transaction_fee_policy on {MATIC} error={}", err);
+    }
+
+    let dai_order = block_on(create_maker_order(&mut mm_bob, DOC, &dai_ticker, 0.0011111, 1.0)).unwrap();
+    let oneinch_order = block_on(create_maker_order(&mut mm_bob, DOC, &oneinch_ticker, 0.00105, 1.0)).unwrap();
+    let agix_order = block_on(create_maker_order(&mut mm_bob, DOC, &agix_ticker, 0.000980009090, 1.0)).unwrap();
+    let aave_order = block_on(create_maker_order(
+        &mut mm_bob,
+        DOC,
+        &aave_ticker,
+        0.0000037313793103,
+        1.0,
+    ))
+    .unwrap();
+
+    let dai_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &dai_ticker, &dai_order.uuid, 60)).unwrap();
+    let oneinch_order = block_on(wait_for_orderbook(
+        &mut mm_alice,
+        DOC,
+        &oneinch_ticker,
+        &oneinch_order.uuid,
+        60,
+    ))
+    .unwrap();
+    let agix_order = block_on(wait_for_orderbook(
+        &mut mm_alice,
+        DOC,
+        &agix_ticker,
+        &agix_order.uuid,
+        60,
+    ))
+    .unwrap();
+    let aave_order = block_on(wait_for_orderbook(
+        &mut mm_alice,
+        DOC,
+        &aave_ticker,
+        &aave_order.uuid,
+        60,
+    ))
+    .unwrap();
+
+    let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, DOC, "buy", 10, true)); // This is the taker action. To get all DOC orders taker uses the "buy" param
+    let best_orders = best_orders_res
+        .result
+        .orders
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>(); // As taker used 'sell' actions, orders are returned as asks
+
+    const LR_SLIPPAGE: f32 = 0.0;
+    let best_quote = block_on(find_best_lr_swap(
+        &mut mm_alice,
+        &user_base,
+        &json!([{
+            "base": DOC, // pass as ask orders
+            "orders": &best_orders,
+        }]),
+        &json!([]),
+        &swap_amount,
+        method,
+        &user_rel,
+    ))
+    .expect("best quote should be found");
+    print_quote_resp(&best_quote);
+    let agg_uuid = block_on(create_and_start_agg_taker_swap(&mut mm_alice, LR_SLIPPAGE, best_quote)).unwrap();
+
+    log!("Aggregated taker swap uuid {:?} started", agg_uuid);
+    block_on(Timer::sleep(1.0));
+
+    let active_swaps_alice = block_on(active_swaps(&mm_alice));
+    assert_eq!(active_swaps_alice.uuids, vec![agg_uuid]);
+    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 180)); // Only taker has the aggregated swap
+    log!("Aggregated taker swap uuid {:?} finished", agg_uuid);
+
+    let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
+    log!(
+        "Aggregated taker swap final status {}",
+        serde_json::to_string(&taker_swap_status).unwrap()
+    );
+    check_my_agg_swap_final_status(&taker_swap_status);
+    let alice_balance_after = block_on(my_balance(&mm_alice, receive_token));
+    print_balances(&mm_alice, "Alice balance after swap:", &[
+        DOC,
+        MATIC,
+        &dai_ticker,
+        &oneinch_ticker,
+        &agix_ticker,
+        &aave_ticker,
+    ]);
+
+    let status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
+    if let Some(atomic_swap_uuid) = status["result"]["atomic_swap_uuid"].as_str() {
+        log!("Waiting for Maker to finish atomic_swap_uuid={atomic_swap_uuid}");
+        // This may take long time on MATIC mainnet due to the Maker spending a PLG20 token from the HTLC with a low gas fee
+        block_on(wait_for_swap_finished(&mm_bob, atomic_swap_uuid, 60));
+    }
+
+    block_on(cancel_order(&mm_bob, &dai_order.uuid));
+    block_on(cancel_order(&mm_bob, &oneinch_order.uuid));
+    block_on(cancel_order(&mm_bob, &agix_order.uuid));
+    block_on(cancel_order(&mm_bob, &aave_order.uuid));
+    block_on(Timer::sleep(10.0)); // wait for orderbook update
+
+    block_on(disable_coin(&mm_bob, MATIC, false));
+    block_on(disable_coin(&mm_bob, DOC, false));
+    block_on(disable_coin(&mm_alice, MATIC, false));
+    block_on(disable_coin(&mm_alice, DOC, false));
+
+    // Rough check taker swap amount received
+    let alice_bal_diff = &alice_balance_after.balance - &alice_balance_before.balance;
+    log!("Alice received amount {}: {}", receive_token, alice_bal_diff);
+    assert!(
+        alice_bal_diff > &swap_amount * "0.80".parse::<BigDecimal>().unwrap(),
+        "too much received {}",
+        alice_bal_diff
+    );
+    assert!(
+        alice_bal_diff < &swap_amount * &"1.20".parse::<BigDecimal>().unwrap(),
+        "too low received {}",
+        alice_bal_diff
+    );
+}
+
+#[test]
+fn test_aggregated_swap_mainnet_polygon_arbitrum() {
+    let bob_passphrase = std::env::var("BOB_MAINNET").expect("BOB_MAINNET env must be set");
+    let alice_passphrase = std::env::var("ALICE_MAINNET").expect("ALICE_MAINNET env must be set");
+
+    let user_base = crv_arb20_conf()["coin"].as_str().unwrap().to_owned();
+    let user_rel = MATIC.to_owned(); // 0.24 USD
+    let swap_amount: BigDecimal = "0.1".parse().unwrap();
+    let method = "buy"; // Sell MATIC buy 0.1 CRV-ARB20
+    let receive_token = match method {
+        "buy" => &user_base,
+        "sell" => &user_rel,
+        _ => panic!("method must be buy or sell"),
+    };
+
+    let dai_conf = dai_plg20_conf(); // 1 USD
+    let oneinch_conf = oneinch_plg20_conf(); // Note: crossprices API always returns 'token not in whitelist, unsupported token'
+    let agix_conf = agix_plg20_conf(); // Note: crossprices API frequently returns 'token not in whitelist, unsupported token'
+    let aave_conf = aave_plg20_conf(); // 289 USD
+    let eth_arb_conf = eth_arb_conf(); // Ethereum in Arb One 2,500 USD
+    let arb_conf = arb_arb20_conf(); // 0.41 USD
+    let grt_conf = grt_arb20_conf(); // 0.0098 USD
+    let crv_conf = crv_arb20_conf(); // 0.63 USD
+
+    let dai_ticker = dai_conf["coin"].as_str().unwrap().to_owned();
+    let oneinch_ticker = oneinch_conf["coin"].as_str().unwrap().to_owned();
+    let agix_ticker = agix_conf["coin"].as_str().unwrap().to_owned();
+    let aave_ticker = aave_conf["coin"].as_str().unwrap().to_owned();
+    let eth_arb_ticker = eth_arb_conf["coin"].as_str().unwrap().to_owned();
+    let arb_ticker = arb_conf["coin"].as_str().unwrap().to_owned();
+    let grt_ticker = grt_conf["coin"].as_str().unwrap().to_owned();
+    let crv_ticker = crv_conf["coin"].as_str().unwrap().to_owned();
 
     let bob_coins = json!([
         doc_conf(),
         polygon_conf(),
-        token_1_conf,
-        token_2_conf,
-        token_3_conf,
-        token_4_conf
+        dai_conf,
+        oneinch_conf,
+        agix_conf,
+        aave_conf,
+        eth_arb_conf,
+        arb_conf,
+        grt_conf,
+        crv_conf
     ]);
     let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &bob_coins); // Using legacy swaps until TPU contracts deployed on POLYGON
     let mut mm_bob = block_on(MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, None)).unwrap();
@@ -136,10 +281,14 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let alice_coins = json!([
         doc_conf(),
         polygon_conf(),
-        token_1_conf,
-        token_2_conf,
-        token_3_conf,
-        token_4_conf
+        dai_conf,
+        oneinch_conf,
+        agix_conf,
+        aave_conf,
+        eth_arb_conf,
+        arb_conf,
+        grt_conf,
+        crv_conf
     ]);
     let mut alice_conf = Mm2TestConf::light_node(&alice_passphrase, &alice_coins, &[&mm_bob.ip.to_string()]);
     alice_conf.conf["1inch_api"] = "https://api.1inch.dev".into();
@@ -155,124 +304,97 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
 
-    let contracts_v2 = SwapV2TestContracts {
-        maker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT.to_owned(),
-        taker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT.to_owned(),
-        nft_maker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT.to_owned(),
-    };
+    let _bob_enable_pol_tokens = block_on(enable_pol_tokens(&mm_bob, &[
+        &dai_ticker,
+        &oneinch_ticker,
+        &agix_ticker,
+        &aave_ticker,
+    ]));
+    let _bob_enable_arb_tokens = block_on(enable_arb_tokens(&mm_bob, &[&arb_ticker, &crv_ticker, &grt_ticker]));
+    print_balances(&mm_bob, "Bob balance before swap:", &[MATIC, &eth_arb_ticker]);
 
-    let polygon_nodes = POLYGON_MAINNET_NODES
-        .iter()
-        .map(|ip| TestNode { url: (*ip).to_owned() })
-        .collect::<Vec<_>>();
-
-    let bob_enable_tokens = block_on(enable_eth_coin_v2(
-        &mm_bob,
-        MATIC,
-        POLYGON_MAINNET_SWAP_CONTRACT,
-        contracts_v2.clone(),
-        None,
-        &polygon_nodes,
-        json!([
-            { "ticker": &token_1_ticker },
-            { "ticker": &token_2_ticker },
-            { "ticker": &token_3_ticker },
-            { "ticker": &token_4_ticker }
-        ]),
-    ));
-    let bob_enable_doc = block_on(enable_electrum_json(&mm_bob, DOC, false, doc_electrums()));
-    print_balances(&mm_bob, "Bob balance before swap:", &[DOC, MATIC]);
-
-    let alice_enable_tokens = block_on(enable_eth_coin_v2(
-        &mm_alice,
-        MATIC,
-        POLYGON_MAINNET_SWAP_CONTRACT,
-        contracts_v2,
-        None,
-        &polygon_nodes,
-        json!([
-            { "ticker": &token_1_ticker },
-            { "ticker": &token_2_ticker },
-            { "ticker": &token_3_ticker },
-            { "ticker": &token_4_ticker }
-        ]),
-    ));
-    let alice_enable_doc = block_on(enable_electrum_json(&mm_alice, DOC, false, doc_electrums()));
-    let alice_enable_doc = serde_json::from_value::<CoinInitResponse>(alice_enable_doc).unwrap();
+    let _alice_enable_pol_tokens = block_on(enable_pol_tokens(&mm_alice, &[
+        &dai_ticker,
+        &oneinch_ticker,
+        &agix_ticker,
+        &aave_ticker,
+    ]));
+    let _alice_enable_arb_tokens = block_on(enable_arb_tokens(&mm_alice, &[&arb_ticker, &crv_ticker, &grt_ticker]));
     print_balances(&mm_alice, "Alice balance before swap:", &[
-        DOC,
         MATIC,
-        &token_1_ticker,
-        &token_2_ticker,
-        &token_3_ticker,
-        &token_4_ticker,
+        &dai_ticker,
+        &oneinch_ticker,
+        &agix_ticker,
+        &aave_ticker,
+        &eth_arb_ticker,
+        &arb_ticker,
+        &grt_ticker,
+        &crv_ticker,
     ]);
+    let alice_balance_before = block_on(my_balance(&mm_alice, receive_token));
 
     if let Err(err) = block_on(set_swap_gas_fee_policy(&mm_alice, MATIC, "Medium")) {
-        log!("set_swap_transaction_fee_policy error={}", err);
+        log!("set_swap_transaction_fee_policy on {MATIC} error={}", err);
     }
 
-    let order_res_1 = block_on(create_maker_order(&mut mm_bob, DOC, &token_1_ticker, 0.0011111, 1.0)); // DAI
-    let order_res_2 = block_on(create_maker_order(&mut mm_bob, DOC, &token_2_ticker, 0.00105, 1.0)); // 1INCH
-    let order_res_3 = block_on(create_maker_order(
+    let arb_order = block_on(create_maker_order(&mut mm_bob, &arb_ticker, &aave_ticker, 0.00141, 1.0)).unwrap();
+    let grt_order = block_on(create_maker_order(
         &mut mm_bob,
-        DOC,
-        &token_3_ticker,
-        0.000980009090,
+        &grt_ticker,
+        &aave_ticker,
+        0.00003401384,
         1.0,
-    )); // AGIX
-    let order_res_4 = block_on(create_maker_order(
-        &mut mm_bob,
-        DOC,
-        &token_4_ticker,
-        0.0000037313793103,
-        1.0,
-    )); // AAVE
-    check_results(
-        &[order_res_1, order_res_2, order_res_3, order_res_4],
-        "maker orders created with errors",
-    );
+    ))
+    .unwrap();
+    let arb_order = block_on(wait_for_orderbook(
+        &mut mm_alice,
+        &arb_ticker,
+        &aave_ticker,
+        &arb_order.uuid,
+        60,
+    ))
+    .unwrap();
+    let grt_order = block_on(wait_for_orderbook(
+        &mut mm_alice,
+        &grt_ticker,
+        &aave_ticker,
+        &grt_order.uuid,
+        60,
+    ))
+    .unwrap();
 
-    let token_1_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_1_ticker, 60)).unwrap();
-    let token_2_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_2_ticker, 60)).unwrap();
-    let token_3_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_3_ticker, 60)).unwrap();
-    let token_4_order = block_on(wait_for_orderbook(&mut mm_alice, DOC, &token_4_ticker, 60)).unwrap();
+    let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &aave_ticker, "sell", 10, true)); // This is the taker action. To get all aave orders taker uses "sell"
+    let best_orders = best_orders_res
+        .result
+        .orders
+        .values()
+        .flatten()
+        .cloned()
+        .collect::<Vec<_>>(); // As taker used 'sell' actions, orders are returned as asks
 
-    let best_asks = block_on(best_orders_v2_by_number(&mm_alice, DOC, "buy", 10, false));
-    let entries = best_asks.result.orders.values().flatten().cloned().collect::<Vec<_>>();
-
-    let doc_amount_to_buy: BigDecimal = "1.0".parse().unwrap();
-    const LR0_SLIPPAGE: f32 = 0.0;
+    const LR_SLIPPAGE: f32 = 0.0;
     let best_quote = block_on(find_best_lr_swap(
         &mut mm_alice,
-        DOC,
-        &[AsksForCoin {
-            base: DOC.to_owned(),
-            orders: entries,
-        }],
-        &[],
-        &doc_amount_to_buy,
-        MATIC,
+        &user_base,
+        &json!([]),
+        &json!([{
+            "rel": &aave_ticker, // pass as bid orders
+            "orders": &best_orders,
+        }]),
+        &swap_amount,
+        method,
+        &user_rel,
     ))
     .expect("best quote should be found");
     print_quote_resp(&best_quote);
-    let agg_uuid = block_on(create_and_start_agg_taker_swap(
-        &mut mm_alice,
-        DOC,
-        &doc_amount_to_buy,
-        LR0_SLIPPAGE,
-        best_quote.lr_data_0,
-        best_quote.best_order,
-        None,
-    ))
-    .unwrap();
-    log!("Aggregated taker swap uuid {:?} started", agg_uuid);
+    let agg_uuid = block_on(create_and_start_agg_taker_swap(&mut mm_alice, LR_SLIPPAGE, best_quote)).unwrap();
 
+    log!("Aggregated taker swap uuid {:?} started", agg_uuid);
     block_on(Timer::sleep(1.0));
 
     let active_swaps_alice = block_on(active_swaps(&mm_alice));
     assert_eq!(active_swaps_alice.uuids, vec![agg_uuid]);
-    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 180)); // Only taker has the aggregated swap
+    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 240)); // Only taker has the aggregated swap
     log!("Aggregated taker swap uuid {:?} finished", agg_uuid);
 
     let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
@@ -281,50 +403,44 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
         serde_json::to_string(&taker_swap_status).unwrap()
     );
     check_my_agg_swap_final_status(&taker_swap_status);
-    let alice_doc_balance = block_on(my_balance(&mm_alice, DOC));
+    let alice_balance_after = block_on(my_balance(&mm_alice, receive_token));
     print_balances(&mm_alice, "Alice balance after swap:", &[
-        DOC,
         MATIC,
-        &token_1_ticker,
-        &token_2_ticker,
-        &token_3_ticker,
-        &token_4_ticker,
+        &dai_ticker,
+        &oneinch_ticker,
+        &agix_ticker,
+        &aave_ticker,
+        &eth_arb_ticker,
+        &arb_ticker,
+        &grt_ticker,
+        &crv_ticker,
     ]);
 
     let status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
     if let Some(atomic_swap_uuid) = status["result"]["atomic_swap_uuid"].as_str() {
-        println!("atomic_swap_uuid={atomic_swap_uuid}");
+        log!("Waiting for Maker to finish atomic_swap_uuid={atomic_swap_uuid}");
+        // This may take long time on MATIC mainnet if Maker has spent a PLG20 token from HTLC with a low gas fee
         block_on(wait_for_swap_finished(&mm_bob, atomic_swap_uuid, 60));
     }
-
-    block_on(cancel_order(&mm_bob, &token_1_order.uuid));
-    block_on(cancel_order(&mm_bob, &token_2_order.uuid));
-    block_on(cancel_order(&mm_bob, &token_3_order.uuid));
-    block_on(cancel_order(&mm_bob, &token_4_order.uuid));
-
+    block_on(cancel_order(&mm_bob, &arb_order.uuid));
+    block_on(cancel_order(&mm_bob, &grt_order.uuid));
     block_on(Timer::sleep(10.0)); // wait for orderbook update
 
-    // Disabling coins on both nodes should be successful at this point.
-    // NOTE: if disable a coin fails due to non empty "active_swaps" this most likely means
-    // that the Maker did not finish their part of the atomic swap,
-    // This usually occurs on MATIC mainnet due to the Maker spending a PLG20 token from the HTLC with a low gas fee,
-    // which could lead to long confirmation of this tx.
-    // (The MATIC/POL mainnet is known for high gas fee fluctuation). TODO: add waiting for maker's atomic swap? it could last hours if fee too low
     block_on(disable_coin(&mm_bob, MATIC, false));
-    block_on(disable_coin(&mm_bob, DOC, false));
+    block_on(disable_coin(&mm_bob, &eth_arb_ticker, false));
     block_on(disable_coin(&mm_alice, MATIC, false));
-    block_on(disable_coin(&mm_alice, DOC, false));
+    block_on(disable_coin(&mm_alice, &eth_arb_ticker, false));
 
     // Rough check taker swap amount received
-    let alice_bal_diff = &alice_doc_balance.balance - &alice_enable_doc.balance;
-    log!("Alice received amount {}: {}", DOC, alice_bal_diff);
+    let alice_bal_diff = &alice_balance_after.balance - &alice_balance_before.balance;
+    log!("Alice received amount {}: {}", receive_token, alice_bal_diff);
     assert!(
-        alice_bal_diff > &doc_amount_to_buy - &"0.2".parse::<BigDecimal>().unwrap(),
+        alice_bal_diff > &swap_amount * "0.80".parse::<BigDecimal>().unwrap(),
         "too much received {}",
         alice_bal_diff
     );
     assert!(
-        alice_bal_diff < &doc_amount_to_buy + &"0.2".parse::<BigDecimal>().unwrap(),
+        alice_bal_diff < &swap_amount * &"1.20".parse::<BigDecimal>().unwrap(),
         "too low received {}",
         alice_bal_diff
     );
@@ -406,6 +522,7 @@ async fn make_1inch_swap(mm: &mut MarketMakerIt, base: &str, rel: &str, amount: 
     Ok(send_resp["tx_hash"].to_string())
 }
 
+#[allow(unused)]
 async fn wait_for_confirmations(tx_hashes: &[&str], timeout: u32) -> Result<(), String> {
     const RETRY_DELAY: u32 = 5;
     let mut waited = 0;
@@ -465,18 +582,22 @@ async fn create_maker_order(
 }
 
 async fn wait_for_orderbook(
-    taker: &mut MarketMakerIt,
+    mm: &mut MarketMakerIt,
     base: &str,
     rel: &str,
+    uuid: &Uuid,
     timeout: u32,
 ) -> Result<RpcOrderbookEntryV2, String> {
     let mut waited = 0;
     const RETRY_DELAY: u32 = 5;
     loop {
-        let orderbook_v2 = orderbook_v2(taker, base, rel).await;
+        let orderbook_v2 = orderbook_v2(mm, base, rel).await;
         let orderbook_v2: RpcV2Response<OrderbookV2Response> = serde_json::from_value(orderbook_v2).unwrap();
-        if !orderbook_v2.result.asks.is_empty() {
-            return Ok(orderbook_v2.result.asks[0].entry.clone());
+        if let Some(e) = orderbook_v2.result.asks.iter().find(|ask| &ask.entry.uuid == uuid) {
+            return Ok(e.entry.clone());
+        }
+        if let Some(e) = orderbook_v2.result.bids.iter().find(|bid| &bid.entry.uuid == uuid) {
+            return Ok(e.entry.clone());
         }
         if waited > timeout {
             break;
@@ -484,30 +605,31 @@ async fn wait_for_orderbook(
         Timer::sleep(RETRY_DELAY as f64).await;
         waited += RETRY_DELAY;
     }
-    Err(format!("no ask {base}/{rel} in orderbook"))
+    Err(format!("no uuid {uuid} in orderbook"))
 }
 
 async fn find_best_lr_swap(
     taker: &mut MarketMakerIt,
-    my_base_coin: &str,
-    asks: &[AsksForCoin],
-    bids: &[BidsForCoin],
-    volume_to_buy: &BigDecimal,
-    my_rel_coin: &str,
+    user_base: &str,
+    asks: &Value,
+    bids: &Value,
+    volume: &BigDecimal,
+    method: &str,
+    user_rel: &str,
 ) -> Result<LrFindBestQuoteResponse, String> {
-    common::log::info!("Issue lr::best_quote {}/{} request", my_base_coin, my_rel_coin);
+    log!("Issue find_best_quote {}/{} request", user_base, user_rel);
     let rc = taker
         .rpc(&json!({
             "userpass": taker.userpass,
             "method": "experimental::liquidity_routing::find_best_quote",
             "mmrpc": "2.0",
             "params": {
-                "user_base": my_base_coin,
-                "volume": volume_to_buy,
+                "user_base": user_base,
+                "volume": volume,
                 "asks": asks,
                 "bids": bids,
-                "method": "buy",
-                "user_rel": my_rel_coin
+                "method": method,
+                "user_rel": user_rel
             }
         }))
         .await
@@ -522,49 +644,58 @@ async fn find_best_lr_swap(
 
 async fn create_and_start_agg_taker_swap(
     taker: &mut MarketMakerIt,
-    base: &str,
-    atomic_swap_volume: &BigDecimal,
     slippage: f32,
-    lr_data_0: Option<ClassicSwapDetails>,
-    order_entry: AskOrBidOrder,
-    lr_data_1: Option<ClassicSwapDetails>,
+    best_quote: LrFindBestQuoteResponse,
 ) -> Result<Uuid, String> {
-    common::log::info!(
-        "Issue taker {}/{} lr::fill_order request",
-        base,
-        order_entry.order().coin
+    let lr_swap_0 = best_quote.lr_data_0.map(|swap_details| {
+        json!({
+            "slippage": slippage,
+            "swap_details": swap_details
+        })
+    });
+    let lr_swap_1 = best_quote.lr_data_1.map(|swap_details| {
+        json!({
+            "slippage": slippage,
+            "swap_details": swap_details
+        })
+    });
+    let mut atomic_swap = best_quote.atomic_swap;
+    // We discussed that we should not match a specific order.
+    // I set this for now but we need to think about this again:
+    // If a different order is taken the LR calculations may be wrong for it.
+    atomic_swap.match_by = Some(MatchBy::Orders([atomic_swap.order_uuid].into()));
+    /*let (taker_base, taker_rel, taker_method) = match &best_maker_order {
+        AskOrBidOrder::Ask { base, order } => (base, &order.coin, "buy"),
+        AskOrBidOrder::Bid { rel, order } => (rel, &order.coin, "sell"),
+    };*/
+    log!(
+        "Issue execute_routed_trade {} {}/{} request",
+        atomic_swap.method,
+        atomic_swap.base,
+        atomic_swap.rel
     );
-    let lr_swap_0 = lr_data_0.map(|swap_details| {
-        json!({
-            "slippage": slippage,
-            "swap_details": swap_details
-        })
-    });
-    let lr_swap_1 = lr_data_1.map(|swap_details| {
-        json!({
-            "slippage": slippage,
-            "swap_details": swap_details
-        })
-    });
-
     let rc = taker
         .rpc(&json!({
             "userpass": taker.userpass,
             "method": "experimental::liquidity_routing::execute_routed_trade",
             "mmrpc": "2.0",
             "params": {
-                "atomic_swap": {
+                /*"atomic_swap": {
                     "volume": atomic_swap_volume,
-                    "base": base,
-                    "rel": order_entry.order().coin,
-                    "price": order_entry.order().price.rational,
-                    "method": "buy",
+                    "base": taker_base,
+                    "rel": taker_rel,
+                    "price": best_maker_order.order().price.rational,
+                    "method": taker_method,
                     "match_by": {
                         "type": "Orders",
-                        "data": [order_entry.order().uuid]
+                        // We discussed that we should not match a specific order.
+                        // I use this for now to think about this again:
+                        // If a different order is taken the LR calculations may be wrong for it.
+                        "data": [best_maker_order.order().uuid]
                     }
-                },
+                },*/
                 "lr_swap_0": lr_swap_0,
+                "atomic_swap": atomic_swap,
                 "lr_swap_1": lr_swap_1,
             }
         }))
@@ -626,6 +757,7 @@ async fn set_swap_gas_fee_policy(mm: &MarketMakerIt, coin: &str, fee_policy: &st
     }
 }
 
+#[allow(unused)]
 fn check_results<T: std::fmt::Debug>(results: &[Result<T, String>], msg: &str) {
     let mut err_msg = "".to_owned();
     for (i, r) in results.iter().enumerate() {
@@ -655,7 +787,10 @@ fn print_balances(mm: &MarketMakerIt, msg: &str, tickers: &[&str]) {
 
 fn print_quote_resp(quote: &LrFindBestQuoteResponse) {
     log!(
-        "Found best quote for swap with LR: lr_data_0: src_token={:?} src_amount={:?} dst_token={:?} dst_amount={:?}",
+        "Found best quote for swap with LR:
+        LR_0: src_token={:?} src_amount={:?} dst_token={:?} dst_amount={:?}
+        atomic swap params: base={} rel={} volume={:?}
+        LR_1: src_token={:?} src_amount={:?} dst_token={:?} dst_amount={:?}",
         quote
             .lr_data_0
             .as_ref()
@@ -666,5 +801,248 @@ fn print_quote_resp(quote: &LrFindBestQuoteResponse) {
             .as_ref()
             .and_then(|data| data.dst_token.as_ref().unwrap().symbol_kdf.as_ref()),
         quote.lr_data_0.as_ref().map(|data| data.dst_amount.as_ratio().to_f64()),
+        quote.atomic_swap.base,
+        quote.atomic_swap.rel,
+        quote.atomic_swap.volume.as_ref().map(|v| v.to_decimal()),
+        quote
+            .lr_data_1
+            .as_ref()
+            .and_then(|data| data.src_token.as_ref().unwrap().symbol_kdf.as_ref()),
+        quote.lr_data_1.as_ref().map(|data| data.src_amount.to_decimal()),
+        quote
+            .lr_data_1
+            .as_ref()
+            .and_then(|data| data.dst_token.as_ref().unwrap().symbol_kdf.as_ref()),
+        quote.lr_data_1.as_ref().map(|data| data.dst_amount.as_ratio().to_f64()),
     );
+}
+
+fn dai_plg20_conf() -> Value {
+    // 1 USD
+    json!({
+        "coin": "DAI-PLG20",
+        "name": "dai_plg20",
+        "derivation_path": "m/44'/966'",
+        "decimals": 18,
+        "protocol": {
+            "type": "ERC20",
+            "protocol_data": {
+                "platform": MATIC,
+                "contract_address": "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063"
+            }
+        }
+    })
+}
+
+fn oneinch_plg20_conf() -> Value {
+    json!({
+        "coin": "1INCH-PLG20",
+        "name": "1inch_plg20",
+        "derivation_path": "m/44'/966'",
+        "decimals": 18,
+        "protocol": {
+            "type": "ERC20",
+            "protocol_data": {
+                "platform": MATIC,
+                "contract_address": "0x9c2C5fd7b07E95EE044DDeba0E97a665F142394f"
+            }
+        }
+    })
+}
+
+fn agix_plg20_conf() -> Value {
+    json!({
+        "coin": "AGIX-PLG20",
+        "name": "agix_plg20",
+        "derivation_path": "m/44'/966'",
+        "decimals": 18,
+        "protocol": {
+            "type": "ERC20",
+            "protocol_data": {
+                "platform": MATIC,
+                "contract_address": "0x190Eb8a183D22a4bdf278c6791b152228857c033"
+            }
+        }
+    })
+}
+
+fn aave_plg20_conf() -> Value {
+    json!({
+        "coin": "AAVE-PLG20",
+        "name": "aave_plg20",
+        "derivation_path": "m/44'/966'",
+        "decimals": 18,
+        "protocol": {
+            "type": "ERC20",
+            "protocol_data": {
+                "platform": MATIC,
+                "contract_address": "0xD6DF932A45C0f255f85145f286eA0b292B21C90B"
+            }
+        }
+    })
+}
+
+// Ethereum in Arb One
+fn eth_arb_conf() -> Value {
+    json!({
+        "coin": "ETH-ARB20",
+        "name": "eth_arb20",
+        "fname": "Ethereum",
+        "rpcport": 80,
+        "mm2": 1,
+        "chain_id": 42161,
+        "required_confirmations": 10,
+        "avg_blocktime": 0.25,
+        "protocol": {
+            "type": "ETH",
+            "protocol_data": {
+                "chain_id": 42161
+            }
+        },
+        "derivation_path": "m/44'/60'",
+        "use_access_list": true,
+        "max_eth_tx_type": 2,
+        "gas_limit": {
+            "eth_send_coins": 300000,
+            "eth_payment": 700000,
+            "eth_receiver_spend": 600000,
+            "eth_sender_refund": 600000
+        }
+    })
+}
+
+fn arb_arb20_conf() -> Value {
+    json!({
+        "coin": "ARB-ARB20",
+        "name": "arb_arb20",
+        "fname": "Arbitrum",
+        "rpcport": 80,
+        "mm2": 1,
+        "chain_id": 42161,
+        "decimals": 18,
+        "avg_blocktime": 0.25,
+        "required_confirmations": 10,
+        "protocol": {
+        "type": "ERC20",
+        "protocol_data": {
+            "platform": "ETH-ARB20",
+            "contract_address": "0x912CE59144191C1204E64559FE8253a0e49E6548"
+        }
+        },
+        "derivation_path": "m/44'/60'",
+        "use_access_list": true,
+        "max_eth_tx_type": 2,
+        "gas_limit": {
+            "eth_send_erc20": 400000,
+            "erc20_payment": 800000,
+            "erc20_receiver_spend": 700000,
+            "erc20_sender_refund": 700000
+        }
+    })
+}
+
+fn grt_arb20_conf() -> Value {
+    json!({
+        "coin": "GRT-ARB20",
+        "name": "grt_arb20",
+        "fname": "The Graph",
+        "rpcport": 80,
+        "mm2": 1,
+        "chain_id": 42161,
+        "decimals": 18,
+        "avg_blocktime": 0.25,
+        "required_confirmations": 10,
+        "protocol": {
+            "type": "ERC20",
+            "protocol_data": {
+                "platform": "ETH-ARB20",
+                "contract_address": "0x9623063377AD1B27544C965cCd7342f7EA7e88C7"
+            }
+        },
+        "derivation_path": "m/44'/60'",
+        "use_access_list": true,
+        "max_eth_tx_type": 2,
+        "gas_limit": {
+            "eth_send_erc20": 400000,
+            "erc20_payment": 800000,
+            "erc20_receiver_spend": 700000,
+            "erc20_sender_refund": 700000
+        }
+    })
+}
+
+fn crv_arb20_conf() -> Value {
+    json!({
+        "coin": "CRV-ARB20",
+        "name": "crv_arb20",
+        "fname": "Curve DAO",
+        "rpcport": 80,
+        "mm2": 1,
+        "chain_id": 42161,
+        "decimals": 18,
+        "avg_blocktime": 0.25,
+        "required_confirmations": 10,
+        "protocol": {
+            "type": "ERC20",
+            "protocol_data": {
+                "platform": "ETH-ARB20",
+                "contract_address": "0x11cDb42B0EB46D95f990BeDD4695A6e3fA034978"
+            }
+        },
+        "derivation_path": "m/44'/60'",
+        "use_access_list": true,
+        "max_eth_tx_type": 2,
+        "gas_limit": {
+            "eth_send_erc20": 400000,
+            "erc20_payment": 800000,
+            "erc20_receiver_spend": 700000,
+            "erc20_sender_refund": 700000
+        }
+    })
+}
+
+async fn enable_pol_tokens(mm: &MarketMakerIt, tickers: &[&str]) -> Value {
+    let pol_contracts_v2 = SwapV2TestContracts {
+        maker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT.to_owned(),
+        taker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT.to_owned(),
+        nft_maker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT.to_owned(),
+    };
+    let polygon_nodes = POLYGON_MAINNET_NODES
+        .iter()
+        .map(|ip| TestNode { url: (*ip).to_owned() })
+        .collect::<Vec<_>>();
+
+    enable_eth_coin_v2(
+        mm,
+        MATIC,
+        POLYGON_MAINNET_SWAP_CONTRACT,
+        pol_contracts_v2,
+        None,
+        &polygon_nodes,
+        json!(tickers.iter().map(|t| json!({"ticker": t})).collect::<Vec<Value>>()),
+    )
+    .await
+}
+
+async fn enable_arb_tokens(mm: &MarketMakerIt, tickers: &[&str]) -> Value {
+    let arb_contracts_v2 = SwapV2TestContracts {
+        maker_swap_v2_contract: ARBITRUM_MAINNET_SWAP_V2_MAKER_CONTRACT.to_owned(),
+        taker_swap_v2_contract: ARBITRUM_MAINNET_SWAP_V2_TAKER_CONTRACT.to_owned(),
+        nft_maker_swap_v2_contract: ARBITRUM_MAINNET_SWAP_V2_NFT_CONTRACT.to_owned(),
+    };
+    let arb_nodes = ARBITRUM_MAINNET_NODES
+        .iter()
+        .map(|ip| TestNode { url: (*ip).to_owned() })
+        .collect::<Vec<_>>();
+
+    enable_eth_coin_v2(
+        mm,
+        eth_arb_conf()["coin"].as_str().unwrap(),
+        ARBITRUM_MAINNET_SWAP_CONTRACT,
+        arb_contracts_v2,
+        None,
+        &arb_nodes,
+        json!(tickers.iter().map(|t| json!({"ticker": t})).collect::<Vec<Value>>()),
+    )
+    .await
 }

@@ -2,6 +2,7 @@
 
 use coins::Ticker;
 use ethereum_types::{Address as EthAddress, U256};
+use lr_errors::LrSwapError;
 use mm2_number::MmNumber;
 use mm2_rpc::data::legacy::{MatchBy, OrderType, TakerAction};
 use trading_api::one_inch_api::classic_swap_types::ClassicSwapData;
@@ -28,7 +29,7 @@ pub struct LrSwapParams {
 /// Atomic swap data for the aggregated taker swap state machine
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AtomicSwapParams {
-    pub base_volume: MmNumber,
+    pub base_volume: Option<MmNumber>,
     pub base: String,
     pub rel: String,
     pub price: MmNumber,
@@ -54,18 +55,25 @@ impl AtomicSwapParams {
         }
     }
 
-    pub(crate) fn taker_volume(&self) -> MmNumber {
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn taker_volume(&self) -> Result<MmNumber, LrSwapError> {
+        let Some(ref volume) = self.base_volume else {
+            return Err(LrSwapError::InternalError("no atomic swp volume".to_owned()));
+        };
         match self.action {
-            TakerAction::Buy => &self.base_volume * &self.price,
-            TakerAction::Sell => self.base_volume.clone(),
+            TakerAction::Buy => Ok(volume * &self.price),
+            TakerAction::Sell => Ok(volume.clone()),
         }
     }
 
-    #[allow(unused)]
-    pub(crate) fn maker_volume(&self) -> MmNumber {
+    #[allow(clippy::result_large_err, unused)]
+    pub(crate) fn maker_volume(&self) -> Result<MmNumber, LrSwapError> {
+        let Some(ref volume) = self.base_volume else {
+            return Err(LrSwapError::InternalError("no atomic swp volume".to_owned()));
+        };
         match self.action {
-            TakerAction::Buy => self.base_volume.clone(),
-            TakerAction::Sell => &self.base_volume * &self.price,
+            TakerAction::Buy => Ok(volume.clone()),
+            TakerAction::Sell => Ok(volume * &self.price),
         }
     }
 }
@@ -75,4 +83,5 @@ pub struct ClassicSwapDataExt {
     pub api_details: ClassicSwapData,
     /// Estimated source amount for a liquidity routing swap step, includes needed amount to fill the order, plus dex and trade fees (if needed)
     pub src_amount: U256,
+    pub chain_id: u64,
 }

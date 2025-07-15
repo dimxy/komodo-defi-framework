@@ -5,9 +5,9 @@ use coins::eth::u256_from_big_decimal;
 use coins::{CoinWithDerivationMethod, MmCoin};
 use ext_api_errors::ExtApiRpcError;
 use ext_api_helpers::{make_classic_swap_create_params, make_classic_swap_quote_params};
-use ext_api_types::{AggregationContractRequest, ClassicSwapCreateRequest, ClassicSwapLiquiditySourcesRequest,
-                    ClassicSwapLiquiditySourcesResponse, ClassicSwapQuoteRequest, ClassicSwapResponse,
-                    ClassicSwapTokensRequest, ClassicSwapTokensResponse};
+use ext_api_types::{AggregationContractRequest, ClassicSwapCreateRequest, ClassicSwapDetails,
+                    ClassicSwapLiquiditySourcesRequest, ClassicSwapLiquiditySourcesResponse, ClassicSwapQuoteRequest,
+                    ClassicSwapResponse, ClassicSwapTokensRequest, ClassicSwapTokensResponse};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use trading_api::one_inch_api::classic_swap_types::{ProtocolsResponse, TokensResponse};
@@ -45,7 +45,7 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
         .with_query_params(query_params)
         .build()?;
     let quote = ApiClient::call_api(url).await?;
-    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, req.amount, quote) // use 'base' as amount in errors is in the src coin
+    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, sell_amount, quote) // use 'base' as amount in errors is in the src coin
         .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
 }
 
@@ -78,7 +78,7 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
         .with_query_params(query_params)
         .build()?;
     let swap_with_tx = ApiClient::call_api(url).await?;
-    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, req.amount, swap_with_tx)
+    ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, sell_amount, swap_with_tx)
         .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
 }
 
@@ -102,7 +102,10 @@ pub async fn one_inch_v6_0_classic_swap_tokens_rpc(
     req: ClassicSwapTokensRequest,
 ) -> MmResult<ClassicSwapTokensResponse, ExtApiRpcError> {
     let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::Tokens)?.build()?;
-    let response: TokensResponse = ApiClient::call_api(url).await?;
+    let mut response: TokensResponse = ApiClient::call_api(url).await?;
+    for (_, token_info) in response.tokens.iter_mut() {
+        token_info.symbol_kdf = ClassicSwapDetails::token_name_kdf(&ctx, req.chain_id, token_info);
+    }
     Ok(ClassicSwapTokensResponse {
         tokens: response.tokens,
     })

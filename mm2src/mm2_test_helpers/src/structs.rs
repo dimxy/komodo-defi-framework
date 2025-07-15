@@ -1034,7 +1034,7 @@ pub struct RpcOrderbookEntryV2 {
     pub conf_settings: Option<OrderConfirmationsSettings>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AggregatedOrderbookEntryV2 {
     #[serde(flatten)]
@@ -1065,7 +1065,7 @@ where
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrderbookV2Response {
     pub asks: Vec<AggregatedOrderbookEntryV2>,
@@ -1291,6 +1291,21 @@ pub mod lr_test_structs {
 
     pub type ClassicSwapResponse = ClassicSwapDetails;
 
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct AtomicSwapRpcParams {
+        pub volume: Option<MmNumber>,
+        pub base: Ticker,
+        pub rel: Ticker,
+        pub price: MmNumber,
+        pub method: String,
+        pub order_uuid: Uuid,
+        #[serde(default)]
+        pub match_by: Option<MatchBy>,
+        #[serde(default)]
+        pub order_type: Option<OrderType>,
+        // TODO: add opt params
+    }
+
     #[derive(Debug, Deserialize, Serialize)]
     pub struct AsksForCoin {
         pub base: Ticker,
@@ -1324,7 +1339,7 @@ pub mod lr_test_structs {
     pub struct LrFindBestQuoteResponse {
         pub lr_data_0: Option<ClassicSwapDetails>,
         pub lr_data_1: Option<ClassicSwapDetails>,
-        pub best_order: AskOrBidOrder,
+        pub atomic_swap: AtomicSwapRpcParams,
         pub total_price: MmNumber,
         // /// Fees to pay, including LR swap fee
         // pub trade_fee: TradePreimageResponse, // TODO: implement when trade_preimage implemented for TPU
