@@ -618,12 +618,13 @@ impl LrSwapCandidates {
             if let Some(ref mut lr_data_1) = candidate.lr_data_1 {
                 lr_data_1.src_amount = Some(maker_amount);
             } else {
-                candidate.atomic_swap_maker_amount = Some(maker_amount); // if no LR_1, store as atomic_swap dest amount for total price calc
+                candidate.atomic_swap_maker_amount = Some(maker_amount); // if no LR_1, store as atomic_swap maker_amount for total price calc
             }
             log::debug!(
-                "estimate_lr_1_source_amounts_from_lr_0 taker_amount={} maker_ticker={} maker_sell_price={} maker_coin.decimals()={} maker_amount={:?}",
-                taker_amount,
+                "estimate_lr_1_source_amounts_from_lr_0 maker_ticker={} lr_data_1.src_token={:?} taker_amount={} maker_sell_price={} maker_coin.decimals()={} maker_amount={:?}",
                 maker_ticker,
+                candidate.lr_data_1.as_ref().map(|lr_data| &lr_data._src_token),
+                taker_amount,
                 maker_sell_price,
                 maker_coin.decimals(),
                 maker_amount
@@ -646,8 +647,6 @@ impl LrSwapCandidates {
             let atomic_swap_maker_token = candidate.maker_order.maker_ticker();
             let src_amount_mm_num = u256_to_coins_mm_number(src_amount, lr_data_0.src_decimals()?)?;
             let src_coin = lp_coinfind_or_err(ctx, &lr_data_0._src_token).await?; // TODO: when I used get_coin_for_one_inch(), throwing a error if the order coin not EVM, 'lr_quote.rs' is lost in the error path. Why? dedup()?
-                                                                                  //let taker_swap_params = create_taker_swap_default_params(src_coin.deref(), taker_coin.deref(), src_amount_mm_num.clone(), FeeApproxStage::TradePreimage).await?;
-                                                                                  // TODO: use rate
             let dex_fee = DexFee::new_from_taker_coin(src_coin.deref(), &atomic_swap_maker_token, &src_amount_mm_num)
                 .fee_amount(); // TODO: use simply DexFee::rate?
             let Some(ref mut lr_data_0) = candidate.lr_data_0 else {
@@ -656,7 +655,7 @@ impl LrSwapCandidates {
             // Add dex fee to the amount
             //let src_amount_with_fees = LrStepData::add_fees_to_amount(src_amount_mm_num, src_token, &taker_swap_params)?;
             let src_amount_with_fees = &src_amount_mm_num + &dex_fee;
-            log::debug!("estimate_lr_0_fee_amounts src_amount_mm_num={src_amount_mm_num} dex_fee={dex_fee} src_amount_with_fees={src_amount_with_fees}");
+            log::debug!("estimate_lr_0_fee_amounts src_token={} src_amount_mm_num={src_amount_mm_num} dex_fee={dex_fee} src_amount_with_fees={src_amount_with_fees}", lr_data_0._src_token);
             lr_data_0.src_amount = Some(u256_from_coins_mm_number(
                 &src_amount_with_fees,
                 lr_data_0.src_decimals()?,
