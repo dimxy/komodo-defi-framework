@@ -26,7 +26,6 @@ use super::watcher_common::{validate_watcher_reward, REWARD_GAS_AMOUNT};
 use super::*;
 use crate::coin_balance::{EnableCoinBalanceError, EnabledCoinBalanceParams, HDAccountBalance, HDAddressBalance,
                           HDWalletBalance, HDWalletBalanceOps};
-use crate::eth::eth_rpc::ETH_RPC_REQUEST_TIMEOUT;
 use crate::eth::web3_transport::websocket_transport::{WebsocketTransport, WebsocketTransportNode};
 use crate::hd_wallet::{DisplayAddress, HDAccountOps, HDCoinAddress, HDCoinWithdrawOps, HDConfirmAddress,
                        HDPathAccountToAddressId, HDWalletCoinOps, HDXPubExtractor};
@@ -66,6 +65,7 @@ use crypto::{Bip44Chain, CryptoCtx, CryptoCtxError, GlobalHDAccountArc, KeyPairP
 use derive_more::Display;
 use enum_derives::EnumFromStringify;
 
+use compatible_time::Duration;
 use compatible_time::Instant;
 use ethabi::{Contract, Function, Token};
 use ethcore_transaction::tx_builders::TxBuilderError;
@@ -97,7 +97,6 @@ use std::str::from_utf8;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use web3::types::{Action as TraceAction, BlockId, BlockNumber, Bytes, CallRequest, FilterBuilder, Log, Trace,
                   TraceFilterBuilder, Transaction as Web3Transaction, TransactionId, U64};
 use web3::{self, Web3};
@@ -174,6 +173,9 @@ use eth_swap_v2::{extract_id_from_tx_data, EthPaymentType, PaymentMethod, SpendT
 
 pub mod eth_utils;
 pub mod tron;
+
+pub(crate) const ETH_RPC_REQUEST_TIMEOUT_S: Duration = Duration::from_secs(30);
+pub(crate) const WEB3_REQUEST_TIMEOUT_S: Duration = Duration::from_secs(30);
 
 pub const ETH_PROTOCOL_TYPE: &str = "ETH";
 pub const ERC20_PROTOCOL_TYPE: &str = "ERC20";
@@ -1195,7 +1197,7 @@ pub async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155) -> Wit
         .clone()
         .get_addr_nonce(my_address)
         .compat()
-        .timeout_secs(30.)
+        .timeout(ETH_RPC_REQUEST_TIMEOUT_S)
         .await?
         .map_to_mm(WithdrawError::Transport)?;
 
@@ -1295,7 +1297,7 @@ pub async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -> Withd
         .clone()
         .get_addr_nonce(my_address)
         .compat()
-        .timeout_secs(30.)
+        .timeout(ETH_RPC_REQUEST_TIMEOUT_S)
         .await?
         .map_to_mm(WithdrawError::Transport)?;
 
@@ -2564,6 +2566,7 @@ impl MarketCoinOps for EthCoin {
                 }
 
                 // Make sure that there was no chain reorganization that led to transaction confirmation block to be changed
+                // TODO: maybe we should use the eth_syncing call here (or elsewhere) to ensure the eth node is not out of sync
                 match selfi
                     .transaction_confirmed_at(tx_hash, input.wait_until, check_every)
                     .compat()
@@ -2958,7 +2961,7 @@ impl RpcCommonOps for EthCoin {
                 .web3
                 .web3()
                 .client_version()
-                .timeout(ETH_RPC_REQUEST_TIMEOUT)
+                .timeout(ETH_RPC_REQUEST_TIMEOUT_S)
                 .await
             {
                 Ok(Ok(_)) => {
