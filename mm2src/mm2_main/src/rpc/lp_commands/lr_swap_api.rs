@@ -15,6 +15,7 @@ use lr_api_types::{AtomicSwapRpcParams, LrExecuteRoutedTradeRequest, LrExecuteRo
                    LrFindBestQuoteRequest, LrFindBestQuoteResponse, LrGetQuotesForTokensRequest,
                    LrGetQuotesForTokensResponse};
 use mm2_core::mm_ctx::MmArc;
+use mm2_err_handle::prelude::MmResultExt;
 use mm2_err_handle::{map_mm_error::MapMmError,
                      mm_error::{MmError, MmResult}};
 use mm2_rpc::data::legacy::TakerAction;
@@ -53,7 +54,7 @@ pub async fn lr_find_best_quote_rpc(
     // when best order is selected validate against req.rel_max_volume and req.rel_min_volume
     // coins in orders should be unique
 
-    let action = sell_buy_method(&req.method)?;
+    let action = sell_buy_method(&req.method).map_mm_err()?;
 
     let (lr_data_0, best_order, atomic_swap_volume, lr_data_1, total_price) = find_best_swap_path_with_lr(
         &ctx,
@@ -64,7 +65,8 @@ pub async fn lr_find_best_quote_rpc(
         req.bids,
         &req.volume,
     )
-    .await?;
+    .await
+    .map_mm_err()?;
 
     let lr_data_0 = lr_data_0
         .map(|lr_data| {
@@ -153,7 +155,7 @@ pub async fn lr_execute_routed_trade_rpc(
     if req.lr_swap_0.is_none() && req.lr_swap_1.is_none() {
         return MmError::err(ExtApiRpcError::InvalidParam("no LR params".to_owned()));
     }
-    let action = sell_buy_method(&req.atomic_swap.method)?;
+    let action = sell_buy_method(&req.atomic_swap.method).map_mm_err()?;
     let atomic_swap_volume = match action {
         TakerAction::Sell => {
             if req.lr_swap_0.is_none() && req.atomic_swap.volume.is_none() {
@@ -180,11 +182,15 @@ pub async fn lr_execute_routed_trade_rpc(
 
     // Validate LR step 0 (before the atomic swap):
     let lr_swap_params_0 = if let Some(ref lr_swap_0) = req.lr_swap_0 {
-        let (src_coin, src_contract) = get_coin_for_one_inch(&ctx, &lr_swap_0.get_source_token()?).await?;
-        let (dst_coin, dst_contract) = get_coin_for_one_inch(&ctx, &lr_swap_0.get_destination_token()?).await?;
+        let (src_coin, src_contract) = get_coin_for_one_inch(&ctx, &lr_swap_0.get_source_token()?)
+            .await
+            .map_mm_err()?;
+        let (dst_coin, dst_contract) = get_coin_for_one_inch(&ctx, &lr_swap_0.get_destination_token()?)
+            .await
+            .map_mm_err()?;
         let src_chain_id = src_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
         let dst_chain_id = dst_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
-        check_if_one_inch_supports_pair(src_chain_id, dst_chain_id)?;
+        check_if_one_inch_supports_pair(src_chain_id, dst_chain_id).map_mm_err()?;
 
         // Ensure correct token routing from LR-0 to atomic swap
         if lr_swap_0.get_destination_token()? != atomic_swap_params.taker_coin() {
@@ -194,7 +200,7 @@ pub async fn lr_execute_routed_trade_rpc(
                 atomic_swap_params.taker_coin()
             )));
         }
-        let single_address = src_coin.derivation_method().single_addr_or_err().await?;
+        let single_address = src_coin.derivation_method().single_addr_or_err().await.map_mm_err()?;
         debug!(
             "Calling check source coin '{}' balance for LR step 0...",
             src_coin.ticker()
@@ -212,7 +218,8 @@ pub async fn lr_execute_routed_trade_rpc(
             },
             None,
         )
-        .await?;
+        .await
+        .map_mm_err()?;
         Some(LrSwapParams {
             src_amount: lr_swap_0.swap_details.src_amount.clone(),
             src_decimals: src_coin.decimals(),
@@ -228,8 +235,8 @@ pub async fn lr_execute_routed_trade_rpc(
         None
     };
 
-    let atomic_swap_base_coin = lp_coinfind_or_err(&ctx, &req.atomic_swap.base).await?;
-    let atomic_swap_rel_coin = lp_coinfind_or_err(&ctx, &req.atomic_swap.rel).await?;
+    let atomic_swap_base_coin = lp_coinfind_or_err(&ctx, &req.atomic_swap.base).await.map_mm_err()?;
+    let atomic_swap_rel_coin = lp_coinfind_or_err(&ctx, &req.atomic_swap.rel).await.map_mm_err()?;
     let (taker_coin, maker_coin) = match atomic_swap_params.action {
         TakerAction::Sell => (atomic_swap_base_coin, atomic_swap_rel_coin),
         TakerAction::Buy => (atomic_swap_rel_coin, atomic_swap_base_coin),
@@ -250,7 +257,8 @@ pub async fn lr_execute_routed_trade_rpc(
             None,
             FeeApproxStage::OrderIssue,
         )
-        .await?
+        .await
+        .map_mm_err()?
     }
 
     // Validate needed trade fee in maker platform coin, total for atomic swap and LR_1
@@ -259,7 +267,8 @@ pub async fn lr_execute_routed_trade_rpc(
         .get_receiver_trade_fee(FeeApproxStage::OrderIssue)
         .compat()
         .await
-        .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, maker_coin.ticker()))?;
+        .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, maker_coin.ticker()))
+        .map_mm_err()?;
 
     // Add tx fee for LR_1:
     if let (Some(lr_swap_1), MmCoinEnum::EthCoin(eth_coin)) = (&req.lr_swap_1, &maker_coin) {
@@ -268,7 +277,8 @@ pub async fn lr_execute_routed_trade_rpc(
                 lr_swap_1.swap_details.gas.unwrap_or_default().into(),
                 FeeApproxStage::OrderIssue,
             )
-            .await?;
+            .await
+            .map_mm_err()?;
         maker_coin_trade_fee.amount += lr_trade_fee.amount;
         maker_coin_trade_fee.paid_from_trading_vol = false;
     }
@@ -282,16 +292,22 @@ pub async fn lr_execute_routed_trade_rpc(
             "Calling check other_coin '{}' balance for atomic swap...",
             maker_coin.ticker()
         );
-        check_other_coin_balance_for_swap(&ctx, maker_coin.deref(), None, maker_coin_trade_fee).await?;
+        check_other_coin_balance_for_swap(&ctx, maker_coin.deref(), None, maker_coin_trade_fee)
+            .await
+            .map_mm_err()?;
     }
 
     // Validate LR step 1 (after the atomic swap):
     let lr_swap_params_1 = if let Some(lr_swap_1) = req.lr_swap_1 {
-        let (src_coin, src_contract) = get_coin_for_one_inch(&ctx, &lr_swap_1.get_source_token()?).await?;
-        let (dst_coin, dst_contract) = get_coin_for_one_inch(&ctx, &lr_swap_1.get_destination_token()?).await?;
+        let (src_coin, src_contract) = get_coin_for_one_inch(&ctx, &lr_swap_1.get_source_token()?)
+            .await
+            .map_mm_err()?;
+        let (dst_coin, dst_contract) = get_coin_for_one_inch(&ctx, &lr_swap_1.get_destination_token()?)
+            .await
+            .map_mm_err()?;
         let src_chain_id = src_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
         let dst_chain_id = dst_coin.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
-        check_if_one_inch_supports_pair(src_chain_id, dst_chain_id)?;
+        check_if_one_inch_supports_pair(src_chain_id, dst_chain_id).map_mm_err()?;
 
         // Ensure correct token routing from atomic swap to LR_1
         if atomic_swap_params.maker_coin() != lr_swap_1.get_source_token()? {
@@ -301,7 +317,7 @@ pub async fn lr_execute_routed_trade_rpc(
                 lr_swap_1.get_source_token()?
             )));
         }
-        let single_address = src_coin.derivation_method().single_addr_or_err().await?;
+        let single_address = src_coin.derivation_method().single_addr_or_err().await.map_mm_err()?;
         Some(LrSwapParams {
             src_amount: lr_swap_1.swap_details.src_amount.clone(),
             src_decimals: src_coin.decimals(),
@@ -316,7 +332,9 @@ pub async fn lr_execute_routed_trade_rpc(
     } else {
         None
     };
-    let swap_uuid = lp_start_agg_taker_swap(ctx, lr_swap_params_0, lr_swap_params_1, atomic_swap_params).await?;
+    let swap_uuid = lp_start_agg_taker_swap(ctx, lr_swap_params_0, lr_swap_params_1, atomic_swap_params)
+        .await
+        .map_mm_err()?;
     Ok(LrExecuteRoutedTradeResponse { uuid: swap_uuid })
     // TODO: add reasons for AbortReason
     // TODO: ExtApiError - fix included big OneInchApi err

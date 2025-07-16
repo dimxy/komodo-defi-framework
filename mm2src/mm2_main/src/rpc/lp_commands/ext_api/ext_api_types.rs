@@ -238,8 +238,10 @@ impl ClassicSwapDetails {
         let src_token_kdf = Self::token_name_kdf(ctx, chain_id, &src_token_info);
         let dst_token_kdf = Self::token_name_kdf(ctx, chain_id, &dst_token_info);
         Ok(Self {
-            src_amount: u256_to_coins_mm_number(src_amount, src_decimals)?,
-            dst_amount: u256_to_coins_mm_number(U256::from_dec_str(&swap_data.dst_amount)?, dst_decimals)?.into(),
+            src_amount: u256_to_coins_mm_number(src_amount, src_decimals).map_mm_err()?,
+            dst_amount: u256_to_coins_mm_number(U256::from_dec_str(&swap_data.dst_amount)?, dst_decimals)
+                .map_mm_err()?
+                .into(),
             src_token: Some(LrTokenInfo {
                 symbol_kdf: src_token_kdf,
                 ..src_token_info
@@ -277,8 +279,8 @@ impl TxFields {
             from: tx_fields.from,
             to: tx_fields.to,
             data: BytesJson::from(hex::decode(str_strip_0x!(tx_fields.data.as_str()))?),
-            value: wei_to_eth_decimal(U256::from_dec_str(&tx_fields.value)?)?,
-            gas_price: wei_to_gwei_decimal(U256::from_dec_str(&tx_fields.gas_price)?)?,
+            value: wei_to_eth_decimal(U256::from_dec_str(&tx_fields.value)?).map_mm_err()?,
+            gas_price: wei_to_gwei_decimal(U256::from_dec_str(&tx_fields.gas_price)?).map_mm_err()?,
             gas: tx_fields.gas,
         })
     }

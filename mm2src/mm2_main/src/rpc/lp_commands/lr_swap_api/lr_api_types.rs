@@ -105,6 +105,7 @@ pub struct LrFindBestQuoteResponse {
 }
 
 /// Request to get quotes with possible swap paths to fill order with multiple tokens with LR
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LrGetQuotesForTokensRequest {

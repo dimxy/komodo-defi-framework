@@ -2,6 +2,7 @@ use crate::lp_swap::swap_v2_common::SwapStateMachineError;
 use crate::lp_swap::swap_v2_rpcs::MySwapStatusError;
 use crate::lp_swap::CheckBalanceError;
 use coins::CoinFindError;
+use derive_more::Display;
 use enum_derives::EnumFromStringify;
 use ethereum_types::U256;
 use mm2_number::BigDecimal;

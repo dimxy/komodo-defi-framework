@@ -25,6 +25,7 @@ use common::executor::Timer;
 use common::log::{debug, info, warn};
 use common::Future01CompatExt;
 use common::{new_uuid, now_sec};
+use derive_more::Display;
 use ethereum_types::{Address as EthAddress, U256};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::map_mm_error::MapMmError;
@@ -685,10 +686,7 @@ mod states {
             {
                 info!("{LOG_PREFIX}: liquidity routing tx confirmation failed: {}", err);
                 let aborted = Aborted {
-                    reason: AbortReason::SomeReason(format!(
-                        "LR tx confirmation failed: {}",
-                        err.get_inner().to_string()
-                    )),
+                    reason: AbortReason::SomeReason(format!("LR tx confirmation failed: {}", err.get_inner())),
                 };
                 return Self::change_state(aborted, state_machine).await;
             }
@@ -985,20 +983,19 @@ impl AggTakerSwapStateMachine {
             lr_swap_params.slippage,
             Default::default(),
         );
-        let query_params = lr_swap_request.build_query_params()?;
-        let url = SwapUrlBuilder::create_api_url_builder(&self.ctx, base_chain_id, SwapApiMethods::ClassicSwapCreate)?
+        let query_params = lr_swap_request.build_query_params().map_mm_err()?;
+        let url = SwapUrlBuilder::create_api_url_builder(&self.ctx, base_chain_id, SwapApiMethods::ClassicSwapCreate)
+            .map_mm_err()?
             .with_query_params(query_params)
-            .build()?;
-        let swap_with_tx: ClassicSwapData = ApiClient::call_api(url).await?;
+            .build()
+            .map_mm_err()?;
+        let swap_with_tx: ClassicSwapData = ApiClient::call_api(url).await.map_mm_err()?;
         let tx_fields = swap_with_tx
             .tx
             .ok_or(LrSwapError::InternalError("TxFields empty".to_string()))?;
 
         let sign_params = SignRawTransactionEnum::ETH(SignEthTransactionParams {
-            value: Some(u256_to_big_decimal(
-                U256::from_dec_str(&tx_fields.value)?,
-                src_coin.decimals(),
-            )?),
+            value: Some(u256_to_big_decimal(U256::from_dec_str(&tx_fields.value)?, src_coin.decimals()).map_mm_err()?),
             to: Some(tx_fields.to.display_address()),
             data: Some(tx_fields.data),
             gas_limit: U256::from(tx_fields.gas),
@@ -1018,7 +1015,8 @@ impl AggTakerSwapStateMachine {
                 coin: src_coin.ticker().to_owned(),
                 tx: sign_params,
             })
-            .await?;
+            .await
+            .map_mm_err()?;
         let txid = src_coin
             .send_raw_tx_bytes(&tx_bytes.tx_hex)
             .compat()
@@ -1027,14 +1025,18 @@ impl AggTakerSwapStateMachine {
         info!("{LOG_PREFIX}: liquidity routing tx {} sent okay", txid);
 
         let dst_amount = U256::from_dec_str(&swap_with_tx.dst_amount)?;
-        let dst_amount = u256_to_big_decimal(dst_amount, lr_swap_params.dst_decimals)?;
+        let dst_amount = u256_to_big_decimal(dst_amount, lr_swap_params.dst_decimals).map_mm_err()?;
         Ok((lr_swap_params.src.clone(), tx_bytes.tx_hex, dst_amount.into()))
     }
 
     /// Start nested atomic swap by calling lp_auto_buy. The actual volume is determined on previous states
     async fn start_lp_auto_buy(&self, volume: MmNumber, _slippage: f32) -> MmResult<SellBuyResponse, LrSwapError> {
-        let base_coin = lp_coinfind_or_err(&self.ctx, &self.atomic_swap.base).await?;
-        let rel_coin = lp_coinfind_or_err(&self.ctx, &self.atomic_swap.rel).await?;
+        let base_coin = lp_coinfind_or_err(&self.ctx, &self.atomic_swap.base)
+            .await
+            .map_mm_err()?;
+        let rel_coin = lp_coinfind_or_err(&self.ctx, &self.atomic_swap.rel)
+            .await
+            .map_mm_err()?;
         if base_coin.wallet_only(&self.ctx) {
             return MmError::err(LrSwapError::InvalidParam(format!(
                 "Base coin {} is wallet only",
@@ -1075,7 +1077,8 @@ impl AggTakerSwapStateMachine {
             None,
             FeeApproxStage::OrderIssue,
         )
-        .await?;
+        .await
+        .map_mm_err()?;
         info!(
             "{LOG_PREFIX} starting atomic swap for {}/{}, action {:?}, amount {}",
             self.atomic_swap.base,
@@ -1168,7 +1171,7 @@ impl AggTakerSwapStateMachine {
     }
 
     async fn wait_for_lr_tx_confirmation(&self, coin: &Ticker, tx_bytes: BytesJson) -> MmResult<(), LrSwapError> {
-        match lp_coinfind_or_err(&self.ctx, coin).await? {
+        match lp_coinfind_or_err(&self.ctx, coin).await.map_mm_err()? {
             MmCoinEnum::EthCoin(eth_coin) => {
                 info!("{LOG_PREFIX}: waiting for liquidity routing tx to confirm");
                 let confirm_lr_swap_input = ConfirmPaymentInput {

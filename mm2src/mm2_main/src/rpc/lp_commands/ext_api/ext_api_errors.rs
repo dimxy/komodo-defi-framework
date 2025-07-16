@@ -4,6 +4,7 @@ use crate::lp_swap::CheckBalanceError;
 use crate::lr_swap::lr_errors::LrSwapError;
 use coins::{CoinFindError, NumConversError, TradePreimageError, UnexpectedDerivationMethod};
 use common::{HttpStatusCode, StatusCode};
+use derive_more::Display;
 use ethereum_types::U256;
 use mm2_number::BigDecimal;
 use ser_error_derive::SerializeErrorType;

@@ -32,19 +32,22 @@ pub async fn one_inch_v6_0_classic_swap_quote_rpc(
     ctx: MmArc,
     req: ClassicSwapQuoteRequest,
 ) -> MmResult<ClassicSwapResponse, ExtApiRpcError> {
-    let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await?;
-    let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await?;
+    let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await.map_mm_err()?;
+    let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await.map_mm_err()?;
     let base_chain_id = base.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
     let rel_chain_id = rel.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
-    check_if_one_inch_supports_pair(base_chain_id, rel_chain_id)?;
+    check_if_one_inch_supports_pair(base_chain_id, rel_chain_id).map_mm_err()?;
     let sell_amount = u256_from_big_decimal(&req.amount.to_decimal(), base.decimals())
         .mm_err(|err| ExtApiRpcError::InvalidParam(err.to_string()))?;
     let query_params = make_classic_swap_quote_params(base_contract, rel_contract, sell_amount, req.opt_params)
-        .build_query_params()?;
-    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base_chain_id, SwapApiMethods::ClassicSwapQuote)?
+        .build_query_params()
+        .map_mm_err()?;
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base_chain_id, SwapApiMethods::ClassicSwapQuote)
+        .map_mm_err()?
         .with_query_params(query_params)
-        .build()?;
-    let quote = ApiClient::call_api(url).await?;
+        .build()
+        .map_mm_err()?;
+    let quote = ApiClient::call_api(url).await.map_mm_err()?;
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, sell_amount, quote) // use 'base' as amount in errors is in the src coin
         .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
 }
@@ -56,14 +59,14 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
     ctx: MmArc,
     req: ClassicSwapCreateRequest,
 ) -> MmResult<ClassicSwapResponse, ExtApiRpcError> {
-    let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await?;
-    let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await?;
+    let (base, base_contract) = get_coin_for_one_inch(&ctx, &req.base).await.map_mm_err()?;
+    let (rel, rel_contract) = get_coin_for_one_inch(&ctx, &req.rel).await.map_mm_err()?;
     let base_chain_id = base.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
     let rel_chain_id = rel.chain_id().ok_or(ExtApiRpcError::ChainNotSupported)?;
-    check_if_one_inch_supports_pair(base_chain_id, rel_chain_id)?;
+    check_if_one_inch_supports_pair(base_chain_id, rel_chain_id).map_mm_err()?;
     let sell_amount = u256_from_big_decimal(&req.amount.to_decimal(), base.decimals())
         .mm_err(|err| ExtApiRpcError::InvalidParam(err.to_string()))?;
-    let single_address = base.derivation_method().single_addr_or_err().await?;
+    let single_address = base.derivation_method().single_addr_or_err().await.map_mm_err()?;
 
     let query_params = make_classic_swap_create_params(
         base_contract,
@@ -73,11 +76,14 @@ pub async fn one_inch_v6_0_classic_swap_create_rpc(
         req.slippage,
         req.opt_params,
     )
-    .build_query_params()?;
-    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base_chain_id, SwapApiMethods::ClassicSwapCreate)?
+    .build_query_params()
+    .map_mm_err()?;
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, base_chain_id, SwapApiMethods::ClassicSwapCreate)
+        .map_mm_err()?
         .with_query_params(query_params)
-        .build()?;
-    let swap_with_tx = ApiClient::call_api(url).await?;
+        .build()
+        .map_mm_err()?;
+    let swap_with_tx = ApiClient::call_api(url).await.map_mm_err()?;
     ClassicSwapResponse::from_api_classic_swap_data(&ctx, base_chain_id, sell_amount, swap_with_tx)
         .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
 }
@@ -88,8 +94,11 @@ pub async fn one_inch_v6_0_classic_swap_liquidity_sources_rpc(
     ctx: MmArc,
     req: ClassicSwapLiquiditySourcesRequest,
 ) -> MmResult<ClassicSwapLiquiditySourcesResponse, ExtApiRpcError> {
-    let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::LiquiditySources)?.build()?;
-    let response: ProtocolsResponse = ApiClient::call_api(url).await?;
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::LiquiditySources)
+        .map_mm_err()?
+        .build()
+        .map_mm_err()?;
+    let response: ProtocolsResponse = ApiClient::call_api(url).await.map_mm_err()?;
     Ok(ClassicSwapLiquiditySourcesResponse {
         protocols: response.protocols,
     })
@@ -101,8 +110,11 @@ pub async fn one_inch_v6_0_classic_swap_tokens_rpc(
     ctx: MmArc,
     req: ClassicSwapTokensRequest,
 ) -> MmResult<ClassicSwapTokensResponse, ExtApiRpcError> {
-    let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::Tokens)?.build()?;
-    let mut response: TokensResponse = ApiClient::call_api(url).await?;
+    let url = SwapUrlBuilder::create_api_url_builder(&ctx, req.chain_id, SwapApiMethods::Tokens)
+        .map_mm_err()?
+        .build()
+        .map_mm_err()?;
+    let mut response: TokensResponse = ApiClient::call_api(url).await.map_mm_err()?;
     for (_, token_info) in response.tokens.iter_mut() {
         token_info.symbol_kdf = ClassicSwapDetails::token_name_kdf(&ctx, req.chain_id, token_info);
     }

@@ -1019,7 +1019,7 @@ async fn enable_pol_tokens(mm: &MarketMakerIt, tickers: &[&str]) -> Value {
         pol_contracts_v2,
         None,
         &polygon_nodes,
-        json!(tickers.iter().map(|t| json!({"ticker": t})).collect::<Vec<Value>>()),
+        tickers,
     )
     .await
 }
@@ -1042,7 +1042,7 @@ async fn enable_arb_tokens(mm: &MarketMakerIt, tickers: &[&str]) -> Value {
         arb_contracts_v2,
         None,
         &arb_nodes,
-        json!(tickers.iter().map(|t| json!({"ticker": t})).collect::<Vec<Value>>()),
+        tickers,
     )
     .await
 }

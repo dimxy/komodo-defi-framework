@@ -357,18 +357,18 @@ impl LrSwapCandidates {
     ) -> MmResult<(), LrSwapError> {
         for candidate in self.inner.iter_mut() {
             let taker_ticker = &candidate.maker_order.taker_ticker();
-            let taker_coin = lp_coinfind_or_err(ctx, taker_ticker).await?;
+            let taker_coin = lp_coinfind_or_err(ctx, taker_ticker).await.map_mm_err()?;
             let maker_sell_price = candidate.maker_order.sell_price();
             let maker_amount = if let Some(ref lr_data_1) = candidate.lr_data_1 {
                 let Some(src_amount) = lr_data_1.src_amount else {
-                    continue; // No src_amount means LR provider did not send us cross prices, skipping this candidate 
+                    continue; // No src_amount means LR provider did not send us cross prices, skipping this candidate
                 };
-                u256_to_coins_mm_number(src_amount, lr_data_1.src_decimals()?)?
+                u256_to_coins_mm_number(src_amount, lr_data_1.src_decimals()?).map_mm_err()?
             } else {
                 user_buy_amount.clone()
             };
             let dst_amount = &maker_amount * &maker_sell_price;
-            let dst_amount = u256_from_coins_mm_number(&dst_amount, taker_coin.decimals())?;
+            let dst_amount = u256_from_coins_mm_number(&dst_amount, taker_coin.decimals()).map_mm_err()?;
             if let Some(ref mut lr_data_0) = candidate.lr_data_0 {
                 lr_data_0.dst_amount = Some(dst_amount);
             } else {
@@ -399,11 +399,13 @@ impl LrSwapCandidates {
     async fn set_lr_0_src_amount(&mut self, ctx: &MmArc, mm_amount: &MmNumber) -> MmResult<(), LrSwapError> {
         for candidate in self.inner.iter_mut() {
             if let Some(ref mut lr_data_0) = candidate.lr_data_0 {
-                let amount = u256_from_coins_mm_number(mm_amount, lr_data_0.src_decimals()?)?;
+                let amount = u256_from_coins_mm_number(mm_amount, lr_data_0.src_decimals()?).map_mm_err()?;
                 lr_data_0.src_amount = Some(amount);
             } else {
-                let taker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.taker_ticker()).await?;
-                let taker_amount = u256_from_coins_mm_number(mm_amount, taker_coin.decimals())?;
+                let taker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.taker_ticker())
+                    .await
+                    .map_mm_err()?;
+                let taker_amount = u256_from_coins_mm_number(mm_amount, taker_coin.decimals()).map_mm_err()?;
                 candidate.atomic_swap_taker_amount = Some(taker_amount);
             }
         }
@@ -483,10 +485,13 @@ impl LrSwapCandidates {
             let query_params = CrossPriceParams::new(chain_id, src_contract, dst_contract)
                 .with_granularity(Some(CROSS_PRICES_GRANULARITY))
                 .with_limit(Some(CROSS_PRICES_LIMIT))
-                .build_query_params()?;
-            let url = PortfolioUrlBuilder::create_api_url_builder(ctx, PortfolioApiMethods::CrossPrices)?
+                .build_query_params()
+                .map_mm_err()?;
+            let url = PortfolioUrlBuilder::create_api_url_builder(ctx, PortfolioApiMethods::CrossPrices)
+                .map_mm_err()?
                 .with_query_params(query_params)
-                .build()?;
+                .build()
+                .map_mm_err()?;
             let fut = ApiClient::call_api::<CrossPricesSeries>(url);
             prices_futs.push(fut);
             src_dst.push((lr_data._src_token.clone(), lr_data._dst_token.clone()));
@@ -518,7 +523,7 @@ impl LrSwapCandidates {
             };
             let Some(dst_amount) = lr_data_0.dst_amount else {
                 log::debug!("estimate_lr_0_source_amounts no lr_data_0.dst_amount skipping candidate");
-                continue; // We may not calculate dst_amount if no cross prices were received at LR_1 
+                continue; // We may not calculate dst_amount if no cross prices were received at LR_1
             };
             let Some(ref lr_price) = lr_data_0.lr_price else {
                 log::debug!("estimate_lr_0_source_amounts no lr_data_0.lr_price skipping candidate");
@@ -558,7 +563,7 @@ impl LrSwapCandidates {
                 let Some(ref lr_price) = lr_data_1.lr_price else {
                     continue; // No LR provider price - skipping
                 };
-                let dst_amount = u256_from_coins_mm_number(user_dst_amount, lr_data_1.dst_decimals()?)?;
+                let dst_amount = u256_from_coins_mm_number(user_dst_amount, lr_data_1.dst_decimals()?).map_mm_err()?;
                 let dst_amount = mm_number_from_u256(dst_amount);
                 if let Some(src_amount) = &dst_amount.checked_div(lr_price) {
                     // Note: lr_price is calculated in smallest units (not coin units)
@@ -571,8 +576,10 @@ impl LrSwapCandidates {
                     );
                 }
             } else {
-                let maker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.maker_ticker()).await?;
-                let dst_amount = u256_from_coins_mm_number(user_dst_amount, maker_coin.decimals())?;
+                let maker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.maker_ticker())
+                    .await
+                    .map_mm_err()?;
+                let dst_amount = u256_from_coins_mm_number(user_dst_amount, maker_coin.decimals()).map_mm_err()?;
                 candidate.atomic_swap_maker_amount = Some(dst_amount);
             }
         }
@@ -599,7 +606,8 @@ impl LrSwapCandidates {
                     continue; // No LR provider quote - skip this candidate
                 };
                 log::debug!("estimate_lr_1_source_amounts_from_lr_0 quote_dst_amount={quote_dst_amount} est_dst_amount={est_dst_amount}");
-                let volume_with_fees = u256_to_coins_mm_number(quote_dst_amount, lr_data_0.dst_decimals()?)?;
+                let volume_with_fees =
+                    u256_to_coins_mm_number(quote_dst_amount, lr_data_0.dst_decimals()?).map_mm_err()?;
                 let maker_ticker = candidate.maker_order.maker_ticker();
                 let taker_ticker = candidate.maker_order.taker_ticker();
                 let dex_fee_rate = DexFee::dex_fee_rate(&taker_ticker, &maker_ticker);
@@ -609,12 +617,12 @@ impl LrSwapCandidates {
             };
             // Get maker amount from taker amount
             let maker_ticker = &candidate.maker_order.maker_ticker();
-            let maker_coin = lp_coinfind_or_err(ctx, maker_ticker).await?;
+            let maker_coin = lp_coinfind_or_err(ctx, maker_ticker).await.map_mm_err()?;
             let maker_sell_price: MmNumber = candidate.maker_order.sell_price(); // In maker/taker units
             let Some(maker_amount) = &taker_amount.checked_div(&maker_sell_price) else {
                 continue;
             };
-            let maker_amount = u256_from_coins_mm_number(maker_amount, maker_coin.decimals())?;
+            let maker_amount = u256_from_coins_mm_number(maker_amount, maker_coin.decimals()).map_mm_err()?;
             if let Some(ref mut lr_data_1) = candidate.lr_data_1 {
                 lr_data_1.src_amount = Some(maker_amount);
             } else {
@@ -645,8 +653,8 @@ impl LrSwapCandidates {
                 continue; // No src_amount means LR provider did not send us cross prices, skipping this candidate
             };
             let atomic_swap_maker_token = candidate.maker_order.maker_ticker();
-            let src_amount_mm_num = u256_to_coins_mm_number(src_amount, lr_data_0.src_decimals()?)?;
-            let src_coin = lp_coinfind_or_err(ctx, &lr_data_0._src_token).await?; // TODO: when I used get_coin_for_one_inch(), throwing a error if the order coin not EVM, 'lr_quote.rs' is lost in the error path. Why? dedup()?
+            let src_amount_mm_num = u256_to_coins_mm_number(src_amount, lr_data_0.src_decimals()?).map_mm_err()?;
+            let src_coin = lp_coinfind_or_err(ctx, &lr_data_0._src_token).await.map_mm_err()?; // TODO: when I used get_coin_for_one_inch(), throwing a error if the order coin not EVM, 'lr_quote.rs' is lost in the error path. Why? dedup()?
             let dex_fee = DexFee::new_from_taker_coin(src_coin.deref(), &atomic_swap_maker_token, &src_amount_mm_num)
                 .fee_amount(); // TODO: use simply DexFee::rate?
             let Some(ref mut lr_data_0) = candidate.lr_data_0 else {
@@ -656,10 +664,8 @@ impl LrSwapCandidates {
             //let src_amount_with_fees = LrStepData::add_fees_to_amount(src_amount_mm_num, src_token, &taker_swap_params)?;
             let src_amount_with_fees = &src_amount_mm_num + &dex_fee;
             log::debug!("estimate_lr_0_fee_amounts src_token={} src_amount_mm_num={src_amount_mm_num} dex_fee={dex_fee} src_amount_with_fees={src_amount_with_fees}", lr_data_0._src_token);
-            lr_data_0.src_amount = Some(u256_from_coins_mm_number(
-                &src_amount_with_fees,
-                lr_data_0.src_decimals()?,
-            )?);
+            lr_data_0.src_amount =
+                Some(u256_from_coins_mm_number(&src_amount_with_fees, lr_data_0.src_decimals()?).map_mm_err()?);
             //lr_data_0.taker_swap_params = Some(taker_swap_params);
             lr_data_0.dex_fee = Some(dex_fee);
         }
@@ -736,7 +742,8 @@ impl LrSwapCandidates {
                     continue; // No LR provider quote received - skip this candidate
                 }
                 // Exclude dex fee from the LR_0 src_amount for total_price calculation
-                let volume_with_fees = u256_to_coins_mm_number(lr_data_0.src_amount()?, lr_data_0.src_decimals()?)?;
+                let volume_with_fees =
+                    u256_to_coins_mm_number(lr_data_0.src_amount()?, lr_data_0.src_decimals()?).map_mm_err()?;
                 let maker_ticker = candidate.maker_order.maker_ticker();
                 let taker_ticker = candidate.maker_order.taker_ticker();
                 let dex_fee_rate = DexFee::dex_fee_rate(&taker_ticker, &maker_ticker);
@@ -745,8 +752,10 @@ impl LrSwapCandidates {
                 let atomic_swap_taker_amount = candidate
                     .atomic_swap_taker_amount
                     .ok_or(LrSwapError::InternalError("no atomic swap taker amount".to_owned()))?;
-                let taker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.taker_ticker()).await?;
-                u256_to_coins_mm_number(atomic_swap_taker_amount, taker_coin.decimals())?
+                let taker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.taker_ticker())
+                    .await
+                    .map_mm_err()?;
+                u256_to_coins_mm_number(atomic_swap_taker_amount, taker_coin.decimals()).map_mm_err()?
             };
 
             let buy_amount = if let Some(ref lr_data_1) = candidate.lr_data_1 {
@@ -757,13 +766,15 @@ impl LrSwapCandidates {
                     continue; // No LR provider quote - skip this candidate
                 };
                 let quote_dst_amount = U256::from_dec_str(&lr_swap_data.dst_amount)?;
-                u256_to_coins_mm_number(quote_dst_amount, lr_data_1.dst_decimals()?)?
+                u256_to_coins_mm_number(quote_dst_amount, lr_data_1.dst_decimals()?).map_mm_err()?
             } else {
                 let atomic_swap_maker_amount = candidate
                     .atomic_swap_maker_amount
                     .ok_or(LrSwapError::InternalError("no atomic swap maker amount".to_owned()))?;
-                let maker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.maker_ticker()).await?;
-                u256_to_coins_mm_number(atomic_swap_maker_amount, maker_coin.decimals())?
+                let maker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.maker_ticker())
+                    .await
+                    .map_mm_err()?;
+                u256_to_coins_mm_number(atomic_swap_maker_amount, maker_coin.decimals()).map_mm_err()?
             };
 
             log::debug!("select_best_swap: candidate: LR_0: {lr_0_src_token_print:?}/{lr_0_dst_token_print:?} Atomic swap: {taker_ticker_print}/{maker_ticker_print} LR_1: {lr_1_src_token_print:?}/{lr_1_dst_token_print:?} sell_amount={} buy_amount={} total_price={:?}",
@@ -863,21 +874,27 @@ pub async fn find_best_swap_path_with_lr(
             if best_candidate.lr_data_0.is_none() && best_candidate.atomic_swap_taker_amount.is_none() {
                 return MmError::err(LrSwapError::InternalError("no taker amount".to_owned()));
             }
-            let taker_coin = lp_coinfind_or_err(ctx, &best_candidate.maker_order.taker_ticker()).await?;
+            let taker_coin = lp_coinfind_or_err(ctx, &best_candidate.maker_order.taker_ticker())
+                .await
+                .map_mm_err()?;
             best_candidate
                 .atomic_swap_taker_amount
                 .map(|amount| u256_to_coins_mm_number(amount, taker_coin.decimals()))
-                .transpose()?
+                .transpose()
+                .map_mm_err()?
         },
         TakerAction::Buy => {
             if best_candidate.lr_data_1.is_none() && best_candidate.atomic_swap_maker_amount.is_none() {
                 return MmError::err(LrSwapError::InternalError("no maker amount".to_owned()));
             }
-            let maker_coin = lp_coinfind_or_err(ctx, &best_candidate.maker_order.maker_ticker()).await?;
+            let maker_coin = lp_coinfind_or_err(ctx, &best_candidate.maker_order.maker_ticker())
+                .await
+                .map_mm_err()?;
             best_candidate
                 .atomic_swap_maker_amount
                 .map(|amount| u256_to_coins_mm_number(amount, maker_coin.decimals()))
-                .transpose()?
+                .transpose()
+                .map_mm_err()?
         },
     };
     let lr_data_ext_0 = best_candidate
@@ -923,9 +940,7 @@ pub async fn find_best_swap_path_with_lr(
 
 /// Helper to process 1inch token cross prices data and return average price
 fn cross_prices_average(series: Option<CrossPricesSeries>) -> Option<MmNumber> {
-    let Some(series) = series else {
-        return None;
-    };
+    let series = series?;
     if series.is_empty() {
         return None;
     }
@@ -957,10 +972,13 @@ fn create_quote_call<'a>(
     let query_params = ClassicSwapQuoteCallBuilder::new(src_contract, dst_contract, src_amount.to_string())
         .with_include_tokens_info(Some(true))
         .with_include_gas(Some(true))
-        .build_query_params()?;
-    let url = SwapUrlBuilder::create_api_url_builder(ctx, chain_id, SwapApiMethods::ClassicSwapQuote)?
+        .build_query_params()
+        .map_mm_err()?;
+    let url = SwapUrlBuilder::create_api_url_builder(ctx, chain_id, SwapApiMethods::ClassicSwapQuote)
+        .map_mm_err()?
         .with_query_params(query_params)
-        .build()?;
+        .build()
+        .map_mm_err()?;
     let fut = ApiClient::call_api::<ClassicSwapData>(url);
     Ok(Some(Box::pin(fut)))
 }
