@@ -231,17 +231,35 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
 }
 
 #[test]
-fn test_aggregated_swap_mainnet_polygon_arbitrum() {
+fn test_aggregated_swap_mainnet_polygon_arbitrum_sell() {
+    let user_base = MATIC.to_owned(); // 0.24 USD
+    let user_rel = crv_arb20_conf()["coin"].as_str().unwrap().to_owned(); // 0.63 USD
+    let swap_amount: BigDecimal = "0.3".parse().unwrap();
+    let method = "sell"; // Sell 0.3 MATIC, buy CRV-ARB20
+    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, method);
+}
+
+#[test]
+fn test_aggregated_swap_mainnet_polygon_arbitrum_buy() {
+    let user_base = crv_arb20_conf()["coin"].as_str().unwrap().to_owned(); // 0.63 USD
+    let user_rel = MATIC.to_owned(); // 0.24 USD
+    let swap_amount: BigDecimal = "0.1".parse().unwrap();
+    let method = "buy"; // Buy 0.1 CRV-ARB20, sell MATIC
+    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, method);
+}
+
+fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
+    user_base: &str,
+    user_rel: &str,
+    swap_amount: BigDecimal,
+    method: &str,
+) {
     let bob_passphrase = std::env::var("BOB_MAINNET").expect("BOB_MAINNET env must be set");
     let alice_passphrase = std::env::var("ALICE_MAINNET").expect("ALICE_MAINNET env must be set");
 
-    let user_base = crv_arb20_conf()["coin"].as_str().unwrap().to_owned();
-    let user_rel = MATIC.to_owned(); // 0.24 USD
-    let swap_amount: BigDecimal = "0.1".parse().unwrap();
-    let method = "buy"; // Sell MATIC buy 0.1 CRV-ARB20
     let receive_token = match method {
-        "buy" => &user_base,
-        "sell" => &user_rel,
+        "buy" => user_base,
+        "sell" => user_rel,
         _ => panic!("method must be buy or sell"),
     };
 
@@ -311,7 +329,12 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum() {
         &aave_ticker,
     ]));
     let _bob_enable_arb_tokens = block_on(enable_arb_tokens(&mm_bob, &[&arb_ticker, &crv_ticker, &grt_ticker]));
-    print_balances(&mm_bob, "Bob balance before swap:", &[MATIC, &eth_arb_ticker]);
+    print_balances(&mm_bob, "Bob balance before swap:", &[
+        MATIC,
+        &eth_arb_ticker,
+        &arb_ticker,
+        &grt_ticker,
+    ]);
 
     let _alice_enable_pol_tokens = block_on(enable_pol_tokens(&mm_alice, &[
         &dai_ticker,
@@ -343,7 +366,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum() {
         &grt_ticker,
         &aave_ticker,
         0.00003401384,
-        1.0,
+        7.0,
     ))
     .unwrap();
     let arb_order = block_on(wait_for_orderbook(
@@ -375,7 +398,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum() {
     const LR_SLIPPAGE: f32 = 0.0;
     let best_quote = block_on(find_best_lr_swap(
         &mut mm_alice,
-        &user_base,
+        user_base,
         &json!([]),
         &json!([{
             "rel": &aave_ticker, // pass as bid orders
@@ -383,7 +406,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum() {
         }]),
         &swap_amount,
         method,
-        &user_rel,
+        user_rel,
     ))
     .expect("best quote should be found");
     print_quote_resp(&best_quote);
@@ -394,7 +417,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum() {
 
     let active_swaps_alice = block_on(active_swaps(&mm_alice));
     assert_eq!(active_swaps_alice.uuids, vec![agg_uuid]);
-    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 240)); // Only taker has the aggregated swap
+    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 600)); // Only taker has the aggregated swap
     log!("Aggregated taker swap uuid {:?} finished", agg_uuid);
 
     let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
@@ -662,12 +685,8 @@ async fn create_and_start_agg_taker_swap(
     let mut atomic_swap = best_quote.atomic_swap;
     // We discussed that we should not match a specific order.
     // I set this for now but we need to think about this again:
-    // If a different order is taken the LR calculations may be wrong for it.
+    // if a different order is taken the LR calculations may be wrong for it.
     atomic_swap.match_by = Some(MatchBy::Orders([atomic_swap.order_uuid].into()));
-    /*let (taker_base, taker_rel, taker_method) = match &best_maker_order {
-        AskOrBidOrder::Ask { base, order } => (base, &order.coin, "buy"),
-        AskOrBidOrder::Bid { rel, order } => (rel, &order.coin, "sell"),
-    };*/
     log!(
         "Issue execute_routed_trade {} {}/{} request",
         atomic_swap.method,
@@ -680,20 +699,6 @@ async fn create_and_start_agg_taker_swap(
             "method": "experimental::liquidity_routing::execute_routed_trade",
             "mmrpc": "2.0",
             "params": {
-                /*"atomic_swap": {
-                    "volume": atomic_swap_volume,
-                    "base": taker_base,
-                    "rel": taker_rel,
-                    "price": best_maker_order.order().price.rational,
-                    "method": taker_method,
-                    "match_by": {
-                        "type": "Orders",
-                        // We discussed that we should not match a specific order.
-                        // I use this for now to think about this again:
-                        // If a different order is taken the LR calculations may be wrong for it.
-                        "data": [best_maker_order.order().uuid]
-                    }
-                },*/
                 "lr_swap_0": lr_swap_0,
                 "atomic_swap": atomic_swap,
                 "lr_swap_1": lr_swap_1,
@@ -789,7 +794,7 @@ fn print_quote_resp(quote: &LrFindBestQuoteResponse) {
     log!(
         "Found best quote for swap with LR:
         LR_0: src_token={:?} src_amount={:?} dst_token={:?} dst_amount={:?}
-        atomic swap params: base={} rel={} volume={:?}
+        atomic swap params: base={} rel={} method={} price={} volume={:?}
         LR_1: src_token={:?} src_amount={:?} dst_token={:?} dst_amount={:?}",
         quote
             .lr_data_0
@@ -803,6 +808,8 @@ fn print_quote_resp(quote: &LrFindBestQuoteResponse) {
         quote.lr_data_0.as_ref().map(|data| data.dst_amount.as_ratio().to_f64()),
         quote.atomic_swap.base,
         quote.atomic_swap.rel,
+        quote.atomic_swap.method,
+        quote.atomic_swap.price.to_decimal(),
         quote.atomic_swap.volume.as_ref().map(|v| v.to_decimal()),
         quote
             .lr_data_1
