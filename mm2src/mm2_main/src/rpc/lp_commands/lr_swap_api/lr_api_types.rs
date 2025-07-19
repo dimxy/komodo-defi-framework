@@ -4,7 +4,7 @@ use crate::lp_ordermatch::RpcOrderbookEntryV2;
 use crate::rpc::lp_commands::ext_api::ext_api_errors::ExtApiRpcError;
 use crate::rpc::lp_commands::ext_api::ext_api_types::{ClassicSwapCreateOptParams, ClassicSwapDetails};
 use coins::Ticker;
-use mm2_number::MmNumber;
+use mm2_number::{MmNumber, MmNumberMultiRepr};
 use mm2_rpc::data::legacy::{MatchBy, OrderType};
 use uuid::Uuid;
 
@@ -66,6 +66,34 @@ impl AskOrBidOrder {
         match self {
             AskOrBidOrder::Ask { order, .. } => &MmNumber::from(1) / &order.price.rational.clone().into(),
             AskOrBidOrder::Bid { order, .. } => order.price.rational.clone().into(),
+        }
+    }
+
+    pub fn max_maker_vol(&self) -> MmNumberMultiRepr {
+        match self {
+            AskOrBidOrder::Ask { order, .. } => order.base_max_volume.clone(),
+            AskOrBidOrder::Bid { order, .. } => order.rel_max_volume.clone(),
+        }
+    }
+
+    pub fn min_maker_vol(&self) -> MmNumberMultiRepr {
+        match self {
+            AskOrBidOrder::Ask { order, .. } => order.base_min_volume.clone(),
+            AskOrBidOrder::Bid { order, .. } => order.rel_min_volume.clone(),
+        }
+    }
+
+    pub fn max_taker_vol(&self) -> MmNumberMultiRepr {
+        match self {
+            AskOrBidOrder::Ask { order, .. } => order.rel_max_volume.clone(),
+            AskOrBidOrder::Bid { order, .. } => order.base_max_volume.clone(),
+        }
+    }
+
+    pub fn min_taker_vol(&self) -> MmNumberMultiRepr {
+        match self {
+            AskOrBidOrder::Ask { order, .. } => order.rel_min_volume.clone(),
+            AskOrBidOrder::Bid { order, .. } => order.base_min_volume.clone(),
         }
     }
 }

@@ -597,21 +597,24 @@ impl LrSwapCandidates {
         for candidate in self.inner.iter_mut() {
             let taker_amount = if let Some(ref lr_data_0) = candidate.lr_data_0 {
                 let Some(ref lr_swap_data) = lr_data_0.lr_swap_data else {
+                    log::debug!("estimate_lr_1_source_amounts_from_lr_0 lr_data_0 src_token {} dst_token={} no swap_data skipping", 
+                        lr_data_0._src_token, lr_data_0._dst_token);
                     continue; // No LR provider quote - skip this candidate
                 };
-                // Deduct dex fee to get the atomic swap taker amount
                 let quote_dst_amount = U256::from_dec_str(&lr_swap_data.dst_amount)?; // Get the 'real' destination amount from the LR quote (not estimated)
                 let est_dst_amount = candidate.lr_data_0.as_ref().and_then(|lr_data_0| lr_data_0.dst_amount);
-                let Some(est_dst_amount) = est_dst_amount else {
+                /*let Some(est_dst_amount) = est_dst_amount else {
+                    log::debug!("estimate_lr_1_source_amounts_from_lr_0 lr_data_0 src_token {} dst_token={} no dst_amount skipping",
+                        lr_data_0._src_token, lr_data_0._dst_token);
                     continue; // No LR provider quote - skip this candidate
-                };
-                log::debug!("estimate_lr_1_source_amounts_from_lr_0 quote_dst_amount={quote_dst_amount} est_dst_amount={est_dst_amount}");
+                };*/
+                log::debug!("estimate_lr_1_source_amounts_from_lr_0 quote_dst_amount={quote_dst_amount} est_dst_amount={est_dst_amount:?}");
                 let volume_with_fees =
                     u256_to_coins_mm_number(quote_dst_amount, lr_data_0.dst_decimals()?).map_mm_err()?;
                 let maker_ticker = candidate.maker_order.maker_ticker();
                 let taker_ticker = candidate.maker_order.taker_ticker();
                 let dex_fee_rate = DexFee::dex_fee_rate(&taker_ticker, &maker_ticker);
-                volume_with_fees / (MmNumber::from("1") + dex_fee_rate)
+                volume_with_fees / (MmNumber::from("1") + dex_fee_rate) // Deduct dex fee to get the atomic swap taker amount
             } else {
                 user_sell_amount.clone() // TODO: use atomic_swap_taker_amount
             };
@@ -682,7 +685,10 @@ impl LrSwapCandidates {
                 continue;
             };
             let Some(quote_fut) = create_quote_call(ctx, lr_data_0)? else {
-                log::debug!("run_lr_0_quotes skipping candidate={} could create quote", candidate.0);
+                log::debug!(
+                    "run_lr_0_quotes skipping candidate={} could not create quote",
+                    candidate.0
+                );
                 continue;
             };
             // TODO: do not repeat 1inch calls for same pair:
@@ -709,7 +715,7 @@ impl LrSwapCandidates {
             let Some(fut) = create_quote_call(ctx, lr_data_1)? else {
                 continue;
             };
-            // TODO: combine index in the future
+            // TODO: combine index in a future
             quote_futs.push(fut);
             idx.push(candidate.0);
         }
@@ -717,6 +723,61 @@ impl LrSwapCandidates {
         let lr_quotes_indexed = idx.into_iter().zip(lr_quotes).collect();
         self.update_lr_1_swap_data(lr_quotes_indexed);
         Ok(())
+    }
+
+    async fn check_order_limits(ctx: &MmArc, candidate: &LrSwapCandidateInfo) -> MmResult<bool, LrSwapError> {
+        let atomic_swap_taker_amount = if let Some(ref lr_data_0) = candidate.lr_data_0 {
+            let Some(ref lr_swap_data) = lr_data_0.lr_swap_data else {
+                return Ok(false); // No LR provider quote - skip this candidate
+            };
+            let quote_dst_amount = U256::from_dec_str(&lr_swap_data.dst_amount)?; // Get the 'real' destination amount from the LR quote (not estimated)
+            u256_to_coins_mm_number(quote_dst_amount, lr_data_0.dst_decimals()?).map_mm_err()?
+        } else {
+            let atomic_swap_taker_amount = candidate
+                .atomic_swap_taker_amount
+                .ok_or(LrSwapError::InternalError("no atomic swap taker amount".to_owned()))?;
+            let taker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.taker_ticker())
+                .await
+                .map_mm_err()?;
+            u256_to_coins_mm_number(atomic_swap_taker_amount, taker_coin.decimals()).map_mm_err()?
+        };
+        log::debug!("check_order_limits: maker_ticker/taker_ticker {}/{} atomic_swap_taker_amount={} max_taker_vol={} min_taker_vol={}",
+            candidate.maker_order.maker_ticker(),
+            candidate.maker_order.taker_ticker(),
+            atomic_swap_taker_amount.to_decimal(),
+            candidate.maker_order.max_taker_vol().decimal,
+            candidate.maker_order.min_taker_vol().decimal,
+        );
+        if atomic_swap_taker_amount.to_ratio() > candidate.maker_order.max_taker_vol().rational
+            || atomic_swap_taker_amount.to_ratio() < candidate.maker_order.min_taker_vol().rational
+        {
+            return Ok(false);
+        }
+
+        let atomic_swap_maker_amount = if let Some(ref lr_data_1) = candidate.lr_data_1 {
+            u256_to_coins_mm_number(lr_data_1.src_amount()?, lr_data_1.src_decimals()?).map_mm_err()?
+        } else {
+            let atomic_swap_maker_amount = candidate
+                .atomic_swap_maker_amount
+                .ok_or(LrSwapError::InternalError("no atomic swap maker amount".to_owned()))?;
+            let maker_coin = lp_coinfind_or_err(ctx, &candidate.maker_order.maker_ticker())
+                .await
+                .map_mm_err()?;
+            u256_to_coins_mm_number(atomic_swap_maker_amount, maker_coin.decimals()).map_mm_err()?
+        };
+        log::debug!("check_order_limits: maker_ticker/taker_ticker {}/{} atomic_swap_maker_amount={} max_maker_vol={} min_maker_vol={}",
+            candidate.maker_order.maker_ticker(),
+            candidate.maker_order.taker_ticker(),
+            atomic_swap_maker_amount.to_decimal(),
+            candidate.maker_order.max_maker_vol().decimal,
+            candidate.maker_order.min_maker_vol().decimal,
+        );
+        if atomic_swap_maker_amount.to_ratio() > candidate.maker_order.max_maker_vol().rational
+            || atomic_swap_maker_amount.to_ratio() < candidate.maker_order.min_maker_vol().rational
+        {
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     /// Select the best swap path, by minimum of total swap price, including LR steps and atomic swap)
@@ -733,6 +794,11 @@ impl LrSwapCandidates {
             let maker_ticker_print = candidate.maker_order.maker_ticker();
             let mut lr_1_src_token_print = None;
             let mut lr_1_dst_token_print = None;
+
+            if !LrSwapCandidates::check_order_limits(ctx, &candidate).await? {
+                log::debug!("select_best_swap: {maker_ticker_print}/{taker_ticker_print} out of order min/max, skipping candidate");
+                continue;
+            }
 
             let sell_amount = if let Some(ref lr_data_0) = candidate.lr_data_0 {
                 lr_0_src_token_print = Some(lr_data_0._src_token.clone());
@@ -821,6 +887,8 @@ impl LrSwapCandidates {
 /// this may also add error to the error from the slippage. We should take this error into account too.
 ///
 /// TODO: take into account orders min_volume and max_volume and exclude candidates not fitting into the order limits
+///
+/// TODO: if LR_0 is done for the platform coin we should reserve its amount for fees on other steps.
 pub async fn find_best_swap_path_with_lr(
     ctx: &MmArc,
     user_base: Ticker,
