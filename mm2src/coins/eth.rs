@@ -5543,7 +5543,7 @@ impl EthCoin {
 
     async fn get_swap_pay_for_gas_option(&self, swap_fee_policy: SwapGasFeePolicy) -> Web3RpcResult<PayForGasOption> {
         let coin = self.clone();
-        let pay_for_gas = match swap_fee_policy {
+        match swap_fee_policy {
             SwapGasFeePolicy::Legacy => {
                 let gas_price = coin.get_gas_price().await?;
                 Ok(PayForGasOption::Legacy { gas_price })
@@ -5566,8 +5566,7 @@ impl EthCoin {
                 };
                 Ok(pay_result)
             },
-        };
-        pay_for_gas
+        }
     }
 
     /// Get pay for gas option from the sign_raw_tx rpc params GasPriceRpcParam.
