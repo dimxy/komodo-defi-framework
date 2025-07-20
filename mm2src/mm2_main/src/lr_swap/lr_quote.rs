@@ -886,9 +886,7 @@ impl LrSwapCandidates {
 /// TODO: it's not only the slippage problem though. We try to estimate the needed source amount by querying the OHLC price and
 /// this may also add error to the error from the slippage. We should take this error into account too.
 ///
-/// TODO: take into account orders min_volume and max_volume and exclude candidates not fitting into the order limits
-///
-/// TODO: if LR_0 is done for the platform coin we should reserve its amount for fees on other steps.
+/// TODO: if we do LR_0 for a platform coin we should reserve some platform coin amount for fees on other swap steps.
 pub async fn find_best_swap_path_with_lr(
     ctx: &MmArc,
     user_base: Ticker,
