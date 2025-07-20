@@ -236,7 +236,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_sell() {
     let user_rel = crv_arb20_conf()["coin"].as_str().unwrap().to_owned(); // 0.63 USD
     let swap_amount: BigDecimal = "0.3".parse().unwrap();
     let method = "sell"; // Sell 0.3 MATIC, buy CRV-ARB20
-    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, method);
+    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, method, false, false);
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_buy() {
     let user_rel = MATIC.to_owned(); // 0.24 USD
     let swap_amount: BigDecimal = "0.1".parse().unwrap();
     let method = "buy"; // Buy 0.1 CRV-ARB20, sell MATIC
-    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, method);
+    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, method, false, true);
 }
 
 fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
@@ -253,6 +253,8 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
     user_rel: &str,
     swap_amount: BigDecimal,
     method: &str,
+    run_swap: bool,
+    use_asks: bool,
 ) {
     let bob_passphrase = std::env::var("BOB_MAINNET").expect("BOB_MAINNET env must be set");
     let alice_passphrase = std::env::var("ALICE_MAINNET").expect("ALICE_MAINNET env must be set");
@@ -360,7 +362,12 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
         log!("set_swap_transaction_fee_policy on {MATIC} error={}", err);
     }
 
-    let arb_order = block_on(create_maker_order(&mut mm_bob, &arb_ticker, &aave_ticker, 0.00141, 1.0)).unwrap();
+    let arb_order = block_on(create_maker_order(
+        &mut mm_bob,
+        &arb_ticker,
+        &aave_ticker, 0.00141,
+        1.0
+    )).unwrap();
     let grt_order = block_on(create_maker_order(
         &mut mm_bob,
         &grt_ticker,
@@ -386,30 +393,58 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
     ))
     .unwrap();
 
-    let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &aave_ticker, "sell", 10, true)); // This is the taker action. To get all aave orders taker uses "sell"
-    let best_orders = best_orders_res
-        .result
-        .orders
-        .values()
-        .flatten()
-        .cloned()
-        .collect::<Vec<_>>(); // As taker used 'sell' actions, orders are returned as asks
+    // The best_orders RPC accepts "buy" or "sell" as the action from the taker perspective. 
+    // If taker calls with "sell" the best_orders RPC returns the orders as bids.
+    // If taker calls with "buy" the best_orders RPC returns the orders as asks.
+    let mut json_asks = vec![];
+    let mut json_bids = vec![];
+    if use_asks {
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &grt_ticker, "buy", 10, true));
+        let best_asks_0 = best_orders_res
+            .result
+            .orders
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        json_asks.push(json!({ "base": &grt_ticker, "orders": &best_asks_0 }));
+
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &arb_ticker, "buy", 10, true)); // This is the taker action. To get all aave orders taker uses "sell"
+        let best_asks_1 = best_orders_res
+            .result
+            .orders
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        json_asks.push(json!({ "base": &grt_ticker, "orders": &best_asks_1 }));
+    } else {
+        // using "sell" we get all aave orders as bids: 
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &aave_ticker, "sell", 10, true));
+        let best_bids = best_orders_res
+            .result
+            .orders
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        json_bids.push(json!({ "rel": &aave_ticker, "orders": &best_bids }));
+    }
 
     const LR_SLIPPAGE: f32 = 0.0;
     let best_quote = block_on(find_best_lr_swap(
         &mut mm_alice,
         user_base,
-        &json!([]),
-        &json!([{
-            "rel": &aave_ticker, // pass as bid orders
-            "orders": &best_orders,
-        }]),
+        &json!(json_asks),
+        &json!(json_bids),
         &swap_amount,
         method,
         user_rel,
     ))
     .expect("best quote should be found");
     print_quote_resp(&best_quote);
+
+    if !run_swap { return; }
     let agg_uuid = block_on(create_and_start_agg_taker_swap(&mut mm_alice, LR_SLIPPAGE, best_quote)).unwrap();
 
     log!("Aggregated taker swap uuid {:?} started", agg_uuid);
