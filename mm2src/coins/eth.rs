@@ -5550,10 +5550,6 @@ impl EthCoin {
             },
             SwapGasFeePolicy::Low | SwapGasFeePolicy::Medium | SwapGasFeePolicy::High => {
                 let fee_per_gas = coin.get_eip1559_gas_fee(false).await?;
-                println!(
-                    "get_swap_pay_for_gas_option get_eip1559_gas_fee result={:?}",
-                    fee_per_gas
-                );
                 let pay_result = match swap_fee_policy {
                     SwapGasFeePolicy::Low => PayForGasOption::Eip1559 {
                         max_fee_per_gas: fee_per_gas.low.max_fee_per_gas,
@@ -5571,7 +5567,6 @@ impl EthCoin {
                 Ok(pay_result)
             },
         };
-        println!("pay_for_gas={:?}", pay_for_gas);
         pay_for_gas
     }
 
