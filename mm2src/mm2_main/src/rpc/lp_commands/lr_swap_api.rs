@@ -28,38 +28,38 @@ pub(crate) mod lr_api_types;
 /// The "find_best_quote" RPC implementation to find the best swap with liquidity routing (LR), also known as 'aggregated taker swap with LR'.
 /// For the provided list of orderbook entries this RPC will find out the most price-effective swap which may include LR steps.
 /// There are LR_0 and LR_1 steps supported meaning liquidity routing before or after the atomic swap.
-/// Liquidity routing is supported in the EVM chains. This is actually a token swap performed by an LR provider (currently 1inch). 
+/// Liquidity routing is supported in the EVM chains. This is actually a token swap performed by an LR provider (currently 1inch).
 /// Both tokens must be in the same EVM network.
 ///
 /// Use cases:
-/// User is interested in buying some coin. There are orders available with the desired coin but User does not have tokens to fill those orders. 
-/// User has some amount of a user_rel token and would like to use it for buying the desired coin. 
+/// User is interested in buying some coin. There are orders available with the desired coin but User does not have tokens to fill those orders.
+/// User has some amount of a user_rel token and would like to use it for buying the desired coin.
 /// User calls this RPC to find the best swap with LR: with user_rel token converted into the atomic swap taker coin with LR_0 step.
 /// User may also request to convert received maker coin into user_base token via LR_1 swap.
-/// 
-/// Similar logic is for the case when User would like to sell a token and use LR step to convert it into an atomic swap taker coin 
+///
+/// Similar logic is for the case when User would like to sell a token and use LR step to convert it into an atomic swap taker coin
 /// and/or convert a maker coin into the User desired token.
 ///
 /// User calls this RPC with the following params:
-/// * user_base and user_rel tickers, 
+/// * user_base and user_rel tickers,
 /// * amount to buy or sell,
 /// * list of ask and bid orders list.
-/// 
+///
 /// If user_base and/or user_rel differs from the coins in the orders the RPC creates LR_0 and/or LR_1 steps and gets LR provider quotes
 /// to obtain prices for LR_0 and LR_1 steps. The RPC alsouses order prices to calculate the most price-effective swap path.
 /// As the result the RPC returns params for LR_0 LR_1 and atomic swap corresponding the most price effective aggregated swap.
 /// If best swap cannot be found a error is returned.
 /// TODO: we should also return total fees.
-/// 
+///
 /// More info:
 /// The GUI should provide this RPC with a list of ask or bid orders to select best swap path from.
 /// Currently for that the "best_orders" RPC can be used:
 /// The GUI should pick tokens which resides in the same chains with user_base and/or user_rel and query "best_orders" RPC (maybe multiple times).
 /// The "best_orders" results are asks or bids which can be passed into this RPC.
-/// 
+///
 /// TODO: develop a more convenient RPC to find ask and bid orders for finding the best swap with LR.
-/// It should support getting info about most liquid white-listed tokens from the LR provider, to do search for best swap more efficiently. 
-/// 
+/// It should support getting info about most liquid white-listed tokens from the LR provider, to do search for best swap more efficiently.
+///
 pub async fn lr_find_best_quote_rpc(
     ctx: MmArc,
     req: LrFindBestQuoteRequest,

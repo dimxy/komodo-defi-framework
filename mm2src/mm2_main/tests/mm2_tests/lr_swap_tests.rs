@@ -362,12 +362,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
         log!("set_swap_transaction_fee_policy on {MATIC} error={}", err);
     }
 
-    let arb_order = block_on(create_maker_order(
-        &mut mm_bob,
-        &arb_ticker,
-        &aave_ticker, 0.00141,
-        1.0
-    )).unwrap();
+    let arb_order = block_on(create_maker_order(&mut mm_bob, &arb_ticker, &aave_ticker, 0.00141, 1.0)).unwrap();
     let grt_order = block_on(create_maker_order(
         &mut mm_bob,
         &grt_ticker,
@@ -393,7 +388,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
     ))
     .unwrap();
 
-    // The best_orders RPC accepts "buy" or "sell" as the action from the taker perspective. 
+    // The best_orders RPC accepts "buy" or "sell" as the action from the taker perspective.
     // If taker calls with "sell" the best_orders RPC returns the orders as bids.
     // If taker calls with "buy" the best_orders RPC returns the orders as asks.
     let mut json_asks = vec![];
@@ -419,7 +414,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
             .collect::<Vec<_>>();
         json_asks.push(json!({ "base": &grt_ticker, "orders": &best_asks_1 }));
     } else {
-        // using "sell" we get all aave orders as bids: 
+        // using "sell" we get all aave orders as bids:
         let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &aave_ticker, "sell", 10, true));
         let best_bids = best_orders_res
             .result
@@ -444,7 +439,9 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
     .expect("best quote should be found");
     print_quote_resp(&best_quote);
 
-    if !run_swap { return; }
+    if !run_swap {
+        return;
+    }
     let agg_uuid = block_on(create_and_start_agg_taker_swap(&mut mm_alice, LR_SLIPPAGE, best_quote)).unwrap();
 
     log!("Aggregated taker swap uuid {:?} started", agg_uuid);
