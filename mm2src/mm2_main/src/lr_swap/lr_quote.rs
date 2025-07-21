@@ -723,6 +723,11 @@ impl LrSwapCandidates {
     async fn check_order_limits(ctx: &MmArc, candidate: &LrSwapCandidateInfo) -> MmResult<bool, LrSwapError> {
         let atomic_swap_taker_amount = if let Some(ref lr_data_0) = candidate.lr_data_0 {
             let Some(ref lr_swap_data) = lr_data_0.lr_swap_data else {
+                log::debug!(
+                    "check_order_limits: {}/{} no LR_0 quote, skipping candidate",
+                    lr_data_0._src_token,
+                    lr_data_0._dst_token
+                );
                 return Ok(false); // No LR provider quote - skip this candidate
             };
             let quote_dst_amount = U256::from_dec_str(&lr_swap_data.dst_amount)?; // Get the 'real' destination amount from the LR quote (not estimated)
@@ -736,7 +741,8 @@ impl LrSwapCandidates {
                 .map_mm_err()?;
             wei_to_coins_mm_number(atomic_swap_taker_amount, taker_coin.decimals()).map_mm_err()?
         };
-        log::debug!("check_order_limits: maker_ticker/taker_ticker {}/{} atomic_swap_taker_amount={} max_taker_vol={} min_taker_vol={}",
+        log::debug!(
+            "check_order_limits: {}/{} atomic_swap_taker_amount={} max_taker_vol={} min_taker_vol={}",
             candidate.maker_order.maker_ticker(),
             candidate.maker_order.taker_ticker(),
             atomic_swap_taker_amount.to_decimal(),
@@ -746,6 +752,11 @@ impl LrSwapCandidates {
         if atomic_swap_taker_amount.to_ratio() > candidate.maker_order.max_taker_vol().rational
             || atomic_swap_taker_amount.to_ratio() < candidate.maker_order.min_taker_vol().rational
         {
+            log::debug!(
+                "check_order_limits: {}/{} out of order min/max, skipping candidate",
+                candidate.maker_order.maker_ticker(),
+                candidate.maker_order.taker_ticker()
+            );
             return Ok(false);
         }
 
@@ -760,7 +771,8 @@ impl LrSwapCandidates {
                 .map_mm_err()?;
             wei_to_coins_mm_number(atomic_swap_maker_amount, maker_coin.decimals()).map_mm_err()?
         };
-        log::debug!("check_order_limits: maker_ticker/taker_ticker {}/{} atomic_swap_maker_amount={} max_maker_vol={} min_maker_vol={}",
+        log::debug!(
+            "check_order_limits: {}/{} atomic_swap_maker_amount={} max_maker_vol={} min_maker_vol={}",
             candidate.maker_order.maker_ticker(),
             candidate.maker_order.taker_ticker(),
             atomic_swap_maker_amount.to_decimal(),
@@ -770,6 +782,11 @@ impl LrSwapCandidates {
         if atomic_swap_maker_amount.to_ratio() > candidate.maker_order.max_maker_vol().rational
             || atomic_swap_maker_amount.to_ratio() < candidate.maker_order.min_maker_vol().rational
         {
+            log::debug!(
+                "check_order_limits: {}/{} out of order min/max, skipping candidate",
+                candidate.maker_order.maker_ticker(),
+                candidate.maker_order.taker_ticker()
+            );
             return Ok(false);
         }
         Ok(true)
@@ -791,7 +808,6 @@ impl LrSwapCandidates {
             let mut lr_1_dst_token_print = None;
 
             if !LrSwapCandidates::check_order_limits(ctx, &candidate).await? {
-                log::debug!("select_best_swap: {maker_ticker_print}/{taker_ticker_print} out of order min/max, skipping candidate");
                 continue;
             }
 
