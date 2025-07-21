@@ -185,11 +185,11 @@ async fn test_find_best_lr_swap_for_order_list() {
     let bids = vec![];
 
     let req = LrFindBestQuoteRequest {
-        asks,
         user_base: base_ticker,
+        asks,
         bids,
         volume: "0.123".into(),
-        method: "find_best_quote".into(),
+        method: "buy".to_owned(),
         user_rel: weth_ticker,
     };
 
