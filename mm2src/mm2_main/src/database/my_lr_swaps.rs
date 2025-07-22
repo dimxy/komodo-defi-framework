@@ -1,4 +1,4 @@
-//! This module contains code to to store and retrieve data for swaps with LR in the my_swaps table in MM2 SQLite DB,
+//! This module contains code to store swaps with LR data in the my_swaps table in MM2 SQLite DB.
 
 #![allow(deprecated)] // TODO: remove this once rusqlite is >= 0.29
 
