@@ -715,7 +715,9 @@ pub async fn eth_coin_from_conf_and_request_v2(
         .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?;
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)
         .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?;
-    let swap_gas_fee_policy: SwapGasFeePolicy = req.swap_gas_fee_policy.unwrap_or_default();
+    let swap_gas_fee_policy_default: SwapGasFeePolicy =
+        get_swap_gas_fee_policy_conf(ctx, conf, &coin_type)?.unwrap_or_default();
+    let swap_gas_fee_policy: SwapGasFeePolicy = req.swap_gas_fee_policy.unwrap_or(swap_gas_fee_policy_default);
 
     let coin = EthCoinImpl {
         priv_key_policy,

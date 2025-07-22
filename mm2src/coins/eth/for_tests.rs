@@ -18,7 +18,14 @@ pub(crate) fn eth_coin_for_test(
         &hex::decode("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f").unwrap(),
     )
     .unwrap();
-    eth_coin_from_keypair(coin_type, urls, fallback_swap_contract, key_pair, chain_id)
+    eth_coin_from_keypair(
+        coin_type,
+        urls,
+        fallback_swap_contract,
+        key_pair,
+        chain_id,
+        eth_sepolia_conf(),
+    )
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,6 +35,7 @@ pub(crate) fn eth_coin_from_keypair(
     fallback_swap_contract: Option<Address>,
     key_pair: KeyPair,
     chain_id: u64,
+    coin_conf_json: Json,
 ) -> (MmArc, EthCoin) {
     let mut web3_instances = vec![];
     for url in urls.iter() {
@@ -41,7 +49,7 @@ pub(crate) fn eth_coin_from_keypair(
     }
     drop_mutability!(web3_instances);
 
-    let conf = json!({ "coins": [eth_sepolia_conf()] });
+    let conf = json!({ "coins": [coin_conf_json] });
     let ctx = MmCtxBuilder::new().with_conf(conf).into_mm_arc();
     let ticker = match coin_type {
         EthCoinType::Eth => "ETH".to_string(),
@@ -52,6 +60,9 @@ pub(crate) fn eth_coin_from_keypair(
     let coin_conf = coin_conf(&ctx, &ticker);
     let gas_limit: EthGasLimit = extract_gas_limit_from_conf(&coin_conf).expect("expected valid gas_limit config");
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(&coin_conf).expect("expected valid gas_limit config");
+    let swap_gas_fee_policy: SwapGasFeePolicy = get_swap_gas_fee_policy_conf(&ctx, &coin_conf, &coin_type)
+        .expect("valid swap_gas_fee_policy config")
+        .unwrap_or_default();
 
     let eth_coin = EthCoin(Arc::new(EthCoinImpl {
         coin_type,
@@ -69,7 +80,7 @@ pub(crate) fn eth_coin_from_keypair(
         web3_instances: AsyncMutex::new(web3_instances),
         ctx: ctx.weak(),
         required_confirmations: 1.into(),
-        swap_gas_fee_policy: Mutex::new(SwapGasFeePolicy::default()),
+        swap_gas_fee_policy: Mutex::new(swap_gas_fee_policy),
         trezor_coin: None,
         logs_block_range: DEFAULT_LOGS_BLOCK_RANGE,
         address_nonce_locks: Arc::new(AsyncMutex::new(new_nonce_lock())),

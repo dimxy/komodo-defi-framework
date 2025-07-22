@@ -10,7 +10,7 @@ cfg_native!(
     use common::{now_sec, block_on_f01};
     use ethkey::{Generator, Random};
     use mm2_test_helpers::for_tests::{ETH_MAINNET_CHAIN_ID, ETH_MAINNET_NODES, ETH_SEPOLIA_CHAIN_ID, ETH_SEPOLIA_NODES,
-                                  ETH_SEPOLIA_TOKEN_CONTRACT};
+                                  ETH_SEPOLIA_TOKEN_CONTRACT, eth_sepolia_conf};
     use mocktopus::mocking::*;
 
     /// The gas price for the tests
@@ -178,6 +178,7 @@ fn test_wait_for_payment_spend_timeout() {
         None,
         key_pair,
         ETH_SEPOLIA_CHAIN_ID,
+        eth_sepolia_conf(),
     );
 
     let wait_until = now_sec() - 1;
@@ -846,6 +847,7 @@ fn test_message_hash() {
         None,
         key_pair,
         ETH_SEPOLIA_CHAIN_ID,
+        eth_sepolia_conf(),
     );
 
     let message_hash = coin.sign_message_hash("test").unwrap();
@@ -868,6 +870,7 @@ fn test_sign_verify_message() {
         None,
         key_pair,
         ETH_SEPOLIA_CHAIN_ID,
+        eth_sepolia_conf(),
     );
 
     let message = "test";
@@ -888,7 +891,14 @@ fn test_eth_extract_secret() {
         platform: ETH.to_string(),
         token_addr: Address::from_str("0xc0eb7aed740e1796992a08962c15661bdeb58003").unwrap(),
     };
-    let (_ctx, coin) = eth_coin_from_keypair(coin_type, &["http://dummy.dummy"], None, key_pair, ETH_SEPOLIA_CHAIN_ID);
+    let (_ctx, coin) = eth_coin_from_keypair(
+        coin_type,
+        &["http://dummy.dummy"],
+        None,
+        key_pair,
+        ETH_SEPOLIA_CHAIN_ID,
+        eth_sepolia_conf(),
+    );
 
     // raw transaction bytes of https://ropsten.etherscan.io/tx/0xcb7c14d3ff309996d582400369393b6fa42314c52245115d4a3f77f072c36da9
     let tx_bytes = &[
@@ -1167,4 +1177,33 @@ fn test_h256_to_str() {
     let h = H256::from_str("5136701f11060010841c9708c3eb26f6606a070b8ae43f4b98b6d7b10a545258").unwrap();
     let b: BytesJson = h.0.to_vec().into();
     println!("H256=0x{:02x}", b);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn test_swap_gas_fee_policy_conf() {
+    let key_pair = Random.generate().unwrap();
+    let (_ctx, coin) = eth_coin_from_keypair(
+        EthCoinType::Eth,
+        ETH_SEPOLIA_NODES,
+        None,
+        key_pair,
+        ETH_SEPOLIA_CHAIN_ID,
+        json!({
+            "coin": "ETH",
+            "name": "ethereum",
+            "derivation_path": "m/44'/60'",
+            "protocol": {
+                "type": "ETH",
+                "protocol_data": {
+                    "chain_id": ETH_SEPOLIA_CHAIN_ID,
+                }
+            },
+            "swap_gas_fee_policy": "High"
+        }),
+    );
+    assert!(matches!(
+        *coin.swap_gas_fee_policy.lock().unwrap(),
+        SwapGasFeePolicy::High
+    ));
 }

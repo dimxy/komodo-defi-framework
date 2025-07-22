@@ -1,5 +1,5 @@
-use super::{EthCoinType, ETH_DECIMALS, ETH_GWEI_DECIMALS, ETH_MAX_TX_TYPE, FEE_PRIORITY_LEVEL_N};
-use crate::{coin_conf, NumConversError, NumConversResult};
+use super::{EthCoinType, ExtractGasLimit, ETH_DECIMALS, ETH_GWEI_DECIMALS, ETH_MAX_TX_TYPE, FEE_PRIORITY_LEVEL_N};
+use crate::{coin_conf, NumConversError, NumConversResult, SwapGasFeePolicy};
 use ethabi::{Function, Token};
 use ethereum_types::{Address, FromDecStrErr, U256};
 use ethkey::{public_to_address, Public};
@@ -13,6 +13,7 @@ const MAX_ETH_TX_TYPE_SUPPORTED: &str = "max_eth_tx_type";
 const LEGACY_GAS_PRICE_MULTIPLIER: &str = "gas_price_mult";
 const GAS_FEE_BASE_ADJUST: &str = "gas_fee_base_adjust";
 const GAS_FEE_PRIORITY_ADJUST: &str = "gas_fee_priority_adjust";
+const SWAP_GAS_FEE_POLICY: &str = "swap_gas_fee_policy";
 
 pub(crate) fn get_function_input_data(decoded: &[Token], func: &Function, index: usize) -> Result<Token, String> {
     decoded.get(index).cloned().ok_or(format!(
@@ -237,5 +238,31 @@ pub(super) fn get_gas_fee_priority_adjust_conf(
         },
         Ok(None) => Ok(None),
         Err(err) => Err(err),
+    }
+}
+
+/// Get "swap_gas_fee_policy" param from the platform coin conf
+pub(super) fn get_swap_gas_fee_policy_conf(
+    ctx: &MmArc,
+    conf: &Json,
+    coin_type: &EthCoinType,
+) -> Result<Option<SwapGasFeePolicy>, String> {
+    match get_conf_param_or_from_plaform(ctx, conf, SWAP_GAS_FEE_POLICY, coin_type) {
+        Ok(Some(val)) => {
+            let swap_gas_fee_policy: SwapGasFeePolicy =
+                serde_json::from_value(val).map_err(|_| format!("{SWAP_GAS_FEE_POLICY} in coins is invalid"))?;
+            Ok(Some(swap_gas_fee_policy))
+        },
+        Ok(None) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
+pub(super) fn extract_gas_limit_from_conf<T: ExtractGasLimit>(coin_conf: &Json) -> Result<T, String> {
+    let key = T::key();
+    if coin_conf[key].is_null() {
+        Ok(Default::default())
+    } else {
+        serde_json::from_value(coin_conf[key].clone()).map_err(|e| e.to_string())
     }
 }

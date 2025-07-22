@@ -134,8 +134,9 @@ pub(crate) use eth_utils::display_u256_with_decimal_point;
 pub use eth_utils::{addr_from_pubkey_str, addr_from_raw_pubkey, mm_number_from_u256, mm_number_to_u256,
                     u256_from_big_decimal, u256_to_big_decimal, wei_from_coins_mm_number, wei_from_gwei_decimal,
                     wei_to_eth_decimal, wei_to_gwei_decimal};
-use eth_utils::{get_function_input_data, get_function_name, get_gas_fee_base_adjust_conf,
-                get_gas_fee_priority_adjust_conf, get_gas_price_mult_conf, get_max_eth_tx_type_conf};
+use eth_utils::{extract_gas_limit_from_conf, get_function_input_data, get_function_name, get_gas_fee_base_adjust_conf,
+                get_gas_fee_priority_adjust_conf, get_gas_price_mult_conf, get_max_eth_tx_type_conf,
+                get_swap_gas_fee_policy_conf};
 
 pub use rlp;
 cfg_native! {
@@ -6681,8 +6682,10 @@ pub async fn eth_coin_from_conf_and_request(
     let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(ctx, conf, &coin_type)?;
     let gas_limit: EthGasLimit = extract_gas_limit_from_conf(conf)?;
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)?;
+    let swap_gas_fee_policy_default: SwapGasFeePolicy =
+        get_swap_gas_fee_policy_conf(ctx, conf, &coin_type)?.unwrap_or_default();
     let swap_gas_fee_policy: SwapGasFeePolicy =
-        json::from_value(req["swap_gas_fee_policy"].clone()).unwrap_or_default();
+        json::from_value(req["swap_gas_fee_policy"].clone()).unwrap_or(swap_gas_fee_policy_default);
 
     let coin = EthCoinImpl {
         priv_key_policy: key_pair,
@@ -7400,15 +7403,6 @@ pub fn pubkey_from_extended(extended_pubkey: &Secp256k1ExtendedPublicKey) -> Pub
     let mut pubkey_uncompressed = Public::default();
     pubkey_uncompressed.as_mut().copy_from_slice(&serialized[1..]);
     pubkey_uncompressed
-}
-
-fn extract_gas_limit_from_conf<T: ExtractGasLimit>(coin_conf: &Json) -> Result<T, String> {
-    let key = T::key();
-    if coin_conf[key].is_null() {
-        Ok(Default::default())
-    } else {
-        json::from_value(coin_conf[key].clone()).map_err(|e| e.to_string())
-    }
 }
 
 #[async_trait]
