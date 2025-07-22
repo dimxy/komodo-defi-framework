@@ -60,6 +60,7 @@ pub(crate) fn eth_coin_from_keypair(
     let coin_conf = coin_conf(&ctx, &ticker);
     let gas_limit: EthGasLimit = extract_gas_limit_from_conf(&coin_conf).expect("expected valid gas_limit config");
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(&coin_conf).expect("expected valid gas_limit config");
+    let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &coin_conf, &coin_type).expect("valid max_eth_tx_type config");
     let swap_gas_fee_policy: SwapGasFeePolicy = get_swap_gas_fee_policy_conf(&ctx, &coin_conf, &coin_type)
         .expect("valid swap_gas_fee_policy config")
         .unwrap_or_default();
@@ -84,7 +85,7 @@ pub(crate) fn eth_coin_from_keypair(
         trezor_coin: None,
         logs_block_range: DEFAULT_LOGS_BLOCK_RANGE,
         address_nonce_locks: Arc::new(AsyncMutex::new(new_nonce_lock())),
-        max_eth_tx_type: None,
+        max_eth_tx_type,
         gas_price_mult: None,
         gas_fee_base_adjust: None,
         gas_fee_priority_adjust: None,

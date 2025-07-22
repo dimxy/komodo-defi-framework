@@ -904,7 +904,8 @@ async fn get_fee_details(eth_coin: &EthCoin, transaction_hash: &str) -> Option<E
             match r.effective_gas_price {
                 Some(gas_price) => EthTxFeeDetails::new(
                     gas_used,
-                    PayForGasOption::Legacy { gas_price }, // TODO: is this always legacy?
+                    // TODO: is this always legacy?
+                    PayForGasOption::Legacy { gas_price },
                     fee_coin,
                 )
                 .ok(),
@@ -918,6 +919,7 @@ async fn get_fee_details(eth_coin: &EthCoin, transaction_hash: &str) -> Option<E
                         .await
                         .ok()??;
                     let gas_price = web3_tx.gas_price.unwrap_or_default();
+                    // TODO: is this always legacy?
                     EthTxFeeDetails::new(gas_used, PayForGasOption::Legacy { gas_price }, fee_coin).ok()
                 },
             }

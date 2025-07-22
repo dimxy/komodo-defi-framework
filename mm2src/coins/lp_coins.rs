@@ -2646,14 +2646,14 @@ pub enum TradePreimageValue {
 /// Gas fee policy for EVM-like swap
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub enum SwapGasFeePolicy {
-    /// Use legacy gas price
+    /// Use legacy gas price (before the EIP-1559 priority gas fee policy was implemented)
     #[default]
     Legacy,
-    /// Use low priority
+    /// Use low EIP-1559 gas fee priority
     Low,
-    /// Use medium priority
+    /// Use medium EIP-1559 gas fee priority
     Medium,
-    /// Use high priority
+    /// Use high EIP-1559 gas fee priority
     High,
 }
 

@@ -1181,7 +1181,7 @@ fn test_h256_to_str() {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_swap_gas_fee_policy_conf() {
+fn test_eth_conf_params() {
     let key_pair = Random.generate().unwrap();
     let (_ctx, coin) = eth_coin_from_keypair(
         EthCoinType::Eth,
@@ -1199,9 +1199,11 @@ fn test_swap_gas_fee_policy_conf() {
                     "chain_id": ETH_SEPOLIA_CHAIN_ID,
                 }
             },
-            "swap_gas_fee_policy": "High"
+            "swap_gas_fee_policy": "High",
+            "max_eth_tx_type": 2
         }),
     );
+    assert_eq!(coin.max_eth_tx_type, Some(2));
     assert!(matches!(
         *coin.swap_gas_fee_policy.lock().unwrap(),
         SwapGasFeePolicy::High
