@@ -1,16 +1,9 @@
-#![allow(deprecated)] // TODO: remove this once rusqlite is >= 0.29
-#![allow(unused)] // TODO: remove
+//! This module contains code to to store and retrieve data for swaps with LR in the my_swaps table in MM2 SQLite DB,
 
-/// This module contains code to work with my_swaps table in MM2 SQLite DB, to store and retrieve data for swaps with LR
-use crate::lp_swap::{MyRecentSwapsUuids, MySwapsFilter, SavedSwap, SavedSwapIo};
-use common::log::debug;
-use common::PagingOptions;
-use db_common::sqlite::rusqlite::{Connection, Error as SqlError, Result as SqlResult, ToSql};
-use db_common::sqlite::sql_builder::SqlBuilder;
-use db_common::sqlite::{offset_by_uuid, query_single_row};
+#![allow(deprecated)] // TODO: remove this once rusqlite is >= 0.29
+
+use db_common::sqlite::rusqlite::{Result as SqlResult, ToSql};
 use mm2_core::mm_ctx::MmArc;
-use std::convert::TryInto;
-use uuid::{Error as UuidError, Uuid};
 
 /// Adds new fields required for aggregated swaps with liquidity routing
 pub const LR_SWAP_MIGRATION: &[&str] = &[
