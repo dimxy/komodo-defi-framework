@@ -1,8 +1,8 @@
-pub mod my_lr_swaps;
 /// The module responsible to work with SQLite database
 ///
 pub mod my_orders;
 pub mod my_swaps;
+pub mod my_lr_swaps;
 pub mod stats_nodes;
 pub mod stats_swaps;
 
