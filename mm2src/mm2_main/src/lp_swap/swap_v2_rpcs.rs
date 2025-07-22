@@ -5,8 +5,8 @@ use super::taker_swap::TakerSavedSwap;
 use super::taker_swap_v2::{AbortReason, TakerSwapEvent};
 use super::{active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, AGG_TAKER_SWAP_TYPE,
             LEGACY_SWAP_TYPE, MAKER_SWAP_V2_TYPE, TAKER_SWAP_V2_TYPE};
-use crate::lr_swap::lr_swap_state_machine::AggTakerSwapDbRepr;
-use crate::lr_swap::lr_swap_state_machine::AggTakerSwapEvent;
+use crate::lr_swap::lr_swap_state_machine::{AggTakerSwapDbRepr, AggTakerSwapEvent};
+#[cfg(target_arch = "wasm32")] use crate::lr_swap::lr_swap_state_machine::AggTakerSwapStateMachine;
 use common::log::{error, warn};
 use common::{calc_total_pages, HttpStatusCode, PagingOptions};
 use derive_more::Display;
@@ -590,16 +590,20 @@ pub(crate) async fn get_agg_taker_swap_data_for_rpc(
     uuid: &Uuid,
 ) -> MmResult<Option<MyAggSwapForRpc<AggTakerSwapEvent>>, SwapV2DbError> {
     let swaps_ctx = SwapsContext::from_ctx(ctx).unwrap();
-    let db = swaps_ctx.swap_db().await?;
-    let transaction = db.transaction().await?;
-    let table = transaction.table::<SavedSwapTable>().await?;
-    let item = match table.get_item_by_unique_index("uuid", uuid).await? {
+    let db = swaps_ctx.swap_db().await.map_mm_err()?;
+    let transaction = db.transaction().await.map_mm_err()?;
+    let table = transaction.table::<SavedSwapTable>().await.map_mm_err()?;
+    let item = match table.get_item_by_unique_index("uuid", uuid).await.map_mm_err()? {
         Some((_item_id, item)) => item,
         None => return Ok(None),
     };
 
-    let filters_table = transaction.table::<MySwapsFiltersTable>().await?;
-    let filter_item = match filters_table.get_item_by_unique_index("uuid", uuid).await? {
+    let filters_table = transaction.table::<MySwapsFiltersTable>().await.map_mm_err()?;
+    let filter_item = match filters_table
+        .get_item_by_unique_index("uuid", uuid)
+        .await
+        .map_mm_err()?
+    {
         Some((_item_id, item)) => item,
         None => return Ok(None),
     };

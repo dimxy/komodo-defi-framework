@@ -2850,10 +2850,8 @@ async fn sign_and_send_transaction_with_metamask(
         Action::Call(to) => Some(to),
     };
 
-    let pay_for_gas_option = try_tx_s!(
-        coin.get_swap_pay_for_gas_option(coin.get_swap_transaction_fee_policy().await?)
-            .await
-    );
+    let gas_fee_policy = try_tx_s!(coin.get_swap_gas_fee_policy().await);
+    let pay_for_gas_option = try_tx_s!(coin.get_swap_pay_for_gas_option(gas_fee_policy).await);
     let my_address = try_tx_s!(coin.derivation_method.single_addr_or_err().await);
     let gas_price = pay_for_gas_option.get_gas_price();
     let (max_fee_per_gas, max_priority_fee_per_gas) = pay_for_gas_option.get_fee_per_gas();
