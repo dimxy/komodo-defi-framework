@@ -66,8 +66,8 @@ pub async fn lr_find_best_quote_rpc(
 ) -> MmResult<LrFindBestQuoteResponse, ExtApiRpcError> {
     // TODO: add validation:
     // order.base_min_volume << req.amount <= order.base_max_volume - DONE
-    // when best order is selected validate against req.rel_max_volume and req.rel_min_volume - DONE
-    // order.coin is supported in 1inch
+    // when best order is selected validate against req.rel_max_volume and req.rel_min_volume (?)
+    // order coins are supported in 1inch
     // order.price not zero
     // coins in orders should be unique (?)
     // Check user available balance for user_base/user_rel when selecting best swap (?)
@@ -108,28 +108,15 @@ pub async fn lr_find_best_quote_rpc(
             .mm_err(|err| ExtApiRpcError::OneInchDataError(err.to_string()))
         })
         .transpose()?;
-
-    let (base, rel, price) = match action {
-        TakerAction::Buy => (
-            best_order.maker_ticker(),
-            best_order.taker_ticker(),
-            best_order.sell_price(),
-        ),
-        TakerAction::Sell => (
-            best_order.taker_ticker(),
-            best_order.maker_ticker(),
-            best_order.buy_price(),
-        ),
-    };
     Ok(LrFindBestQuoteResponse {
         lr_data_0,
         lr_data_1,
         atomic_swap: AtomicSwapRpcParams {
             volume: atomic_swap_volume,
-            base,
-            rel,
-            price,
-            method: req.method,
+            base: best_order.taker_ticker(),
+            rel: best_order.maker_ticker(),
+            price: best_order.sell_price(),
+            method: "sell".to_owned(), // Always convert to the 'sell' action to simplify LR_0 estimations
             order_uuid: best_order.order().uuid,
             match_by: None,
             order_type: None,
@@ -176,20 +163,10 @@ pub async fn lr_execute_routed_trade_rpc(
         return MmError::err(ExtApiRpcError::InvalidParam("no LR params".to_owned()));
     }
     let action = sell_buy_method(&req.atomic_swap.method).map_mm_err()?;
-    let atomic_swap_volume = match action {
-        TakerAction::Sell => {
-            if req.lr_swap_0.is_none() && req.atomic_swap.volume.is_none() {
-                return MmError::err(ExtApiRpcError::InvalidParam("no atomic swap sell amount".to_owned()));
-            }
-            req.atomic_swap.volume
-        },
-        TakerAction::Buy => {
-            if req.lr_swap_1.is_none() && req.atomic_swap.volume.is_none() {
-                return MmError::err(ExtApiRpcError::InvalidParam("no atomic swap buy amount".to_owned()));
-            }
-            req.atomic_swap.volume
-        },
-    };
+    if action != TakerAction::Sell {
+        return MmError::err(ExtApiRpcError::InvalidParam("action must be sell".to_owned()));
+    }
+
     let atomic_swap_params = AtomicSwapParams {
         action,
         base: req.atomic_swap.base.clone(),
@@ -197,7 +174,7 @@ pub async fn lr_execute_routed_trade_rpc(
         price: req.atomic_swap.price,
         match_by: req.atomic_swap.match_by.unwrap_or_default(),
         order_type: req.atomic_swap.order_type.unwrap_or_default(),
-        base_volume: atomic_swap_volume,
+        base_volume: req.atomic_swap.volume,
     };
 
     // Validate LR step 0 (before the atomic swap):
