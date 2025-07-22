@@ -5571,7 +5571,7 @@ impl EthCoin {
                 Ok(pay_result)
             },
         };
-        println!("pay_for_gas={:?}", pay_for_gas);
+
         pay_for_gas
     }
 
