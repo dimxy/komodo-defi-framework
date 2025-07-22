@@ -9,6 +9,7 @@ use trading_api::one_inch_api::classic_swap_types::ClassicSwapData;
 
 pub(crate) mod lr_errors;
 pub(crate) mod lr_helpers;
+pub(crate) mod lr_impl;
 pub(crate) mod lr_swap_state_machine;
 
 /// Liquidity routing data for the aggregated taker swap state machine
