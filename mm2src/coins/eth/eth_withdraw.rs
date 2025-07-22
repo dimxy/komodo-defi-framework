@@ -1,4 +1,4 @@
-use super::{checksum_address, u256_to_big_decimal, wei_from_big_decimal, ChainSpec, EthCoinType, EthDerivationMethod,
+use super::{checksum_address, u256_from_big_decimal, u256_to_big_decimal, ChainSpec, EthCoinType, EthDerivationMethod,
             EthPrivKeyPolicy, Public, WithdrawError, WithdrawRequest, WithdrawResult, ERC20_CONTRACT, H160, H256};
 use crate::eth::wallet_connect::WcEthTxParams;
 use crate::eth::{calc_total_fee, get_eth_gas_details_from_withdraw_fee, tx_builder_with_pay_for_gas_option,
@@ -231,7 +231,7 @@ where
         let (mut wei_amount, dec_amount) = if req.max {
             (my_balance, my_balance_dec.clone())
         } else {
-            let wei_amount = wei_from_big_decimal(&req.amount, coin.decimals).map_mm_err()?;
+            let wei_amount = u256_from_big_decimal(&req.amount, coin.decimals).map_mm_err()?;
             (wei_amount, req.amount.clone())
         };
         if wei_amount > my_balance {
