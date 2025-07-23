@@ -5474,7 +5474,7 @@ impl EthCoin {
                 Ok(res) => res
                     .base_fee_per_gas
                     .first()
-                    .map(|val| increase_by_percent_one_gwei(*val, BASE_BLOCK_FEE_DIFF_PCT)),
+                    .map(|val| increase_by_percent(*val, BASE_BLOCK_FEE_DIFF_PCT)),
                 Err(e) => {
                     debug!("Error {} on eth_feeHistory request", e);
                     None
@@ -6761,31 +6761,21 @@ fn eth_addr_to_hex(address: &Address) -> String { format!("{:#x}", address) }
 /// The input must be 0x prefixed hex string
 fn is_valid_checksum_addr(addr: &str) -> bool { addr == checksum_address(addr) }
 
-fn increase_by_percent_one_gwei(num: U256, percent: u64) -> U256 {
-    let one_gwei = U256::from(10u64.pow(9));
-    let percent = (num / U256::from(100)) * U256::from(percent);
-    if percent < one_gwei {
-        num + one_gwei
-    } else {
-        num + percent
-    }
-}
+fn increase_by_percent(num: U256, percent: u64) -> U256 { num + (num / U256::from(100)) * U256::from(percent) }
 
 fn increase_gas_price_by_stage(pay_for_gas_option: PayForGasOption, level: &FeeApproxStage) -> PayForGasOption {
     if let PayForGasOption::Legacy { gas_price } = pay_for_gas_option {
         let new_gas_price = match level {
             FeeApproxStage::WithoutApprox => gas_price,
-            FeeApproxStage::StartSwap => {
-                increase_by_percent_one_gwei(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_START_SWAP)
-            },
+            FeeApproxStage::StartSwap => increase_by_percent(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_START_SWAP),
             FeeApproxStage::OrderIssue => {
-                increase_by_percent_one_gwei(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_ORDER_ISSUE)
+                increase_by_percent(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_ORDER_ISSUE)
             },
             FeeApproxStage::TradePreimage => {
-                increase_by_percent_one_gwei(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE)
+                increase_by_percent(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE)
             },
             FeeApproxStage::WatcherPreimage => {
-                increase_by_percent_one_gwei(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_WATCHER_PREIMAGE)
+                increase_by_percent(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_WATCHER_PREIMAGE)
             },
         };
         PayForGasOption::Legacy {
