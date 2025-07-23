@@ -5,8 +5,9 @@ use super::taker_swap::TakerSavedSwap;
 use super::taker_swap_v2::{AbortReason, TakerSwapEvent};
 use super::{active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, AGG_TAKER_SWAP_TYPE,
             LEGACY_SWAP_TYPE, MAKER_SWAP_V2_TYPE, TAKER_SWAP_V2_TYPE};
+#[cfg(target_arch = "wasm32")]
+use crate::lr_swap::lr_swap_state_machine::AggTakerSwapStateMachine;
 use crate::lr_swap::lr_swap_state_machine::{AggTakerSwapDbRepr, AggTakerSwapEvent};
-#[cfg(target_arch = "wasm32")] use crate::lr_swap::lr_swap_state_machine::AggTakerSwapStateMachine;
 use common::log::{error, warn};
 use common::{calc_total_pages, HttpStatusCode, PagingOptions};
 use derive_more::Display;
