@@ -6764,25 +6764,31 @@ fn is_valid_checksum_addr(addr: &str) -> bool { addr == checksum_address(addr) }
 fn increase_by_percent(num: U256, percent: u64) -> U256 { num + (num / U256::from(100)) * U256::from(percent) }
 
 fn increase_gas_price_by_stage(pay_for_gas_option: PayForGasOption, level: &FeeApproxStage) -> PayForGasOption {
-    if let PayForGasOption::Legacy { gas_price } = pay_for_gas_option {
-        let new_gas_price = match level {
-            FeeApproxStage::WithoutApprox => gas_price,
-            FeeApproxStage::StartSwap => increase_by_percent(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_START_SWAP),
-            FeeApproxStage::OrderIssue => {
-                increase_by_percent(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_ORDER_ISSUE)
-            },
+    fn increase_value_by_stage(value: U256, level: &FeeApproxStage) -> U256 {
+        match level {
+            FeeApproxStage::WithoutApprox => value,
+            FeeApproxStage::StartSwap => increase_by_percent(value, GAS_PRICE_APPROXIMATION_PERCENT_ON_START_SWAP),
+            FeeApproxStage::OrderIssue => increase_by_percent(value, GAS_PRICE_APPROXIMATION_PERCENT_ON_ORDER_ISSUE),
             FeeApproxStage::TradePreimage => {
-                increase_by_percent(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE)
+                increase_by_percent(value, GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE)
             },
             FeeApproxStage::WatcherPreimage => {
-                increase_by_percent(gas_price, GAS_PRICE_APPROXIMATION_PERCENT_ON_WATCHER_PREIMAGE)
+                increase_by_percent(value, GAS_PRICE_APPROXIMATION_PERCENT_ON_WATCHER_PREIMAGE)
             },
-        };
-        PayForGasOption::Legacy {
-            gas_price: new_gas_price,
         }
-    } else {
-        pay_for_gas_option
+    }
+
+    match pay_for_gas_option {
+        PayForGasOption::Legacy { gas_price } => PayForGasOption::Legacy {
+            gas_price: increase_value_by_stage(gas_price, level),
+        },
+        PayForGasOption::Eip1559 {
+            max_fee_per_gas,
+            max_priority_fee_per_gas,
+        } => PayForGasOption::Eip1559 {
+            max_fee_per_gas: increase_value_by_stage(max_fee_per_gas, level),
+            max_priority_fee_per_gas,
+        },
     }
 }
 
