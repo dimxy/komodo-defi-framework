@@ -93,14 +93,16 @@ impl FeePerGasSimpleEstimator {
             wei_to_gwei_decimal(max_priority_fee_per_gas).unwrap_or_else(|_| BigDecimal::from(0));
 
         let base_fee_mult = coin
-            .gas_fee_base_adjust
+            .gas_price_adjust
+            .base_fee_mult
             .clone()
             .unwrap_or(Self::ADJUST_BASE_FEE.to_vec())
             .get(level_index)
             .cloned()
             .unwrap_or(0.0);
         let priority_fee_mult = coin
-            .gas_fee_priority_adjust
+            .gas_price_adjust
+            .priority_fee_mult
             .clone()
             .unwrap_or(Self::ADJUST_PRIORITY_FEE.to_vec())
             .get(level_index)

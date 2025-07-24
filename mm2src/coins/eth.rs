@@ -134,8 +134,8 @@ pub(crate) use eth_utils::display_u256_with_decimal_point;
 pub use eth_utils::{addr_from_pubkey_str, addr_from_raw_pubkey, mm_number_from_u256, mm_number_to_u256,
                     u256_from_big_decimal, u256_to_big_decimal, wei_from_coins_mm_number, wei_from_gwei_decimal,
                     wei_to_eth_decimal, wei_to_gwei_decimal};
-use eth_utils::{extract_gas_limit_from_conf, get_function_input_data, get_function_name, get_gas_fee_base_adjust_conf,
-                get_gas_fee_priority_adjust_conf, get_gas_price_mult_conf, get_max_eth_tx_type_conf,
+use eth_utils::{extract_gas_limit_from_conf, get_function_input_data, get_function_name, get_gas_base_fee_mult_conf,
+                get_gas_price_mult_conf, get_gas_priority_fee_mult_conf, get_max_eth_tx_type_conf,
                 get_swap_gas_fee_policy_conf};
 
 pub use rlp;
@@ -523,6 +523,17 @@ impl ExtractGasLimit for EthGasLimitV2 {
 /// Max transaction type according to EIP-2718
 const ETH_MAX_TX_TYPE: u64 = 0x7f;
 
+/// Gas price multipliers to adjust gas price estimation per coin basis
+#[derive(Clone, Default)]
+struct GasPriceAdjust {
+    /// Multiplier for legacy gas price
+    legacy_price_mult: Option<f64>,
+    /// Multipliers for 3 levels of base fee
+    base_fee_mult: Option<Vec<f64>>,
+    /// Multipliers for 3 levels of max priority fee
+    priority_fee_mult: Option<Vec<f64>>,
+}
+
 lazy_static! {
     pub static ref SWAP_CONTRACT: Contract = Contract::load(SWAP_CONTRACT_ABI.as_bytes()).unwrap();
     pub static ref MAKER_SWAP_V2: Contract = Contract::load(MAKER_SWAP_V2_ABI.as_bytes()).unwrap();
@@ -879,9 +890,7 @@ pub struct EthCoinImpl {
     #[cfg_attr(any(test, feature = "run-docker-tests"), allow(dead_code))]
     swap_gas_fee_policy: Mutex<SwapGasFeePolicy>,
     max_eth_tx_type: Option<u64>,
-    gas_price_mult: Option<f64>,
-    gas_fee_base_adjust: Option<Vec<f64>>,
-    gas_fee_priority_adjust: Option<Vec<f64>>,
+    gas_price_adjust: GasPriceAdjust,
     /// Coin needs access to the context in order to reuse the logging and shutdown facilities.
     /// Using a weak reference by default in order to avoid circular references and leaks.
     pub ctx: MmWeak,
@@ -5490,7 +5499,7 @@ impl EthCoin {
             .flatten()
             .max()
             .or_mm_err(|| Web3RpcError::Internal("All requests failed".into()))?;
-        if let Some(mult) = self.gas_price_mult {
+        if let Some(mult) = self.gas_price_adjust.legacy_price_mult {
             let gas_price = u256_to_big_decimal(gas_price, 0).map_mm_err()?;
             let mult = BigDecimal::try_from(mult).map_err(|_| {
                 MmError::new(Web3RpcError::NumConversError(
@@ -5825,7 +5834,7 @@ impl EthCoin {
         match &self.coin_type {
             EthCoinType::Eth => Ok(self.clone()),
             EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => {
-                let ctx = MmArc::from_weak(&self.ctx).expect("No context"); // TODO: return internal error?
+                let ctx = MmArc::from_weak(&self.ctx).expect("No context");
                 let platform_coin = lp_coinfind_or_err(&ctx, platform).await?;
                 match platform_coin {
                     MmCoinEnum::EthCoin(eth_coin) => Ok(eth_coin),
@@ -6677,9 +6686,11 @@ pub async fn eth_coin_from_conf_and_request(
     let abortable_system = try_s!(ctx.abortable_system.create_subsystem());
 
     let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type)?;
-    let gas_price_mult = get_gas_price_mult_conf(ctx, conf, &coin_type)?;
-    let gas_fee_base_adjust = get_gas_fee_base_adjust_conf(ctx, conf, &coin_type)?;
-    let gas_fee_priority_adjust = get_gas_fee_priority_adjust_conf(ctx, conf, &coin_type)?;
+    let gas_price_adjust = GasPriceAdjust {
+        legacy_price_mult: get_gas_price_mult_conf(ctx, conf, &coin_type)?,
+        base_fee_mult: get_gas_base_fee_mult_conf(ctx, conf, &coin_type)?,
+        priority_fee_mult: get_gas_priority_fee_mult_conf(ctx, conf, &coin_type)?,
+    };
     let gas_limit: EthGasLimit = extract_gas_limit_from_conf(conf)?;
     let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)?;
     let swap_gas_fee_policy_default: SwapGasFeePolicy =
@@ -6704,9 +6715,7 @@ pub async fn eth_coin_from_conf_and_request(
         history_sync_state: Mutex::new(initial_history_state),
         swap_gas_fee_policy: Mutex::new(swap_gas_fee_policy),
         max_eth_tx_type,
-        gas_price_mult,
-        gas_fee_base_adjust,
-        gas_fee_priority_adjust,
+        gas_price_adjust,
         ctx: ctx.weak(),
         required_confirmations,
         trezor_coin,
@@ -7616,9 +7625,7 @@ impl EthCoin {
             ),
             swap_gas_fee_policy: Mutex::new(SwapGasFeePolicy::default()),
             max_eth_tx_type: self.max_eth_tx_type,
-            gas_price_mult: self.gas_price_mult,
-            gas_fee_base_adjust: self.gas_fee_base_adjust.clone(),
-            gas_fee_priority_adjust: self.gas_fee_priority_adjust.clone(),
+            gas_price_adjust: self.gas_price_adjust.clone(),
             ctx: self.ctx.clone(),
             trezor_coin: self.trezor_coin.clone(),
             logs_block_range: self.logs_block_range,

@@ -13,10 +13,10 @@ use serde_json::Value as Json;
 const MAX_ETH_TX_TYPE_SUPPORTED: &str = "max_eth_tx_type";
 /// Coin config parameter name for the eth legacy gas price multiplier
 const LEGACY_GAS_PRICE_MULTIPLIER: &str = "gas_price_mult";
-/// Coin config parameter name for the eth gas base fee adjustment values
-const GAS_FEE_BASE_ADJUST: &str = "gas_fee_base_adjust";
-/// Coin config parameter name for the eth gas max priority fee adjustment values
-const GAS_FEE_PRIORITY_ADJUST: &str = "gas_fee_priority_adjust";
+/// Coin config parameter name for eth gas base fee adjustment values used in the simple gas fee estimator
+const GAS_BASE_FEE_MULTIPLIER: &str = "gas_base_fee_mult";
+/// Coin config parameter name for eth gas max priority fee adjustment values used in the simple gas fee estimator
+const GAS_PRIORITY_FEE_MULTIPLIER: &str = "gas_priority_fee_mult";
 /// Coin config parameter name for the default eth swap gas fee policy
 const SWAP_GAS_FEE_POLICY: &str = "swap_gas_fee_policy";
 
@@ -172,56 +172,56 @@ pub(super) fn get_gas_price_mult_conf(
 }
 
 /// Get "gas_fee_base_adjust" param from a token conf, or from the platform coin conf
-pub(super) fn get_gas_fee_base_adjust_conf(
+pub(super) fn get_gas_base_fee_mult_conf(
     ctx: &MmArc,
     conf: &Json,
     coin_type: &EthCoinType,
 ) -> Result<Option<Vec<f64>>, String> {
-    match get_conf_param_or_from_plaform(ctx, conf, GAS_FEE_BASE_ADJUST, coin_type) {
+    match get_conf_param_or_from_plaform(ctx, conf, GAS_BASE_FEE_MULTIPLIER, coin_type) {
         Some(val) => {
-            let gas_fee_base_adjust = val
+            let gas_base_fee_mult = val
                 .as_array()
-                .ok_or_else(|| format!("{GAS_FEE_BASE_ADJUST} in coins not an array"))?;
-            if gas_fee_base_adjust.len() != FEE_PRIORITY_LEVEL_N {
-                return Err(format!("{GAS_FEE_BASE_ADJUST} in coins has invalid size"));
+                .ok_or_else(|| format!("{GAS_BASE_FEE_MULTIPLIER} in coins not an array"))?;
+            if gas_base_fee_mult.len() != FEE_PRIORITY_LEVEL_N {
+                return Err(format!("{GAS_BASE_FEE_MULTIPLIER} in coins has invalid size"));
             }
-            let gas_fee_base_adjust: Result<Vec<f64>, _> = gas_fee_base_adjust
+            let gas_base_fee_mult: Result<Vec<f64>, _> = gas_base_fee_mult
                 .iter()
                 .map(|v| {
                     v.as_f64()
-                        .ok_or_else(|| format!("{GAS_FEE_BASE_ADJUST} in coins has invalid value"))
+                        .ok_or_else(|| format!("{GAS_BASE_FEE_MULTIPLIER} in coins has invalid value"))
                 })
                 .collect();
-            let gas_fee_base_adjust = gas_fee_base_adjust?;
-            Ok(Some(gas_fee_base_adjust))
+            let gas_base_fee_mult = gas_base_fee_mult?;
+            Ok(Some(gas_base_fee_mult))
         },
         None => Ok(None),
     }
 }
 
 /// Get "gas_fee_priority_adjust" param from a token conf, or from the platform coin conf
-pub(super) fn get_gas_fee_priority_adjust_conf(
+pub(super) fn get_gas_priority_fee_mult_conf(
     ctx: &MmArc,
     conf: &Json,
     coin_type: &EthCoinType,
 ) -> Result<Option<Vec<f64>>, String> {
-    match get_conf_param_or_from_plaform(ctx, conf, GAS_FEE_PRIORITY_ADJUST, coin_type) {
+    match get_conf_param_or_from_plaform(ctx, conf, GAS_PRIORITY_FEE_MULTIPLIER, coin_type) {
         Some(val) => {
-            let gas_fee_priority_adjust = val
+            let gas_priority_fee_mult = val
                 .as_array()
-                .ok_or_else(|| format!("{GAS_FEE_PRIORITY_ADJUST} in coins not an array"))?;
-            if gas_fee_priority_adjust.len() != FEE_PRIORITY_LEVEL_N {
-                return Err(format!("{GAS_FEE_PRIORITY_ADJUST} in coins has invalid size"));
+                .ok_or_else(|| format!("{GAS_PRIORITY_FEE_MULTIPLIER} in coins not an array"))?;
+            if gas_priority_fee_mult.len() != FEE_PRIORITY_LEVEL_N {
+                return Err(format!("{GAS_PRIORITY_FEE_MULTIPLIER} in coins has invalid size"));
             }
-            let gas_fee_priority_adjust: Result<Vec<f64>, _> = gas_fee_priority_adjust
+            let gas_priority_fee_mult: Result<Vec<f64>, _> = gas_priority_fee_mult
                 .iter()
                 .map(|v| {
                     v.as_f64()
-                        .ok_or_else(|| format!("{GAS_FEE_PRIORITY_ADJUST} in coins has invalid value"))
+                        .ok_or_else(|| format!("{GAS_PRIORITY_FEE_MULTIPLIER} in coins has invalid value"))
                 })
                 .collect();
-            let gas_fee_priority_adjust = gas_fee_priority_adjust?;
-            Ok(Some(gas_fee_priority_adjust))
+            let gas_priority_fee_mult = gas_priority_fee_mult?;
+            Ok(Some(gas_priority_fee_mult))
         },
         None => Ok(None),
     }
