@@ -554,9 +554,9 @@ type EthPrivKeyPolicy = PrivKeyPolicy<KeyPair>;
 /// either legacy gas price or EIP-1559 fee per gas
 #[derive(Clone, Debug)]
 pub(crate) enum PayForGasOption {
-    Legacy {
-        gas_price: U256,
-    },
+    /// Legacy transaction gas price
+    Legacy { gas_price: U256 },
+    /// Fee per gas option introduced in https://eips.ethereum.org/EIPS/eip-1559
     Eip1559 {
         max_fee_per_gas: U256,
         max_priority_fee_per_gas: U256,
