@@ -5,7 +5,6 @@ use common::executor::Timer;
 use common::{block_on, log};
 use ethereum_types::H256;
 use lazy_static::lazy_static;
-use mm2_number::bigdecimal::ToPrimitive;
 use mm2_number::BigDecimal;
 use mm2_rpc::data::legacy::MatchBy;
 use mm2_test_helpers::electrums::doc_electrums;
@@ -33,16 +32,39 @@ lazy_static! {
     pub static ref POLYGON_WEB3: Web3<Http> = Web3::new(Http::new(POLYGON_MAINNET_NODES[0]).unwrap());
 }
 
-/// Test for an aggregated taker swap of MATIC for DOC with interim routing MATIC via a POL token
+/// Test for an aggregated taker swap to sell MATIC for DOC with interim routing MATIC via a PLG20 token
 #[test]
-fn test_aggregated_swap_mainnet_polygon_utxo() {
-    let bob_passphrase = std::env::var("BOB_MAINNET").expect("BOB_MAINNET env must be set");
-    let alice_passphrase = std::env::var("ALICE_MAINNET").expect("ALICE_MAINNET env must be set");
+fn test_aggregated_swap_mainnet_polygon_utxo_sell() {
+    let user_base = MATIC.to_owned(); // 0.24 USD
+    let user_rel = DOC.to_owned(); // 0.0011111 USD
+    let swap_amount: BigDecimal = "0.0046".parse().unwrap();
+    let rel_amount: BigDecimal = "1".parse().unwrap();
+    let method = "sell"; // Sell 0.0046 MATIC to get approx 1 DOC
+    test_aggregated_swap_mainnet_polygon_utxo_impl(&user_base, &user_rel, swap_amount, rel_amount, method, false, false);
+}
 
+/// Test for an aggregated taker swap to buy DOC for MATIC with interim routing MATIC via a PLG20 token
+#[test]
+fn test_aggregated_swap_mainnet_polygon_utxo_buy() {
     let user_base = DOC.to_owned(); // 0.0011111 USD
     let user_rel = MATIC.to_owned(); // 0.24 USD
     let swap_amount: BigDecimal = "1".parse().unwrap();
-    let method = "buy"; // Sell MATIC buy 1 DOC
+    let rel_amount = swap_amount.clone();
+    let method = "buy"; // Buy 1 DOC for MATIC
+    test_aggregated_swap_mainnet_polygon_utxo_impl(&user_base, &user_rel, swap_amount, rel_amount, method, false, false);
+}
+
+fn test_aggregated_swap_mainnet_polygon_utxo_impl(
+    user_base: &str,
+    user_rel: &str,
+    swap_amount: BigDecimal,
+    rel_amount: BigDecimal, // amount to check
+    method: &str,
+    run_swap: bool,
+    use_asks: bool,
+) {
+    let bob_passphrase = std::env::var("BOB_MAINNET").expect("BOB_MAINNET env must be set");
+    let alice_passphrase = std::env::var("ALICE_MAINNET").expect("ALICE_MAINNET env must be set");
     let receive_token = match method {
         "buy" => &user_base,
         "sell" => &user_rel,
@@ -60,11 +82,11 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let aave_ticker = aave_conf["coin"].as_str().unwrap().to_owned();
 
     let bob_coins = json!([doc_conf(), polygon_conf(), dai_conf, oneinch_conf, agix_conf, aave_conf,]);
-    let bob_conf = Mm2TestConf::seednode(&bob_passphrase, &bob_coins); // Using legacy swaps until TPU contracts deployed on POLYGON
+    let bob_conf = Mm2TestConf::seednode_trade_v2(&bob_passphrase, &bob_coins); // Using legacy swaps until TPU contracts deployed on POLYGON
     let mut mm_bob = block_on(MarketMakerIt::start_async(bob_conf.conf, bob_conf.rpc_password, None)).unwrap();
 
     let alice_coins = json!([doc_conf(), polygon_conf(), dai_conf, oneinch_conf, agix_conf, aave_conf,]);
-    let mut alice_conf = Mm2TestConf::light_node(&alice_passphrase, &alice_coins, &[&mm_bob.ip.to_string()]);
+    let mut alice_conf = Mm2TestConf::light_node_trade_v2(&alice_passphrase, &alice_coins, &[&mm_bob.ip.to_string()]);
     alice_conf.conf["1inch_api"] = "https://api.1inch.dev".into();
     let mut mm_alice = block_on(MarketMakerIt::start_async(
         alice_conf.conf,
@@ -147,38 +169,82 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     ))
     .unwrap();
 
-    let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, DOC, "buy", 10, true)); // This is the taker action. To get all DOC orders taker uses the "buy" param
-    let best_orders = best_orders_res
-        .result
-        .orders
-        .values()
-        .flatten()
-        .cloned()
-        .collect::<Vec<_>>(); // As taker used 'sell' actions, orders are returned as asks
+    let mut json_asks = vec![];
+    let mut json_bids = vec![];
+    if use_asks {
+        // Taker action is 'buy' so returned orders are 'asks'
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, DOC, "buy", 10, true));
+        let best_asks = best_orders_res
+            .result
+            .orders
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>(); // As taker used 'buy' actions, orders are returned as asks
+        json_asks.push(json!({ "base": &DOC, "orders": &best_asks }));
+    } else {
+        // Taker action is 'sell' so returned orders are 'bids'
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &dai_ticker, "sell", 10, true));
+        let best_bids = best_orders_res
+            .result
+            .orders
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        json_bids.push(json!({ "rel": &dai_ticker, "orders": &best_bids }));
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &oneinch_ticker, "sell", 10, true));
+        let best_bids = best_orders_res
+            .result
+            .orders
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        json_bids.push(json!({ "rel": &oneinch_ticker, "orders": &best_bids }));
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &agix_ticker, "sell", 10, true));
+        let best_bids = best_orders_res
+            .result
+            .orders
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        json_bids.push(json!({ "rel": &agix_ticker, "orders": &best_bids }));
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &aave_ticker, "sell", 10, true));
+        let best_bids = best_orders_res
+            .result
+            .orders
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        json_bids.push(json!({ "rel": &aave_ticker, "orders": &best_bids }));
+    }
 
     const LR_SLIPPAGE: f32 = 0.0;
     let best_quote = block_on(find_best_lr_swap(
         &mut mm_alice,
         &user_base,
-        &json!([{
-            "base": DOC, // pass as ask orders
-            "orders": &best_orders,
-        }]),
-        &json!([]),
+        &json!(json_asks),
+        &json!(json_bids),
         &swap_amount,
         method,
         &user_rel,
     ))
     .expect("best quote should be found");
     print_quote_resp(&best_quote);
-    let agg_uuid = block_on(create_and_start_agg_taker_swap(&mut mm_alice, LR_SLIPPAGE, best_quote)).unwrap();
+    if !run_swap {
+        return;
+    }
 
+    let agg_uuid = block_on(create_and_start_agg_taker_swap(&mut mm_alice, LR_SLIPPAGE, best_quote)).unwrap();
     log!("Aggregated taker swap uuid {:?} started", agg_uuid);
     block_on(Timer::sleep(1.0));
 
     let active_swaps_alice = block_on(active_swaps(&mm_alice));
     assert_eq!(active_swaps_alice.uuids, vec![agg_uuid]);
-    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 180)); // Only taker has the aggregated swap
+    block_on(wait_for_swap_finished(&mm_alice, &agg_uuid.to_string(), 600)); // Only taker has the aggregated swap
     log!("Aggregated taker swap uuid {:?} finished", agg_uuid);
 
     let taker_swap_status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
@@ -219,13 +285,13 @@ fn test_aggregated_swap_mainnet_polygon_utxo() {
     let alice_bal_diff = &alice_balance_after.balance - &alice_balance_before.balance;
     log!("Alice received amount {}: {}", receive_token, alice_bal_diff);
     assert!(
-        alice_bal_diff > &swap_amount * "0.80".parse::<BigDecimal>().unwrap(),
-        "too much received {}",
+        alice_bal_diff > &rel_amount * "0.80".parse::<BigDecimal>().unwrap(),
+        "too little received {}",
         alice_bal_diff
     );
     assert!(
-        alice_bal_diff < &swap_amount * "1.20".parse::<BigDecimal>().unwrap(),
-        "too low received {}",
+        alice_bal_diff < &rel_amount * "1.20".parse::<BigDecimal>().unwrap(),
+        "too much received {}",
         alice_bal_diff
     );
 }
@@ -235,8 +301,9 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_sell() {
     let user_base = MATIC.to_owned(); // 0.24 USD
     let user_rel = crv_arb20_conf()["coin"].as_str().unwrap().to_owned(); // 0.63 USD
     let swap_amount: BigDecimal = "0.3".parse().unwrap();
+    let rel_amount: BigDecimal = "0.1".parse().unwrap();
     let method = "sell"; // Sell 0.3 MATIC, buy CRV-ARB20
-    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, method, false, false);
+    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, rel_amount, method, false, false);
 }
 
 #[test]
@@ -244,14 +311,16 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_buy() {
     let user_base = crv_arb20_conf()["coin"].as_str().unwrap().to_owned(); // 0.63 USD
     let user_rel = MATIC.to_owned(); // 0.24 USD
     let swap_amount: BigDecimal = "0.1".parse().unwrap();
-    let method = "buy"; // Buy 0.1 CRV-ARB20, sell MATIC
-    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, method, false, true);
+    let rel_amount = swap_amount.clone();
+    let method = "buy"; // Buy 0.1 CRV-ARB20 for MATIC
+    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, rel_amount, method, false, true);
 }
 
 fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
     user_base: &str,
     user_rel: &str,
     swap_amount: BigDecimal,
+    rel_amount: BigDecimal, // amount to check
     method: &str,
     run_swap: bool,
     use_asks: bool,
@@ -394,6 +463,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
     let mut json_asks = vec![];
     let mut json_bids = vec![];
     if use_asks {
+        // Taker action is 'buy' so returned orders are 'asks'
         let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &grt_ticker, "buy", 10, true));
         let best_asks_0 = best_orders_res
             .result
@@ -404,7 +474,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
             .collect::<Vec<_>>();
         json_asks.push(json!({ "base": &grt_ticker, "orders": &best_asks_0 }));
 
-        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &arb_ticker, "buy", 10, true)); // This is the taker action. To get all aave orders taker uses "sell"
+        let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &arb_ticker, "buy", 10, true));
         let best_asks_1 = best_orders_res
             .result
             .orders
@@ -414,7 +484,7 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
             .collect::<Vec<_>>();
         json_asks.push(json!({ "base": &arb_ticker, "orders": &best_asks_1 }));
     } else {
-        // using "sell" we get all aave orders as bids:
+        // using Taker action "sell" we get all aave orders as bids:
         let best_orders_res = block_on(best_orders_v2_by_number(&mm_alice, &aave_ticker, "sell", 10, true));
         let best_bids = best_orders_res
             .result
@@ -490,13 +560,13 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
     let alice_bal_diff = &alice_balance_after.balance - &alice_balance_before.balance;
     log!("Alice received amount {}: {}", receive_token, alice_bal_diff);
     assert!(
-        alice_bal_diff > &swap_amount * "0.80".parse::<BigDecimal>().unwrap(),
-        "too much received {}",
+        alice_bal_diff > &rel_amount * "0.80".parse::<BigDecimal>().unwrap(),
+        "too little received {}",
         alice_bal_diff
     );
     assert!(
-        alice_bal_diff < &swap_amount * &"1.20".parse::<BigDecimal>().unwrap(),
-        "too low received {}",
+        alice_bal_diff < &rel_amount * &"1.20".parse::<BigDecimal>().unwrap(),
+        "too much received {}",
         alice_bal_diff
     );
 }
@@ -837,7 +907,7 @@ fn print_quote_resp(quote: &LrFindBestQuoteResponse) {
             .lr_data_0
             .as_ref()
             .and_then(|data| data.dst_token.as_ref().unwrap().symbol_kdf.as_ref()),
-        quote.lr_data_0.as_ref().map(|data| data.dst_amount.as_ratio().to_f64()),
+        quote.lr_data_0.as_ref().map(|data| &data.dst_amount.amount),
         quote.atomic_swap.base,
         quote.atomic_swap.rel,
         quote.atomic_swap.method,
@@ -852,7 +922,7 @@ fn print_quote_resp(quote: &LrFindBestQuoteResponse) {
             .lr_data_1
             .as_ref()
             .and_then(|data| data.dst_token.as_ref().unwrap().symbol_kdf.as_ref()),
-        quote.lr_data_1.as_ref().map(|data| data.dst_amount.as_ratio().to_f64()),
+        quote.lr_data_1.as_ref().map(|data| &data.dst_amount.amount),
     );
 }
 
