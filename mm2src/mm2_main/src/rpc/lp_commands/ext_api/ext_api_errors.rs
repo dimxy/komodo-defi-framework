@@ -242,6 +242,7 @@ impl From<LrSwapError> for ExtApiRpcError {
             LrSwapError::StateError(msg) | LrSwapError::AtomicSwapError(msg) | LrSwapError::InternalError(msg) => {
                 ExtApiRpcError::InternalError(msg)
             },
+            LrSwapError::AtomicSwapAborted(abort_reason) => ExtApiRpcError::InternalError(abort_reason.to_string()),
             LrSwapError::CoinTypeError => ExtApiRpcError::CoinTypeError,
             LrSwapError::NftProtocolNotSupported => ExtApiRpcError::NftProtocolNotSupported,
             LrSwapError::ChainNotSupported => ExtApiRpcError::ChainNotSupported,

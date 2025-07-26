@@ -1,5 +1,6 @@
 use crate::lp_swap::swap_v2_common::SwapStateMachineError;
 use crate::lp_swap::swap_v2_rpcs::MySwapStatusError;
+use crate::lp_swap::taker_swap_v2;
 use crate::lp_swap::CheckBalanceError;
 use coins::CoinFindError;
 use derive_more::Display;
@@ -40,6 +41,7 @@ pub enum LrSwapError {
         candidates: u32,
     },
     AtomicSwapError(String),
+    AtomicSwapAborted(taker_swap_v2::AbortReason),
     #[from_stringify("serde_json::Error")]
     ResponseParseError(String),
     #[from_stringify("coins::TransactionErr")]
