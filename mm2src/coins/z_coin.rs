@@ -395,7 +395,7 @@ impl ZCoin {
     async fn get_one_kbyte_tx_fee(&self) -> UtxoRpcResult<BigDecimal> {
         let fee = self.get_fee_rate().await?;
         match fee {
-            ActualFeeRate::Dynamic(fee) | ActualFeeRate::FixedPerKb(fee) => {
+            ActualFeeRate::Dynamic(fee) | ActualFeeRate::FixedPerKb(fee) | ActualFeeRate::FixedPerKbDingo(fee) => {
                 Ok(big_decimal_from_sat_unsigned(fee, self.decimals()))
             },
         }
@@ -1828,7 +1828,6 @@ impl MmCoin for ZCoin {
         &self,
         _value: TradePreimageValue,
         _stage: FeeApproxStage,
-        _include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         Ok(TradeFee {
             coin: self.ticker().to_owned(),
