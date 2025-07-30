@@ -905,12 +905,12 @@ async fn get_min_relay_rate<T: AsRef<UtxoCoinFields> + UtxoTxGenerationOps>(coin
 /// Helper to get tx fee if min relay rate is known
 fn get_tx_fee_with_relay_fee(fee_rate: &ActualFeeRate, tx_size: u64, min_relay_fee_rate: Option<u64>) -> u64 {
     let tx_fee = fee_rate.get_tx_fee(tx_size);
-    println!("tx_size={} tx_fee={}", tx_size, tx_fee);
+    println!("tx_size={} tx_fee={} fee_rate={:?}", tx_size, tx_fee, fee_rate);
     if let Some(min_relay_fee_rate) = min_relay_fee_rate {
         let min_relay_dynamic_fee_rate = ActualFeeRate::Dynamic(min_relay_fee_rate);
         let min_relay_tx_fee = min_relay_dynamic_fee_rate.get_tx_fee(tx_size);
         if tx_fee < min_relay_tx_fee {
-            println!("tx_size={} min_relay_tx_fee={}", tx_size, min_relay_tx_fee);
+            println!("tx_size={} min_relay_tx_fee={} min_relay_fee_rate={:?}", tx_size, min_relay_tx_fee, min_relay_fee_rate);
             return min_relay_tx_fee;
         }
     }
