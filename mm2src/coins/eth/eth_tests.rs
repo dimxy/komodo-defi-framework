@@ -9,8 +9,9 @@ cfg_native!(
 
     use common::{now_sec, block_on_f01};
     use ethkey::{Generator, Random};
-    use mm2_test_helpers::for_tests::{ETH_MAINNET_CHAIN_ID, ETH_MAINNET_NODES, ETH_SEPOLIA_CHAIN_ID, ETH_SEPOLIA_NODES,
-                                  ETH_SEPOLIA_TOKEN_CONTRACT};
+    use mm2_test_helpers::for_tests::{
+        ETH_MAINNET_CHAIN_ID, ETH_MAINNET_NODES, ETH_SEPOLIA_CHAIN_ID, ETH_SEPOLIA_NODES, ETH_SEPOLIA_TOKEN_CONTRACT,
+    };
     use mocktopus::mocking::*;
 
     /// The gas price for the tests
@@ -1146,5 +1147,5 @@ fn test_gas_limit_conf() {
 fn test_h256_to_str() {
     let h = H256::from_str("5136701f11060010841c9708c3eb26f6606a070b8ae43f4b98b6d7b10a545258").unwrap();
     let b: BytesJson = h.0.to_vec().into();
-    println!("H256=0x{:02x}", b);
+    println!("H256=0x{b:02x}");
 }
