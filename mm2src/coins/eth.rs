@@ -120,7 +120,6 @@ use web3::{self, Web3};
 
 cfg_wasm32! {
     use crypto::MetamaskArc;
-    use ethereum_types::H520;
     use mm2_metamask::MetamaskError;
     use web3::types::TransactionRequest;
 }
@@ -866,9 +865,7 @@ pub enum EthPrivKeyBuildPolicy {
     Metamask(MetamaskArc),
     Trezor,
     WalletConnect {
-        address: Address,
-        public_key_uncompressed: H520,
-        session_topic: String,
+        session_topic: kdf_walletconnect::WcTopic,
     },
 }
 
@@ -889,11 +886,14 @@ impl EthPrivKeyBuildPolicy {
 }
 
 impl From<PrivKeyBuildPolicy> for EthPrivKeyBuildPolicy {
-    fn from(policy: PrivKeyBuildPolicy) -> Self {
+    fn from(policy: PrivKeyBuildPolicy) -> EthPrivKeyBuildPolicy {
         match policy {
             PrivKeyBuildPolicy::IguanaPrivKey(iguana) => EthPrivKeyBuildPolicy::IguanaPrivKey(iguana),
             PrivKeyBuildPolicy::GlobalHDAccount(global_hd) => EthPrivKeyBuildPolicy::GlobalHDAccount(global_hd),
             PrivKeyBuildPolicy::Trezor => EthPrivKeyBuildPolicy::Trezor,
+            PrivKeyBuildPolicy::WalletConnect { session_topic } => {
+                EthPrivKeyBuildPolicy::WalletConnect { session_topic }
+            },
         }
     }
 }
@@ -2992,8 +2992,7 @@ async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionParams) -> Raw
             .map_to_mm(|err| RawTransactionError::TransactionError(err.get_plain_text_format()))
         },
         EthPrivKeyPolicy::WalletConnect { .. } => {
-            // NOTE: doesn't work with wallets that doesn't support `eth_signTransaction`.
-            // e.g Metamask
+            // NOTE: doesn't work with wallets that doesn't support `eth_signTransaction`. e.g TrustWallet
             let wc = {
                 let ctx = MmArc::from_weak(&coin.ctx).expect("No context");
                 WalletConnectCtx::from_ctx(&ctx)
@@ -6564,8 +6563,15 @@ pub async fn eth_coin_from_conf_and_request(
         }
     }
 
-    // Convert `PrivKeyBuildPolicy` to `EthPrivKeyBuildPolicy` if it's possible.
-    let priv_key_policy = From::from(priv_key_policy);
+    // Convert `PrivKeyBuildPolicy` to `EthPrivKeyBuildPolicy`.
+    let priv_key_policy = match priv_key_policy {
+        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => EthPrivKeyBuildPolicy::IguanaPrivKey(iguana),
+        PrivKeyBuildPolicy::GlobalHDAccount(global_hd) => EthPrivKeyBuildPolicy::GlobalHDAccount(global_hd),
+        PrivKeyBuildPolicy::Trezor => EthPrivKeyBuildPolicy::Trezor,
+        PrivKeyBuildPolicy::WalletConnect { .. } => {
+            return ERR!("WalletConnect private key policy is not supported for legacy ETH coin activation");
+        },
+    };
 
     let mut urls: Vec<String> = try_s!(json::from_value(req["urls"].clone()));
     if urls.is_empty() {
@@ -6590,8 +6596,9 @@ pub async fn eth_coin_from_conf_and_request(
         req["path_to_address"].clone()
     ))
     .unwrap_or_default();
-    let (key_pair, derivation_method) =
-        try_s!(build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, &path_to_address, None).await);
+    let (key_pair, derivation_method) = try_s!(
+        build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, &path_to_address, None, None).await
+    );
 
     let mut web3_instances = vec![];
     let event_handlers = rpc_event_handlers_for_eth_transport(ctx, ticker.to_string());
@@ -6869,7 +6876,7 @@ pub async fn get_eth_address(
     .into();
 
     let (_, derivation_method) =
-        build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, path_to_address, None)
+        build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, path_to_address, None, None)
             .await
             .map_mm_err()?;
     let my_address = derivation_method.single_addr_or_err().await.map_mm_err()?;

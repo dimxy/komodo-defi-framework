@@ -141,7 +141,7 @@ fn extract_prefix_values(
 
     match protocol {
         CoinProtocol::ETH { .. } | CoinProtocol::ERC20 { .. } | CoinProtocol::NFT { .. } => Ok(None),
-        CoinProtocol::UTXO | CoinProtocol::QTUM | CoinProtocol::QRC20 { .. } | CoinProtocol::BCH { .. } => {
+        CoinProtocol::UTXO { .. } | CoinProtocol::QTUM | CoinProtocol::QRC20 { .. } | CoinProtocol::BCH { .. } => {
             let wif_type = coin_conf["wiftype"]
                 .as_u64()
                 .ok_or_else(|| OfflineKeysError::MissingPrefixValue {

@@ -19,10 +19,7 @@ use crate::rpc_command::init_withdraw::{InitWithdrawCoin, WithdrawInProgressStat
 use crate::utxo::rpc_clients::{
     ElectrumConnectionSettings, UnspentInfo, UtxoRpcClientEnum, UtxoRpcError, UtxoRpcFut, UtxoRpcResult,
 };
-use crate::utxo::utxo_builder::{
-    UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps, UtxoFieldsWithGlobalHDBuilder,
-    UtxoFieldsWithHardwareWalletBuilder, UtxoFieldsWithIguanaSecretBuilder,
-};
+use crate::utxo::utxo_builder::{UtxoCoinBuildError, UtxoCoinBuilder, UtxoCoinBuilderCommonOps};
 use crate::utxo::utxo_common::{
     addresses_from_script, big_decimal_from_sat, big_decimal_from_sat_unsigned, payment_script,
 };
@@ -961,14 +958,6 @@ impl UtxoCoinBuilderCommonOps for ZCoinBuilder<'_> {
         self.ticker
     }
 }
-
-impl UtxoFieldsWithIguanaSecretBuilder for ZCoinBuilder<'_> {}
-
-impl UtxoFieldsWithGlobalHDBuilder for ZCoinBuilder<'_> {}
-
-/// Although, `ZCoin` doesn't support [`PrivKeyBuildPolicy::Trezor`] yet,
-/// `UtxoCoinBuilder` trait requires `UtxoFieldsWithHardwareWalletBuilder` to be implemented.
-impl UtxoFieldsWithHardwareWalletBuilder for ZCoinBuilder<'_> {}
 
 #[async_trait]
 impl UtxoCoinBuilder for ZCoinBuilder<'_> {
@@ -2274,6 +2263,13 @@ fn extended_spending_key_from_protocol_info_and_policy(
         },
         PrivKeyBuildPolicy::Trezor => {
             let priv_key_err = PrivKeyPolicyNotAllowed::HardwareWalletNotSupported;
+            MmError::err(ZCoinBuildError::UtxoBuilderError(
+                UtxoCoinBuildError::PrivKeyPolicyNotAllowed(priv_key_err),
+            ))
+        },
+        PrivKeyBuildPolicy::WalletConnect { .. } => {
+            let priv_key_err =
+                PrivKeyPolicyNotAllowed::UnsupportedMethod("WalletConnect is not supported for ZCoin".to_string());
             MmError::err(ZCoinBuildError::UtxoBuilderError(
                 UtxoCoinBuildError::PrivKeyPolicyNotAllowed(priv_key_err),
             ))

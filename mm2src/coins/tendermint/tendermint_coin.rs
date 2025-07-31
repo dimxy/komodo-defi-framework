@@ -399,8 +399,8 @@ impl RpcCommonOps for TendermintCoin {
 
 #[derive(PartialEq)]
 pub enum TendermintWalletConnectionType {
-    Wc(String),
-    WcLedger(String),
+    Wc(kdf_walletconnect::WcTopic),
+    WcLedger(kdf_walletconnect::WcTopic),
     KeplrLedger,
     Keplr,
     Native,
@@ -4296,6 +4296,15 @@ pub fn tendermint_priv_key_policy(
         PrivKeyBuildPolicy::Trezor => {
             let kind =
                 TendermintInitErrorKind::PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed::HardwareWalletNotSupported);
+            MmError::err(TendermintInitError {
+                ticker: ticker.to_string(),
+                kind,
+            })
+        },
+        PrivKeyBuildPolicy::WalletConnect { .. } => {
+            let kind = TendermintInitErrorKind::PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed::UnsupportedMethod(
+                "Cannot use WalletConnect to get TendermintPrivKeyPolicy".to_string(),
+            ));
             MmError::err(TendermintInitError {
                 ticker: ticker.to_string(),
                 kind,

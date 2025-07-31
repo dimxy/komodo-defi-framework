@@ -30,7 +30,7 @@ use crate::{
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use bitcrypto::dhash160;
+use bitcrypto::{dhash160, sign_message_hash};
 use chain::constants::SEQUENCE_FINAL;
 use chain::{OutPoint, TransactionOutput};
 use common::executor::{abortable_queue::AbortableQueue, AbortableSystem, AbortedError};
@@ -1196,7 +1196,8 @@ impl MarketCoinOps for SlpToken {
     }
 
     fn sign_message_hash(&self, message: &str) -> Option<[u8; 32]> {
-        utxo_common::sign_message_hash(self.as_ref(), message)
+        let prefix = self.as_ref().conf.sign_message_prefix.as_ref()?;
+        Some(sign_message_hash(prefix, message))
     }
 
     fn sign_message(&self, message: &str, address: Option<HDAddressSelector>) -> SignatureResult<String> {

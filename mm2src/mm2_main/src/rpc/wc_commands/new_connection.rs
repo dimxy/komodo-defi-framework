@@ -1,4 +1,4 @@
-use kdf_walletconnect::{NewConnection, WalletConnectCtx};
+use kdf_walletconnect::{NewConnection, WalletConnectCtx, WcTopic};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use super::WalletConnectRpcError;
 #[derive(Debug, PartialEq, Serialize)]
 pub struct CreateConnectionResponse {
     pub url: String,
-    pub pairing_topic: String,
+    pub pairing_topic: WcTopic,
 }
 
 #[derive(Deserialize)]

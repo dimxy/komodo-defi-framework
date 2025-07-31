@@ -35,7 +35,7 @@ use crate::{MmCoinEnum, WatcherReward, WatcherRewardError};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 pub use bitcrypto::{dhash160, sha256, ChecksumType};
-use bitcrypto::{dhash256, ripemd160};
+use bitcrypto::{ripemd160, sign_message_hash};
 use chain::constants::SEQUENCE_FINAL;
 use chain::{OutPoint, TransactionInput, TransactionOutput};
 use common::executor::Timer;
@@ -64,10 +64,7 @@ use rpc_clients::NativeClientImpl;
 use script::{Builder, Opcode, Script, ScriptAddress, TransactionInputSigner, UnsignedTransactionInput};
 use secp256k1::{PublicKey, Signature as SecpSignature};
 use serde_json::{self as json};
-use serialization::{
-    deserialize, serialize, serialize_with_flags, CoinVariant, CompactInteger, Serializable, Stream,
-    SERIALIZE_TRANSACTION_WITNESS,
-};
+use serialization::{deserialize, serialize, serialize_with_flags, CoinVariant, SERIALIZE_TRANSACTION_WITNESS};
 use std::cmp::Ordering;
 use std::collections::hash_map::{Entry, HashMap};
 use std::convert::TryFrom;
@@ -2925,26 +2922,17 @@ pub fn burn_address<T: UtxoCommonOps + SwapOps>(coin: &T) -> Result<Address, Str
     )
 }
 
-/// Hash message for signature using Bitcoin's message signing format.
-/// sha256(sha256(PREFIX_LENGTH + PREFIX + MESSAGE_LENGTH + MESSAGE))
-pub fn sign_message_hash(coin: &UtxoCoinFields, message: &str) -> Option<[u8; 32]> {
-    let message_prefix = coin.conf.sign_message_prefix.clone()?;
-    let mut stream = Stream::new();
-    let prefix_len = CompactInteger::from(message_prefix.len());
-    prefix_len.serialize(&mut stream);
-    stream.append_slice(message_prefix.as_bytes());
-    let msg_len = CompactInteger::from(message.len());
-    msg_len.serialize(&mut stream);
-    stream.append_slice(message.as_bytes());
-    Some(dhash256(&stream.out()).take())
-}
-
 pub fn sign_message(
     coin: &UtxoCoinFields,
     message: &str,
     account: Option<HDAddressSelector>,
 ) -> SignatureResult<String> {
-    let message_hash = sign_message_hash(coin, message).ok_or(SignatureError::PrefixNotFound)?;
+    let sign_message_prefix = coin
+        .conf
+        .sign_message_prefix
+        .as_ref()
+        .ok_or(SignatureError::PrefixNotFound)?;
+    let message_hash = sign_message_hash(sign_message_prefix, message);
 
     let private = if let Some(account) = account {
         let path_to_coin = coin.priv_key_policy.path_to_coin_or_err().map_mm_err()?;
@@ -2977,7 +2965,13 @@ pub fn verify_message<T: UtxoCommonOps>(
     message: &str,
     address: &str,
 ) -> VerificationResult<bool> {
-    let message_hash = sign_message_hash(coin.as_ref(), message).ok_or(VerificationError::PrefixNotFound)?;
+    let sign_message_prefix = coin
+        .as_ref()
+        .conf
+        .sign_message_prefix
+        .as_ref()
+        .ok_or(VerificationError::PrefixNotFound)?;
+    let message_hash = sign_message_hash(sign_message_prefix, message);
     let signature = CompactSignature::try_from(STANDARD.decode(signature_base64)?)
         .map_to_mm(|err| VerificationError::SignatureDecodingError(err.to_string()))?;
     let recovered_pubkey = Public::recover_compact(&H256::from(message_hash), &signature)?;
