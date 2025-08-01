@@ -58,12 +58,23 @@ pub(crate) fn eth_coin_from_keypair(
     };
     let my_address = key_pair.address();
     let coin_conf = coin_conf(&ctx, &ticker);
-    let gas_limit: EthGasLimit = extract_gas_limit_from_conf(&coin_conf).expect("expected valid gas_limit config");
-    let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(&coin_conf).expect("expected valid gas_limit config");
-    let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &coin_conf, &coin_type).expect("valid max_eth_tx_type config");
-    let swap_gas_fee_policy: SwapGasFeePolicy = get_swap_gas_fee_policy_conf(&ctx, &coin_conf, &coin_type)
-        .expect("valid swap_gas_fee_policy config")
+    let max_eth_tx_type = get_conf_param_or_from_plaform_coin(&ctx, &coin_conf, &coin_type, MAX_ETH_TX_TYPE_SUPPORTED)
+        .expect("valid max_eth_tx_type config");
+    let gas_price_adjust = get_conf_param_or_from_plaform_coin(&ctx, &coin_conf, &coin_type, GAS_PRICE_ADJUST)
+        .expect("expected valid gas adjust config");
+    let estimate_gas_mult = get_conf_param_or_from_plaform_coin(&ctx, &coin_conf, &coin_type, ESTIMATE_GAS_MULT)
+        .expect("expected valid estimate gas mult config");
+    let gas_limit: EthGasLimit = get_conf_param_or_from_plaform_coin(&ctx, &coin_conf, &coin_type, EthGasLimit::key())
+        .expect("expected valid gas_limit config")
         .unwrap_or_default();
+    let gas_limit_v2: EthGasLimitV2 =
+        get_conf_param_or_from_plaform_coin(&ctx, &coin_conf, &coin_type, EthGasLimitV2::key())
+            .expect("expected valid gas_limit config")
+            .unwrap_or_default();
+    let swap_gas_fee_policy: SwapGasFeePolicy =
+        get_conf_param_or_from_plaform_coin(&ctx, &coin_conf, &coin_type, SWAP_GAS_FEE_POLICY)
+            .expect("valid swap_gas_fee_policy config")
+            .unwrap_or_default();
 
     let eth_coin = EthCoin(Arc::new(EthCoinImpl {
         coin_type,
@@ -86,11 +97,12 @@ pub(crate) fn eth_coin_from_keypair(
         logs_block_range: DEFAULT_LOGS_BLOCK_RANGE,
         address_nonce_locks: Arc::new(AsyncMutex::new(new_nonce_lock())),
         max_eth_tx_type,
-        gas_price_adjust: Default::default(),
+        gas_price_adjust,
         erc20_tokens_infos: Default::default(),
         nfts_infos: Arc::new(Default::default()),
         gas_limit,
         gas_limit_v2,
+        estimate_gas_mult,
         abortable_system: AbortableQueue::default(),
     }));
     (ctx, eth_coin)

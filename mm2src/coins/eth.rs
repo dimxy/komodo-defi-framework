@@ -83,6 +83,7 @@ use kdf_walletconnect::{WalletConnectCtx, WalletConnectOps};
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_number::bigdecimal_custom::CheckedDivision;
 use mm2_number::{BigDecimal, BigUint, MmNumber};
+use num_traits::FromPrimitive;
 use rand::seq::SliceRandom;
 use regex::Regex;
 use rlp::{DecoderError, Encodable, RlpStream};
@@ -134,9 +135,8 @@ pub(crate) use eth_utils::display_u256_with_decimal_point;
 pub use eth_utils::{addr_from_pubkey_str, addr_from_raw_pubkey, mm_number_from_u256, mm_number_to_u256,
                     u256_from_big_decimal, u256_to_big_decimal, wei_from_coins_mm_number, wei_from_gwei_decimal,
                     wei_to_eth_decimal, wei_to_gwei_decimal};
-use eth_utils::{extract_gas_limit_from_conf, get_function_input_data, get_function_name, get_gas_base_fee_mult_conf,
-                get_gas_price_mult_conf, get_gas_priority_fee_mult_conf, get_max_eth_tx_type_conf,
-                get_swap_gas_fee_policy_conf};
+use eth_utils::{get_conf_param_or_from_plaform_coin, get_function_input_data, get_function_name, ESTIMATE_GAS_MULT,
+                GAS_PRICE_ADJUST, MAX_ETH_TX_TYPE_SUPPORTED, SWAP_GAS_FEE_POLICY};
 
 pub use rlp;
 cfg_native! {
@@ -164,7 +164,8 @@ use eth_withdraw::{EthWithdraw, InitEthWithdraw, StandardEthWithdraw};
 
 pub mod fee_estimation;
 use fee_estimation::eip1559::{block_native::BlocknativeGasApiCaller, infura::InfuraGasApiCaller,
-                              simple::FeePerGasSimpleEstimator, FeePerGasEstimated, GasApiConfig, GasApiProvider};
+                              simple::FeePerGasSimpleEstimator, FeePerGasEstimated, GasApiConfig, GasApiProvider,
+                              FEE_PRIORITY_LEVEL_N};
 
 pub mod erc20;
 use erc20::get_token_decimals;
@@ -307,8 +308,6 @@ pub mod gas_limit_v2 {
         pub const ERC1155_MAKER_REFUND_SECRET: u64 = 100_000;
     }
 }
-
-pub(crate) use fee_estimation::eip1559::FEE_PRIORITY_LEVEL_N;
 
 /// Coin conf param to override default gas limits
 #[derive(Deserialize)]
@@ -520,18 +519,15 @@ impl ExtractGasLimit for EthGasLimitV2 {
     fn key() -> &'static str { "gas_limit_v2" }
 }
 
-/// Max transaction type according to EIP-2718
-const ETH_MAX_TX_TYPE: u64 = 0x7f;
-
 /// Gas price multipliers to adjust gas price estimation per coin basis
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Deserialize)]
 struct GasPriceAdjust {
     /// Multiplier for legacy gas price
-    legacy_price_mult: Option<f64>,
+    legacy_price_mult: f64,
     /// Multipliers for 3 levels of base fee
-    base_fee_mult: Option<Vec<f64>>,
+    base_fee_mult: [f64; FEE_PRIORITY_LEVEL_N],
     /// Multipliers for 3 levels of max priority fee
-    priority_fee_mult: Option<Vec<f64>>,
+    priority_fee_mult: [f64; FEE_PRIORITY_LEVEL_N],
 }
 
 lazy_static! {
@@ -890,7 +886,7 @@ pub struct EthCoinImpl {
     #[cfg_attr(any(test, feature = "run-docker-tests"), allow(dead_code))]
     swap_gas_fee_policy: Mutex<SwapGasFeePolicy>,
     max_eth_tx_type: Option<u64>,
-    gas_price_adjust: GasPriceAdjust,
+    gas_price_adjust: Option<GasPriceAdjust>,
     /// Coin needs access to the context in order to reuse the logging and shutdown facilities.
     /// Using a weak reference by default in order to avoid circular references and leaks.
     pub ctx: MmWeak,
@@ -913,6 +909,8 @@ pub struct EthCoinImpl {
     pub(crate) gas_limit: EthGasLimit,
     /// Config provided gas limits v2 for swap v2 transactions
     pub(crate) gas_limit_v2: EthGasLimitV2,
+    /// If not None, gas limit is obtained from eth_estimateGas and multiplied by this value, for swap transactions
+    pub(crate) estimate_gas_mult: Option<f64>,
     /// This spawner is used to spawn coin's related futures that should be aborted on coin deactivation
     /// and on [`MmArc::stop`].
     pub abortable_system: AbortableQueue,
@@ -4843,6 +4841,20 @@ impl EthCoin {
             .map_to_mm(Web3RpcError::from)
     }
 
+    async fn estimate_gas_for_contract_call_if_conf(
+        &self,
+        contract_addr: Address,
+        call_data: Bytes,
+    ) -> Web3RpcResult<Option<U256>> {
+        if let Some(estimate_gas_mult) = self.estimate_gas_mult {
+            let gas_estimated = self.estimate_gas_for_contract_call(contract_addr, call_data).await?;
+            let gas_estimated = u256_to_big_decimal(gas_estimated, 0).map_mm_err()?
+                * BigDecimal::from_f64(estimate_gas_mult).unwrap_or(BigDecimal::from(1));
+            return Ok(Some(u256_from_big_decimal(&gas_estimated, 0).map_mm_err()?));
+        }
+        Ok(None)
+    }
+
     fn eth_balance(&self) -> BalanceFut<U256> {
         let coin = self.clone();
         let fut = async move {
@@ -5499,9 +5511,9 @@ impl EthCoin {
             .flatten()
             .max()
             .or_mm_err(|| Web3RpcError::Internal("All requests failed".into()))?;
-        if let Some(mult) = self.gas_price_adjust.legacy_price_mult {
+        if let Some(gas_price_adjust) = &self.gas_price_adjust {
             let gas_price = u256_to_big_decimal(gas_price, 0).map_mm_err()?;
-            let mult = BigDecimal::try_from(mult).map_err(|_| {
+            let mult = BigDecimal::try_from(gas_price_adjust.legacy_price_mult).map_err(|_| {
                 MmError::new(Web3RpcError::NumConversError(
                     "gas_price_mult conversion error".to_string(),
                 ))
@@ -6013,6 +6025,7 @@ impl MmCoin for EthCoin {
         let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
         let gas_limit = match self.coin_type {
             EthCoinType::Eth => {
+                //let eth_payment_gas = self.
                 // this gas_limit includes gas for `ethPayment` and optionally `senderRefund` contract calls
                 if include_refund_fee {
                     U256::from(self.gas_limit.eth_payment) + U256::from(self.gas_limit.eth_sender_refund)
@@ -6685,16 +6698,15 @@ pub async fn eth_coin_from_conf_and_request(
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = try_s!(ctx.abortable_system.create_subsystem());
 
-    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type)?;
-    let gas_price_adjust = GasPriceAdjust {
-        legacy_price_mult: get_gas_price_mult_conf(ctx, conf, &coin_type)?,
-        base_fee_mult: get_gas_base_fee_mult_conf(ctx, conf, &coin_type)?,
-        priority_fee_mult: get_gas_priority_fee_mult_conf(ctx, conf, &coin_type)?,
-    };
-    let gas_limit: EthGasLimit = extract_gas_limit_from_conf(conf)?;
-    let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)?;
+    let max_eth_tx_type = get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, MAX_ETH_TX_TYPE_SUPPORTED)?;
+    let gas_price_adjust = get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, GAS_PRICE_ADJUST)?;
+    let estimate_gas_mult = get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, ESTIMATE_GAS_MULT)?;
+    let gas_limit: EthGasLimit =
+        get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, EthGasLimit::key())?.unwrap_or_default();
+    let gas_limit_v2: EthGasLimitV2 =
+        get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, EthGasLimitV2::key())?.unwrap_or_default();
     let swap_gas_fee_policy_default: SwapGasFeePolicy =
-        get_swap_gas_fee_policy_conf(ctx, conf, &coin_type)?.unwrap_or_default();
+        get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, SWAP_GAS_FEE_POLICY)?.unwrap_or_default();
     let swap_gas_fee_policy: SwapGasFeePolicy =
         json::from_value(req["swap_gas_fee_policy"].clone()).unwrap_or(swap_gas_fee_policy_default);
 
@@ -6725,6 +6737,7 @@ pub async fn eth_coin_from_conf_and_request(
         nfts_infos: Default::default(),
         gas_limit,
         gas_limit_v2,
+        estimate_gas_mult,
         abortable_system,
     };
 
@@ -7634,6 +7647,7 @@ impl EthCoin {
             nfts_infos: Arc::clone(&self.nfts_infos),
             gas_limit: EthGasLimit::default(),
             gas_limit_v2: EthGasLimitV2::default(),
+            estimate_gas_mult: None,
             abortable_system: self.abortable_system.create_subsystem().unwrap(),
         };
         EthCoin(Arc::new(coin))

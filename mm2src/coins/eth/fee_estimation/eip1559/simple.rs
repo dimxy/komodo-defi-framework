@@ -88,26 +88,27 @@ impl FeePerGasSimpleEstimator {
 
         // Calculate the max priority fee per gas based on the rewards percentile.
         let max_priority_fee_per_gas = Self::percentile_of(&level_rewards, Self::PRIORITY_FEE_PERCENTILES[level_index]);
-        // Convert the priority fee to BigDecimal gwei, falling back to 0 on error.
         let max_priority_fee_per_gas_gwei =
             wei_to_gwei_decimal(max_priority_fee_per_gas).unwrap_or_else(|_| BigDecimal::from(0));
 
-        let base_fee_mult = coin
-            .gas_price_adjust
-            .base_fee_mult
-            .clone()
-            .unwrap_or(Self::ADJUST_BASE_FEE.to_vec())
-            .get(level_index)
-            .cloned()
-            .unwrap_or(0.0);
-        let priority_fee_mult = coin
-            .gas_price_adjust
-            .priority_fee_mult
-            .clone()
-            .unwrap_or(Self::ADJUST_PRIORITY_FEE.to_vec())
-            .get(level_index)
-            .cloned()
-            .unwrap_or(0.0);
+        let base_fee_mult = if let Some(ref gas_price_adjust) = coin.gas_price_adjust {
+            gas_price_adjust.base_fee_mult
+        } else {
+            Self::ADJUST_BASE_FEE
+        }
+        .get(level_index)
+        .cloned()
+        .unwrap_or(0.0);
+
+        let priority_fee_mult = if let Some(ref gas_price_adjust) = coin.gas_price_adjust {
+            gas_price_adjust.priority_fee_mult
+        } else {
+            Self::ADJUST_PRIORITY_FEE
+        }
+        .get(level_index)
+        .cloned()
+        .unwrap_or(0.0);
+
         // Calculate the max fee per gas by adjusting the base fee and adding the priority fee.
         let base_fee_mult = BigDecimal::from_f64(base_fee_mult).unwrap_or_else(|| BigDecimal::from(0));
         let priority_fee_mult = BigDecimal::from_f64(priority_fee_mult).unwrap_or_else(|| BigDecimal::from(0));

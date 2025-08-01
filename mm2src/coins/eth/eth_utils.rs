@@ -1,5 +1,5 @@
-use super::{EthCoinType, ExtractGasLimit, ETH_DECIMALS, ETH_GWEI_DECIMALS, ETH_MAX_TX_TYPE, FEE_PRIORITY_LEVEL_N};
-use crate::{coin_conf, NumConversError, NumConversResult, SwapGasFeePolicy};
+use super::{EthCoinType, ETH_DECIMALS, ETH_GWEI_DECIMALS};
+use crate::{coin_conf, NumConversError, NumConversResult};
 use ethabi::{Function, Token};
 use ethereum_types::{Address, FromDecStrErr, U256};
 use ethkey::{public_to_address, Public};
@@ -7,18 +7,17 @@ use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::MapToMmResult;
 use mm2_number::{BigDecimal, MmNumber};
 use secp256k1::PublicKey;
+use serde::de::DeserializeOwned;
 use serde_json::Value as Json;
 
 /// Coin config parameter name for the max supported eth transaction type
-const MAX_ETH_TX_TYPE_SUPPORTED: &str = "max_eth_tx_type";
-/// Coin config parameter name for the eth legacy gas price multiplier
-const LEGACY_GAS_PRICE_MULTIPLIER: &str = "gas_price_mult";
-/// Coin config parameter name for eth gas base fee adjustment values used in the simple gas fee estimator
-const GAS_BASE_FEE_MULTIPLIER: &str = "gas_base_fee_mult";
-/// Coin config parameter name for eth gas max priority fee adjustment values used in the simple gas fee estimator
-const GAS_PRIORITY_FEE_MULTIPLIER: &str = "gas_priority_fee_mult";
+pub(super) const MAX_ETH_TX_TYPE_SUPPORTED: &str = "max_eth_tx_type";
+/// Coin config parameter name for the eth gas price adjustment values
+pub(super) const GAS_PRICE_ADJUST: &str = "gas_price_adjust";
+/// Coin config parameter name for the eth estimate gas multiplier
+pub(super) const ESTIMATE_GAS_MULT: &str = "estimate_gas_mult";
 /// Coin config parameter name for the default eth swap gas fee policy
-const SWAP_GAS_FEE_POLICY: &str = "swap_gas_fee_policy";
+pub(super) const SWAP_GAS_FEE_POLICY: &str = "swap_gas_fee_policy";
 
 pub(crate) fn get_function_input_data(decoded: &[Token], func: &Function, index: usize) -> Result<Token, String> {
     decoded.get(index).cloned().ok_or(format!(
@@ -119,135 +118,28 @@ pub fn wei_to_coins_mm_number(u256: U256, decimals: u8) -> NumConversResult<MmNu
     Ok(MmNumber::from(u256_to_big_decimal(u256, decimals)?))
 }
 
-/// Get "max_eth_tx_type" param from a token conf, or from the platform coin conf
-fn get_conf_param_or_from_plaform(ctx: &MmArc, conf: &Json, param: &str, coin_type: &EthCoinType) -> Option<Json> {
-    match &coin_type {
-        EthCoinType::Eth => conf.get(param).cloned(),
-        EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => {
-            conf.get(param)
+pub(super) fn get_conf_param_or_from_plaform_coin<T: DeserializeOwned>(
+    ctx: &MmArc,
+    conf: &Json,
+    coin_type: &EthCoinType,
+    param_name: &str,
+) -> Result<Option<T>, String> {
+    /// Get "max_eth_tx_type" param from a token conf, or from the platform coin conf
+    fn read_conf_param_or_from_plaform(ctx: &MmArc, conf: &Json, param: &str, coin_type: &EthCoinType) -> Option<Json> {
+        match &coin_type {
+            EthCoinType::Eth => conf.get(param).cloned(),
+            EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => conf
+                .get(param)
                 .cloned()
-                .or(coin_conf(ctx, platform).get(param).cloned())
-        },
+                .or(coin_conf(ctx, platform).get(param).cloned()),
+        }
     }
-}
 
-/// Get "max_eth_tx_type" param from a token conf, or from the platform coin conf
-pub(super) fn get_max_eth_tx_type_conf(
-    ctx: &MmArc,
-    conf: &Json,
-    coin_type: &EthCoinType,
-) -> Result<Option<u64>, String> {
-    match get_conf_param_or_from_plaform(ctx, conf, MAX_ETH_TX_TYPE_SUPPORTED, coin_type) {
+    match read_conf_param_or_from_plaform(ctx, conf, param_name, coin_type) {
         Some(val) => {
-            let max_eth_tx_type = val
-                .as_u64()
-                .ok_or_else(|| format!("{MAX_ETH_TX_TYPE_SUPPORTED} in coins is invalid"))?;
-            if max_eth_tx_type > ETH_MAX_TX_TYPE {
-                return Err(format!("{MAX_ETH_TX_TYPE_SUPPORTED} in coins is too big"));
-            }
-            Ok(Some(max_eth_tx_type))
+            let param_val: T = serde_json::from_value(val).map_err(|_| format!("{param_name} in coins is invalid"))?;
+            Ok(Some(param_val))
         },
         None => Ok(None),
     }
-}
-
-/// Get "gas_price_mult" param from a token conf, or from the platform coin conf
-pub(super) fn get_gas_price_mult_conf(
-    ctx: &MmArc,
-    conf: &Json,
-    coin_type: &EthCoinType,
-) -> Result<Option<f64>, String> {
-    match get_conf_param_or_from_plaform(ctx, conf, LEGACY_GAS_PRICE_MULTIPLIER, coin_type) {
-        Some(val) => {
-            let gas_price_mult = val
-                .as_f64()
-                .ok_or_else(|| format!("{LEGACY_GAS_PRICE_MULTIPLIER} in coins is invalid"))?;
-            if gas_price_mult <= 0.0 {
-                return Err(format!("{LEGACY_GAS_PRICE_MULTIPLIER} in coins is negative"));
-            }
-            Ok(Some(gas_price_mult))
-        },
-        None => Ok(None),
-    }
-}
-
-/// Get "gas_fee_base_adjust" param from a token conf, or from the platform coin conf
-pub(super) fn get_gas_base_fee_mult_conf(
-    ctx: &MmArc,
-    conf: &Json,
-    coin_type: &EthCoinType,
-) -> Result<Option<Vec<f64>>, String> {
-    match get_conf_param_or_from_plaform(ctx, conf, GAS_BASE_FEE_MULTIPLIER, coin_type) {
-        Some(val) => {
-            let gas_base_fee_mult = val
-                .as_array()
-                .ok_or_else(|| format!("{GAS_BASE_FEE_MULTIPLIER} in coins not an array"))?;
-            if gas_base_fee_mult.len() != FEE_PRIORITY_LEVEL_N {
-                return Err(format!("{GAS_BASE_FEE_MULTIPLIER} in coins has invalid size"));
-            }
-            let gas_base_fee_mult: Result<Vec<f64>, _> = gas_base_fee_mult
-                .iter()
-                .map(|v| {
-                    v.as_f64()
-                        .ok_or_else(|| format!("{GAS_BASE_FEE_MULTIPLIER} in coins has invalid value"))
-                })
-                .collect();
-            let gas_base_fee_mult = gas_base_fee_mult?;
-            Ok(Some(gas_base_fee_mult))
-        },
-        None => Ok(None),
-    }
-}
-
-/// Get "gas_fee_priority_adjust" param from a token conf, or from the platform coin conf
-pub(super) fn get_gas_priority_fee_mult_conf(
-    ctx: &MmArc,
-    conf: &Json,
-    coin_type: &EthCoinType,
-) -> Result<Option<Vec<f64>>, String> {
-    match get_conf_param_or_from_plaform(ctx, conf, GAS_PRIORITY_FEE_MULTIPLIER, coin_type) {
-        Some(val) => {
-            let gas_priority_fee_mult = val
-                .as_array()
-                .ok_or_else(|| format!("{GAS_PRIORITY_FEE_MULTIPLIER} in coins not an array"))?;
-            if gas_priority_fee_mult.len() != FEE_PRIORITY_LEVEL_N {
-                return Err(format!("{GAS_PRIORITY_FEE_MULTIPLIER} in coins has invalid size"));
-            }
-            let gas_priority_fee_mult: Result<Vec<f64>, _> = gas_priority_fee_mult
-                .iter()
-                .map(|v| {
-                    v.as_f64()
-                        .ok_or_else(|| format!("{GAS_PRIORITY_FEE_MULTIPLIER} in coins has invalid value"))
-                })
-                .collect();
-            let gas_priority_fee_mult = gas_priority_fee_mult?;
-            Ok(Some(gas_priority_fee_mult))
-        },
-        None => Ok(None),
-    }
-}
-
-/// Get "swap_gas_fee_policy" param from the platform coin conf
-pub(super) fn get_swap_gas_fee_policy_conf(
-    ctx: &MmArc,
-    conf: &Json,
-    coin_type: &EthCoinType,
-) -> Result<Option<SwapGasFeePolicy>, String> {
-    match get_conf_param_or_from_plaform(ctx, conf, SWAP_GAS_FEE_POLICY, coin_type) {
-        Some(val) => {
-            let swap_gas_fee_policy: SwapGasFeePolicy =
-                serde_json::from_value(val).map_err(|_| format!("{SWAP_GAS_FEE_POLICY} in coins is invalid"))?;
-            Ok(Some(swap_gas_fee_policy))
-        },
-        None => Ok(None),
-    }
-}
-
-pub(super) fn extract_gas_limit_from_conf<T: ExtractGasLimit>(coin_conf: &Json) -> Result<T, String> {
-    Ok(coin_conf
-        .get(T::key())
-        .cloned()
-        .map(|v| serde_json::from_value(v).map_err(|e| e.to_string()))
-        .transpose()?
-        .unwrap_or_default())
 }

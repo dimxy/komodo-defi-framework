@@ -459,18 +459,20 @@ impl EthCoin {
             platform: protocol.platform,
             token_addr: protocol.token_addr,
         };
-        let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &token_conf, &coin_type)?;
-        let gas_price_adjust = GasPriceAdjust {
-            legacy_price_mult: get_gas_price_mult_conf(&ctx, &token_conf, &coin_type)?,
-            base_fee_mult: get_gas_base_fee_mult_conf(&ctx, &token_conf, &coin_type)?,
-            priority_fee_mult: get_gas_priority_fee_mult_conf(&ctx, &token_conf, &coin_type)?,
-        };
-        let gas_limit: EthGasLimit = extract_gas_limit_from_conf(&token_conf)
-            .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))
-            .map_mm_err()?;
-        let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(&token_conf)
-            .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))
-            .map_mm_err()?;
+        let max_eth_tx_type =
+            get_conf_param_or_from_plaform_coin(&ctx, &token_conf, &coin_type, MAX_ETH_TX_TYPE_SUPPORTED)?;
+        let estimate_gas_mult = get_conf_param_or_from_plaform_coin(&ctx, &token_conf, &coin_type, ESTIMATE_GAS_MULT)?;
+        let gas_price_adjust = get_conf_param_or_from_plaform_coin(&ctx, &token_conf, &coin_type, GAS_PRICE_ADJUST)?;
+        let gas_limit: EthGasLimit =
+            get_conf_param_or_from_plaform_coin(&ctx, &token_conf, &coin_type, EthGasLimit::key())
+                .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))
+                .map_mm_err()?
+                .unwrap_or_default();
+        let gas_limit_v2: EthGasLimitV2 =
+            get_conf_param_or_from_plaform_coin(&ctx, &token_conf, &coin_type, EthGasLimitV2::key())
+                .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))
+                .map_mm_err()?
+                .unwrap_or_default();
         let swap_gas_fee_policy = SwapGasFeePolicy::default();
 
         let token = EthCoinImpl {
@@ -502,6 +504,7 @@ impl EthCoin {
             nfts_infos: Default::default(),
             gas_limit,
             gas_limit_v2,
+            estimate_gas_mult,
             abortable_system,
         };
 
@@ -560,16 +563,16 @@ impl EthCoin {
         let coin_type = EthCoinType::Nft {
             platform: self.ticker.clone(),
         };
-        let max_eth_tx_type = get_max_eth_tx_type_conf(&ctx, &conf, &coin_type)?;
-        let gas_price_adjust = GasPriceAdjust {
-            legacy_price_mult: get_gas_price_mult_conf(&ctx, &conf, &coin_type)?,
-            base_fee_mult: get_gas_base_fee_mult_conf(&ctx, &conf, &coin_type)?,
-            priority_fee_mult: get_gas_priority_fee_mult_conf(&ctx, &conf, &coin_type)?,
-        };
-        let gas_limit: EthGasLimit = extract_gas_limit_from_conf(&conf)
-            .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?;
-        let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(&conf)
-            .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?;
+        let max_eth_tx_type = get_conf_param_or_from_plaform_coin(&ctx, &conf, &coin_type, MAX_ETH_TX_TYPE_SUPPORTED)?;
+        let estimate_gas_mult = get_conf_param_or_from_plaform_coin(&ctx, &conf, &coin_type, ESTIMATE_GAS_MULT)?;
+        let gas_price_adjust = get_conf_param_or_from_plaform_coin(&ctx, &conf, &coin_type, GAS_PRICE_ADJUST)?;
+        let gas_limit: EthGasLimit = get_conf_param_or_from_plaform_coin(&ctx, &conf, &coin_type, EthGasLimit::key())
+            .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?
+            .unwrap_or_default();
+        let gas_limit_v2: EthGasLimitV2 =
+            get_conf_param_or_from_plaform_coin(&ctx, &conf, &coin_type, EthGasLimitV2::key())
+                .map_to_mm(|e| EthTokenActivationError::InternalError(format!("invalid gas_limit config {}", e)))?
+                .unwrap_or_default();
         let swap_gas_fee_policy = SwapGasFeePolicy::default();
 
         let global_nft = EthCoinImpl {
@@ -598,6 +601,7 @@ impl EthCoin {
             nfts_infos: Arc::new(AsyncMutex::new(nft_infos)),
             gas_limit,
             gas_limit_v2,
+            estimate_gas_mult,
             abortable_system,
         };
         Ok(EthCoin(Arc::new(global_nft)))
@@ -707,18 +711,17 @@ pub async fn eth_coin_from_conf_and_request_v2(
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = ctx.abortable_system.create_subsystem()?;
     let coin_type = EthCoinType::Eth;
-    let max_eth_tx_type = get_max_eth_tx_type_conf(ctx, conf, &coin_type)?;
-    let gas_price_adjust = GasPriceAdjust {
-        legacy_price_mult: get_gas_price_mult_conf(ctx, conf, &coin_type)?,
-        base_fee_mult: get_gas_base_fee_mult_conf(ctx, conf, &coin_type)?,
-        priority_fee_mult: get_gas_priority_fee_mult_conf(ctx, conf, &coin_type)?,
-    };
-    let gas_limit: EthGasLimit = extract_gas_limit_from_conf(conf)
-        .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?;
-    let gas_limit_v2: EthGasLimitV2 = extract_gas_limit_from_conf(conf)
-        .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?;
+    let max_eth_tx_type = get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, MAX_ETH_TX_TYPE_SUPPORTED)?;
+    let estimate_gas_mult = get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, ESTIMATE_GAS_MULT)?;
+    let gas_price_adjust = get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, GAS_PRICE_ADJUST)?;
+    let gas_limit: EthGasLimit = get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, EthGasLimit::key())
+        .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?
+        .unwrap_or_default();
+    let gas_limit_v2: EthGasLimitV2 = get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, EthGasLimitV2::key())
+        .map_to_mm(|e| EthActivationV2Error::InternalError(format!("invalid gas_limit config {}", e)))?
+        .unwrap_or_default();
     let swap_gas_fee_policy_default: SwapGasFeePolicy =
-        get_swap_gas_fee_policy_conf(ctx, conf, &coin_type)?.unwrap_or_default();
+        get_conf_param_or_from_plaform_coin(ctx, conf, &coin_type, SWAP_GAS_FEE_POLICY)?.unwrap_or_default();
     let swap_gas_fee_policy: SwapGasFeePolicy = req.swap_gas_fee_policy.unwrap_or(swap_gas_fee_policy_default);
 
     let coin = EthCoinImpl {
@@ -747,6 +750,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         nfts_infos: Default::default(),
         gas_limit,
         gas_limit_v2,
+        estimate_gas_mult,
         abortable_system,
     };
 

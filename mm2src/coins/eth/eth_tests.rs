@@ -1200,10 +1200,71 @@ fn test_eth_conf_params() {
                 }
             },
             "swap_gas_fee_policy": "High",
-            "max_eth_tx_type": 2
+            "max_eth_tx_type": 2,
+            "estimate_gas_mult": 1.25,
+            "gas_price_adjust": {
+                "legacy_price_mult": 0.25,
+                "base_fee_mult": [0.1, 0.2, 0.3],
+                "priority_fee_mult": [0.4, 0.5, 0.6]
+            },
+            "gas_limit": {
+                "eth_send_coins": 21_000,
+                "eth_send_erc20": 120_123,
+                "eth_payment": 75_456,
+                "erc20_payment": 110_999,
+                "eth_receiver_spend": 50_111,
+                "erc20_receiver_spend":120_333,
+                "eth_sender_refund": 65_222,
+                "erc20_sender_refund": 135_777,
+                "eth_max_trade_gas": 150_234,
+            },
+            "gas_limit_v2": {
+                "maker": {
+                    "eth_payment": 110_111,
+                    "erc20_payment": 120_111,
+                    "eth_taker_spend": 130_111,
+                    "erc20_taker_spend": 140_111,
+                    "eth_maker_refund_timelock": 105_111,
+                    "erc20_maker_refund_timelock": 115_111,
+                    "eth_maker_refund_secret": 125_111,
+                    "erc20_maker_refund_secret": 135_111
+                },
+                "taker": {
+                    "eth_payment": 110_222,
+                    "erc20_payment": 111_222,
+                    "eth_maker_spend": 112_222,
+                    "erc20_maker_spend": 113_222,
+                    "eth_taker_refund_timelock": 114_222,
+                    "erc20_taker_refund_timelock": 115_222,
+                    "eth_taker_refund_secret": 116_222,
+                    "erc20_taker_refund_secret": 117_222,
+                    "approve_payment": 118_222
+                },
+                "nft_maker": {
+                    "erc721_payment": 120_333,
+                    "erc1155_payment": 121_333,
+                    "erc721_taker_spend": 122_333,
+                    "erc1155_taker_spend": 123_333,
+                    "erc721_maker_refund_timelock": 124_333,
+                    "erc1155_maker_refund_timelock": 125_333,
+                    "erc721_maker_refund_secret": 126_333,
+                    "erc1155_maker_refund_secret": 127_333
+                }
+            }
         }),
     );
     assert_eq!(coin.max_eth_tx_type, Some(2));
+    assert_eq!(coin.estimate_gas_mult, Some(1.25));
+    assert_eq!(coin.gas_limit.eth_send_erc20, 120_123);
+    assert_eq!(coin.gas_limit.eth_max_trade_gas, 150_234);
+    assert_eq!(coin.gas_limit_v2.maker.eth_maker_refund_timelock, 105_111);
+    assert_eq!(coin.gas_limit_v2.taker.eth_taker_refund_secret, 116_222);
+    assert_eq!(coin.gas_limit_v2.nft_maker.erc1155_maker_refund_timelock, 125_333);
+    assert_eq!(coin.gas_price_adjust.as_ref().unwrap().legacy_price_mult, 0.25);
+    assert_eq!(coin.gas_price_adjust.as_ref().unwrap().base_fee_mult, [0.1, 0.2, 0.3]);
+    assert_eq!(coin.gas_price_adjust.as_ref().unwrap().priority_fee_mult, [
+        0.4, 0.5, 0.6
+    ]);
     assert!(matches!(
         *coin.swap_gas_fee_policy.lock().unwrap(),
         SwapGasFeePolicy::High
