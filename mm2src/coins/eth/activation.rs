@@ -30,8 +30,15 @@ pub async fn eth_coin_from_conf_and_request(
         }
     }
 
-    // Convert `PrivKeyBuildPolicy` to `EthPrivKeyBuildPolicy` if it's possible.
-    let priv_key_policy = From::from(priv_key_policy);
+    // Convert `PrivKeyBuildPolicy` to `EthPrivKeyBuildPolicy`.
+    let priv_key_policy = match priv_key_policy {
+        PrivKeyBuildPolicy::IguanaPrivKey(iguana) => EthPrivKeyBuildPolicy::IguanaPrivKey(iguana),
+        PrivKeyBuildPolicy::GlobalHDAccount(global_hd) => EthPrivKeyBuildPolicy::GlobalHDAccount(global_hd),
+        PrivKeyBuildPolicy::Trezor => EthPrivKeyBuildPolicy::Trezor,
+        PrivKeyBuildPolicy::WalletConnect { .. } => {
+            return ERR!("WalletConnect private key policy is not supported for legacy ETH coin activation");
+        },
+    };
 
     let mut urls: Vec<String> = try_s!(json::from_value(req["urls"].clone()));
     if urls.is_empty() {
@@ -56,8 +63,9 @@ pub async fn eth_coin_from_conf_and_request(
         req["path_to_address"].clone()
     ))
     .unwrap_or_default();
-    let (key_pair, derivation_method) =
-        try_s!(build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, &path_to_address, None).await);
+    let (key_pair, derivation_method) = try_s!(
+        build_address_and_priv_key_policy(ctx, ticker, conf, priv_key_policy, &path_to_address, None, None).await
+    );
 
     let mut web3_instances = vec![];
     let event_handlers = rpc_event_handlers_for_eth_transport(ctx, ticker.to_string());
@@ -77,7 +85,7 @@ pub async fn eth_coin_from_conf_and_request(
                 let fut = websocket_transport
                     .clone()
                     .start_connection_loop(Some(Instant::now() + TMP_SOCKET_CONNECTION));
-                let settings = AbortSettings::info_on_abort(format!("connection loop stopped for {:?}", uri));
+                let settings = AbortSettings::info_on_abort(format!("connection loop stopped for {uri:?}"));
                 ctx.spawner().spawn_with_settings(fut, settings);
 
                 Web3Transport::Websocket(websocket_transport)
