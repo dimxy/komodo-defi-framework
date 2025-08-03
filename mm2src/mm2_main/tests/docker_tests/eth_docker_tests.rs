@@ -10,7 +10,7 @@ use super::docker_tests_common::{
 };
 use crate::common::Future01CompatExt;
 use bitcrypto::{dhash160, sha256};
-use coins::eth::gas_limit::ETH_MAX_TRADE_GAS;
+use coins::eth::eth_gas::gas_limit::ETH_MAX_TRADE_GAS;
 use coins::eth::v2_activation::{eth_coin_from_conf_and_request_v2, EthActivationV2Request, EthNode};
 use coins::eth::{
     checksum_address, eth_coin_from_conf_and_request, ChainSpec, EthCoin, EthCoinType, EthPrivKeyBuildPolicy,

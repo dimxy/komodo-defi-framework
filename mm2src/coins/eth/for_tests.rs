@@ -1,14 +1,13 @@
-#[cfg(not(target_arch = "wasm32"))]
 use super::*;
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 use mm2_test_helpers::for_tests::{eth_sepolia_conf, ETH_SEPOLIA_SWAP_CONTRACT};
 
 lazy_static! {
     static ref MM_CTX: MmArc = MmCtxBuilder::new().into_mm_arc();
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) fn eth_coin_for_test(
     coin_type: EthCoinType,
     urls: &[&str],
@@ -29,7 +28,7 @@ pub(crate) fn eth_coin_for_test(
     )
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) fn eth_coin_from_keypair(
     coin_type: EthCoinType,
     urls: &[&str],
@@ -107,4 +106,42 @@ pub(crate) fn eth_coin_from_keypair(
         abortable_system: AbortableQueue::default(),
     }));
     (ctx, eth_coin)
+}
+
+#[cfg(all(feature = "for-tests", not(target_arch = "wasm32")))]
+impl EthCoin {
+    pub async fn set_coin_type(&self, new_coin_type: EthCoinType) -> EthCoin {
+        let coin = EthCoinImpl {
+            ticker: self.ticker.clone(),
+            coin_type: new_coin_type,
+            chain_spec: self.chain_spec.clone(),
+            priv_key_policy: self.priv_key_policy.clone(),
+            derivation_method: Arc::clone(&self.derivation_method),
+            sign_message_prefix: self.sign_message_prefix.clone(),
+            swap_contract_address: self.swap_contract_address,
+            swap_v2_contracts: self.swap_v2_contracts,
+            fallback_swap_contract: self.fallback_swap_contract,
+            contract_supports_watchers: self.contract_supports_watchers,
+            web3_instances: AsyncMutex::new(self.web3_instances.lock().await.clone()),
+            decimals: self.decimals,
+            history_sync_state: Mutex::new(self.history_sync_state.lock().unwrap().clone()),
+            required_confirmations: AtomicU64::new(
+                self.required_confirmations.load(std::sync::atomic::Ordering::SeqCst),
+            ),
+            swap_gas_fee_policy: Mutex::new(SwapGasFeePolicy::default()),
+            max_eth_tx_type: self.max_eth_tx_type,
+            gas_price_adjust: self.gas_price_adjust.clone(),
+            ctx: self.ctx.clone(),
+            trezor_coin: self.trezor_coin.clone(),
+            logs_block_range: self.logs_block_range,
+            address_nonce_locks: Arc::clone(&self.address_nonce_locks),
+            erc20_tokens_infos: Arc::clone(&self.erc20_tokens_infos),
+            nfts_infos: Arc::clone(&self.nfts_infos),
+            gas_limit: EthGasLimit::default(),
+            gas_limit_v2: EthGasLimitV2::default(),
+            estimate_gas_mult: None,
+            abortable_system: self.abortable_system.create_subsystem().unwrap(),
+        };
+        EthCoin(Arc::new(coin))
+    }
 }
