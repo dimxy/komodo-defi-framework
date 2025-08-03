@@ -1,5 +1,6 @@
 use super::*;
 use crate::{coin_conf, FeeApproxStage, NumConversError, NumConversResult, RpcClientType};
+use bitcoin_hashes::hex::ToHex;
 use ethabi::{Function, Token};
 use ethereum_types::{Address, FromDecStrErr, U256};
 use ethkey::{public_to_address, Public};
@@ -820,6 +821,7 @@ async fn sign_transaction_with_keypair(
 ) -> Result<(SignedEthTx, Vec<Web3Instance>), TransactionErr> {
     info!(target: "sign", "get_addr_nonce…");
     let (nonce, web3_instances_with_latest_nonce) = try_tx_s!(coin.clone().get_addr_nonce(from_address).compat().await);
+    info!(target: "sign-and-send", "get_addr_nonce={}", nonce);
     let tx_type = tx_type_from_pay_for_gas_option!(pay_for_gas_option);
     if !coin.is_tx_type_supported(&tx_type) {
         return Err(TransactionErr::Plain("Eth transaction type not supported".into()));
@@ -857,21 +859,28 @@ pub(super) async fn sign_and_send_transaction_with_keypair(
     info!(target: "sign-and-send", "get_gas_price…");
     let pay_for_gas_policy = try_tx_s!(coin.get_swap_gas_fee_policy().await);
     let pay_for_gas_option = try_tx_s!(coin.get_swap_pay_for_gas_option(pay_for_gas_policy).await);
+    info!(target: "sign-and-send", "getting nonce lock for address {}", address.to_string());
     let address_lock = coin.get_address_lock(address.to_string()).await;
     let _nonce_lock = address_lock.lock().await;
+    info!(target: "sign-and-send", "nonce lock for address {} obtained", address.to_string());
     let (signed, web3_instances_with_latest_nonce) =
         sign_transaction_with_keypair(coin, key_pair, value, action, data, gas, &pay_for_gas_option, address).await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
-    info!(target: "sign-and-send", "send_raw_transaction…");
+    info!(target: "sign-and-send", "send_raw_transaction… txid={}", signed.tx_hash().to_hex());
 
     let futures = web3_instances_with_latest_nonce
         .into_iter()
         .map(|web3_instance| web3_instance.as_ref().eth().send_raw_transaction(bytes.clone()));
-    try_tx_s!(select_ok(futures).await.map_err(|e| ERRL!("{}", e)), signed);
+    try_tx_s!(select_ok(futures).await.map_err(|e| {
+        info!(target: "sign-and-send", "txid={} failed err={}", signed.tx_hash().to_hex(), e);
+        ERRL!("{}", e)
+    }), signed);
 
     info!(target: "sign-and-send", "wait_for_tx_appears_on_rpc…");
+    info!(target: "sign-and-send", "wait_for_tx_appears_on_rpc… for address {} txid={}", address.to_string(), signed.tx_hash().to_hex());
     coin.wait_for_addr_nonce_increase(address, signed.unsigned().nonce())
         .await;
+    info!(target: "sign-and-send", "normally releasing nonce lock for address {} txid={}", address.to_string(), signed.tx_hash().to_hex());
     Ok(signed)
 }
 
