@@ -150,7 +150,7 @@ pub use eth_errors::{
 };
 
 pub use eth_gas::EthTxFeeDetails;
-pub(crate) use eth_gas::{EthGasLimit, EthGasLimitV2, PayForGasOption, ExtractGasLimit};
+pub(crate) use eth_gas::{EthGasLimit, EthGasLimitV2, ExtractGasLimit, PayForGasOption};
 use eth_gas::{
     GasDetails, GasPriceAdjust, GAS_PRICE_APPROXIMATION_PERCENT_ON_ORDER_ISSUE,
     GAS_PRICE_APPROXIMATION_PERCENT_ON_START_SWAP, GAS_PRICE_APPROXIMATION_PERCENT_ON_TRADE_PREIMAGE,
