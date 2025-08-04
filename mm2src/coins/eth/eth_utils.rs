@@ -859,10 +859,10 @@ pub(super) async fn sign_and_send_transaction_with_keypair(
     info!(target: "sign-and-send", "get_gas_price…");
     let pay_for_gas_policy = try_tx_s!(coin.get_swap_gas_fee_policy().await);
     let pay_for_gas_option = try_tx_s!(coin.get_swap_pay_for_gas_option(pay_for_gas_policy).await);
-    info!(target: "sign-and-send", "getting nonce lock for address {}", address.to_string());
+    info!(target: "sign-and-send", "getting nonce lock for address {} coin {}", address.to_string(), coin.ticker());
     let address_lock = coin.get_address_lock(address.to_string()).await;
     let _nonce_lock = address_lock.lock().await;
-    info!(target: "sign-and-send", "nonce lock for address {} obtained", address.to_string());
+    info!(target: "sign-and-send", "nonce lock for address {} coin {} obtained", address.to_string(), coin.ticker());
     let (signed, web3_instances_with_latest_nonce) =
         sign_transaction_with_keypair(coin, key_pair, value, action, data, gas, &pay_for_gas_option, address).await?;
     let bytes = Bytes(rlp::encode(&signed).to_vec());
@@ -880,7 +880,7 @@ pub(super) async fn sign_and_send_transaction_with_keypair(
     info!(target: "sign-and-send", "wait_for_tx_appears_on_rpc… for address {} txid={}", address.to_string(), signed.tx_hash().to_hex());
     coin.wait_for_addr_nonce_increase(address, signed.unsigned().nonce())
         .await;
-    info!(target: "sign-and-send", "normally releasing nonce lock for address {} txid={}", address.to_string(), signed.tx_hash().to_hex());
+    info!(target: "sign-and-send", "normally releasing nonce lock for address {} coin {} txid={}", address.to_string(), coin.ticker(), signed.tx_hash().to_hex());
     Ok(signed)
 }
 
