@@ -783,7 +783,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         required_confirmations,
         trezor_coin,
         logs_block_range: conf["logs_block_range"].as_u64().unwrap_or(DEFAULT_LOGS_BLOCK_RANGE),
-        address_nonce_locks: per_net_nonce_locks(ticker.to_owned()),
+        address_nonce_locks: PerNetNonceLocks::get_net_locks(ticker.to_owned()),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
         gas_limit,

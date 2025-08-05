@@ -25,7 +25,7 @@ pub(super) const SWAP_GAS_FEE_POLICY: &str = "swap_gas_fee_policy";
 pub(crate) mod nonce_sequencer {
     use super::*;
 
-    pub(crate) type PerNetNonceLocks = Arc<AsyncMutex<HashMap<Address, Arc<AsyncMutex<()>>>>>;
+    type PerNetNonceLocksMap = Arc<AsyncMutex<HashMap<Address, Arc<AsyncMutex<()>>>>>;
 
     /// TODO: better to use ChainSpec instead of ticker
     type AllNetsNonceLocks = Mutex<HashMap<String, PerNetNonceLocks>>;
@@ -34,16 +34,36 @@ pub(crate) mod nonce_sequencer {
     // For example, ETH/USDT-ERC20 should use the same lock, but it will be different for BNB/USDT-BEP20.
     // This lock is used to ensure that only one transaction is sent at a time per address.
     lazy_static! {
-        static ref ALL_NETS_NONCE_LOCK: AllNetsNonceLocks = Mutex::new(HashMap::new());
+        static ref ALL_NETS_NONCE_LOCKS: AllNetsNonceLocks = Mutex::new(HashMap::new());
     }
 
-    fn new_nonce_lock() -> PerNetNonceLocks {
-        Arc::new(AsyncMutex::new(HashMap::new()))
+    #[derive(Clone)]
+    pub(crate) struct PerNetNonceLocks {
+        locks: PerNetNonceLocksMap,
     }
 
-    pub(crate) fn per_net_nonce_locks(platform_ticker: String) -> PerNetNonceLocks {
-        let mut networks = ALL_NETS_NONCE_LOCK.lock().unwrap();
-        networks.entry(platform_ticker).or_insert_with(new_nonce_lock).clone()
+    impl PerNetNonceLocks {
+        fn new_nonce_lock() -> PerNetNonceLocks {
+            Self {
+                locks: Arc::new(AsyncMutex::new(HashMap::new())),
+            }
+        }
+
+        pub(crate) fn get_net_locks(platform_ticker: String) -> Self {
+            let mut networks = ALL_NETS_NONCE_LOCKS.lock().unwrap();
+            networks
+                .entry(platform_ticker)
+                .or_insert_with(Self::new_nonce_lock)
+                .clone()
+        }
+
+        pub(crate) async fn get_adddress_lock(&self, address: Address) -> Arc<AsyncMutex<()>> {
+            let mut locks = self.locks.lock().await;
+            locks
+                .entry(address)
+                .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+                .clone()
+        }
     }
 }
 

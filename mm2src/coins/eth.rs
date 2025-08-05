@@ -159,7 +159,7 @@ use eth_gas::{
 
 #[cfg(test)]
 pub(crate) use eth_utils::display_u256_with_decimal_point;
-use eth_utils::nonce_sequencer::{per_net_nonce_locks, PerNetNonceLocks};
+use eth_utils::nonce_sequencer::PerNetNonceLocks;
 pub use eth_utils::{
     addr_from_pubkey_str, addr_from_raw_pubkey, addr_from_str, checksum_address, get_eth_address, mm_number_from_u256,
     mm_number_to_u256, pubkey_from_extended, signed_eth_tx_from_bytes, u256_from_big_decimal, u256_to_big_decimal,
@@ -2232,13 +2232,7 @@ impl EthCoin {
     /// This function is used to ensure that only one transaction is sent at a time per address.
     /// If the address does not have an associated lock, a new one is created and stored.
     async fn get_address_lock(&self, address: Address) -> Arc<AsyncMutex<()>> {
-        let address_lock = {
-            let mut lock = self.address_nonce_locks.lock().await;
-            lock.entry(address)
-                .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-                .clone()
-        };
-        address_lock
+        self.address_nonce_locks.get_adddress_lock(address).await
     }
 }
 
