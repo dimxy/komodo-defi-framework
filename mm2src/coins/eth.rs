@@ -4102,10 +4102,7 @@ impl EthCoin {
                     .into_iter()
                     .zip(web3_instances)
                     .filter_map(|(nonce_res, instance)| match nonce_res {
-                        Ok(n) => {
-                            info!(target: "get_addr_nonce", "node {:?} returned nonce={} for address={addr}", instance.as_ref().transport(), n);
-                            Some((n, instance))
-                        },
+                        Ok(n) => Some((n, instance)),
                         Err(e) => {
                             error!("Error getting nonce for addr {:?}: {}", addr, e);
                             None
