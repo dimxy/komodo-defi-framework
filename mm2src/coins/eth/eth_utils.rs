@@ -22,6 +22,31 @@ pub(super) const ESTIMATE_GAS_MULT: &str = "estimate_gas_mult";
 /// Coin config parameter name for the default eth swap gas fee policy
 pub(super) const SWAP_GAS_FEE_POLICY: &str = "swap_gas_fee_policy";
 
+pub(crate) mod nonce_sequencer {
+    use super::*;
+
+    pub(crate) type PerNetNonceLocks = Arc<AsyncMutex<HashMap<Address, Arc<AsyncMutex<()>>>>>;
+
+    /// TODO: better to use ChainSpec instead of ticker
+    type AllNetsNonceLocks = Mutex<HashMap<String, PerNetNonceLocks>>;
+
+    // We can use a nonce lock shared between tokens using the same platform coin and the platform itself.
+    // For example, ETH/USDT-ERC20 should use the same lock, but it will be different for BNB/USDT-BEP20.
+    // This lock is used to ensure that only one transaction is sent at a time per address.
+    lazy_static! {
+        static ref ALL_NETS_NONCE_LOCK: AllNetsNonceLocks = Mutex::new(HashMap::new());
+    }
+
+    fn new_nonce_lock() -> PerNetNonceLocks {
+        Arc::new(AsyncMutex::new(HashMap::new()))
+    }
+
+    pub(crate) fn per_net_nonce_locks(platform_ticker: String) -> PerNetNonceLocks {
+        let mut networks = ALL_NETS_NONCE_LOCK.lock().unwrap();
+        networks.entry(platform_ticker).or_insert_with(new_nonce_lock).clone()
+    }
+}
+
 /// get tx type from pay_for_gas_option
 /// currently only type2 and legacy supported
 /// if for Eth Classic we also want support for type 1 then use a fn
@@ -335,11 +360,6 @@ pub fn decode_contract_call(function: &Function, contract_call_bytes: &[u8]) -> 
 pub(super) fn rpc_event_handlers_for_eth_transport(ctx: &MmArc, ticker: String) -> Vec<RpcTransportEventHandlerShared> {
     let metrics = ctx.metrics.weak();
     vec![CoinTransportMetrics::new(metrics, ticker, RpcClientType::Ethereum).into_shared()]
-}
-
-#[inline]
-pub(super) fn new_nonce_lock() -> HashMap<String, Arc<AsyncMutex<()>>> {
-    HashMap::new()
 }
 
 /// Displays the address in mixed-case checksum form
@@ -860,7 +880,7 @@ pub(super) async fn sign_and_send_transaction_with_keypair(
     let pay_for_gas_policy = try_tx_s!(coin.get_swap_gas_fee_policy().await);
     let pay_for_gas_option = try_tx_s!(coin.get_swap_pay_for_gas_option(pay_for_gas_policy).await);
     info!(target: "sign-and-send", "getting nonce lock for address {} coin {}", address.to_string(), coin.ticker());
-    let address_lock = coin.get_address_lock(address.to_string()).await;
+    let address_lock = coin.get_address_lock(address).await;
     let _nonce_lock = address_lock.lock().await;
     info!(target: "sign-and-send", "nonce lock for address {} coin {} obtained", address.to_string(), coin.ticker());
     let (signed, web3_instances_with_latest_nonce) =
@@ -871,10 +891,13 @@ pub(super) async fn sign_and_send_transaction_with_keypair(
     let futures = web3_instances_with_latest_nonce
         .into_iter()
         .map(|web3_instance| web3_instance.as_ref().eth().send_raw_transaction(bytes.clone()));
-    try_tx_s!(select_ok(futures).await.map_err(|e| {
-        info!(target: "sign-and-send", "txid={} failed err={}", signed.tx_hash().to_hex(), e);
-        ERRL!("{}", e)
-    }), signed);
+    try_tx_s!(
+        select_ok(futures).await.map_err(|e| {
+            info!(target: "sign-and-send", "txid={} failed err={}", signed.tx_hash().to_hex(), e);
+            ERRL!("{}", e)
+        }),
+        signed
+    );
 
     info!(target: "sign-and-send", "wait_for_tx_appears_on_rpc…");
     info!(target: "sign-and-send", "wait_for_tx_appears_on_rpc… for address {} txid={}", address.to_string(), signed.tx_hash().to_hex());
@@ -963,7 +986,7 @@ pub(super) async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionPar
                 .single_addr_or_err()
                 .await
                 .mm_err(|e| RawTransactionError::InternalError(e.to_string()))?;
-            let address_lock = coin.get_address_lock(my_address.to_string()).await;
+            let address_lock = coin.get_address_lock(my_address).await;
             let _nonce_lock = address_lock.lock().await;
             info!(target: "sign-and-send", "get_gas_price…");
             let pay_for_gas_option = coin
@@ -1004,7 +1027,7 @@ pub(super) async fn sign_raw_eth_tx(coin: &EthCoin, args: &SignEthTransactionPar
                 .single_addr_or_err()
                 .await
                 .mm_err(|e| RawTransactionError::InternalError(e.to_string()))?;
-            let address_lock = coin.get_address_lock(my_address.to_string()).await;
+            let address_lock = coin.get_address_lock(my_address).await;
             let _nonce_lock = address_lock.lock().await;
             let pay_for_gas_option = coin
                 .get_swap_pay_for_gas_option_from_rpc(&args.pay_for_gas)

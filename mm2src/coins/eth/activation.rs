@@ -173,16 +173,9 @@ pub async fn eth_coin_from_conf_and_request(
         HistorySyncState::NotEnabled
     };
 
-    let key_lock = match &coin_type {
+    let platform_ticker = match &coin_type {
         EthCoinType::Eth => String::from(ticker),
         EthCoinType::Erc20 { platform, .. } | EthCoinType::Nft { platform } => String::from(platform),
-    };
-
-    let address_nonce_locks = {
-        let mut map = NONCE_LOCK.lock().unwrap();
-        Arc::new(AsyncMutex::new(
-            map.entry(key_lock).or_insert_with(new_nonce_lock).clone(),
-        ))
     };
 
     // Create an abortable system linked to the `MmCtx` so if the context is stopped via `MmArc::stop`,
@@ -223,7 +216,7 @@ pub async fn eth_coin_from_conf_and_request(
         required_confirmations,
         trezor_coin,
         logs_block_range: conf["logs_block_range"].as_u64().unwrap_or(DEFAULT_LOGS_BLOCK_RANGE),
-        address_nonce_locks,
+        address_nonce_locks: per_net_nonce_locks(platform_ticker),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
         gas_limit,

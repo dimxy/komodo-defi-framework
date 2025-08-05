@@ -159,6 +159,7 @@ use eth_gas::{
 
 #[cfg(test)]
 pub(crate) use eth_utils::display_u256_with_decimal_point;
+use eth_utils::nonce_sequencer::{per_net_nonce_locks, PerNetNonceLocks};
 pub use eth_utils::{
     addr_from_pubkey_str, addr_from_raw_pubkey, addr_from_str, checksum_address, get_eth_address, mm_number_from_u256,
     mm_number_to_u256, pubkey_from_extended, signed_eth_tx_from_bytes, u256_from_big_decimal, u256_to_big_decimal,
@@ -168,9 +169,9 @@ use eth_utils::{
     calc_total_fee, call_request_with_pay_for_gas_option, eth_addr_to_hex, get_conf_param_or_from_plaform_coin,
     get_eth_gas_details_from_withdraw_fee, get_function_input_data, get_function_name, get_raw_transaction_impl,
     get_swap_fee_policy_for_estimate, get_tx_hex_by_hash_impl, get_valid_nft_addr_to_withdraw, increase_by_percent,
-    increase_gas_price_by_stage, new_nonce_lock, rpc_event_handlers_for_eth_transport,
-    sign_and_send_transaction_with_keypair, sign_raw_eth_tx, tx_builder_with_pay_for_gas_option, validate_fee_impl,
-    ESTIMATE_GAS_MULT, GAS_PRICE_ADJUST, MAX_ETH_TX_TYPE_SUPPORTED, SWAP_GAS_FEE_POLICY,
+    increase_gas_price_by_stage, rpc_event_handlers_for_eth_transport, sign_and_send_transaction_with_keypair,
+    sign_raw_eth_tx, tx_builder_with_pay_for_gas_option, validate_fee_impl, ESTIMATE_GAS_MULT, GAS_PRICE_ADJUST,
+    MAX_ETH_TX_TYPE_SUPPORTED, SWAP_GAS_FEE_POLICY,
 };
 pub(crate) use eth_utils::{decode_contract_call, signed_tx_from_web3_tx};
 
@@ -436,7 +437,7 @@ pub struct EthCoinImpl {
     /// Each address is associated with an `AsyncMutex` which is locked when a transaction is being created and sent,
     /// and unlocked once the transaction is confirmed. This prevents nonce conflicts when multiple transactions
     /// are initiated concurrently from the same address.
-    address_nonce_locks: Arc<AsyncMutex<HashMap<String, Arc<AsyncMutex<()>>>>>,
+    address_nonce_locks: PerNetNonceLocks,
     erc20_tokens_infos: Arc<Mutex<HashMap<String, Erc20TokenDetails>>>,
     /// Stores information about NFTs owned by the user. Each entry in the HashMap is uniquely identified by a composite key
     /// consisting of the token address and token ID, separated by a comma. This field is essential for tracking the NFT assets
@@ -1330,15 +1331,6 @@ impl MarketCoinOps for EthCoin {
     fn is_trezor(&self) -> bool {
         self.priv_key_policy.is_trezor()
     }
-}
-
-type AddressNonceLocks = Mutex<HashMap<String, HashMap<String, Arc<AsyncMutex<()>>>>>;
-
-// We can use a nonce lock shared between tokens using the same platform coin and the platform itself.
-// For example, ETH/USDT-ERC20 should use the same lock, but it will be different for BNB/USDT-BEP20.
-// This lock is used to ensure that only one transaction is sent at a time per address.
-lazy_static! {
-    static ref NONCE_LOCK: AddressNonceLocks = Mutex::new(HashMap::new());
 }
 
 type EthTxFut = Box<dyn Future<Item = SignedEthTx, Error = TransactionErr> + Send + 'static>;
@@ -2239,7 +2231,7 @@ impl EthCoin {
     ///
     /// This function is used to ensure that only one transaction is sent at a time per address.
     /// If the address does not have an associated lock, a new one is created and stored.
-    async fn get_address_lock(&self, address: String) -> Arc<AsyncMutex<()>> {
+    async fn get_address_lock(&self, address: Address) -> Arc<AsyncMutex<()>> {
         let address_lock = {
             let mut lock = self.address_nonce_locks.lock().await;
             lock.entry(address)

@@ -284,7 +284,7 @@ where
 
         let (tx_hash, tx_hex) = match coin.priv_key_policy {
             EthPrivKeyPolicy::Iguana(_) | EthPrivKeyPolicy::HDWallet { .. } | EthPrivKeyPolicy::Trezor => {
-                let address_lock = coin.get_address_lock(my_address.to_string()).await;
+                let address_lock = coin.get_address_lock(my_address).await;
                 let _nonce_lock = address_lock.lock().await;
                 let (nonce, _) = coin
                     .clone()
@@ -322,6 +322,7 @@ where
                     nonce: None,
                     ..TransactionRequest::default()
                 };
+                // TODO: we should get _nonce_lock here (when Metamask is supported for swaps)
                 self.send_withdraw_tx(&req, tx_to_send).await?
             },
             EthPrivKeyPolicy::WalletConnect { .. } => {
@@ -335,6 +336,7 @@ where
                 ))?;
                 let gas_price = pay_for_gas_option.get_gas_price();
                 let (max_fee_per_gas, max_priority_fee_per_gas) = pay_for_gas_option.get_fee_per_gas();
+                // TODO: we should get _nonce_lock here (when WalletConnect is supported for swaps)
                 let (nonce, _) = coin
                     .clone()
                     .get_addr_nonce(my_address)
@@ -666,7 +668,7 @@ pub(crate) async fn withdraw_erc1155(ctx: MmArc, withdraw_type: WithdrawErc1155)
     )
     .await
     .map_mm_err()?;
-    let address_lock = eth_coin.get_address_lock(my_address.to_string()).await;
+    let address_lock = eth_coin.get_address_lock(my_address).await;
     let _nonce_lock = address_lock.lock().await;
     let (nonce, _) = eth_coin
         .clone()
@@ -770,7 +772,7 @@ pub(crate) async fn withdraw_erc721(ctx: MmArc, withdraw_type: WithdrawErc721) -
     .await
     .map_mm_err()?;
 
-    let address_lock = eth_coin.get_address_lock(my_address.to_string()).await;
+    let address_lock = eth_coin.get_address_lock(my_address).await;
     let _nonce_lock = address_lock.lock().await;
     let (nonce, _) = eth_coin
         .clone()

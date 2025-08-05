@@ -745,13 +745,6 @@ pub async fn eth_coin_from_conf_and_request_v2(
 
     let trezor_coin: Option<String> = json::from_value(conf["trezor_coin"].clone()).ok();
 
-    let address_nonce_locks = {
-        let mut map = NONCE_LOCK.lock().unwrap();
-        Arc::new(AsyncMutex::new(
-            map.entry(ticker.to_string()).or_insert_with(new_nonce_lock).clone(),
-        ))
-    };
-
     // Create an abortable system linked to the `MmCtx` so if the app is stopped on `MmArc::stop`,
     // all spawned futures related to `ETH` coin will be aborted as well.
     let abortable_system = ctx.abortable_system.create_subsystem()?;
@@ -790,7 +783,7 @@ pub async fn eth_coin_from_conf_and_request_v2(
         required_confirmations,
         trezor_coin,
         logs_block_range: conf["logs_block_range"].as_u64().unwrap_or(DEFAULT_LOGS_BLOCK_RANGE),
-        address_nonce_locks,
+        address_nonce_locks: per_net_nonce_locks(ticker.to_owned()),
         erc20_tokens_infos: Default::default(),
         nfts_infos: Default::default(),
         gas_limit,
