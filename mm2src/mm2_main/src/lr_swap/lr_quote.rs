@@ -30,8 +30,9 @@ use trading_api::one_inch_api::portfolio_types::{CrossPriceParams, CrossPricesSe
 
 /// To estimate src/dst price query price history for last 5 min
 const CROSS_PRICES_GRANULARITY: DataGranularity = DataGranularity::FiveMin;
-/// Use no more than 1 price history samples to estimate src/dst price
-const CROSS_PRICES_LIMIT: u32 = 1;
+/// Use no more than this number of price history samples to estimate src/dst price
+/// NOTE: we need the most actual price for estimation, however for limit = 1 the provider often returns an empty result
+const CROSS_PRICES_LIMIT: u32 = 10;
 
 type ClassicSwapDataResult = MmResult<ClassicSwapData, OneInchError>;
 
@@ -1033,10 +1034,20 @@ fn cross_prices_average(series: Option<CrossPricesSeries>) -> Option<MmNumber> {
     if series.is_empty() {
         return None;
     }
-    let total: MmNumber = series.iter().fold(MmNumber::from(0), |acc, price_data| {
-        acc + MmNumber::from(price_data.avg.clone())
+    let (total, n): (MmNumber, u64) = series.iter().fold((MmNumber::from(0), 0_u64), |(acc, n), price_data| {
+        (acc + MmNumber::from(price_data.avg.clone()), n + 1)
     });
-    Some(total / MmNumber::from(series.len() as u64))
+    Some(total / MmNumber::from(n))
+}
+
+/// Get the latest close price
+#[allow(unused)]
+fn cross_prices_close(series: Option<CrossPricesSeries>) -> Option<MmNumber> {
+    let series = series?;
+    if series.is_empty() {
+        return None;
+    }
+    series.last().map(|p| p.close.clone().into())
 }
 
 fn log_cross_prices(prices: &HashMap<(Ticker, Ticker), Option<MmNumber>>) {
