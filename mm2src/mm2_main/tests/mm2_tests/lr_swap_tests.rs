@@ -40,7 +40,15 @@ fn test_aggregated_swap_mainnet_polygon_utxo_sell() {
     let swap_amount: BigDecimal = "0.0046".parse().unwrap();
     let rel_amount: BigDecimal = "1".parse().unwrap();
     let method = "sell"; // Sell 0.0046 MATIC to get approx 1 DOC
-    test_aggregated_swap_mainnet_polygon_utxo_impl(&user_base, &user_rel, swap_amount, rel_amount, method, false, false);
+    test_aggregated_swap_mainnet_polygon_utxo_impl(
+        &user_base,
+        &user_rel,
+        swap_amount,
+        rel_amount,
+        method,
+        false,
+        false,
+    );
 }
 
 /// Test for an aggregated taker swap to buy DOC for MATIC with interim routing MATIC via a PLG20 token
@@ -51,7 +59,7 @@ fn test_aggregated_swap_mainnet_polygon_utxo_buy() {
     let swap_amount: BigDecimal = "1".parse().unwrap();
     let rel_amount = swap_amount.clone();
     let method = "buy"; // Buy 1 DOC for MATIC
-    test_aggregated_swap_mainnet_polygon_utxo_impl(&user_base, &user_rel, swap_amount, rel_amount, method, false, false);
+    test_aggregated_swap_mainnet_polygon_utxo_impl(&user_base, &user_rel, swap_amount, rel_amount, method, true, false);
 }
 
 fn test_aggregated_swap_mainnet_polygon_utxo_impl(
@@ -222,15 +230,15 @@ fn test_aggregated_swap_mainnet_polygon_utxo_impl(
         json_bids.push(json!({ "rel": &aave_ticker, "orders": &best_bids }));
     }
 
-    const LR_SLIPPAGE: f32 = 0.0;
+    const LR_SLIPPAGE: f32 = 50.0;
     let best_quote = block_on(find_best_lr_swap(
         &mut mm_alice,
-        &user_base,
+        user_base,
         &json!(json_asks),
         &json!(json_bids),
         &swap_amount,
         method,
-        &user_rel,
+        user_rel,
     ))
     .expect("best quote should be found");
     print_quote_resp(&best_quote);
@@ -303,7 +311,15 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_sell() {
     let swap_amount: BigDecimal = "0.3".parse().unwrap();
     let rel_amount: BigDecimal = "0.1".parse().unwrap();
     let method = "sell"; // Sell 0.3 MATIC, buy CRV-ARB20
-    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, rel_amount, method, false, false);
+    test_aggregated_swap_mainnet_polygon_arbitrum_impl(
+        &user_base,
+        &user_rel,
+        swap_amount,
+        rel_amount,
+        method,
+        false,
+        false,
+    );
 }
 
 #[test]
@@ -313,7 +329,15 @@ fn test_aggregated_swap_mainnet_polygon_arbitrum_buy() {
     let swap_amount: BigDecimal = "0.1".parse().unwrap();
     let rel_amount = swap_amount.clone();
     let method = "buy"; // Buy 0.1 CRV-ARB20 for MATIC
-    test_aggregated_swap_mainnet_polygon_arbitrum_impl(&user_base, &user_rel, swap_amount, rel_amount, method, false, true);
+    test_aggregated_swap_mainnet_polygon_arbitrum_impl(
+        &user_base,
+        &user_rel,
+        swap_amount,
+        rel_amount,
+        method,
+        false,
+        true,
+    );
 }
 
 fn test_aggregated_swap_mainnet_polygon_arbitrum_impl(
