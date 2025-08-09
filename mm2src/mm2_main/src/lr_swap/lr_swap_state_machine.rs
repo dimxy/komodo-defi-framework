@@ -10,13 +10,15 @@ use crate::lp_swap::swap_lock::SwapLock;
 use crate::lp_swap::swap_v2_common::*;
 use crate::lp_swap::swap_v2_rpcs::{my_swap_status_rpc, MySwapStatusError, MySwapStatusRequest, SwapRpcData};
 use crate::lp_swap::taker_swap_v2;
-use crate::lp_swap::{check_balance_for_taker_swap, AGG_TAKER_SWAP_TYPE};
+use crate::lp_swap::{check_my_coin_balance_for_swap, check_other_coin_balance_for_swap,
+                     create_taker_swap_default_params, get_locked_amount, CheckBalanceError, CheckBalanceResult,
+                     TakerFeeAdditionalInfo, AGG_TAKER_SWAP_TYPE};
 use crate::rpc::lp_commands::ext_api::ext_api_helpers::{make_atomic_swap_request, make_classic_swap_create_params};
 use async_trait::async_trait;
 use coins::eth::{u256_from_coins_mm_number, u256_to_big_decimal, EthCoin, EthCoinType};
 use coins::hd_wallet::DisplayAddress;
-use coins::{lp_coinfind_or_err, ConfirmPaymentInput, FeeApproxStage, MarketCoinOps, RawTransactionRes,
-            SignEthTransactionParams, SignRawTransactionEnum, SignRawTransactionRequest};
+use coins::{is_eth_platform_coin, lp_coinfind_or_err, ConfirmPaymentInput, FeeApproxStage, MarketCoinOps,
+            RawTransactionRes, SignEthTransactionParams, SignRawTransactionEnum, SignRawTransactionRequest};
 use coins::{DexFee, Eip1559Ops, GasPriceRpcParam, MmCoin};
 use coins::{MmCoinEnum, Ticker};
 use common::executor::abortable_queue::AbortableQueue;
@@ -31,11 +33,11 @@ use ethereum_types::{Address as EthAddress, U256};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::map_mm_error::MapMmError;
 use mm2_err_handle::prelude::*;
-use mm2_number::MmNumber;
+use mm2_number::{BigDecimal, MmNumber};
 use mm2_rpc::data::legacy::{Mm2RpcResult, SellBuyResponse, TakerAction};
 use mm2_state_machine::prelude::*;
 use mm2_state_machine::storable_state_machine::*;
-use num_traits::CheckedDiv;
+use num_traits::{CheckedDiv, FromPrimitive};
 use rpc::v1::types::Bytes as BytesJson;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -81,7 +83,7 @@ pub enum AggTakerSwapEvent {
     StartAtomicSwap {
         taker_volume: MmNumber,
         action: TakerAction,
-        slippage: f32,
+        slippage: Option<f32>,
     },
     /// Waiting for running atomic swap
     WaitingForAtomicSwap {
@@ -128,6 +130,8 @@ impl StateMachineStorage for AggTakerSwapStorage {
     type DbRepr = AggTakerSwapDbRepr;
     type Error = MmError<SwapStateMachineError>;
 
+    /// NOTE: the state machine state is saved only once, on-init.
+    /// If we modify some properties in progress, we need to restore them from events, when recreating the state machine
     #[cfg(not(target_arch = "wasm32"))]
     async fn store_repr(&mut self, _id: Self::MachineId, repr: Self::DbRepr) -> Result<(), Self::Error> {
         let ctx = self.ctx.clone();
@@ -522,7 +526,9 @@ mod states {
             let run_atomic_swap = StartAtomicSwap {
                 taker_volume,
                 action: state_machine.atomic_swap.action.clone(),
-                slippage: 0.0,
+                // TODO: currently slippage must be None, if no LR_0 step.
+                // Maybe we will want to have slippage for atomic swaps as well, then this may change
+                slippage: None,
             };
             Self::change_state(run_atomic_swap, state_machine).await
         }
@@ -532,7 +538,7 @@ mod states {
     pub(super) struct StartAtomicSwap {
         pub(super) taker_volume: MmNumber,
         pub(super) action: TakerAction,
-        pub(super) slippage: f32,
+        pub(super) slippage: Option<f32>,
     }
 
     #[async_trait]
@@ -543,10 +549,10 @@ mod states {
             self: Box<Self>,
             state_machine: &mut Self::StateMachine,
         ) -> StateResult<Self::StateMachine> {
-            match state_machine
+            let atomic_start_result = state_machine
                 .start_lp_auto_buy(self.taker_volume.clone(), self.slippage)
-                .await
-            {
+                .await;
+            match atomic_start_result {
                 Ok(resp) => {
                     let _ = state_machine
                         .atomic_swap_uuid
@@ -636,7 +642,11 @@ mod states {
                     Self::change_state(finished, state_machine).await
                 },
                 Err(err) => {
-                    info!("{LOG_SWAP_LR_NAME}: interim atomic swap {} failed: {}", state_machine.atomic_swap_uuid.get().unwrap_or(&Uuid::nil()), err);
+                    info!(
+                        "{LOG_SWAP_LR_NAME}: interim atomic swap {} failed: {}",
+                        state_machine.atomic_swap_uuid.get().unwrap_or(&Uuid::nil()),
+                        err
+                    );
                     if state_machine.lr_swap_0.is_some() {
                         let try_refund = TryRefundLr0 {
                             atomic_swap_aborted: true,
@@ -753,11 +763,11 @@ mod states {
                     return Self::change_state(aborted, state_machine).await;
                 },
             };
-            
+
             let run_atomic_swap = StartAtomicSwap {
                 taker_volume: atomic_swap_volume,
                 action: state_machine.atomic_swap.action.clone(),
-                slippage: self.slippage,
+                slippage: Some(self.slippage),
             };
             Self::change_state(run_atomic_swap, state_machine).await
         }
@@ -892,7 +902,7 @@ mod states {
                 };
                 return Self::change_state(aborted, state_machine).await;
             };
-            let (ticker, tx_bytes) = match state_machine.run_lr_rollback(lr_swap_0, lr_0_dst_amount).await {
+            let (ticker, tx_bytes) = match state_machine.run_lr_rollback(lr_swap_0, lr_0_dst_amount.clone()).await {
                 Ok((ticker, tx_bytes)) => (ticker, tx_bytes),
                 Err(err) => {
                     info!("{LOG_SWAP_LR_NAME} LR_0 rollback failed: {}", err);
@@ -1013,10 +1023,7 @@ mod states {
             self: Box<Self>,
             state_machine: &mut Self::StateMachine,
         ) -> <Self::StateMachine as StateMachineTrait>::Result {
-            info!(
-                "{LOG_SWAP_LR_NAME} {} has been finished refunded",
-                state_machine.uuid
-            );
+            info!("{LOG_SWAP_LR_NAME} {} has been finished refunded", state_machine.uuid);
         }
     }
 
@@ -1043,7 +1050,10 @@ mod states {
             self: Box<Self>,
             state_machine: &mut Self::StateMachine,
         ) -> <Self::StateMachine as StateMachineTrait>::Result {
-            warn!("{LOG_SWAP_LR_NAME} {} was aborted with reason {}", state_machine.uuid, self.reason);
+            warn!(
+                "{LOG_SWAP_LR_NAME} {} was aborted with reason {}",
+                state_machine.uuid, self.reason
+            );
         }
     }
 
@@ -1171,7 +1181,7 @@ impl AggTakerSwapStateMachine {
     async fn run_lr_rollback(
         &self,
         lr_swap_params: &LrSwapParams,
-        dst_amount: &MmNumber,
+        mut dst_amount: MmNumber,
     ) -> MmResult<(Ticker, BytesJson), LrSwapError> {
         let (dst_coin, _) = lr_helpers::get_coin_for_one_inch(&self.ctx, &lr_swap_params.dst).await?;
         info!(
@@ -1180,8 +1190,23 @@ impl AggTakerSwapStateMachine {
             lr_swap_params.src,
             dst_amount.to_decimal()
         );
-        let dst_amount = u256_from_coins_mm_number(dst_amount, lr_swap_params.dst_decimals).map_mm_err()?;
-
+        // Check if available balance is insufficient for the LR_0 dst_amount (this may be due to slippage),
+        // then spend avalable
+        let balance: MmNumber = dst_coin.my_spendable_balance().compat().await.map_mm_err()?.into();
+        let locked = get_locked_amount(&self.ctx, &lr_swap_params.dst);
+        let mut avail = balance - locked;
+        if is_eth_platform_coin!(dst_coin) {
+            // We could also get gas_limit from ClassicSwapData::tx
+            let swap_tx_fee = dst_coin
+                .estimate_trade_fee(lr_swap_params.gas.into(), FeeApproxStage::StartSwap)
+                .await
+                .map_mm_err()?;
+            avail -= swap_tx_fee.amount;
+        }
+        if avail < dst_amount {
+            dst_amount = avail;
+        }
+        let dst_amount = u256_from_coins_mm_number(&dst_amount, lr_swap_params.dst_decimals).map_mm_err()?;
         let (_, tx_bytes) = self
             .create_and_send_classic_swap_tx(
                 &dst_coin,
@@ -1244,7 +1269,7 @@ impl AggTakerSwapStateMachine {
             gas_limit: U256::from(tx_fields.gas),
             pay_for_gas: Some(GasPriceRpcParam::GasPricePolicy(
                 src_coin
-                    .get_swap_gas_fee_policy() // Using our fns for gas price. TODO: Maybe use gas price from 1inch tx_fields?
+                    .get_swap_gas_fee_policy() // Using our code to get gas price. TODO: Maybe use gas price from 1inch tx_fields?
                     .await
                     .mm_err(|_| LrSwapError::InternalError("Could not get gas price policy".to_string()))?,
             )),
@@ -1271,14 +1296,14 @@ impl AggTakerSwapStateMachine {
     }
 
     /// Start nested atomic swap by calling lp_auto_buy. The actual volume is determined on previous states
-    /// The volume is always in the taker sell coins.
-    /// TODO: add slippage support
+    /// For swaps with LR we always use taker 'sell' action and the taker_volume is always in the taker sell coins.
     async fn start_lp_auto_buy(
         &self,
         taker_volume: MmNumber,
-        _slippage: f32,
+        slippage: Option<f32>,
     ) -> MmResult<SellBuyResponse, LrSwapError> {
-        const TAKER_ACTION: TakerAction = TakerAction::Sell;
+        // For swaps with LR we always use taker 'sell':
+        const TAKER_SELL_ACTION: TakerAction = TakerAction::Sell;
 
         let base_coin = lp_coinfind_or_err(&self.ctx, &self.atomic_swap.base)
             .await
@@ -1302,11 +1327,11 @@ impl AggTakerSwapStateMachine {
             "{LOG_SWAP_LR_NAME} volume={} self.atomic_swap.price={} action={:?} base={} rel={}",
             taker_volume.to_decimal(),
             self.atomic_swap.price.to_decimal(),
-            TAKER_ACTION,
+            TAKER_SELL_ACTION,
             self.atomic_swap.base,
             self.atomic_swap.rel
         );
-        let (taker_amount, sell_base, sell_rel) = match TAKER_ACTION {
+        let (taker_amount, sell_base, sell_rel) = match TAKER_SELL_ACTION {
             TakerAction::Buy => (
                 &taker_volume * &self.atomic_swap.price,
                 rel_coin.clone(),
@@ -1321,22 +1346,23 @@ impl AggTakerSwapStateMachine {
             sell_rel.ticker(),
             taker_amount.to_decimal(),
         );
-        check_balance_for_taker_swap(
+
+        let taker_volume = check_balance_with_slippage(
             &self.ctx,
             sell_base.deref(),
             sell_rel.deref(),
             taker_amount,
-            None,
-            None,
-            FeeApproxStage::OrderIssue,
+            self.lr_0_dst_amount.get().cloned(),
+            slippage,
         )
         .await
         .map_mm_err()?;
+
         info!(
             "{LOG_SWAP_LR_NAME}: starting atomic swap for {}/{}, action {:?}, amount {}",
             self.atomic_swap.base,
             self.atomic_swap.rel,
-            TAKER_ACTION,
+            TAKER_SELL_ACTION,
             taker_volume.to_decimal()
         );
         let sell_buy_req = make_atomic_swap_request(
@@ -1344,7 +1370,7 @@ impl AggTakerSwapStateMachine {
             self.atomic_swap.rel.clone(),
             self.atomic_swap.price.clone(),
             taker_volume,
-            TAKER_ACTION,
+            TAKER_SELL_ACTION,
             self.atomic_swap.match_by.clone(),
             self.atomic_swap.order_type.clone(),
             // We need assured spending maker payment confirmation (to ensure LR_1 can run)
@@ -1526,4 +1552,75 @@ pub(crate) async fn lp_start_agg_taker_swap(
     let settings = AbortSettings::info_on_abort(format!("swap {uuid} stopped!"));
     spawner.spawn_with_settings(fut, settings);
     Ok(uuid)
+}
+
+// Checks balance for the taker volume and decreases it within the slippage
+// The slippage value is percentage.
+pub async fn check_balance_with_slippage(
+    ctx: &MmArc,
+    my_coin: &dyn MmCoin,
+    other_coin: &dyn MmCoin,
+    mut volume: MmNumber,
+    lr_0_dst_amount: Option<MmNumber>,
+    slippage: Option<f32>,
+) -> CheckBalanceResult<MmNumber> {
+    let fee_params =
+        create_taker_swap_default_params(my_coin, other_coin, volume.clone(), FeeApproxStage::OrderIssue).await?;
+    let taker_fee = TakerFeeAdditionalInfo {
+        dex_fee: fee_params.clone().dex_fee,
+        fee_to_send_dex_fee: fee_params.clone().fee_to_send_dex_fee,
+    };
+
+    if let Err(err) = check_my_coin_balance_for_swap(
+        ctx,
+        my_coin,
+        None,
+        volume.clone(),
+        fee_params.clone().taker_payment_trade_fee,
+        Some(taker_fee),
+    )
+    .await
+    {
+        let lr_0_dst_amount = lr_0_dst_amount.ok_or(err.clone())?;
+        let slippage = slippage.ok_or(err.clone())?;
+        let CheckBalanceError::NotSufficientBalance { available, .. } = err.get_inner() else {
+            return Err(err);
+        };
+        let available = MmNumber::from(available);
+        debug!(
+            "{LOG_SWAP_LR_NAME} received NotSufficientBalance error my_coin={} lr_0_dst_amount={} volume={} available={} slippage={}",
+            my_coin.ticker(),
+            lr_0_dst_amount.to_decimal(),
+            volume.to_decimal(),
+            available.to_decimal(),
+            slippage,
+        );
+
+        // Check if available volume is within the LR_0 slippage.
+        // Note about how we consider the available volume:
+        // We do not know the exact amount received from the LR_0 and how it is different from the original dst_amount returned by 1inch due to slippage.
+        // we just assume we could spend available volume, provided it is within slippage (from the 1inch dst_amount).
+        // If it's not within the slippage, we assume something wrong has happened.
+        if (&lr_0_dst_amount - &available) / lr_0_dst_amount
+            >= BigDecimal::from_f32(slippage / 100.0).unwrap_or_default()
+        {
+            debug!("{LOG_SWAP_LR_NAME} available not within slippage, return error");
+            return Err(err);
+        }
+        // Estimate new taker_volume for atomic swap (with slippage), by deducting fees:
+        let mut volume_from_avail = available;
+        if my_coin.ticker() == fee_params.taker_payment_trade_fee.coin {
+            volume_from_avail -= fee_params.taker_payment_trade_fee.amount;
+        }
+        volume = {
+            let dex_fee_rate = DexFee::dex_fee_rate(my_coin.ticker(), other_coin.ticker());
+            volume_from_avail / (MmNumber::from("1") + dex_fee_rate)
+        };
+        debug!("{LOG_SWAP_LR_NAME} new volume from available={}", volume.to_decimal());
+    }
+
+    if !fee_params.maker_payment_spend_trade_fee.paid_from_trading_vol {
+        check_other_coin_balance_for_swap(ctx, other_coin, None, fee_params.maker_payment_spend_trade_fee).await?;
+    }
+    Ok(volume)
 }

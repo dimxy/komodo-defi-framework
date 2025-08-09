@@ -5961,6 +5961,9 @@ impl MmCoin for EthCoin {
 
     fn history_sync_status(&self) -> HistorySyncState { self.history_sync_state.lock().unwrap().clone() }
 
+    /// Implementation for the "get_trade_fee" RPC, returning max total tx fee for a swap.
+    /// Note that this fn does not calculate real transactions but just uses the eth_max_trade_gas const,
+    /// so this is not very accurate estimation
     fn get_trade_fee(&self) -> Box<dyn Future<Item = TradeFee, Error = String> + Send> {
         let coin = self.clone();
         Box::new(

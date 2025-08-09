@@ -35,7 +35,7 @@ pub(crate) fn make_classic_swap_create_params(
     rel_contract: EthAddress,
     sell_amount: U256,
     my_address: EthAddress,
-    _slippage: f32,
+    slippage: f32,
     opt_params: ClassicSwapCreateOptParams,
 ) -> ClassicSwapCreateCallBuilder {
     ClassicSwapCreateCallBuilder::new(
@@ -43,7 +43,7 @@ pub(crate) fn make_classic_swap_create_params(
         rel_contract.display_address(),
         sell_amount.to_string(),
         my_address.display_address(),
-        0.0, // TODO: enable slippage
+        slippage,
     )
     .with_fee(opt_params.fee)
     .with_protocols(opt_params.protocols)
@@ -66,6 +66,7 @@ pub(crate) fn make_classic_swap_create_params(
     .with_use_permit2(opt_params.use_permit2)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn make_atomic_swap_request(
     base: Ticker,
     rel: Ticker,
@@ -93,7 +94,7 @@ pub(crate) fn make_atomic_swap_request(
         order_type,
         base_confs: None,
         base_nota: None,
-        rel_confs: rel_confs,
+        rel_confs,
         rel_nota: None,
         min_volume: None,
         save_in_history: true,

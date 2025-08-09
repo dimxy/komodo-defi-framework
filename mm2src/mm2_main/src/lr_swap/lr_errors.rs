@@ -2,7 +2,7 @@ use crate::lp_swap::swap_v2_common::SwapStateMachineError;
 use crate::lp_swap::swap_v2_rpcs::MySwapStatusError;
 use crate::lp_swap::taker_swap_v2;
 use crate::lp_swap::CheckBalanceError;
-use coins::CoinFindError;
+use coins::{BalanceError, CoinFindError, TradePreimageError};
 use derive_more::Display;
 use enum_derives::EnumFromStringify;
 use ethereum_types::U256;
@@ -151,6 +151,44 @@ impl From<CheckBalanceError> for LrSwapError {
             },
             CheckBalanceError::Transport(nested_err) => Self::TransportError(nested_err),
             CheckBalanceError::InternalError(nested_err) => Self::InternalError(nested_err),
+        }
+    }
+}
+
+impl From<TradePreimageError> for LrSwapError {
+    fn from(err: TradePreimageError) -> Self {
+        match err {
+            TradePreimageError::AmountIsTooSmall { amount, threshold } => Self::VolumeTooLow {
+                coin: "".to_owned(),
+                volume: amount,
+                threshold,
+            },
+            TradePreimageError::NotSufficientBalance {
+                coin,
+                available,
+                required,
+            } => Self::NotSufficientBalance {
+                coin,
+                available,
+                required,
+                locked_by_swaps: Default::default(),
+            },
+            TradePreimageError::Transport(nested_err) => Self::TransportError(nested_err),
+            TradePreimageError::InternalError(nested_err) => Self::InternalError(nested_err),
+            TradePreimageError::NftProtocolNotSupported => Self::NftProtocolNotSupported,
+            TradePreimageError::NoSuchCoin { coin } => Self::NoSuchCoin { coin },
+        }
+    }
+}
+
+impl From<BalanceError> for LrSwapError {
+    fn from(e: BalanceError) -> Self {
+        match e {
+            BalanceError::Transport(transport) => Self::TransportError(transport),
+            BalanceError::InvalidResponse(rpc) => Self::TransportError(rpc),
+            BalanceError::UnexpectedDerivationMethod(_) => Self::InternalError(e.to_string()),
+            BalanceError::WalletStorageError(e) | BalanceError::Internal(e) => Self::InternalError(e),
+            BalanceError::NoSuchCoin { coin } => Self::NoSuchCoin { coin },
         }
     }
 }

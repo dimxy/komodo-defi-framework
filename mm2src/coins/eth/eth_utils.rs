@@ -14,6 +14,13 @@ const LEGACY_GAS_PRICE_MULTIPLIER: &str = "gas_price_mult";
 const GAS_FEE_BASE_ADJUST: &str = "gas_fee_base_adjust";
 const GAS_FEE_PRIORITY_ADJUST: &str = "gas_fee_priority_adjust";
 
+#[macro_export]
+macro_rules! is_eth_platform_coin {
+    ($coin: expr) => {
+        matches!($coin.coin_type, EthCoinType::Eth)
+    };
+}
+
 pub(crate) fn get_function_input_data(decoded: &[Token], func: &Function, index: usize) -> Result<Token, String> {
     decoded.get(index).cloned().ok_or(format!(
         "Missing input in function {}: No input found at index {}",

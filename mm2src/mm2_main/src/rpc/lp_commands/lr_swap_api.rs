@@ -227,6 +227,9 @@ pub async fn lr_execute_routed_trade_rpc(
             dst_contract,
             from: single_address,
             slippage: lr_swap_0.slippage,
+            // If no gas limit provided, we may fail estimations in LR_0 rollback (and if it's the platform coin to rollback).
+            // I guess this is not a reason to fail
+            gas: lr_swap_0.swap_details.gas.unwrap_or_default(),
         })
     } else {
         None
@@ -325,6 +328,7 @@ pub async fn lr_execute_routed_trade_rpc(
             dst_contract,
             from: single_address,
             slippage: lr_swap_1.slippage,
+            gas: lr_swap_1.swap_details.gas.unwrap_or_default(), // this field not used yet in LR_1 step
         })
     } else {
         None
