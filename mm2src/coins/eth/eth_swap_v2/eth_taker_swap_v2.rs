@@ -83,8 +83,10 @@ impl EthCoin {
             .swap_v2_contracts
             .ok_or_else(|| TransactionErr::Plain(ERRL!("Expected swap_v2_contracts to be Some, but found None")))?
             .taker_swap_v2_contract;
-        // TODO add burnFee support
-        let dex_fee = try_tx_s!(u256_from_big_decimal(&args.dex_fee.fee_amount().into(), self.decimals));
+        let dex_fee = try_tx_s!(u256_from_big_decimal(
+            &args.dex_fee.total_amount().into(),
+            self.decimals
+        ));
 
         let payment_amount = try_tx_s!(u256_from_big_decimal(
             &(args.trading_amount.clone() + args.premium_amount.clone()),
