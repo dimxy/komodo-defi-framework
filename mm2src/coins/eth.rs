@@ -2242,10 +2242,31 @@ impl EthCoin {
 #[cfg_attr(test, mockable)]
 impl EthCoin {
     /// Sign and send eth transaction.
-    /// This function is primarily for swap transactions so internally it relies on the swap tx fee policy
-    pub fn sign_and_send_transaction(&self, value: U256, action: Action, data: Vec<u8>, gas: U256) -> EthTxFut {
+    /// This function is primarily for swap transactions so internally it relies on the swap tx fee policy.
+    /// If the `default_gas` param is None or the `estimate_gas_mult` conf param is some value
+    /// the gas limit will be obtained from the network (only for contract calls though).
+    pub fn sign_and_send_transaction(
+        &self,
+        value: U256,
+        action: Action,
+        data: Vec<u8>,
+        default_gas: Option<U256>,
+    ) -> EthTxFut {
         let coin = self.clone();
         let fut = async move {
+            // Try to estimate gas from the network
+            let final_gas = match &action {
+                Action::Call(contract_addr) => coin
+                    .estimate_gas_for_contract_call_if_conf(*contract_addr, Bytes::from(data.clone()), default_gas)
+                    .await
+                    .map_err(|err| TransactionErr::Plain(ERRL!("{}", err.get_inner())))?
+                    .ok_or(TransactionErr::InternalError("no gas limit set".to_owned()))?,
+                _ => {
+                    // fallback to provided gas limit for non-contract calls
+                    default_gas.ok_or(TransactionErr::InternalError("no gas limit set".to_owned()))?
+                },
+            };
+
             match coin.priv_key_policy {
                 EthPrivKeyPolicy::Iguana(ref key_pair)
                 | EthPrivKeyPolicy::HDWallet {
@@ -2258,7 +2279,8 @@ impl EthCoin {
                         .await
                         .map_err(|e| TransactionErr::Plain(ERRL!("{}", e)))?;
 
-                    sign_and_send_transaction_with_keypair(&coin, key_pair, address, value, action, data, gas).await
+                    sign_and_send_transaction_with_keypair(&coin, key_pair, address, value, action, data, final_gas)
+                        .await
                 },
                 EthPrivKeyPolicy::WalletConnect { .. } => {
                     let wc = {
@@ -2272,12 +2294,12 @@ impl EthCoin {
                         .await
                         .map_err(|e| TransactionErr::Plain(ERRL!("{}", e)))?;
 
-                    send_transaction_with_walletconnect(coin, &wc, address, value, action, &data, gas).await
+                    send_transaction_with_walletconnect(coin, &wc, address, value, action, &data, final_gas).await
                 },
                 EthPrivKeyPolicy::Trezor => Err(TransactionErr::Plain(ERRL!("Trezor is not supported for swaps yet!"))),
                 #[cfg(target_arch = "wasm32")]
                 EthPrivKeyPolicy::Metamask(_) => {
-                    sign_and_send_transaction_with_metamask(coin, value, action, data, gas).await
+                    sign_and_send_transaction_with_metamask(coin, value, action, data, final_gas).await
                 },
             }
         };
@@ -2290,7 +2312,7 @@ impl EthCoin {
                 value,
                 Action::Call(address),
                 vec![],
-                U256::from(self.gas_limit.eth_send_coins),
+                Some(U256::from(self.gas_limit.eth_send_coins)),
             ),
             EthCoinType::Erc20 {
                 platform: _,
@@ -2303,7 +2325,7 @@ impl EthCoin {
                     0.into(),
                     Action::Call(*token_addr),
                     data,
-                    U256::from(self.gas_limit.eth_send_erc20),
+                    Some(U256::from(self.gas_limit.eth_send_erc20)),
                 )
             },
             EthCoinType::Nft { .. } => Box::new(futures01::future::err(TransactionErr::ProtocolNotSupported(ERRL!(
@@ -2357,7 +2379,7 @@ impl EthCoin {
                     ])),
                 };
                 let gas = U256::from(self.gas_limit.eth_payment);
-                self.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, gas)
+                self.sign_and_send_transaction(value, Action::Call(swap_contract_address), data, Some(gas))
             },
             EthCoinType::Erc20 {
                 platform: _,
@@ -2455,7 +2477,7 @@ impl EthCoin {
                                             value,
                                             Call(swap_contract_address),
                                             data,
-                                            gas,
+                                            Some(gas),
                                         )
                                     })
                                 }),
@@ -2465,7 +2487,7 @@ impl EthCoin {
                             value,
                             Call(swap_contract_address),
                             data,
-                            gas,
+                            Some(gas),
                         ))
                     }
                 }))
@@ -2536,7 +2558,7 @@ impl EthCoin {
                     0.into(),
                     Call(swap_contract_address),
                     data,
-                    U256::from(self.gas_limit.eth_receiver_spend),
+                    Some(U256::from(self.gas_limit.eth_receiver_spend)),
                 )
                 .compat()
                 .await
@@ -2588,7 +2610,7 @@ impl EthCoin {
                     0.into(),
                     Call(swap_contract_address),
                     data,
-                    U256::from(self.gas_limit.erc20_receiver_spend),
+                    Some(U256::from(self.gas_limit.erc20_receiver_spend)),
                 )
                 .compat()
                 .await
@@ -2659,7 +2681,7 @@ impl EthCoin {
                     0.into(),
                     Call(swap_contract_address),
                     data,
-                    U256::from(self.gas_limit.eth_sender_refund),
+                    Some(U256::from(self.gas_limit.eth_sender_refund)),
                 )
                 .compat()
                 .await
@@ -2711,7 +2733,7 @@ impl EthCoin {
                     0.into(),
                     Call(swap_contract_address),
                     data,
-                    U256::from(self.gas_limit.erc20_sender_refund),
+                    Some(U256::from(self.gas_limit.erc20_sender_refund)),
                 )
                 .compat()
                 .await
@@ -2922,19 +2944,26 @@ impl EthCoin {
             .map_to_mm(Web3RpcError::from)
     }
 
-    #[allow(unused)] // TODO: remove
+    /// Calls estimate_gas_for_contract_call if the `estimate_gas_mult` conf param is set or `default_gas` is None.
+    /// The estimated gas limit value is multiplied by estimate_gas_mult.
     async fn estimate_gas_for_contract_call_if_conf(
         &self,
         contract_addr: Address,
         call_data: Bytes,
+        default_gas: Option<U256>,
     ) -> Web3RpcResult<Option<U256>> {
-        if let Some(estimate_gas_mult) = self.estimate_gas_mult {
-            let gas_estimated = self.estimate_gas_for_contract_call(contract_addr, call_data).await?;
-            let gas_estimated = u256_to_big_decimal(gas_estimated, 0).map_mm_err()?
-                * BigDecimal::from_f64(estimate_gas_mult).unwrap_or(BigDecimal::from(1));
-            return Ok(Some(u256_from_big_decimal(&gas_estimated, 0).map_mm_err()?));
+        match (self.estimate_gas_mult, default_gas) {
+            (Some(estimate_gas_mult), _) => {
+                let gas_estimated = self.estimate_gas_for_contract_call(contract_addr, call_data).await?;
+                let gas_estimated = u256_to_big_decimal(gas_estimated, 0).map_mm_err()?
+                    * BigDecimal::from_f64(estimate_gas_mult).unwrap_or(BigDecimal::from(1));
+                Ok(Some(u256_from_big_decimal(&gas_estimated, 0).map_mm_err()?))
+            },
+            (None, Some(default_gas)) => Ok(Some(default_gas)),
+            (None, None) => Ok(Some(
+                self.estimate_gas_for_contract_call(contract_addr, call_data).await?,
+            )),
         }
-        Ok(None)
     }
 
     fn eth_balance(&self) -> BalanceFut<U256> {
@@ -3048,13 +3077,7 @@ impl EthCoin {
             };
             let function = try_tx_s!(ERC20_CONTRACT.function("approve"));
             let data = try_tx_s!(function.encode_input(&[Token::Address(spender), Token::Uint(amount)]));
-
-            let gas_limit = try_tx_s!(
-                coin.estimate_gas_for_contract_call(token_addr, Bytes::from(data.clone()))
-                    .await
-            );
-
-            coin.sign_and_send_transaction(0.into(), Call(token_addr), data, gas_limit)
+            coin.sign_and_send_transaction(0.into(), Call(token_addr), data, None)
                 .compat()
                 .await
         };

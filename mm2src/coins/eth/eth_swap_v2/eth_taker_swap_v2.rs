@@ -117,7 +117,7 @@ impl EthCoin {
                     eth_total_payment,
                     Action::Call(taker_swap_v2_contract),
                     data,
-                    U256::from(self.gas_limit_v2.taker.eth_payment),
+                    Some(U256::from(self.gas_limit_v2.taker.eth_payment)),
                 )
                 .compat()
                 .await
@@ -133,7 +133,7 @@ impl EthCoin {
                     U256::from(ZERO_VALUE),
                     Action::Call(taker_swap_v2_contract),
                     data,
-                    U256::from(self.gas_limit_v2.taker.erc20_payment),
+                    Some(U256::from(self.gas_limit_v2.taker.erc20_payment)),
                 )
                 .compat()
                 .await
@@ -236,7 +236,7 @@ impl EthCoin {
                 U256::from(ZERO_VALUE),
                 Action::Call(taker_swap_v2_contract),
                 data,
-                gas_limit,
+                Some(gas_limit),
             )
             .compat()
             .await?;
@@ -301,7 +301,7 @@ impl EthCoin {
             U256::from(ZERO_VALUE),
             Action::Call(taker_swap_v2_contract),
             data,
-            U256::from(gas_limit),
+            Some(U256::from(gas_limit)),
         )
         .compat()
         .await
@@ -355,7 +355,7 @@ impl EthCoin {
             U256::from(ZERO_VALUE),
             Action::Call(taker_swap_v2_contract),
             data,
-            U256::from(gas_limit),
+            Some(U256::from(gas_limit)),
         )
         .compat()
         .await
@@ -416,7 +416,7 @@ impl EthCoin {
                 U256::from(ZERO_VALUE),
                 Action::Call(taker_swap_v2_contract),
                 data,
-                U256::from(gas_limit),
+                Some(U256::from(gas_limit)),
             )
             .compat()
             .await?;
