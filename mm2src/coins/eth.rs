@@ -2257,7 +2257,12 @@ impl EthCoin {
             // Try to estimate gas from the network
             let final_gas = match &action {
                 Action::Call(contract_addr) => coin
-                    .estimate_gas_for_contract_call_if_conf(*contract_addr, Bytes::from(data.clone()), default_gas)
+                    .estimate_gas_for_contract_call_if_conf(
+                        *contract_addr,
+                        Bytes::from(data.clone()),
+                        value,
+                        default_gas,
+                    )
                     .await
                     .map_err(|err| TransactionErr::Plain(ERRL!("{}", err.get_inner())))?
                     .ok_or(TransactionErr::InternalError("no gas limit set".to_owned()))?,
@@ -2918,7 +2923,12 @@ impl EthCoin {
     ///
     /// Also, note that the contract call has to be initiated by my wallet address,
     /// because [`CallRequest::from`] is set to [`EthCoinImpl::my_address`].
-    async fn estimate_gas_for_contract_call(&self, contract_addr: Address, call_data: Bytes) -> Web3RpcResult<U256> {
+    async fn estimate_gas_for_contract_call(
+        &self,
+        contract_addr: Address,
+        call_data: Bytes,
+        value: U256,
+    ) -> Web3RpcResult<U256> {
         let coin = self.clone();
         let my_address = coin.derivation_method.single_addr_or_err().await.map_mm_err()?;
         let fee_policy_for_estimate =
@@ -2927,9 +2937,8 @@ impl EthCoin {
             .get_swap_pay_for_gas_option(fee_policy_for_estimate)
             .await
             .map_mm_err()?;
-        let eth_value = U256::zero();
         let estimate_gas_req = CallRequest {
-            value: Some(eth_value),
+            value: Some(value),
             data: Some(call_data),
             from: Some(my_address),
             to: Some(contract_addr),
@@ -2950,18 +2959,22 @@ impl EthCoin {
         &self,
         contract_addr: Address,
         call_data: Bytes,
+        value: U256,
         default_gas: Option<U256>,
     ) -> Web3RpcResult<Option<U256>> {
         match (self.estimate_gas_mult, default_gas) {
             (Some(estimate_gas_mult), _) => {
-                let gas_estimated = self.estimate_gas_for_contract_call(contract_addr, call_data).await?;
+                let gas_estimated = self
+                    .estimate_gas_for_contract_call(contract_addr, call_data, value)
+                    .await?;
                 let gas_estimated = u256_to_big_decimal(gas_estimated, 0).map_mm_err()?
                     * BigDecimal::from_f64(estimate_gas_mult).unwrap_or(BigDecimal::from(1));
                 Ok(Some(u256_from_big_decimal(&gas_estimated, 0).map_mm_err()?))
             },
             (None, Some(default_gas)) => Ok(Some(default_gas)),
             (None, None) => Ok(Some(
-                self.estimate_gas_for_contract_call(contract_addr, call_data).await?,
+                self.estimate_gas_for_contract_call(contract_addr, call_data, value)
+                    .await?,
             )),
         }
     }
@@ -4086,7 +4099,7 @@ impl MmCoin for EthCoin {
                     let approve_function = ERC20_CONTRACT.function("approve")?;
                     let approve_data = approve_function.encode_input(&[Token::Address(spender), Token::Uint(value)])?;
                     let approve_gas_limit = self
-                        .estimate_gas_for_contract_call(token_addr, Bytes::from(approve_data))
+                        .estimate_gas_for_contract_call(token_addr, Bytes::from(approve_data), 0.into())
                         .await
                         .map_mm_err()?;
 
