@@ -83,6 +83,8 @@ impl EthCoin {
             .swap_v2_contracts
             .ok_or_else(|| TransactionErr::Plain(ERRL!("Expected swap_v2_contracts to be Some, but found None")))?
             .taker_swap_v2_contract;
+        // We send the whole dex fee amount to the swap contract.
+        // The split into the dex and burn amounts will be done by the SwapFeeManager contract.
         let dex_fee = try_tx_s!(u256_from_big_decimal(
             &args.dex_fee.total_amount().into(),
             self.decimals
@@ -172,7 +174,7 @@ impl EthCoin {
         validate_from_to_addresses(tx_from_rpc, taker_address, taker_swap_v2_contract).map_mm_err()?;
 
         let validation_args = {
-            let dex_fee = u256_from_big_decimal(&args.dex_fee.fee_amount().into(), self.decimals).map_mm_err()?;
+            let dex_fee = u256_from_big_decimal(&args.dex_fee.total_amount().into(), self.decimals).map_mm_err()?;
             let payment_amount =
                 u256_from_big_decimal(&(args.trading_amount + args.premium_amount), self.decimals).map_mm_err()?;
             TakerValidationArgs {
@@ -272,7 +274,7 @@ impl EthCoin {
             },
         };
         let dex_fee = try_tx_s!(u256_from_big_decimal(
-            &args.dex_fee.fee_amount().to_decimal(),
+            &args.dex_fee.total_amount().to_decimal(),
             self.decimals
         ));
         let payment_amount = try_tx_s!(u256_from_big_decimal(
@@ -326,7 +328,7 @@ impl EthCoin {
 
         let maker_secret_hash = try_tx_s!(args.maker_secret_hash.try_into());
         let dex_fee = try_tx_s!(u256_from_big_decimal(
-            &args.dex_fee.fee_amount().to_decimal(),
+            &args.dex_fee.total_amount().to_decimal(),
             self.decimals
         ));
         let payment_amount = try_tx_s!(u256_from_big_decimal(
