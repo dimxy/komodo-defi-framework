@@ -698,3 +698,267 @@ impl WatcherOps for EthCoin {
         }))
     }
 }
+
+#[cfg_attr(test, mockable)]
+impl EthCoin {
+    fn watcher_spends_hash_time_locked_payment(&self, input: SendMakerPaymentSpendPreimageInput) -> EthTxFut {
+        let tx: UnverifiedTransactionWrapper = try_tx_fus!(rlp::decode(input.preimage));
+        let payment = try_tx_fus!(SignedEthTx::new(tx));
+
+        let function_name = get_function_name("receiverSpend", input.watcher_reward);
+        let spend_func = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
+        let clone = self.clone();
+        let secret_vec = input.secret.to_vec();
+        let taker_addr = addr_from_raw_pubkey(input.taker_pub).unwrap();
+        let swap_contract_address = match payment.unsigned().action() {
+            Call(address) => *address,
+            Create => {
+                return Box::new(futures01::future::err(TransactionErr::Plain(ERRL!(
+                    "Invalid payment action: the payment action cannot be create"
+                ))))
+            },
+        };
+
+        let watcher_reward = input.watcher_reward;
+        match self.coin_type {
+            EthCoinType::Eth => {
+                let function_name = get_function_name("ethPayment", watcher_reward);
+                let payment_func = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
+                let decoded = try_tx_fus!(decode_contract_call(payment_func, payment.unsigned().data()));
+                let swap_id_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 0));
+
+                let state_f = self.payment_status(swap_contract_address, swap_id_input.clone());
+                Box::new(
+                    state_f
+                        .map_err(TransactionErr::Plain)
+                        .and_then(move |state| -> EthTxFut {
+                            if state != U256::from(PaymentState::Sent as u8) {
+                                return Box::new(futures01::future::err(TransactionErr::Plain(ERRL!(
+                                    "Payment {:?} state is not PAYMENT_STATE_SENT, got {}",
+                                    payment,
+                                    state
+                                ))));
+                            }
+
+                            let value = payment.unsigned().value();
+                            let reward_target = try_tx_fus!(get_function_input_data(&decoded, payment_func, 4));
+                            let sends_contract_reward = try_tx_fus!(get_function_input_data(&decoded, payment_func, 5));
+                            let watcher_reward_amount = try_tx_fus!(get_function_input_data(&decoded, payment_func, 6));
+
+                            let data = try_tx_fus!(spend_func.encode_input(&[
+                                swap_id_input,
+                                Token::Uint(value),
+                                Token::FixedBytes(secret_vec.clone()),
+                                Token::Address(Address::default()),
+                                Token::Address(payment.sender()),
+                                Token::Address(taker_addr),
+                                reward_target,
+                                sends_contract_reward,
+                                watcher_reward_amount,
+                            ]));
+
+                            clone.sign_and_send_transaction(
+                                0.into(),
+                                Call(swap_contract_address),
+                                data,
+                                U256::from(clone.gas_limit.eth_receiver_spend),
+                            )
+                        }),
+                )
+            },
+            EthCoinType::Erc20 {
+                platform: _,
+                token_addr,
+            } => {
+                let function_name = get_function_name("erc20Payment", watcher_reward);
+                let payment_func = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
+
+                let decoded = try_tx_fus!(decode_contract_call(payment_func, payment.unsigned().data()));
+                let swap_id_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 0));
+                let amount_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 1));
+
+                let reward_target = try_tx_fus!(get_function_input_data(&decoded, payment_func, 6));
+                let sends_contract_reward = try_tx_fus!(get_function_input_data(&decoded, payment_func, 7));
+                let reward_amount = try_tx_fus!(get_function_input_data(&decoded, payment_func, 8));
+
+                let state_f = self.payment_status(swap_contract_address, swap_id_input.clone());
+
+                Box::new(
+                    state_f
+                        .map_err(TransactionErr::Plain)
+                        .and_then(move |state| -> EthTxFut {
+                            if state != U256::from(PaymentState::Sent as u8) {
+                                return Box::new(futures01::future::err(TransactionErr::Plain(ERRL!(
+                                    "Payment {:?} state is not PAYMENT_STATE_SENT, got {}",
+                                    payment,
+                                    state
+                                ))));
+                            }
+                            let data = try_tx_fus!(spend_func.encode_input(&[
+                                swap_id_input.clone(),
+                                amount_input,
+                                Token::FixedBytes(secret_vec.clone()),
+                                Token::Address(token_addr),
+                                Token::Address(payment.sender()),
+                                Token::Address(taker_addr),
+                                reward_target,
+                                sends_contract_reward,
+                                reward_amount
+                            ]));
+                            clone.sign_and_send_transaction(
+                                0.into(),
+                                Call(swap_contract_address),
+                                data,
+                                U256::from(clone.gas_limit.erc20_receiver_spend),
+                            )
+                        }),
+                )
+            },
+            EthCoinType::Nft { .. } => Box::new(futures01::future::err(TransactionErr::ProtocolNotSupported(ERRL!(
+                "Nft Protocol is not supported yet!"
+            )))),
+        }
+    }
+
+    fn watcher_refunds_hash_time_locked_payment(&self, args: RefundPaymentArgs) -> EthTxFut {
+        let tx: UnverifiedTransactionWrapper = try_tx_fus!(rlp::decode(args.payment_tx));
+        let payment = try_tx_fus!(SignedEthTx::new(tx));
+
+        let function_name = get_function_name("senderRefund", true);
+        let refund_func = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
+
+        let clone = self.clone();
+        let taker_addr = addr_from_raw_pubkey(args.other_pubkey).unwrap();
+        let swap_contract_address = match payment.unsigned().action() {
+            Call(address) => *address,
+            Create => {
+                return Box::new(futures01::future::err(TransactionErr::Plain(ERRL!(
+                    "Invalid payment action: the payment action cannot be create"
+                ))))
+            },
+        };
+
+        match self.coin_type {
+            EthCoinType::Eth => {
+                let function_name = get_function_name("ethPayment", true);
+                let payment_func = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
+                let decoded = try_tx_fus!(decode_contract_call(payment_func, payment.unsigned().data()));
+                let swap_id_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 0));
+                let receiver_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 1));
+                let hash_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 2));
+
+                let state_f = self.payment_status(swap_contract_address, swap_id_input.clone());
+                Box::new(
+                    state_f
+                        .map_err(TransactionErr::Plain)
+                        .and_then(move |state| -> EthTxFut {
+                            if state != U256::from(PaymentState::Sent as u8) {
+                                return Box::new(futures01::future::err(TransactionErr::Plain(ERRL!(
+                                    "Payment {:?} state is not PAYMENT_STATE_SENT, got {}",
+                                    payment,
+                                    state
+                                ))));
+                            }
+
+                            let value = payment.unsigned().value();
+                            let reward_target = try_tx_fus!(get_function_input_data(&decoded, payment_func, 4));
+                            let sends_contract_reward = try_tx_fus!(get_function_input_data(&decoded, payment_func, 5));
+                            let reward_amount = try_tx_fus!(get_function_input_data(&decoded, payment_func, 6));
+
+                            let data = try_tx_fus!(refund_func.encode_input(&[
+                                swap_id_input.clone(),
+                                Token::Uint(value),
+                                hash_input.clone(),
+                                Token::Address(Address::default()),
+                                Token::Address(taker_addr),
+                                receiver_input.clone(),
+                                reward_target,
+                                sends_contract_reward,
+                                reward_amount
+                            ]));
+
+                            clone.sign_and_send_transaction(
+                                0.into(),
+                                Call(swap_contract_address),
+                                data,
+                                U256::from(clone.gas_limit.eth_sender_refund),
+                            )
+                        }),
+                )
+            },
+            EthCoinType::Erc20 {
+                platform: _,
+                token_addr,
+            } => {
+                let function_name = get_function_name("erc20Payment", true);
+                let payment_func = try_tx_fus!(SWAP_CONTRACT.function(&function_name));
+
+                let decoded = try_tx_fus!(decode_contract_call(payment_func, payment.unsigned().data()));
+                let swap_id_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 0));
+                let amount_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 1));
+                let receiver_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 3));
+                let hash_input = try_tx_fus!(get_function_input_data(&decoded, payment_func, 4));
+
+                let reward_target = try_tx_fus!(get_function_input_data(&decoded, payment_func, 6));
+                let sends_contract_reward = try_tx_fus!(get_function_input_data(&decoded, payment_func, 7));
+                let reward_amount = try_tx_fus!(get_function_input_data(&decoded, payment_func, 8));
+
+                let state_f = self.payment_status(swap_contract_address, swap_id_input.clone());
+                Box::new(
+                    state_f
+                        .map_err(TransactionErr::Plain)
+                        .and_then(move |state| -> EthTxFut {
+                            if state != U256::from(PaymentState::Sent as u8) {
+                                return Box::new(futures01::future::err(TransactionErr::Plain(ERRL!(
+                                    "Payment {:?} state is not PAYMENT_STATE_SENT, got {}",
+                                    payment,
+                                    state
+                                ))));
+                            }
+
+                            let data = try_tx_fus!(refund_func.encode_input(&[
+                                swap_id_input.clone(),
+                                amount_input.clone(),
+                                hash_input.clone(),
+                                Token::Address(token_addr),
+                                Token::Address(taker_addr),
+                                receiver_input.clone(),
+                                reward_target,
+                                sends_contract_reward,
+                                reward_amount
+                            ]));
+
+                            clone.sign_and_send_transaction(
+                                0.into(),
+                                Call(swap_contract_address),
+                                data,
+                                U256::from(clone.gas_limit.erc20_sender_refund),
+                            )
+                        }),
+                )
+            },
+            EthCoinType::Nft { .. } => Box::new(futures01::future::err(TransactionErr::ProtocolNotSupported(ERRL!(
+                "Nft Protocol is not supported yet!"
+            )))),
+        }
+    }
+
+    pub async fn get_watcher_reward_amount(&self, wait_until: u64) -> Result<BigDecimal, MmError<WatcherRewardError>> {
+        let pay_for_gas_policy = self.get_swap_gas_fee_policy().await.map_mm_err()?;
+        let pay_for_gas_option = repeatable!(async {
+            self.get_swap_pay_for_gas_option(pay_for_gas_policy.clone())
+                .await
+                .retry_on_err()
+        })
+        .until_s(wait_until)
+        .repeat_every_secs(10.)
+        .await
+        .map_err(|_| WatcherRewardError::RPCError("Error getting the gas price".to_string()))?;
+
+        let gas_cost_wei = calc_total_fee(U256::from(REWARD_GAS_AMOUNT), &pay_for_gas_option)
+            .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
+        let gas_cost_eth = u256_to_big_decimal(gas_cost_wei, ETH_DECIMALS)
+            .map_err(|e| WatcherRewardError::InternalError(e.to_string()))?;
+        Ok(gas_cost_eth)
+    }
+}
