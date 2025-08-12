@@ -156,14 +156,23 @@ impl Serializable for BlockHeader {
         if let Some(claim) = &self.claim_trie_root {
             s.append(claim);
         }
-        if let Some(h) = &self.hash_final_sapling_root {
-            s.append(h);
-        };
+        // For Zcash-style headers, the sapling root is serialized before the time.
+        if self.solution.is_some() {
+            if let Some(h) = &self.hash_final_sapling_root {
+                s.append(h);
+            }
+        }
         s.append(&self.time);
         s.append(&self.bits);
         // If a BTC header uses KAWPOW_VERSION, the nonce can't be zero
         if !self.is_prog_pow() && (self.version != KAWPOW_VERSION || self.nonce != BlockHeaderNonce::U32(0)) {
             s.append(&self.nonce);
+        }
+        // For PIVX-style headers, the sapling root is serialized after the nonce.
+        if self.solution.is_none() {
+            if let Some(h) = &self.hash_final_sapling_root {
+                s.append(h);
+            }
         }
         if let Some(sol) = &self.solution {
             s.append_list(sol);
@@ -230,16 +239,16 @@ impl Deserializable for BlockHeader {
             None
         };
 
-        let is_zcash = (version == 4 && !reader.coin_variant().is_btc() && !reader.coin_variant().is_ppc())
+        let is_zcash_style = (version == 4 && !reader.coin_variant().is_btc() && !reader.coin_variant().is_ppc())
             || reader.coin_variant().is_kmd_assetchain();
-        let hash_final_sapling_root = if is_zcash { Some(reader.read()?) } else { None };
+        let mut hash_final_sapling_root = if is_zcash_style { Some(reader.read()?) } else { None };
         let time = reader.read()?;
-        let bits = if is_zcash {
+        let bits = if is_zcash_style {
             BlockHeaderBits::U32(reader.read()?)
         } else {
             BlockHeaderBits::Compact(reader.read()?)
         };
-        let nonce = if is_zcash {
+        let nonce = if is_zcash_style {
             BlockHeaderNonce::H256(reader.read()?)
         } else if (version == KAWPOW_VERSION && reader.coin_variant().is_rvn())
             || (version == MTP_POW_VERSION && time >= PROG_POW_SWITCH_TIME)
@@ -248,10 +257,22 @@ impl Deserializable for BlockHeader {
         } else {
             BlockHeaderNonce::U32(reader.read()?)
         };
-        let solution = if is_zcash { Some(reader.read_list()?) } else { None };
+        // A PIVX header is a standard header with a `hash_final_sapling_root` added after the nonce.
+        hash_final_sapling_root = if reader.coin_variant().is_pivx() {
+            Some(reader.read()?)
+        } else {
+            hash_final_sapling_root
+        };
+        let solution = if is_zcash_style {
+            Some(reader.read_list()?)
+        } else {
+            None
+        };
 
         // https://en.bitcoin.it/wiki/Merged_mining_specification#Merged_mining_coinbase
-        let aux_pow = if (version & AUXPOW_VERSION_FLAG) != 0 {
+        // AuxPoW is only for AuxPoW coins (Dogecoin, Namecoin, Syscoin, etc.).
+        // BTC-like variants (BTC, BCH, NAV, ...) must NOT interpret bit 8 as AuxPoW.
+        let aux_pow = if (version & AUXPOW_VERSION_FLAG) != 0 && !reader.coin_variant().is_btc() {
             let coinbase_tx = deserialize_tx(reader, TxType::StandardWithWitness)?;
             let parent_block_hash = reader.read()?;
             let coinbase_branch = reader.read()?;
@@ -2893,6 +2914,52 @@ mod tests {
 
         assert_eq!(header.version, KAWPOW_VERSION);
 
+        let serialized = serialize(&header);
+        assert_eq!(serialized.take(), header_bytes);
+    }
+
+    #[test]
+    fn test_pivx_sapling_header() {
+        let header_hex = "0b000000097d36aeeb2585e6c08226f8f48cb91213708fcad603cb67be76efa5b3b31c0baf86a77624fd298be0f5a7b908d17d3d83edf8f681de2913b2584fb92380e152594229684411051b00000000c801eff496c2720766cdbf2ec20b5436b37350e2945f85a7feb8a4b4a12d4323";
+        let header_bytes = &header_hex.from_hex::<Vec<u8>>().unwrap() as &[u8];
+        let mut reader = Reader::new_with_coin_variant(header_bytes, CoinVariant::PIVX);
+        let header: BlockHeader = reader.read().unwrap();
+
+        // Sapling root must be present
+        assert!(header.hash_final_sapling_root.is_some());
+
+        let serialized = serialize(&header);
+        assert_eq!(serialized.take(), header_bytes);
+    }
+
+    #[test]
+    fn test_nav_block_header_v7_no_auxpow_and_roundtrip() {
+        // NAV block #9561948
+        // https://explorer.navcoin.org/block/9561948
+        //
+        // version: 0x7bf5ffff (bit 8 set, but NAV is BTC-style and must NOT parse AuxPoW)
+        // prev    = 57719d707a2e86fd3cb7a379d0575943cd4679de77e3629bcb7728b75abbeb6a
+        // merkle  = 5b57bb3d2ca2706d3d53a86a0ac6d81cbb5590ff61c357e70654b66d4bcaf195
+        // time    = 0x68936f70
+        // bits    = 0x1a2dab8e
+        // nonce   = 7
+        let header_hex = "fffff57b\
+                      6aebbb5ab72877cb9b62e377de7946cd435957d079a3b73cfd862e7a709d7157\
+                      95f1ca4b6db65406e757c361ff9055bb1cd8c60a6aa8533d6d70a22c3dbb575b\
+                      706f9368\
+                      8eab2d1a\
+                      07000000";
+
+        let header_bytes: Vec<u8> = header_hex.from_hex().unwrap();
+
+        // Treat NAV as BTC-style (no AuxPoW parsing)
+        let mut reader = Reader::new_with_coin_variant(header_bytes.as_slice(), CoinVariant::BTC);
+        let header: BlockHeader = reader.read().unwrap();
+
+        assert_eq!(header.version, 0x7bf5ffff);
+        assert!(header.aux_pow.is_none(), "NAV must not parse AuxPoW payloads");
+
+        // Round-trip
         let serialized = serialize(&header);
         assert_eq!(serialized.take(), header_bytes);
     }
