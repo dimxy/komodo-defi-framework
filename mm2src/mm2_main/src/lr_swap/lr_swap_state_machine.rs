@@ -1303,7 +1303,7 @@ impl AggTakerSwapStateMachine {
         slippage: Option<f32>,
     ) -> MmResult<SellBuyResponse, LrSwapError> {
         // For swaps with LR we always use taker 'sell':
-        const TAKER_SELL_ACTION: TakerAction = TakerAction::Sell;
+        let taker_action = TakerAction::Sell;
 
         let base_coin = lp_coinfind_or_err(&self.ctx, &self.atomic_swap.base)
             .await
@@ -1323,15 +1323,7 @@ impl AggTakerSwapStateMachine {
                 self.atomic_swap.rel
             )));
         }
-        debug!(
-            "{LOG_SWAP_LR_NAME} volume={} self.atomic_swap.price={} action={:?} base={} rel={}",
-            taker_volume.to_decimal(),
-            self.atomic_swap.price.to_decimal(),
-            TAKER_SELL_ACTION,
-            self.atomic_swap.base,
-            self.atomic_swap.rel
-        );
-        let (taker_amount, sell_base, sell_rel) = match TAKER_SELL_ACTION {
+        let (taker_sell_volume, sell_base, sell_rel) = match taker_action {
             TakerAction::Buy => (
                 &taker_volume * &self.atomic_swap.price,
                 rel_coin.clone(),
@@ -1339,19 +1331,20 @@ impl AggTakerSwapStateMachine {
             ),
             TakerAction::Sell => (taker_volume.clone(), base_coin.clone(), rel_coin.clone()),
         };
-
         debug!(
-            "{LOG_SWAP_LR_NAME} checking taker balance for atomic swap for {}/{} taker_amount: {}",
+            "{LOG_SWAP_LR_NAME} checking taker balance for atomic swap for {}/{} taker_sell_volume: {} action={:?} atomic_swap.price={}",
             sell_base.ticker(),
             sell_rel.ticker(),
-            taker_amount.to_decimal(),
+            taker_sell_volume.to_decimal(),
+            taker_action,
+            self.atomic_swap.price.to_decimal(),
         );
 
-        let taker_volume = check_balance_with_slippage(
+        let taker_volume_slippage = check_balance_with_slippage(
             &self.ctx,
             sell_base.deref(),
             sell_rel.deref(),
-            taker_amount,
+            taker_sell_volume,
             self.lr_0_dst_amount.get().cloned(),
             slippage,
         )
@@ -1359,22 +1352,22 @@ impl AggTakerSwapStateMachine {
         .map_mm_err()?;
 
         info!(
-            "{LOG_SWAP_LR_NAME}: starting atomic swap for {}/{}, action {:?}, amount {}",
+            "{LOG_SWAP_LR_NAME}: starting atomic swap for {}/{}, action {:?}, taker_volume {}",
             self.atomic_swap.base,
             self.atomic_swap.rel,
-            TAKER_SELL_ACTION,
-            taker_volume.to_decimal()
+            taker_action,
+            taker_volume_slippage.to_decimal()
         );
         let sell_buy_req = make_atomic_swap_request(
             self.atomic_swap.base.clone(),
             self.atomic_swap.rel.clone(),
             self.atomic_swap.price.clone(),
-            taker_volume,
-            TAKER_SELL_ACTION,
+            taker_volume_slippage,
+            taker_action,
             self.atomic_swap.match_by.clone(),
             self.atomic_swap.order_type.clone(),
             // We need assured spending maker payment confirmation (to ensure LR_1 can run)
-            if self.lr_swap_0.is_some() { Some(1) } else { None },
+            if self.lr_swap_1.is_some() { Some(1) } else { None },
         );
         let res_bytes = lp_auto_buy(&self.ctx, &base_coin, &rel_coin, sell_buy_req)
             .await
