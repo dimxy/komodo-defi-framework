@@ -2151,57 +2151,6 @@ pub async fn enable_eth_coin(
     json::from_str(&enable.1).unwrap()
 }
 
-#[derive(Clone)]
-pub struct SwapV2TestContracts {
-    pub maker_swap_v2_contract: String,
-    pub taker_swap_v2_contract: String,
-    pub nft_maker_swap_v2_contract: String,
-}
-
-#[derive(Clone)]
-pub struct TestNode {
-    pub url: String,
-}
-
-pub async fn enable_eth_coin_v2(
-    mm: &MarketMakerIt,
-    ticker: &str,
-    swap_contract_address: &str,
-    swap_v2_contracts: SwapV2TestContracts,
-    fallback_swap_contract: Option<&str>,
-    nodes: &[TestNode],
-    tokens: &[&str],
-) -> Json {
-    let enable = mm
-        .rpc(&json!({
-            "userpass": mm.userpass,
-            "method": "enable_eth_with_tokens",
-            "mmrpc": "2.0",
-            "params": {
-                "ticker": ticker,
-                "mm2": 1,
-                "swap_contract_address": swap_contract_address,
-                "swap_v2_contracts": {
-                    "maker_swap_v2_contract": swap_v2_contracts.maker_swap_v2_contract,
-                    "taker_swap_v2_contract": swap_v2_contracts.taker_swap_v2_contract,
-                    "nft_maker_swap_v2_contract": swap_v2_contracts.nft_maker_swap_v2_contract
-                },
-                "fallback_swap_contract": fallback_swap_contract,
-                "nodes": nodes.iter().map(|node| json!({ "url": node.url })).collect::<Vec<_>>(),
-                "erc20_tokens_requests": tokens.iter().map(|t| json!({"ticker": t})).collect::<Vec<Json>>(),
-            }
-        }))
-        .await
-        .unwrap();
-    assert_eq!(
-        enable.0,
-        StatusCode::OK,
-        "'enable_eth_with_tokens' failed: {}",
-        enable.1
-    );
-    json::from_str(&enable.1).unwrap()
-}
-
 pub async fn enable_slp(mm: &MarketMakerIt, coin: &str) -> Json {
     let enable = mm
         .rpc(&json!({

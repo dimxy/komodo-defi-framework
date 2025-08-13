@@ -7,11 +7,12 @@ use super::docker_tests_common::{SEPOLIA_ERC20_CONTRACT, SEPOLIA_ETOMIC_MAKER_NF
                                  SEPOLIA_NONCE_LOCK, SEPOLIA_RPC_URL, SEPOLIA_TAKER_SWAP_V2, SEPOLIA_TESTS_LOCK,
                                  SEPOLIA_WEB3};
 use crate::common::Future01CompatExt;
+use crate::integration_tests_common::enable_eth_coin_v2;
 use bitcrypto::{dhash160, sha256};
 use coins::eth::gas_limit::ETH_MAX_TRADE_GAS;
 use coins::eth::v2_activation::{eth_coin_from_conf_and_request_v2, EthActivationV2Request, EthNode};
-use coins::eth::{checksum_address, eth_coin_from_conf_and_request, ChainSpec, EthCoin, EthCoinType,
-                 EthPrivKeyBuildPolicy, SignedEthTx, SwapV2Contracts, ERC20_ABI};
+use coins::eth::{addr_from_raw_pubkey, checksum_address, eth_coin_from_conf_and_request, ChainSpec, EthCoin,
+                 EthCoinType, EthPrivKeyBuildPolicy, SignedEthTx, SwapV2Contracts, ERC20_ABI};
 use coins::hd_wallet::AddrToString;
 use coins::nft::nft_structs::{Chain, ContractType, NftInfo};
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
@@ -32,15 +33,18 @@ use ethereum_types::U256;
 use mm2_core::mm_ctx::MmArc;
 use mm2_number::{BigDecimal, BigUint};
 use mm2_test_helpers::for_tests::{account_balance, active_swaps, coins_needed_for_kickstart, disable_coin,
-                                  enable_erc20_token_v2, enable_eth_coin_v2, enable_eth_with_tokens_v2,
-                                  erc20_dev_conf, eth1_dev_conf, eth_dev_conf, get_locked_amount, get_new_address,
-                                  get_token_info, mm_dump, my_swap_status, nft_dev_conf, start_swaps, MarketMakerIt,
-                                  Mm2TestConf, SwapV2TestContracts, TestNode, ETH_SEPOLIA_CHAIN_ID};
+                                  enable_erc20_token_v2, enable_eth_with_tokens_v2, erc20_dev_conf, eth1_dev_conf,
+                                  eth_dev_conf, get_locked_amount, get_new_address, get_token_info, mm_dump,
+                                  my_swap_status, nft_dev_conf, start_swaps, MarketMakerIt, Mm2TestConf,
+                                  ETH_SEPOLIA_CHAIN_ID};
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 use mm2_test_helpers::for_tests::{eth_sepolia_conf, sepolia_erc20_dev_conf};
 use mm2_test_helpers::structs::{Bip44Chain, EnableCoinBalanceMap, EthWithTokensActivationResult, HDAccountAddressId,
                                 TokenInfo};
+use secp256k1::{PublicKey, Secp256k1, SecretKey};
+
 use serde_json::Value as Json;
+use std::ops::Deref;
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 use std::str::FromStr;
 use std::thread;
@@ -151,6 +155,14 @@ pub fn fill_eth(to_addr: Address, amount: U256) {
     wait_for_confirmation(tx_hash);
 }
 
+pub fn fill_eth_with_privkey(priv_key: Secp256k1Secret, amount: U256) {
+    let s = Secp256k1::signing_only();
+    let priv_key = SecretKey::from_slice(priv_key.deref()).unwrap();
+    let pubkey = PublicKey::from_secret_key(&s, &priv_key);
+    let address = addr_from_raw_pubkey(&pubkey.serialize()).unwrap();
+    fill_eth(address, amount);
+}
+
 fn fill_erc20(to_addr: Address, amount: U256) {
     let _guard = GETH_NONCE_LOCK.lock().unwrap();
     let erc20_contract = Contract::from_json(GETH_WEB3.eth(), erc20_contract(), ERC20_ABI.as_bytes()).unwrap();
@@ -163,6 +175,14 @@ fn fill_erc20(to_addr: Address, amount: U256) {
     ))
     .unwrap();
     wait_for_confirmation(tx_hash);
+}
+
+pub fn fill_erc20_with_privkey(priv_key: Secp256k1Secret, amount: U256) {
+    let s = Secp256k1::signing_only();
+    let priv_key = SecretKey::from_slice(priv_key.deref()).unwrap();
+    let pubkey = PublicKey::from_secret_key(&s, &priv_key);
+    let address = addr_from_raw_pubkey(&pubkey.serialize()).unwrap();
+    fill_erc20(address, amount);
 }
 
 fn mint_erc721(to_addr: Address, token_id: U256) {
@@ -443,15 +463,13 @@ fn global_nft_with_random_privkey(
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 /// Can be used to generate coin from Sepolia Maker/Taker priv keys.
 fn sepolia_coin_from_privkey(ctx: &MmArc, secret: &'static str, ticker: &str, conf: &Json, erc20: bool) -> EthCoin {
-    let swap_addr = SwapAddresses {
-        swap_v2_contracts: SwapV2Contracts {
-            maker_swap_v2_contract: sepolia_maker_swap_v2(),
-            taker_swap_v2_contract: sepolia_taker_swap_v2(),
-            nft_maker_swap_v2_contract: sepolia_etomic_maker_nft(),
-        },
-        swap_contract_address: sepolia_taker_swap_v2(),
-        fallback_swap_contract_address: sepolia_taker_swap_v2(),
+    let swap_v2_contracts = SwapV2Contracts {
+        maker_swap_v2_contract: sepolia_maker_swap_v2(),
+        taker_swap_v2_contract: sepolia_taker_swap_v2(),
+        nft_maker_swap_v2_contract: sepolia_etomic_maker_nft(),
     };
+    let swap_contract_address: sepolia_taker_swap_v2();
+    let fallback_swap_contract_address: sepolia_taker_swap_v2();
 
     let priv_key = Secp256k1Secret::from(secret);
     let build_policy = EthPrivKeyBuildPolicy::IguanaPrivKey(priv_key);
@@ -463,9 +481,9 @@ fn sepolia_coin_from_privkey(ctx: &MmArc, secret: &'static str, ticker: &str, co
     let platform_request = EthActivationV2Request {
         nodes: vec![node],
         rpc_mode: Default::default(),
-        swap_contract_address: swap_addr.swap_contract_address,
-        swap_v2_contracts: Some(swap_addr.swap_v2_contracts),
-        fallback_swap_contract: Some(swap_addr.fallback_swap_contract_address),
+        swap_contract_address,
+        swap_v2_contracts: Some(swap_v2_contracts),
+        fallback_swap_contract: Some(fallback_swap_contract_address),
         contract_supports_watchers: false,
         mm2: None,
         required_confirmations: None,
@@ -1424,27 +1442,14 @@ enum RefundType {
     Secret,
 }
 
-#[derive(Copy, Clone)]
-struct SwapAddresses {
-    swap_v2_contracts: SwapV2Contracts,
-    swap_contract_address: Address,
-    fallback_swap_contract_address: Address,
-}
-
 #[allow(dead_code)]
 /// Needed for Geth taker or maker swap v2 tests
-impl SwapAddresses {
-    fn init() -> Self {
-        Self {
-            swap_contract_address: swap_contract(),
-            fallback_swap_contract_address: swap_contract(),
-            swap_v2_contracts: SwapV2Contracts {
-                maker_swap_v2_contract: maker_swap_v2(),
-                taker_swap_v2_contract: taker_swap_v2(),
-                nft_maker_swap_v2_contract: geth_nft_maker_swap_v2(),
-            },
-        }
-    }
+pub fn geth_swap_contracts() -> (Address, Address, SwapV2Contracts) {
+    (swap_contract(), swap_contract(), SwapV2Contracts {
+        maker_swap_v2_contract: maker_swap_v2(),
+        taker_swap_v2_contract: taker_swap_v2(),
+        nft_maker_swap_v2_contract: geth_nft_maker_swap_v2(),
+    })
 }
 
 /// Needed for eth or erc20 v2 activation in Geth tests
@@ -1452,7 +1457,9 @@ fn eth_coin_v2_activation_with_random_privkey(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
-    swap_addr: SwapAddresses,
+    swap_contract_address: &str,
+    swap_v2_contracts: &SwapV2Contracts,
+    fallback_swap_contract: Option<&str>,
     erc20: bool,
 ) -> (EthCoin, Secp256k1Secret) {
     let priv_key = random_secp256k1_secret();
@@ -1464,7 +1471,7 @@ fn eth_coin_v2_activation_with_random_privkey(
     let platform_request = EthActivationV2Request {
         nodes: vec![node],
         rpc_mode: Default::default(),
-        swap_contract_address: swap_addr.swap_contract_address,
+        swap_contract_address,
         swap_v2_contracts: Some(swap_addr.swap_v2_contracts),
         fallback_swap_contract: Some(swap_addr.fallback_swap_contract_address),
         contract_supports_watchers: false,
@@ -2775,19 +2782,7 @@ fn test_enable_custom_erc20_with_duplicate_contract_in_config() {
 #[test]
 fn test_v2_eth_eth_kickstart() {
     // Initialize swap addresses and configurations
-    let swap_addresses = SwapAddresses::init();
-    let contracts = SwapV2TestContracts {
-        maker_swap_v2_contract: swap_addresses.swap_v2_contracts.maker_swap_v2_contract.addr_to_string(),
-        taker_swap_v2_contract: swap_addresses.swap_v2_contracts.taker_swap_v2_contract.addr_to_string(),
-        nft_maker_swap_v2_contract: swap_addresses
-            .swap_v2_contracts
-            .nft_maker_swap_v2_contract
-            .addr_to_string(),
-    };
-    let swap_contract_address = swap_addresses.swap_contract_address.addr_to_string();
-    let node = TestNode {
-        url: GETH_RPC_URL.to_string(),
-    };
+    let (swap_legacy_addr, fallback_addr, swap_v2_addrs) = geth_swap_contracts();
 
     // Helper function for activating coins
     let enable_coins = |mm: &MarketMakerIt, coins: &[&str]| {
@@ -2797,10 +2792,10 @@ fn test_v2_eth_eth_kickstart() {
                 block_on(enable_eth_coin_v2(
                     mm,
                     coin,
-                    &swap_contract_address,
-                    contracts.clone(),
+                    &swap_legacy_addr,
+                    &swap_v2_addrs,
                     None,
-                    &[node.clone()],
+                    &[&GETH_RPC_URL],
                     &[],
                 ))
             );
@@ -2808,10 +2803,24 @@ fn test_v2_eth_eth_kickstart() {
     };
 
     // start Bob and Alice
-    let (_, bob_priv_key) =
-        eth_coin_v2_activation_with_random_privkey(&MM_CTX, ETH, &eth_dev_conf(), swap_addresses, false);
-    let (_, alice_priv_key) =
-        eth_coin_v2_activation_with_random_privkey(&MM_CTX1, ETH1, &eth1_dev_conf(), swap_addresses, false);
+    let (_, bob_priv_key) = eth_coin_v2_activation_with_random_privkey(
+        &MM_CTX,
+        ETH,
+        &eth_dev_conf(),
+        &swap_legacy_addr,
+        &swap_v2_addrs,
+        None,
+        false,
+    );
+    let (_, alice_priv_key) = eth_coin_v2_activation_with_random_privkey(
+        &MM_CTX1,
+        ETH1,
+        &eth1_dev_conf(),
+        &swap_legacy_addr,
+        &swap_v2_addrs,
+        None,
+        false,
+    );
     let coins = json!([eth_dev_conf(), eth1_dev_conf()]);
 
     let mut bob_conf = Mm2TestConf::seednode_trade_v2(&format!("0x{}", hex::encode(bob_priv_key)), &coins);

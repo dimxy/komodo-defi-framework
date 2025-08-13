@@ -1,22 +1,23 @@
 //! Non-CI tests for 'aggregated taker swaps with liquidity routing' (LR).
 
+use crate::integration_tests_common::enable_eth_coin_v2;
+use coins::eth::SwapV2Contracts;
 use coins::RawTransactionRes;
 use common::executor::Timer;
 use common::{block_on, log};
-use ethereum_types::H256;
+use ethereum_types::{Address as EthAddress, H256};
 use lazy_static::lazy_static;
 use mm2_number::BigDecimal;
 use mm2_rpc::data::legacy::MatchBy;
 use mm2_test_helpers::electrums::doc_electrums;
 use mm2_test_helpers::for_tests::{active_swaps, disable_coin, doc_conf, enable_electrum_json, mm_dump, my_balance,
                                   my_swap_status, polygon_conf, wait_for_swap_finished, MarketMakerIt, Mm2TestConf,
-                                  SwapV2TestContracts, TestNode, ARBITRUM_MAINNET_NODES,
-                                  ARBITRUM_MAINNET_SWAP_CONTRACT, ARBITRUM_MAINNET_SWAP_V2_MAKER_CONTRACT,
-                                  ARBITRUM_MAINNET_SWAP_V2_NFT_CONTRACT, ARBITRUM_MAINNET_SWAP_V2_TAKER_CONTRACT, DOC,
-                                  POLYGON_MAINNET_NODES, POLYGON_MAINNET_SWAP_CONTRACT,
-                                  POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT, POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT,
-                                  POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT};
-use mm2_test_helpers::for_tests::{best_orders_v2_by_number, enable_eth_coin_v2, orderbook_v2};
+                                  ARBITRUM_MAINNET_NODES, ARBITRUM_MAINNET_SWAP_CONTRACT,
+                                  ARBITRUM_MAINNET_SWAP_V2_MAKER_CONTRACT, ARBITRUM_MAINNET_SWAP_V2_NFT_CONTRACT,
+                                  ARBITRUM_MAINNET_SWAP_V2_TAKER_CONTRACT, DOC, POLYGON_MAINNET_NODES,
+                                  POLYGON_MAINNET_SWAP_CONTRACT, POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT,
+                                  POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT, POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT};
+use mm2_test_helpers::for_tests::{best_orders_v2_by_number, orderbook_v2};
 use mm2_test_helpers::structs::lr_test_structs::{ClassicSwapResponse, LrExecuteRoutedTradeResponse,
                                                  LrFindBestQuoteResponse};
 use mm2_test_helpers::structs::SetPriceResult;
@@ -1135,46 +1136,36 @@ fn crv_arb20_conf() -> Value {
 }
 
 async fn enable_pol_tokens(mm: &MarketMakerIt, tickers: &[&str]) -> Value {
-    let pol_contracts_v2 = SwapV2TestContracts {
-        maker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT.to_owned(),
-        taker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT.to_owned(),
-        nft_maker_swap_v2_contract: POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT.to_owned(),
+    let pol_contracts_v2 = SwapV2Contracts {
+        maker_swap_v2_contract: EthAddress::from_str(POLYGON_MAINNET_SWAP_V2_MAKER_CONTRACT).unwrap(),
+        taker_swap_v2_contract: EthAddress::from_str(POLYGON_MAINNET_SWAP_V2_TAKER_CONTRACT).unwrap(),
+        nft_maker_swap_v2_contract: EthAddress::from_str(POLYGON_MAINNET_SWAP_V2_NFT_CONTRACT).unwrap(),
     };
-    let polygon_nodes = POLYGON_MAINNET_NODES
-        .iter()
-        .map(|ip| TestNode { url: (*ip).to_owned() })
-        .collect::<Vec<_>>();
-
     enable_eth_coin_v2(
         mm,
         MATIC,
-        POLYGON_MAINNET_SWAP_CONTRACT,
-        pol_contracts_v2,
+        EthAddress::from_str(POLYGON_MAINNET_SWAP_CONTRACT).unwrap(),
+        &pol_contracts_v2,
         None,
-        &polygon_nodes,
+        POLYGON_MAINNET_NODES,
         tickers,
     )
     .await
 }
 
 async fn enable_arb_tokens(mm: &MarketMakerIt, tickers: &[&str]) -> Value {
-    let arb_contracts_v2 = SwapV2TestContracts {
-        maker_swap_v2_contract: ARBITRUM_MAINNET_SWAP_V2_MAKER_CONTRACT.to_owned(),
-        taker_swap_v2_contract: ARBITRUM_MAINNET_SWAP_V2_TAKER_CONTRACT.to_owned(),
-        nft_maker_swap_v2_contract: ARBITRUM_MAINNET_SWAP_V2_NFT_CONTRACT.to_owned(),
+    let arb_contracts_v2 = SwapV2Contracts {
+        maker_swap_v2_contract: EthAddress::from_str(ARBITRUM_MAINNET_SWAP_V2_MAKER_CONTRACT).unwrap(),
+        taker_swap_v2_contract: EthAddress::from_str(ARBITRUM_MAINNET_SWAP_V2_TAKER_CONTRACT).unwrap(),
+        nft_maker_swap_v2_contract: EthAddress::from_str(ARBITRUM_MAINNET_SWAP_V2_NFT_CONTRACT).unwrap(),
     };
-    let arb_nodes = ARBITRUM_MAINNET_NODES
-        .iter()
-        .map(|ip| TestNode { url: (*ip).to_owned() })
-        .collect::<Vec<_>>();
-
     enable_eth_coin_v2(
         mm,
         eth_arb_conf()["coin"].as_str().unwrap(),
-        ARBITRUM_MAINNET_SWAP_CONTRACT,
-        arb_contracts_v2,
+        EthAddress::from_str(ARBITRUM_MAINNET_SWAP_CONTRACT).unwrap(),
+        &arb_contracts_v2,
         None,
-        &arb_nodes,
+        ARBITRUM_MAINNET_NODES,
         tickers,
     )
     .await
