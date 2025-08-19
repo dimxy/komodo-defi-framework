@@ -52,8 +52,8 @@ use num_traits::FromPrimitive;
 use serde_json::Value as Json;
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 use std::str::FromStr;
-use std::thread;
 use std::time::Duration;
+use std::thread;
 use uuid::Uuid;
 use web3::contract::{Contract, Options};
 use web3::ethabi::Token;
@@ -227,8 +227,7 @@ fn mint_erc721(to_addr: Address, token_id: U256) {
 
     assert_eq!(
         owner, to_addr,
-        "The ownership of the tokenID {:?} does not match the expected address {:?}.",
-        token_id, to_addr
+        "The ownership of the tokenID {token_id:?} does not match the expected address {to_addr:?}."
     );
 }
 
@@ -273,10 +272,7 @@ fn mint_erc1155(to_addr: Address, token_id: U256, amount: u32) {
     assert_eq!(
         balance_dec,
         BigDecimal::from(amount),
-        "The balance of tokenId {:?} for address {:?} does not match the expected amount {:?}.",
-        token_id,
-        to_addr,
-        amount
+        "The balance of tokenId {token_id:?} for address {to_addr:?} does not match the expected amount {amount:?}."
     );
 }
 
@@ -306,7 +302,7 @@ pub(crate) async fn fill_erc1155_info(eth_coin: &EthCoin, token_address: Address
         amount: BigDecimal::from(amount),
     };
     let erc1155_address_str = token_address.addr_to_string();
-    let erc1155_key = format!("{},{}", erc1155_address_str, token_id);
+    let erc1155_key = format!("{erc1155_address_str},{token_id}");
     nft_infos.insert(erc1155_key, erc1155_nft_info);
 }
 
@@ -322,7 +318,7 @@ pub(crate) async fn fill_erc721_info(eth_coin: &EthCoin, token_address: Address,
         amount: BigDecimal::from(1),
     };
     let erc721_address_str = token_address.addr_to_string();
-    let erc721_key = format!("{},{}", erc721_address_str, token_id);
+    let erc721_key = format!("{erc721_address_str},{token_id}");
     nft_infos.insert(erc721_key, erc721_nft_info);
 }
 
@@ -2848,7 +2844,7 @@ fn test_v2_eth_eth_kickstart_impl(base: &str, rel: &str, maker_price: f64, taker
                 &swap_contract_address,
                 swap_v2_contracts.clone(),
                 None,
-                &[node.clone()]
+                std::slice::from_ref(&node)
             ))
         );
     };

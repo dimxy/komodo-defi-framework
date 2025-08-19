@@ -247,11 +247,11 @@ impl SessionManager {
         )
     }
 
-    pub(crate) fn read(&self) -> RwLockReadGuard<HashMap<Topic, Session>> {
+    pub(crate) fn read(&self) -> RwLockReadGuard<'_, HashMap<Topic, Session>> {
         self.0.sessions.read().expect("read shouldn't fail")
     }
 
-    pub(crate) fn write(&self) -> RwLockWriteGuard<HashMap<Topic, Session>> {
+    pub(crate) fn write(&self) -> RwLockWriteGuard<'_, HashMap<Topic, Session>> {
         self.0.sessions.write().expect("read shouldn't fail")
     }
 
@@ -279,7 +279,7 @@ impl SessionManager {
         self.read().get(topic).cloned()
     }
 
-    /// Retrieves a cloned session associated with a given sessionn or pairing topic.
+    /// Retrieves a cloned session associated with a given session or pairing topic.
     pub fn get_session_with_any_topic(&self, topic: &Topic, with_pairing_topic: bool) -> Option<Session> {
         if with_pairing_topic {
             return self.read().values().find(|s| &s.pairing_topic == topic).cloned();

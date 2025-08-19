@@ -243,11 +243,11 @@ impl MmCoin for SiaCoin {
         unimplemented!()
     }
 
-    fn get_raw_transaction(&self, _req: RawTransactionRequest) -> RawTransactionFut {
+    fn get_raw_transaction(&self, _req: RawTransactionRequest) -> RawTransactionFut<'_> {
         unimplemented!()
     }
 
-    fn get_tx_hex_by_hash(&self, _tx_hash: Vec<u8>) -> RawTransactionFut {
+    fn get_tx_hex_by_hash(&self, _tx_hash: Vec<u8>) -> RawTransactionFut<'_> {
         unimplemented!()
     }
 
@@ -284,7 +284,6 @@ impl MmCoin for SiaCoin {
         &self,
         _value: TradePreimageValue,
         _stage: FeeApproxStage,
-        _include_refund_fee: bool,
     ) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }

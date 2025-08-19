@@ -185,6 +185,7 @@ use std::panic::{set_hook, PanicHookInfo};
 use std::path::{Path, PathBuf};
 use std::ptr::read_volatile;
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, SystemTimeError};
 use uuid::Uuid;
@@ -197,7 +198,6 @@ cfg_native! {
     #[cfg(not(windows))]
     use findshlibs::{IterationControl, Segment, SharedLibrary, TargetSharedLibrary};
     use std::env;
-    use std::sync::Mutex;
     use std::str::FromStr;
 }
 
@@ -413,7 +413,7 @@ pub fn stack_trace_frame(instr_ptr: *mut c_void, buf: &mut dyn Write, symbol: &b
     };
     let mut name_buf = trace_name_buf();
     let name = gstring!(name_buf, {
-        let _ = write!(name_buf, "{}", name); // NB: `fmt` is different from `SymbolName::as_str`.
+        let _ = write!(name_buf, "{name}"); // NB: `fmt` is different from `SymbolName::as_str`.
     });
 
     // Skip common and less than informative frames.
@@ -453,7 +453,7 @@ pub fn stack_trace_frame(instr_ptr: *mut c_void, buf: &mut dyn Write, symbol: &b
         return;
     }
 
-    let _ = writeln!(buf, "  {}:{}] {} {:?}", filename, lineno, name, instr_ptr);
+    let _ = writeln!(buf, "  {filename}:{lineno}] {name} {instr_ptr:?}");
 }
 
 /// Generates a string with the current stack trace.
@@ -465,7 +465,7 @@ pub fn stack_trace_frame(instr_ptr: *mut c_void, buf: &mut dyn Write, symbol: &b
 ///
 /// * `format` - Generates the string representation of a frame.
 /// * `output` - Function used to print the stack trace.
-///              Printing immediately, without buffering, should make the tracing somewhat more reliable.
+///   Printing immediately, without buffering, should make the tracing somewhat more reliable.
 pub fn stack_trace(
     format: &mut dyn FnMut(*mut c_void, &mut dyn Write, &backtrace::Symbol),
     output: &mut dyn FnMut(&str),
@@ -606,7 +606,7 @@ impl std::fmt::Display for SerializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SerializationError::InternalError(internal) => {
-                write!(f, "Internal error: Couldn't serialize an RPC response: {}", internal)
+                write!(f, "Internal error: Couldn't serialize an RPC response: {internal}")
             },
         }
     }
@@ -791,7 +791,7 @@ pub(crate) fn open_log_file() -> Option<std::fs::File> {
     match std::fs::OpenOptions::new().append(true).create(true).open(&mm_log) {
         Ok(f) => Some(f),
         Err(err) => {
-            println!("open_log_file] Can't open {}: {}", mm_log, err);
+            println!("open_log_file] Can't open {mm_log}: {err}");
             None
         },
     }
@@ -809,40 +809,37 @@ pub fn writeln(line: &str) {
     let _ = catch_unwind(|| {
         if let Ok(mut log_file) = LOG_FILE.lock() {
             if let Some(ref mut log_file) = *log_file {
-                writeln!(log_file, "{}", line).ok();
+                writeln!(log_file, "{line}").ok();
                 return;
             }
         }
-        println!("{}", line);
+        println!("{line}");
     });
 }
 
-#[cfg(target_arch = "wasm32")]
-static mut PROCESS_LOG_TAIL: [u8; 0x10000] = [0; 0x10000];
-
-#[cfg(target_arch = "wasm32")]
-static TAIL_CUR: AtomicUsize = AtomicUsize::new(0);
-
 /// Keep a tail of the log in RAM for the integration tests.
-#[allow(static_mut_refs)] // TODO: Refactor PROCESS_LOG_TAIL to use lazystatic
 #[cfg(target_arch = "wasm32")]
 pub fn append_log_tail(line: &str) {
-    unsafe {
-        if line.len() < PROCESS_LOG_TAIL.len() {
-            let posⁱ = TAIL_CUR.load(Ordering::Relaxed);
-            let posⱼ = posⁱ + line.len();
-            let (posˢ, posⱼ) = if posⱼ > PROCESS_LOG_TAIL.len() {
-                (0, line.len())
-            } else {
-                (posⁱ, posⱼ)
-            };
-            if TAIL_CUR
-                .compare_exchange(posⁱ, posⱼ, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok()
-            {
-                for (cur, ix) in (posˢ..posⱼ).zip(0..line.len()) {
-                    PROCESS_LOG_TAIL[cur] = line.as_bytes()[ix]
-                }
+    static PROCESS_LOG_TAIL: OnceLock<Mutex<[u8; 0x10000]>> = OnceLock::new();
+    static TAIL_CUR: AtomicUsize = AtomicUsize::new(0);
+
+    let process_log_tail = PROCESS_LOG_TAIL.get_or_init(|| Mutex::new([0; 0x10000]));
+    let mut process_log_tail = process_log_tail.lock().unwrap();
+
+    if line.len() < process_log_tail.len() {
+        let posⁱ = TAIL_CUR.load(Ordering::Relaxed);
+        let posⱼ = posⁱ + line.len();
+        let (posˢ, posⱼ) = if posⱼ > process_log_tail.len() {
+            (0, line.len())
+        } else {
+            (posⁱ, posⱼ)
+        };
+        if TAIL_CUR
+            .compare_exchange(posⁱ, posⱼ, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            for (cur, ix) in (posˢ..posⱼ).zip(0..line.len()) {
+                process_log_tail[cur] = line.as_bytes()[ix]
             }
         }
     }
@@ -851,6 +848,7 @@ pub fn append_log_tail(line: &str) {
 #[cfg(target_arch = "wasm32")]
 pub fn writeln(line: &str) {
     use web_sys::console;
+
     console::log_1(&line.into());
     append_log_tail(line);
 }
@@ -1048,7 +1046,7 @@ pub fn median<T: Add<Output = T> + Div<Output = T> + Copy + From<u8> + Ord>(inpu
     }
     input.sort();
     let median_index = input.len() / 2;
-    if input.len() % 2 == 0 {
+    if input.len().is_multiple_of(2) {
         Some((input[median_index - 1] + input[median_index]) / T::from(2u8))
     } else {
         Some(input[median_index])
@@ -1078,7 +1076,7 @@ pub fn calc_total_pages(entries_len: usize, limit: usize) -> usize {
         return 0;
     }
     let pages_num = entries_len / limit;
-    if entries_len % limit == 0 {
+    if entries_len.is_multiple_of(limit) {
         pages_num
     } else {
         pages_num + 1
@@ -1201,8 +1199,10 @@ pub fn get_utc_timestamp() -> i64 {
 }
 
 #[inline(always)]
-pub fn get_utc_timestamp_nanos() -> i64 {
-    Utc::now().timestamp_nanos()
+pub fn get_utc_timestamp_nanos() -> Result<i64, String> {
+    Utc::now()
+        .timestamp_nanos_opt()
+        .ok_or("Failed to get timestamp in nanoseconds; the system clock may be unreliable.".to_owned())
 }
 
 #[inline(always)]
@@ -1232,12 +1232,9 @@ pub fn sha256_digest(path: &PathBuf) -> Result<String, std::io::Error> {
 
 #[derive(Clone, Debug, Deserialize, Display, PartialEq, Serialize)]
 pub enum ParseRfc3339Err {
-    #[display(
-        fmt = "Error parsing datetime to timestamp. Expected format 'YYYY-MM-DDTHH:MM:SS.sssZ', got: {}",
-        _0
-    )]
+    #[display(fmt = "Error parsing datetime to timestamp. Expected format 'YYYY-MM-DDTHH:MM:SS.sssZ', got: {_0}")]
     ParseTimestampError(String),
-    #[display(fmt = "Error while converting types: {}", _0)]
+    #[display(fmt = "Error while converting types: {_0}")]
     TryFromIntError(String),
 }
 
@@ -1276,15 +1273,15 @@ pub fn http_uri_to_ws_address(uri: http::Uri) -> String {
 
     let host_address = uri.host().expect("Host can't be empty.");
     let path = if uri.path() == "/" { "" } else { uri.path() };
-    let port = uri.port_u16().map(|p| format!(":{}", p)).unwrap_or_default();
+    let port = uri.port_u16().map(|p| format!(":{p}")).unwrap_or_default();
 
-    format!("{}{}{}{}", address_prefix, host_address, port, path)
+    format!("{address_prefix}{host_address}{port}{path}")
 }
 
 /// Converts a U256 value to a lowercase hexadecimal string with "0x" prefix
 #[inline]
 pub fn u256_to_hex(value: U256) -> String {
-    format!("0x{:x}", value)
+    format!("0x{value:x}")
 }
 
 /// If 0x prefix exists in an str strip it or return the str as-is

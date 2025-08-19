@@ -204,7 +204,7 @@ impl ElectrumClientImpl {
         ) {
             // Don't error if the streamer isn't found/enabled.
             Err(StreamingManagerError::StreamerNotFound) | Ok(()) => Ok(()),
-            Err(e) => Err(format!("Failed sending scripthash message. {:?}", e)),
+            Err(e) => Err(format!("Failed sending scripthash message. {e:?}")),
         }
     }
 
@@ -218,7 +218,7 @@ impl ElectrumClientImpl {
         ) {
             // Don't error if the streamer isn't found/enabled.
             Err(StreamingManagerError::StreamerNotFound) | Ok(()) => Ok(()),
-            Err(e) => Err(format!("Failed sending scripthash message. {:?}", e)),
+            Err(e) => Err(format!("Failed sending scripthash message. {e:?}")),
         }
     }
 
@@ -490,7 +490,7 @@ impl ElectrumClient {
 
     /// https://electrumx.readthedocs.io/en/latest/protocol-methods.html#server-version
     pub fn server_version(&self, server_address: &str, version: &OrdRange<f32>) -> RpcRes<ElectrumProtocolVersion> {
-        let protocol_version: Vec<String> = version.flatten().into_iter().map(|v| format!("{}", v)).collect();
+        let protocol_version: Vec<String> = version.flatten().into_iter().map(|v| format!("{v}")).collect();
         rpc_func_from!(
             self,
             server_address,
@@ -779,7 +779,7 @@ impl ElectrumClient {
                         let maybe_block_headers = reader.read_list::<BlockHeader>();
                         let block_headers = match maybe_block_headers {
                             Ok(headers) => headers,
-                            Err(e) => return MmError::err(UtxoRpcError::InvalidResponse(format!("{:?}", e))),
+                            Err(e) => return MmError::err(UtxoRpcError::InvalidResponse(format!("{e:?}"))),
                         };
                         let mut block_registry: HashMap<u64, BlockHeader> = HashMap::new();
                         let mut starting_height = from_height;
@@ -1103,18 +1103,28 @@ impl UtxoRpcClientOps for ElectrumClient {
         } else {
             starting_block - count.get() + 1
         };
+
+        let coin_name = self.coin_ticker.clone();
+        let requested_count = count.get();
+
         Box::new(
             self.blockchain_block_headers(from, count)
                 .map_to_mm_fut(UtxoRpcError::from)
-                .and_then(|res| {
+                .and_then(move |res| {
                     if res.count == 0 {
                         return MmError::err(UtxoRpcError::InvalidResponse("Server returned zero count".to_owned()));
                     }
-                    let len = CompactInteger::from(res.count);
+                    let res_count = res.count;
+                    let len = CompactInteger::from(res_count);
                     let mut serialized = serialize(&len).take();
                     serialized.extend(res.hex.0);
                     let mut reader = Reader::new_with_coin_variant(serialized.as_slice(), coin_variant);
-                    let headers = reader.read_list::<BlockHeader>()?;
+
+                    let headers = reader.read_list::<BlockHeader>().map_to_mm(|e| UtxoRpcError::InvalidResponse(format!(
+                            "blockchain.block.headers: failed to parse list of {} headers (coin={}, from={}, requested_count={}): {}",
+                            res_count, coin_name, from, requested_count, e,
+                        )))?;
+
                     let mut timestamps: Vec<_> = headers.into_iter().map(|block| block.time).collect();
                     // can unwrap because count is non zero
                     Ok(median(timestamps.as_mut_slice()).unwrap())

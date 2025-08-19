@@ -119,12 +119,12 @@ pub struct StreamingManager(Arc<RwLock<StreamingManagerInner>>);
 
 impl StreamingManager {
     /// Returns a read guard over the streaming manager.
-    fn read(&self) -> RwLockReadGuard<StreamingManagerInner> {
+    fn read(&self) -> RwLockReadGuard<'_, StreamingManagerInner> {
         self.0.read()
     }
 
     /// Returns a write guard over the streaming manager.
-    fn write(&self) -> RwLockWriteGuard<StreamingManagerInner> {
+    fn write(&self) -> RwLockWriteGuard<'_, StreamingManagerInner> {
         self.0.write()
     }
 
@@ -491,7 +491,7 @@ mod tests {
 
         // We should be hooked now. try to receive some events from the streamer.
         for i in 1..=3 {
-            let msg = format!("send{}", i);
+            let msg = format!("send{i}");
             manager.send(&streamer_id, msg.clone()).unwrap();
             // Wait for a little bit to make sure the streamer received the data we sent.
             Timer::sleep(0.1).await;

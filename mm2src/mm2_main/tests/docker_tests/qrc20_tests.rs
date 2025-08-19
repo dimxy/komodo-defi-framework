@@ -26,6 +26,7 @@ use serde_json::{self as json, Value as Json};
 use std::convert::TryFrom;
 use std::process::Command;
 use std::str::FromStr;
+use std::sync::Mutex;
 use std::time::Duration;
 use testcontainers::clients::Cli;
 use testcontainers::core::WaitFor;
@@ -89,7 +90,7 @@ impl QtumDockerOps {
     }
 }
 
-pub fn qtum_docker_node(docker: &Cli, port: u16) -> DockerNode {
+pub fn qtum_docker_node(docker: &Cli, port: u16) -> DockerNode<'_> {
     let image = GenericImage::new(QTUM_REGTEST_DOCKER_IMAGE, "latest")
         .with_env_var("CLIENTS", "2")
         .with_env_var("COIN_RPC_PORT", port.to_string())
@@ -102,7 +103,7 @@ pub fn qtum_docker_node(docker: &Cli, port: u16) -> DockerNode {
     let name = "qtum";
     let mut conf_path = temp_dir().join("qtum-regtest");
     std::fs::create_dir_all(&conf_path).unwrap();
-    conf_path.push(format!("{}.conf", name));
+    conf_path.push(format!("{name}.conf"));
     Command::new("docker")
         .arg("cp")
         .arg(format!("{}:/data/node_0/{}.conf", container.id(), name))
@@ -813,8 +814,7 @@ fn test_wait_for_tx_spend() {
     assert!(err.contains("Waited too long"));
 
     /// Also spends the maker payment and try to check if the wait_for_htlc_tx_spend() returns the correct tx
-    #[allow(static_mut_refs)]
-    static mut SPEND_TX: Option<TransactionEnum> = None;
+    static SPEND_TX: Mutex<Option<TransactionEnum>> = Mutex::new(None);
 
     let maker_pub_c = maker_pub.to_vec();
     let payment_hex = payment_tx_hex.clone();
@@ -831,7 +831,7 @@ fn test_wait_for_tx_spend() {
             watcher_reward: false,
         };
         let spend = block_on(taker_coin.send_taker_spends_maker_payment(taker_spends_payment_args)).unwrap();
-        unsafe { SPEND_TX = Some(spend) }
+        *SPEND_TX.lock().unwrap() = Some(spend);
     });
 
     let wait_until = wait_until_sec(120);
@@ -846,7 +846,7 @@ fn test_wait_for_tx_spend() {
     }))
     .unwrap();
 
-    unsafe { assert_eq!(Some(found), SPEND_TX) }
+    assert_eq!(Some(found), *SPEND_TX.lock().unwrap());
 }
 
 #[test]
@@ -1014,8 +1014,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     // So we should deduct trade fee from the output.
     let max_trade_fee = block_on(coin.get_sender_trade_fee(
         TradePreimageValue::UpperBound(qtum_balance.clone()),
-        FeeApproxStage::TradePreimage,
-        true,
+        FeeApproxStage::TradePreimageMax,
     ))
     .expect("!get_sender_trade_fee");
     let max_trade_fee = max_trade_fee.amount.to_decimal();
@@ -1030,7 +1029,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     // - `max_fee_to_send_taker_fee = fee_to_send_taker_fee(max_dex_fee)`
     // `taker_fee` is sent using general withdraw, and the fee get be obtained from withdraw result
     let max_fee_to_send_taker_fee =
-        block_on(coin.get_fee_to_send_taker_fee(max_dex_fee, FeeApproxStage::TradePreimage))
+        block_on(coin.get_fee_to_send_taker_fee(max_dex_fee, FeeApproxStage::TradePreimageMax))
             .expect("!get_fee_to_send_taker_fee");
     let max_fee_to_send_taker_fee = max_fee_to_send_taker_fee.amount.to_decimal();
     log!("max_fee_to_send_taker_fee: {}", max_fee_to_send_taker_fee);
@@ -1113,7 +1112,7 @@ fn test_max_taker_vol_dynamic_trade_fee() {
     for _ in 0..4 {
         let amount = rng.gen_range(100000, 10000000);
         let amount = big_decimal_from_sat(amount, 8);
-        qtum_balance_steps = format!("{} + {}", qtum_balance_steps, amount);
+        qtum_balance_steps = format!("{qtum_balance_steps} + {amount}");
         qtum_balance = &qtum_balance + &amount;
         fill_address(&coin, &my_address, amount, 30);
     }

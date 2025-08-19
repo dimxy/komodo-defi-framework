@@ -10,8 +10,7 @@ use super::{
     tx_helper_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
     NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo, SavedTradeFee,
     SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext, TransactionIdentifier,
-    INCLUDE_REFUND_FEE, NO_REFUND_FEE, TAKER_FEE_VALIDATION_ATTEMPTS, TAKER_FEE_VALIDATION_RETRY_DELAY_SECS,
-    WAIT_CONFIRM_INTERVAL_SEC,
+    TAKER_FEE_VALIDATION_ATTEMPTS, TAKER_FEE_VALIDATION_RETRY_DELAY_SECS, WAIT_CONFIRM_INTERVAL_SEC,
 };
 use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
@@ -92,7 +91,7 @@ pub fn stats_maker_swap_dir(ctx: &MmArc) -> PathBuf {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn stats_maker_swap_file_path(ctx: &MmArc, uuid: &Uuid) -> PathBuf {
-    stats_maker_swap_dir(ctx).join(format!("{}.json", uuid))
+    stats_maker_swap_dir(ctx).join(format!("{uuid}.json"))
 }
 
 async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSavedEvent) -> Result<(), String> {
@@ -257,12 +256,12 @@ pub struct MakerSwap {
 
 impl MakerSwap {
     #[inline]
-    fn w(&self) -> RwLockWriteGuard<MakerSwapMut> {
+    fn w(&self) -> RwLockWriteGuard<'_, MakerSwapMut> {
         self.mutable.write().unwrap()
     }
 
     #[inline]
-    fn r(&self) -> RwLockReadGuard<MakerSwapMut> {
+    fn r(&self) -> RwLockReadGuard<'_, MakerSwapMut> {
         self.mutable.read().unwrap()
     }
 
@@ -502,9 +501,7 @@ impl MakerSwap {
         // do not use self.r().data here as it is not initialized at this step yet
         let preimage_value = TradePreimageValue::Exact(self.maker_amount.clone());
         let stage = FeeApproxStage::StartSwap;
-        let get_sender_trade_fee_fut = self
-            .maker_coin
-            .get_sender_trade_fee(preimage_value, stage, NO_REFUND_FEE);
+        let get_sender_trade_fee_fut = self.maker_coin.get_sender_trade_fee(preimage_value, stage);
         let maker_payment_trade_fee = match get_sender_trade_fee_fut.await {
             Ok(fee) => fee,
             Err(e) => {
@@ -1866,7 +1863,7 @@ impl MakerSwapEvent {
             MakerSwapEvent::TakerPaymentSpendConfirmed => "Taker payment spend confirmed...".to_owned(),
             MakerSwapEvent::TakerPaymentSpendConfirmFailed(_) => "Taker payment spend confirm failed...".to_owned(),
             MakerSwapEvent::MakerPaymentWaitRefundStarted { wait_until } => {
-                format!("Maker payment wait refund till {} started...", wait_until)
+                format!("Maker payment wait refund till {wait_until} started...")
             },
             MakerSwapEvent::MakerPaymentRefundStarted => "Maker payment refund started...".to_owned(),
             MakerSwapEvent::MakerPaymentRefunded(_) => "Maker payment refunded...".to_owned(),
@@ -2389,7 +2386,7 @@ pub async fn check_balance_for_maker_swap(
         None => {
             let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
             let maker_payment_trade_fee = my_coin
-                .get_sender_trade_fee(preimage_value, stage, INCLUDE_REFUND_FEE)
+                .get_sender_trade_fee(preimage_value, stage)
                 .await
                 .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, my_coin.ticker()))?;
             let taker_payment_spend_trade_fee = other_coin
@@ -2426,7 +2423,7 @@ pub async fn maker_swap_trade_preimage(
     let rel_coin_ticker = rel_coin.ticker();
     let volume = if req.max {
         let balance = base_coin.my_spendable_balance().compat().await.map_mm_err()?;
-        calc_max_maker_vol(ctx, &base_coin, &balance, FeeApproxStage::TradePreimage)
+        calc_max_maker_vol(ctx, &base_coin, &balance, FeeApproxStage::TradePreimageMax)
             .await
             .map_mm_err()?
             .volume
@@ -2444,7 +2441,7 @@ pub async fn maker_swap_trade_preimage(
 
     let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
     let base_coin_fee = base_coin
-        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage, NO_REFUND_FEE)
+        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage)
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, base_coin_ticker))?;
     let rel_coin_fee = rel_coin
@@ -2511,7 +2508,7 @@ pub struct CoinVolumeInfo {
 /// Returns [`CheckBalanceError::NotSufficientBalance`] if the balance is insufficient.
 pub async fn get_max_maker_vol(ctx: &MmArc, my_coin: &MmCoinEnum) -> CheckBalanceResult<CoinVolumeInfo> {
     let my_balance = my_coin.my_spendable_balance().compat().await.map_mm_err()?;
-    calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssue).await
+    calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssueMax).await
 }
 
 /// Calculates max Maker volume.
@@ -2530,7 +2527,7 @@ pub async fn calc_max_maker_vol(
 
     let preimage_value = TradePreimageValue::UpperBound(volume.to_decimal());
     let trade_fee = coin
-        .get_sender_trade_fee(preimage_value, stage, INCLUDE_REFUND_FEE)
+        .get_sender_trade_fee(preimage_value, stage)
         .await
         .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, ticker))?;
 
@@ -2562,6 +2559,8 @@ pub async fn calc_max_maker_vol(
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod maker_swap_tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
     use coins::eth::{addr_from_str, signed_eth_tx_from_bytes, SignedEthTx};
     use coins::{MarketCoinOps, MmCoin, SwapOps, TestCoin};
@@ -2605,15 +2604,15 @@ mod maker_swap_tests {
         TestCoin::can_refund_htlc
             .mock_safe(|_, _| MockResult::Return(Box::pin(futures::future::ok(CanRefundHtlc::CanRefundNow))));
 
-        static mut MY_PAYMENT_SENT_CALLED: bool = false;
+        static MY_PAYMENT_SENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::check_if_my_payment_sent.mock_safe(|_, _| {
-            unsafe { MY_PAYMENT_SENT_CALLED = true };
+            MY_PAYMENT_SENT_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ok(Some(eth_tx_for_test().into()))))
         });
 
-        static mut MAKER_REFUND_CALLED: bool = false;
+        static MAKER_REFUND_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::send_maker_refunds_payment.mock_safe(|_, _| {
-            unsafe { MAKER_REFUND_CALLED = true };
+            MAKER_REFUND_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ok(eth_tx_for_test().into())))
         });
         TestCoin::search_for_swap_tx_spend_my
@@ -2628,8 +2627,9 @@ mod maker_swap_tests {
             transaction: eth_tx_for_test().into(),
         };
         assert_eq!(expected, actual);
-        assert!(unsafe { MY_PAYMENT_SENT_CALLED });
-        assert!(unsafe { MAKER_REFUND_CALLED });
+
+        assert!(MY_PAYMENT_SENT_CALLED.load(Ordering::Relaxed));
+        assert!(MAKER_REFUND_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2645,9 +2645,10 @@ mod maker_swap_tests {
         TestCoin::can_refund_htlc
             .mock_safe(|_, _| MockResult::Return(Box::pin(futures::future::ok(CanRefundHtlc::CanRefundNow))));
 
-        static mut MAKER_REFUND_CALLED: bool = false;
+        static MAKER_REFUND_CALLED: AtomicBool = AtomicBool::new(false);
+
         TestCoin::send_maker_refunds_payment.mock_safe(|_, _| {
-            unsafe { MAKER_REFUND_CALLED = true };
+            MAKER_REFUND_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ok(eth_tx_for_test().into())))
         });
 
@@ -2663,7 +2664,7 @@ mod maker_swap_tests {
             transaction: eth_tx_for_test().into(),
         };
         assert_eq!(expected, actual);
-        assert!(unsafe { MAKER_REFUND_CALLED });
+        assert!(MAKER_REFUND_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2699,17 +2700,17 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: bool = true;
+        static SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
         });
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: bool = true;
+        static SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_other.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Refunded(
                 eth_tx_for_test().into(),
             ))))))
@@ -2719,8 +2720,8 @@ mod maker_swap_tests {
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let err = block_on(maker_swap.recover_funds()).expect_err("Expected an error");
         assert!(err.contains("Taker payment was already refunded"));
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.load(Ordering::Relaxed));
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2735,9 +2736,9 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut MY_PAYMENT_SENT_CALLED: bool = false;
+        static MY_PAYMENT_SENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::check_if_my_payment_sent.mock_safe(|_, _| {
-            unsafe { MY_PAYMENT_SENT_CALLED = true };
+            MY_PAYMENT_SENT_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ok(Some(eth_tx_for_test().into()))))
         });
         TestCoin::can_refund_htlc
@@ -2749,7 +2750,7 @@ mod maker_swap_tests {
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let error = block_on(maker_swap.recover_funds()).unwrap_err();
         assert!(error.contains("Too early to refund"));
-        assert!(unsafe { MY_PAYMENT_SENT_CALLED });
+        assert!(MY_PAYMENT_SENT_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2764,16 +2765,16 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut MY_PAYMENT_SENT_CALLED: bool = false;
+        static MY_PAYMENT_SENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::check_if_my_payment_sent.mock_safe(|_, _| {
-            unsafe { MY_PAYMENT_SENT_CALLED = true };
+            MY_PAYMENT_SENT_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ok(None)))
         });
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         assert!(block_on(maker_swap.recover_funds()).is_err());
-        assert!(unsafe { MY_PAYMENT_SENT_CALLED });
+        assert!(MY_PAYMENT_SENT_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2803,17 +2804,17 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: bool = true;
+        static SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
         });
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: bool = true;
+        static SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_other.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
@@ -2824,8 +2825,8 @@ mod maker_swap_tests {
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let err = block_on(maker_swap.recover_funds()).expect_err("Expected an error");
         assert!(err.contains("Taker payment was already spent"));
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.load(Ordering::Relaxed));
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2857,23 +2858,23 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: bool = false;
+        static SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
         });
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: bool = false;
+        static SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_other.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(None))))
         });
 
-        static mut SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED: bool = false;
+        static SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::send_maker_spends_taker_payment.mock_safe(|_, _| {
-            unsafe { SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED = true }
+            SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(eth_tx_for_test().into()))))
         });
 
@@ -2886,9 +2887,9 @@ mod maker_swap_tests {
             transaction: eth_tx_for_test().into(),
         });
         assert_eq!(block_on(maker_swap.recover_funds()), expected);
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
-        assert!(unsafe { SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED });
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.load(Ordering::Relaxed));
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.load(Ordering::Relaxed));
+        assert!(SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2901,23 +2902,23 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: bool = false;
+        static SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
         });
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: bool = false;
+        static SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_other.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(None))))
         });
 
-        static mut SEND_MAKER_REFUNDS_PAYMENT_CALLED: bool = false;
+        static SEND_MAKER_REFUNDS_PAYMENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::send_maker_refunds_payment.mock_safe(|_, _| {
-            unsafe { SEND_MAKER_REFUNDS_PAYMENT_CALLED = true }
+            SEND_MAKER_REFUNDS_PAYMENT_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ok(eth_tx_for_test().into())))
         });
 
@@ -2926,9 +2927,9 @@ mod maker_swap_tests {
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let err = block_on(maker_swap.recover_funds()).unwrap_err();
         assert!(err.contains("Taker payment spend transaction has been sent and confirmed"));
-        assert!(unsafe { !SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
-        assert!(unsafe { !SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
-        assert!(unsafe { !SEND_MAKER_REFUNDS_PAYMENT_CALLED });
+        assert!(!SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.load(Ordering::Relaxed));
+        assert!(!SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.load(Ordering::Relaxed));
+        assert!(!SEND_MAKER_REFUNDS_PAYMENT_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2960,16 +2961,16 @@ mod maker_swap_tests {
         let maker_saved_swap: MakerSavedSwap = json::from_str(maker_saved_json).unwrap();
 
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
-        static mut SWAP_CONTRACT_ADDRESS_CALLED: usize = 0;
+        static SWAP_CONTRACT_ADDRESS_CALLED: AtomicUsize = AtomicUsize::new(0);
         TestCoin::swap_contract_address.mock_safe(|_| {
-            unsafe { SWAP_CONTRACT_ADDRESS_CALLED += 1 };
+            SWAP_CONTRACT_ADDRESS_CALLED.fetch_add(1, Ordering::Relaxed);
             MockResult::Return(Some(BytesJson::default()))
         });
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
 
-        assert_eq!(unsafe { SWAP_CONTRACT_ADDRESS_CALLED }, 2);
+        assert_eq!(SWAP_CONTRACT_ADDRESS_CALLED.load(Ordering::Relaxed), 2);
         assert_eq!(
             maker_swap.r().data.maker_coin_swap_contract_address,
             Some(BytesJson::default())
@@ -2989,16 +2990,16 @@ mod maker_swap_tests {
         let maker_saved_swap: MakerSavedSwap = json::from_str(maker_saved_json).unwrap();
 
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
-        static mut SWAP_CONTRACT_ADDRESS_CALLED: usize = 0;
+        static SWAP_CONTRACT_ADDRESS_CALLED: AtomicUsize = AtomicUsize::new(0);
         TestCoin::swap_contract_address.mock_safe(|_| {
-            unsafe { SWAP_CONTRACT_ADDRESS_CALLED += 1 };
+            SWAP_CONTRACT_ADDRESS_CALLED.fetch_add(1, Ordering::Relaxed);
             MockResult::Return(Some(BytesJson::default()))
         });
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
 
-        assert_eq!(unsafe { SWAP_CONTRACT_ADDRESS_CALLED }, 1);
+        assert_eq!(SWAP_CONTRACT_ADDRESS_CALLED.load(Ordering::Relaxed), 1);
         let expected_addr = addr_from_str(ETH_SEPOLIA_SWAP_CONTRACT).unwrap();
         let expected = BytesJson::from(expected_addr.0.as_ref());
         assert_eq!(maker_swap.r().data.maker_coin_swap_contract_address, Some(expected));
