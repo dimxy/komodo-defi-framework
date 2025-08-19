@@ -1,12 +1,13 @@
-use common::StatusCode;
+#[cfg(not(feature = "run-docker-tests"))] use common::StatusCode;
 use derive_more::Display;
 use enum_derives::EnumFromStringify;
 use ethereum_types::U256;
 use mm2_net::transport::SlurpError;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+#[cfg(not(feature = "run-docker-tests"))] use serde::Deserialize;
+use serde::Serialize;
+#[cfg(not(feature = "run-docker-tests"))] use serde_json::Value;
 
-#[derive(Debug, Display, Serialize, EnumFromStringify)]
+#[derive(Clone, Debug, Display, Serialize, EnumFromStringify)]
 pub enum OneInchError {
     #[from_stringify("url::ParseError")]
     InvalidParam(String),
@@ -39,10 +40,15 @@ pub enum OneInchError {
     },
 }
 
-// API error meta 'type' field known values
+/// API error meta 'type' field known value
+#[cfg(not(feature = "run-docker-tests"))]
 const META_TYPE_ALLOWANCE: &str = "allowance";
+
+/// API error meta 'type' field known value
+#[cfg(not(feature = "run-docker-tests"))]
 const META_TYPE_AMOUNT: &str = "amount";
 
+#[cfg(not(feature = "run-docker-tests"))]
 #[derive(Debug, Deserialize)]
 pub(crate) struct Error400 {
     pub error: String,
@@ -55,6 +61,7 @@ pub(crate) struct Error400 {
     pub request_id: Option<String>,
 }
 
+#[cfg(not(feature = "run-docker-tests"))]
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Meta {
     #[serde(rename = "type")]
@@ -63,6 +70,7 @@ pub(crate) struct Meta {
     pub meta_value: String,
 }
 
+#[cfg(not(feature = "run-docker-tests"))]
 #[derive(Debug)]
 pub(crate) enum NativeError {
     HttpError { error_msg: String, status_code: u16 },
@@ -70,6 +78,7 @@ pub(crate) enum NativeError {
     ParseError { error_msg: String },
 }
 
+#[cfg(not(feature = "run-docker-tests"))]
 impl NativeError {
     pub(crate) fn new(status_code: StatusCode, body: Value) -> Self {
         if status_code == StatusCode::BAD_REQUEST {
@@ -91,6 +100,7 @@ impl NativeError {
 impl OneInchError {
     /// Convert from native API errors to lib errors
     /// Look for known API errors. If none found return as general API error
+    #[cfg(not(feature = "run-docker-tests"))]
     pub(crate) fn from_native_error(api_error: NativeError) -> OneInchError {
         match api_error {
             NativeError::HttpError400(error_400) => {

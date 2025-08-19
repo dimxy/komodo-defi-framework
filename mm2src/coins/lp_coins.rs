@@ -2641,7 +2641,7 @@ pub enum FeeApproxStage {
 pub enum TradePreimageValue {
     /// Send the exact amount
     Exact(BigDecimal),
-    /// Deduct fees from the amount (relevant to UTXO only, for ETH coins same as 'Exact' ) 
+    /// Deduct fees from the amount (relevant to UTXO only, for ETH coins same as 'Exact' )
     UpperBound(BigDecimal),
 }
 

@@ -35,10 +35,9 @@ use mm2_number::{BigDecimal, BigUint};
 use mm2_test_helpers::for_tests::{account_balance, active_swaps, coins_needed_for_kickstart, disable_coin,
                                   enable_erc20_token_v2, enable_eth_with_tokens_v2, erc20_dev_conf, eth1_dev_conf,
                                   eth_dev_conf, get_locked_amount, get_new_address, get_token_info, mm_dump,
-                                  my_swap_status, nft_dev_conf, start_swaps, MarketMakerIt, Mm2TestConf,
-                                  ETH_SEPOLIA_CHAIN_ID};
+                                  my_swap_status, nft_dev_conf, start_swaps, MarketMakerIt, Mm2TestConf};
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
-use mm2_test_helpers::for_tests::{eth_sepolia_conf, sepolia_erc20_dev_conf};
+use mm2_test_helpers::for_tests::{eth_sepolia_conf, sepolia_erc20_dev_conf, ETH_SEPOLIA_CHAIN_ID};
 use mm2_test_helpers::structs::{Bip44Chain, EnableCoinBalanceMap, EthWithTokensActivationResult, HDAccountAddressId,
                                 TokenInfo};
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
@@ -63,7 +62,7 @@ const SEPOLIA_TAKER_PRIV: &str = "e0be82dca60ff7e4c6d6db339ac9e1ae249af081dba211
 const NFT_ETH: &str = "NFT_ETH";
 const ETH: &str = "ETH";
 const ETH1: &str = "ETH1";
-const GETH_DEV_CHAIN_ID: u64 = 1337;
+pub(crate) const GETH_DEV_CHAIN_ID: u64 = 1337;
 
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 const ERC20: &str = "ERC20DEV";
@@ -120,12 +119,18 @@ pub fn geth_erc1155_contract() -> Address { unsafe { GETH_ERC1155_CONTRACT } }
 /// SEPOLIA_ETOMIC_MAKER_NFT_SWAP_V2 address is set once during initialization before tests start
 pub fn sepolia_etomic_maker_nft() -> Address { unsafe { SEPOLIA_ETOMIC_MAKER_NFT_SWAP_V2 } }
 
-fn wait_for_confirmation(tx_hash: H256) {
+pub fn geth_wait_for_confirmation(tx_hash: H256) {
     thread::sleep(Duration::from_millis(2000));
     loop {
         match block_on(GETH_WEB3.eth().transaction_receipt(tx_hash)) {
-            Ok(Some(r)) => match r.block_hash {
-                Some(_) => break,
+            Ok(Some(r)) => match r.status {
+                Some(status) => {
+                    if status != 0_u64.into() {
+                        break;
+                    } else {
+                        panic!("eth transaction status failure");
+                    }
+                },
                 None => thread::sleep(Duration::from_millis(100)),
             },
             _ => {
@@ -152,7 +157,7 @@ pub fn fill_eth(to_addr: Address, amount: U256) {
         max_priority_fee_per_gas: None,
     };
     let tx_hash = block_on(GETH_WEB3.eth().send_transaction(tx_request)).unwrap();
-    wait_for_confirmation(tx_hash);
+    geth_wait_for_confirmation(tx_hash);
 }
 
 pub fn fill_eth_with_privkey(priv_key: Secp256k1Secret, amount: U256) {
@@ -174,9 +179,10 @@ fn fill_erc20(to_addr: Address, amount: U256) {
         Options::default(),
     ))
     .unwrap();
-    wait_for_confirmation(tx_hash);
+    geth_wait_for_confirmation(tx_hash);
 }
 
+#[allow(unused)]
 pub fn fill_erc20_with_privkey(priv_key: Secp256k1Secret, amount: U256) {
     let s = Secp256k1::signing_only();
     let priv_key = SecretKey::from_slice(priv_key.deref()).unwrap();
@@ -202,7 +208,7 @@ fn mint_erc721(to_addr: Address, token_id: U256) {
         options,
     ))
     .unwrap();
-    wait_for_confirmation(tx_hash);
+    geth_wait_for_confirmation(tx_hash);
 
     let owner: Address =
         block_on(erc721_contract.query("ownerOf", Token::Uint(token_id), None, Options::default(), None)).unwrap();
@@ -238,7 +244,7 @@ fn mint_erc1155(to_addr: Address, token_id: U256, amount: u32) {
         Options::default(),
     ))
     .unwrap();
-    wait_for_confirmation(tx_hash);
+    geth_wait_for_confirmation(tx_hash);
 
     // Check the balance of the token for the to_addr
     let balance: U256 = block_on(erc1155_contract.query(
@@ -269,6 +275,33 @@ fn geth_erc1155_balance(wallet_addr: Address, token_id: U256) -> U256 {
     block_on(erc1155_contract.query(
         "balanceOf",
         (Token::Address(wallet_addr), Token::Uint(token_id)),
+        None,
+        Options::default(),
+        None,
+    ))
+    .unwrap()
+}
+
+pub(crate) fn geth_erc20_decimals() -> u8 {
+    let erc20_contract =
+        Contract::from_json(GETH_WEB3.eth(), unsafe { GETH_ERC20_CONTRACT }, ERC20_ABI.as_bytes()).unwrap();
+    let decimals: U256 = block_on(erc20_contract.query(
+        "decimals",
+        (),
+        None,
+        Options::default(),
+        None,
+    ))
+    .unwrap();
+    decimals.as_u64() as u8
+}
+
+pub(crate) fn geth_erc20_balance(address: Address) -> U256 {
+    let erc20_contract =
+        Contract::from_json(GETH_WEB3.eth(), unsafe { GETH_ERC20_CONTRACT }, ERC20_ABI.as_bytes()).unwrap();
+    block_on(erc20_contract.query(
+        "balanceOf",
+        Token::Address(address),
         None,
         Options::default(),
         None,
@@ -1457,9 +1490,9 @@ fn eth_coin_v2_activation_with_random_privkey(
     ctx: &MmArc,
     ticker: &str,
     conf: &Json,
-    swap_contract_address: &str,
-    swap_v2_contracts: &SwapV2Contracts,
-    fallback_swap_contract: Option<&str>,
+    swap_contract_address: Address,
+    swap_v2_contracts: SwapV2Contracts,
+    fallback_swap_contract: Option<Address>,
     erc20: bool,
 ) -> (EthCoin, Secp256k1Secret) {
     let priv_key = random_secp256k1_secret();
@@ -1472,8 +1505,8 @@ fn eth_coin_v2_activation_with_random_privkey(
         nodes: vec![node],
         rpc_mode: Default::default(),
         swap_contract_address,
-        swap_v2_contracts: Some(swap_addr.swap_v2_contracts),
-        fallback_swap_contract: Some(swap_addr.fallback_swap_contract_address),
+        swap_v2_contracts: Some(swap_v2_contracts),
+        fallback_swap_contract,
         contract_supports_watchers: false,
         mm2: None,
         required_confirmations: None,
@@ -2782,7 +2815,7 @@ fn test_enable_custom_erc20_with_duplicate_contract_in_config() {
 #[test]
 fn test_v2_eth_eth_kickstart() {
     // Initialize swap addresses and configurations
-    let (swap_legacy_addr, fallback_addr, swap_v2_addrs) = geth_swap_contracts();
+    let (swap_legacy_addr, _fallback_addr, swap_v2_addrs) = geth_swap_contracts();
 
     // Helper function for activating coins
     let enable_coins = |mm: &MarketMakerIt, coins: &[&str]| {
@@ -2792,8 +2825,8 @@ fn test_v2_eth_eth_kickstart() {
                 block_on(enable_eth_coin_v2(
                     mm,
                     coin,
-                    &swap_legacy_addr,
-                    &swap_v2_addrs,
+                    swap_legacy_addr,
+                    swap_v2_addrs,
                     None,
                     &[&GETH_RPC_URL],
                     &[],
@@ -2807,8 +2840,8 @@ fn test_v2_eth_eth_kickstart() {
         &MM_CTX,
         ETH,
         &eth_dev_conf(),
-        &swap_legacy_addr,
-        &swap_v2_addrs,
+        swap_legacy_addr,
+        swap_v2_addrs,
         None,
         false,
     );
@@ -2816,8 +2849,8 @@ fn test_v2_eth_eth_kickstart() {
         &MM_CTX1,
         ETH1,
         &eth1_dev_conf(),
-        &swap_legacy_addr,
-        &swap_v2_addrs,
+        swap_legacy_addr,
+        swap_v2_addrs,
         None,
         false,
     );

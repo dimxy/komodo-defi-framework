@@ -7574,11 +7574,14 @@ dependencies = [
 name = "trading_api"
 version = "0.1.0"
 dependencies = [
+ "coins",
  "common",
  "derive_more",
  "enum_derives",
+ "ethabi",
  "ethereum-types",
  "futures 0.3.28",
+ "hex",
  "lazy_static",
  "mm2_core",
  "mm2_err_handle",

@@ -18,6 +18,9 @@ use std::collections::HashMap;
 use std::env::var;
 #[cfg(target_arch = "wasm32")] use std::str::FromStr;
 
+#[cfg(any(feature = "run-docker-tests", feature = "test-ext-api"))]
+pub(crate) mod lr_tests_common;
+
 /// This is not a separate test but a helper used by `MarketMakerIt` to run the MarketMaker from the test binary.
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
@@ -127,7 +130,7 @@ pub async fn enable_eth_coin_v2(
     mm: &MarketMakerIt,
     ticker: &str,
     swap_contract_address: EthAddress,
-    swap_v2_contracts: &SwapV2Contracts,
+    swap_v2_contracts: SwapV2Contracts,
     fallback_swap_contract: Option<EthAddress>,
     nodes: &[&str],
     tokens: &[&str],

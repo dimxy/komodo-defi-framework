@@ -15,7 +15,7 @@ pub type SlurpResult = Result<(StatusCode, HeaderMap, Vec<u8>), MmError<SlurpErr
 
 pub type SlurpResultJson = Result<(StatusCode, HeaderMap, Json), MmError<SlurpError>>;
 
-#[derive(Debug, Deserialize, Display, Serialize)]
+#[derive(Clone, Debug, Deserialize, Display, Serialize)]
 pub enum SlurpError {
     #[display(fmt = "Error deserializing '{}' response: {}", uri, error)]
     ErrorDeserializing { uri: String, error: String },

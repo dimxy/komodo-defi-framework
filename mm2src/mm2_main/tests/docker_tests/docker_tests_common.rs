@@ -1,16 +1,17 @@
 use coins::z_coin::ZCoin;
 pub use common::{block_on, block_on_f01, now_ms, now_sec, wait_until_ms, wait_until_sec};
 pub use mm2_number::MmNumber;
-use mm2_rpc::data::legacy::BalanceResponse;
 pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, enable_eth_coin, enable_native,
                                       enable_native_bch, erc20_dev_conf, eth_dev_conf, mm_dump,
                                       wait_check_stats_swap_status, MarketMakerIt};
 
-use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, swap_contract};
+use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, geth_swap_contracts,
+                              swap_contract, geth_account, geth_wait_for_confirmation};
 use super::z_coin_docker_tests::z_coin_from_spending_key;
+use crate::integration_tests_common::enable_eth_coin_v2;
 use bitcrypto::{dhash160, ChecksumType};
 use chain::TransactionOutput;
-use coins::eth::addr_from_raw_pubkey;
+use coins::eth::{addr_from_raw_pubkey, ERC20_ABI};
 use coins::qrc20::rpc_clients::for_tests::Qrc20NativeWalletOps;
 use coins::qrc20::{qrc20_coin_with_priv_key, Qrc20ActivationParams, Qrc20Coin};
 use coins::utxo::bch::{bch_coin_with_priv_key, BchActivationRequest, BchCoin};
@@ -24,7 +25,6 @@ use coins::utxo::{coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path,
 use coins::{ConfirmPaymentInput, MarketCoinOps, Transaction};
 use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
 use crypto::Secp256k1Secret;
-use ethabi::Token;
 use ethereum_types::{H160 as H160Eth, U256};
 use futures::TryFutureExt;
 use http::StatusCode;
@@ -32,6 +32,7 @@ use keys::{Address, AddressBuilder, AddressHashEnum, AddressPrefix, KeyPair, Net
            NetworkPrefix as CashAddrPrefix};
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::BigDecimal;
+use mm2_rpc::data::legacy::BalanceResponse;
 use mm2_test_helpers::get_passphrase;
 use mm2_test_helpers::structs::TransactionDetails;
 use primitives::hash::{H160, H256};
@@ -47,10 +48,13 @@ use std::str::FromStr;
 pub use std::{env, thread};
 use std::{path::PathBuf, sync::Mutex, time::Duration};
 use testcontainers::{clients::Cli, core::WaitFor, Container, GenericImage, RunnableImage};
+use trading_api::one_inch_api::api_mock::TEST_LR_SWAP_CONTRACT_ABI;
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 use web3::types::Address as EthAddress;
 use web3::types::{BlockId, BlockNumber, TransactionRequest};
 use web3::{transports::Http, Web3};
+use web3::contract::{Contract, Options};
+use web3::ethabi::Token;
 
 lazy_static! {
     static ref MY_COIN_LOCK: Mutex<()> = Mutex::new(());
@@ -166,6 +170,9 @@ pub const NFT_MAKER_SWAP_V2_BYTES: &str =
 pub const MAKER_SWAP_V2_BYTES: &str = include_str!("../../../mm2_test_helpers/contract_bytes/maker_swap_v2_bytes");
 /// https://github.com/KomodoPlatform/etomic-swap/blob/5e15641cbf41766cd5b37b4d71842c270773f788/contracts/EtomicSwapTakerV2.sol
 pub const TAKER_SWAP_V2_BYTES: &str = include_str!("../../../mm2_test_helpers/contract_bytes/taker_swap_v2_bytes");
+/// TODO: add ref to contract source
+pub const TEST_LR_SWAP_BYTES: &str =
+    include_str!("../../../mm2_test_helpers/contract_bytes/test_lr_swap_contract_bytes");
 
 pub trait CoinDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum;
@@ -826,7 +833,7 @@ where
             check_every: 1,
         };
         block_on_f01(coin.wait_for_confirmations(confirm_payment_input)).unwrap();
-        log!("{:02x}", tx_bytes);
+        log!("fill_address for {} tx={:02x}", coin.ticker(), tx_bytes);
         loop {
             let unspents = block_on_f01(client.list_unspent_impl(0, i32::MAX, vec![address.to_string()])).unwrap();
             if !unspents.is_empty() {
@@ -1680,4 +1687,130 @@ pub fn init_geth_node() {
         // 100 ETH
         fill_eth(bob_eth_addr, U256::from(10).pow(U256::from(20)));
     }
+}
+
+pub async fn enable_geth_tokens(mm: &MarketMakerIt, tickers: &[&str]) -> Json {
+    let (swap_legacy_addr, fallback_addr, swap_v2_addrs) = geth_swap_contracts();
+
+    enable_eth_coin_v2(
+        mm,
+        eth_dev_conf()["coin"].as_str().unwrap(),
+        swap_legacy_addr,
+        swap_v2_addrs,
+        Some(fallback_addr),
+        &[GETH_RPC_URL],
+        tickers,
+    )
+    .await
+}
+
+// Deploy test LR provider swap contract
+pub fn geth_deploy_lr_swap_contract(price: U256) -> H160Eth {
+    let token_address = Token::Address(unsafe { GETH_ERC20_CONTRACT });
+    let eth_token_price = Token::Uint(price);
+    let params = ethabi::encode(&[token_address, eth_token_price]);
+    let test_lr_swap_data = format!("{}{}", TEST_LR_SWAP_BYTES, hex::encode(params));
+
+    let tx_request_deploy_test_lr_swap = TransactionRequest {
+        from: unsafe { GETH_ACCOUNT },
+        to: None,
+        gas: None,
+        gas_price: None,
+        value: None,
+        data: Some(hex::decode(test_lr_swap_data).unwrap().into()),
+        nonce: None,
+        condition: None,
+        transaction_type: None,
+        access_list: None,
+        max_fee_per_gas: None,
+        max_priority_fee_per_gas: None,
+    };
+    let deploy_test_lr_swap_hash =
+        block_on(GETH_WEB3.eth().send_transaction(tx_request_deploy_test_lr_swap)).unwrap();
+    log!(
+        "Sent test LR swap contract deploy transaction {:?}",
+        deploy_test_lr_swap_hash
+    );
+
+    loop {
+        let deploy_test_lr_swap_receipt =
+            match block_on(GETH_WEB3.eth().transaction_receipt(deploy_test_lr_swap_hash)) {
+                Ok(receipt) => receipt,
+                Err(_) => {
+                    thread::sleep(Duration::from_millis(100));
+                    continue;
+                },
+            };
+
+        if let Some(receipt) = deploy_test_lr_swap_receipt {
+            let lr_swap_contract = receipt.contract_address.unwrap();
+            log!("GETH_TEST_LR_SWAP_CONTRACT {:?}", lr_swap_contract);
+            return lr_swap_contract;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+pub fn deposit_eth_to_lr_swap_contract(lr_swap_address: H160Eth, amount: U256) {
+    let _guard = GETH_NONCE_LOCK.lock().unwrap();
+    let lr_swap_contract =
+        Contract::from_json(GETH_WEB3.eth(), lr_swap_address, TEST_LR_SWAP_CONTRACT_ABI.as_bytes()).unwrap();
+
+    let options = Options {
+        gas: Some(U256::from(150_000)),
+        value: Some(amount),
+        ..Options::default()
+    };
+
+    let tx_hash = block_on(lr_swap_contract.call(
+        "depositEth",
+        (),
+        geth_account(),
+        options,
+    ))
+    .unwrap();
+    println!("deposit_eth_to_lr_swap_contract tx_hash={}", tx_hash);
+    geth_wait_for_confirmation(tx_hash);
+}
+
+pub fn deposit_erc20_to_lr_swap_contract(lr_swap_address: H160Eth, amount: U256) {
+    let _guard = GETH_NONCE_LOCK.lock().unwrap();
+    let lr_swap_contract =
+        Contract::from_json(GETH_WEB3.eth(), lr_swap_address, TEST_LR_SWAP_CONTRACT_ABI.as_bytes()).unwrap();
+
+    let options = Options {
+        gas: Some(U256::from(150_000)),
+        ..Options::default()
+    };
+
+    let tx_hash = block_on(lr_swap_contract.call(
+        "depositTokens",
+        Token::Uint(amount),
+        geth_account(),
+        options,
+    ))
+    .unwrap();
+    println!("deposit_erc20_to_lr_swap_contract tx_hash={}", tx_hash);
+    geth_wait_for_confirmation(tx_hash);
+}
+
+pub fn geth_approve_tokens(token_address: H160Eth, spender: H160Eth, amount: U256) {
+    let _guard = GETH_NONCE_LOCK.lock().unwrap();
+    let erc20_contract =
+        Contract::from_json(GETH_WEB3.eth(), token_address, ERC20_ABI.as_bytes()).unwrap();
+
+    let options = Options {
+        gas: Some(U256::from(150_000)),
+        ..Options::default()
+    };
+
+    let tx_hash = block_on(erc20_contract.call(
+        "approve",
+        (Token::Address(spender), Token::Uint(amount)),
+        geth_account(),
+        options,
+    ))
+    .unwrap();
+    println!("geth_approve_tokens tx_hash={}", tx_hash);
+    geth_wait_for_confirmation(tx_hash);
 }

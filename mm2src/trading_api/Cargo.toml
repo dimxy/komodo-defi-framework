@@ -5,15 +5,18 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
+coins = { path = "../coins" }
 common = { path = "../common" }
 enum_derives = { path = "../derives/enum_derives" }
 mm2_core = { path = "../mm2_core" }
 mm2_err_handle = { path = "../mm2_err_handle" }
 mm2_net = { path = "../mm2_net" }
 mm2_number = { path = "../mm2_number" }
-mocktopus = { workspace =  true, optional = true }
+mocktopus = { workspace = true, optional = true }
 derive_more.workspace = true
 ethereum-types.workspace = true
+ethabi = { workspace = true, optional = true }
+hex = { workspace = true, optional = true }
 futures = { workspace = true, features = ["async-await"], optional = true }
 lazy_static.workspace = true
 serde.workspace = true
@@ -27,6 +30,7 @@ test-ext-api = [
     "futures"
 ]
 for-tests = ["dep:mocktopus"]
+run-docker-tests = ["dep:ethabi", "dep:hex"]
 
 [dev-dependencies]
 mocktopus.workspace = true
