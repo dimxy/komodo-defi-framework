@@ -1340,7 +1340,7 @@ impl AggTakerSwapStateMachine {
             self.atomic_swap.price.to_decimal(),
         );
 
-        let taker_volume_slippage = check_balance_with_slippage(
+        let taker_volume_with_slippage = check_balance_with_slippage(
             &self.ctx,
             sell_base.deref(),
             sell_rel.deref(),
@@ -1356,18 +1356,22 @@ impl AggTakerSwapStateMachine {
             self.atomic_swap.base,
             self.atomic_swap.rel,
             taker_action,
-            taker_volume_slippage.to_decimal()
+            taker_volume_with_slippage.to_decimal()
         );
         let sell_buy_req = make_atomic_swap_request(
             self.atomic_swap.base.clone(),
             self.atomic_swap.rel.clone(),
             self.atomic_swap.price.clone(),
-            taker_volume_slippage,
+            taker_volume_with_slippage,
             taker_action,
             self.atomic_swap.match_by.clone(),
             self.atomic_swap.order_type.clone(),
-            // We need assured spending maker payment confirmation (to ensure LR_1 can run)
-            if self.lr_swap_1.is_some() { Some(1) } else { None },
+            // TODO:
+            // if we have LR_1, we need assured spending maker payment confirmation (to ensure LR_1 could run)
+            // if no LR_1, we should use atomic swap optional params:
+            // `if self.lr_swap_1.is_some() { Some(1) } else { opt_param.conf }`
+            // For now set conf=1 to ensure tests to show correct balance
+            Some(1),
         );
         let res_bytes = lp_auto_buy(&self.ctx, &base_coin, &rel_coin, sell_buy_req)
             .await
@@ -1576,40 +1580,59 @@ pub async fn check_balance_with_slippage(
     {
         let lr_0_dst_amount = lr_0_dst_amount.ok_or(err.clone())?;
         let slippage = slippage.ok_or(err.clone())?;
-        let CheckBalanceError::NotSufficientBalance { available, .. } = err.get_inner() else {
+        let CheckBalanceError::NotSufficientBalance {
+            coin,
+            available,
+            locked_by_swaps,
+            ..
+        } = err.get_inner()
+        else {
             return Err(err);
         };
-        let available = MmNumber::from(available);
-        debug!(
-            "{LOG_SWAP_LR_NAME} received NotSufficientBalance error my_coin={} lr_0_dst_amount={} volume={} available={} slippage={}",
-            my_coin.ticker(),
-            lr_0_dst_amount.to_decimal(),
-            volume.to_decimal(),
-            available.to_decimal(),
-            slippage,
-        );
+        // Convert to BigDecimal to round to token decimals and compare with 'required'
+        let available = MmNumber::from(available).to_decimal().round(my_coin.decimals() as i64);
 
         // Check if available volume is within the LR_0 slippage.
         // Note about how we consider the available volume:
         // We do not know the exact amount received from the LR_0 and how it is different from the original dst_amount returned by 1inch due to slippage.
         // we just assume we could spend available volume, provided it is within slippage (from the 1inch dst_amount).
         // If it's not within the slippage, we assume something wrong has happened.
-        if (&lr_0_dst_amount - &available) / lr_0_dst_amount
-            >= BigDecimal::from_f32(slippage / 100.0).unwrap_or_default()
-        {
-            debug!("{LOG_SWAP_LR_NAME} available not within slippage, return error");
-            return Err(err);
+        let required_with_slippage =
+            &lr_0_dst_amount * &BigDecimal::from_f32(1.0 - slippage / 100.0).unwrap_or_default().into();
+        // Convert to BigDecimal to round to token decimals and compare with 'available'
+        let required_with_slippage = required_with_slippage.to_decimal().round(my_coin.decimals() as i64);
+        debug!(
+            "{LOG_SWAP_LR_NAME} received NotSufficientBalance error, checking slippage: my_coin={} lr_0_dst_amount={} volume={} available={} slippage={} required_with_slippage={}",
+            my_coin.ticker(),
+            lr_0_dst_amount.to_decimal(),
+            volume.to_decimal(),
+            available,
+            slippage,
+            required_with_slippage
+        );
+
+        if available < required_with_slippage {
+            info!(
+                "{LOG_SWAP_LR_NAME} too low available {}, required with slippage {}, aborting atomic swap",
+                available, required_with_slippage,
+            );
+            return MmError::err(CheckBalanceError::NotSufficientBalance {
+                coin: coin.clone(),
+                available,
+                required: required_with_slippage,
+                locked_by_swaps: locked_by_swaps.clone(),
+            });
         }
         // Estimate new taker_volume for atomic swap (with slippage), by deducting fees:
-        let mut volume_from_avail = available;
+        let mut volume_from_avail: MmNumber = available.into();
         if my_coin.ticker() == fee_params.taker_payment_trade_fee.coin {
-            volume_from_avail -= fee_params.taker_payment_trade_fee.amount;
+            volume_from_avail -= fee_params.taker_payment_trade_fee.amount; // TODO: remove funding tx txfee as well
         }
         volume = {
             let dex_fee_rate = DexFee::dex_fee_rate(my_coin.ticker(), other_coin.ticker());
             volume_from_avail / (MmNumber::from("1") + dex_fee_rate)
         };
-        debug!("{LOG_SWAP_LR_NAME} new volume from available={}", volume.to_decimal());
+        debug!("{LOG_SWAP_LR_NAME} new volume with slippage={}", volume.to_decimal());
     }
 
     if !fee_params.maker_payment_spend_trade_fee.paid_from_trading_vol {
