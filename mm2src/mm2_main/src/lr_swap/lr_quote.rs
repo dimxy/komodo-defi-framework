@@ -8,7 +8,7 @@ use super::lr_helpers::get_coin_for_one_inch;
 use crate::lp_swap::taker_swap::TakerSwapPreparedParams;
 use crate::lr_swap::ClassicSwapDataExt;
 use crate::rpc::lp_commands::lr_swap_api::lr_api_types::{AskOrBidOrder, AsksForCoin, BidsForCoin};
-use coins::eth::{mm_number_from_u256, mm_number_to_u256, u256_from_coins_mm_number, u256_to_coins_mm_number, EthCoin};
+use coins::eth::{mm_number_from_u256, u256_from_coins_mm_number, u256_to_coins_mm_number, EthCoin};
 use coins::hd_wallet::AddrToString;
 use coins::{lp_coinfind_or_err, MarketCoinOps};
 use coins::{DexFee, MmCoin, Ticker};
@@ -390,7 +390,6 @@ impl LrSwapCandidates {
     fn update_lr_prices(lr_data_refs: Vec<&mut LrStepData>, lr_prices: HashMap<(Ticker, Ticker), Option<MmNumber>>) {
         for item in lr_data_refs {
             if let Some(prices) = lr_prices.get(&(item._src_token.clone(), item._dst_token.clone())) {
-                // multiple items with the same src_token/dst_token could exist
                 item.lr_price = prices.clone();
             }
         }
@@ -441,6 +440,13 @@ impl LrSwapCandidates {
                 let (dst_coin, dst_contract) = get_coin_for_one_inch(ctx, &lr_data_0._dst_token).await?;
                 let src_decimals = src_coin.decimals();
                 let dst_decimals = dst_coin.decimals();
+                log::debug!(
+                    "src_coin={} src_decimals={} dst_coin={} dst_decimals={}",
+                    src_coin.ticker(),
+                    src_decimals,
+                    dst_coin.ticker(),
+                    dst_decimals
+                );
 
                 #[cfg(feature = "for-tests")]
                 {
@@ -504,7 +510,8 @@ impl LrSwapCandidates {
             .into_iter()
             .zip(prices_in_series)
             .map(|((src, dst), series)| {
-                let dst_price = cross_prices_close(series); // estimate SRC/DST price as average from series
+                // Get src/dst price. NOTE: cross_prices return prices in ETH coins or token units (not in smallest units)
+                let dst_price = cross_prices_close(series);
                 ((src, dst), dst_price)
             })
             .collect::<HashMap<_, _>>();
@@ -539,10 +546,12 @@ impl LrSwapCandidates {
                 );
                 continue;
             };
-            let dst_amount = mm_number_from_u256(dst_amount);
+            // Get in coin units
+            // Note: cross_prices API price is returned in src_coin / dst_coin units
+            let dst_amount = u256_to_coins_mm_number(dst_amount, lr_data_0.dst_decimals()?).map_mm_err()?;
             if let Some(src_amount) = &dst_amount.checked_div(lr_price) {
-                // Note: lr_price is calculated in smallest units
-                lr_data_0.src_amount = Some(mm_number_to_u256(src_amount)?);
+                lr_data_0.src_amount =
+                    Some(u256_from_coins_mm_number(src_amount, lr_data_0.src_decimals()?).map_mm_err()?);
                 log::debug!(
                     "estimate_lr_0_source_amounts maker_order.taker_ticker={} lr_price={} lr_data_0.src_amount={:?}",
                     candidate.maker_order.taker_ticker(),
@@ -573,16 +582,18 @@ impl LrSwapCandidates {
                 let Some(ref lr_price) = lr_data_1.lr_price else {
                     continue; // No LR provider price - skipping
                 };
+                // Get in coin units
+                // Note: cross prices API price is returned in coin / coin units (not in smallest units))
                 let dst_amount = u256_from_coins_mm_number(user_dst_amount, lr_data_1.dst_decimals()?).map_mm_err()?;
                 let dst_amount = mm_number_from_u256(dst_amount);
                 if let Some(src_amount) = &dst_amount.checked_div(lr_price) {
-                    // Note: lr_price is calculated in smallest units (not coin units)
-                    lr_data_1.src_amount = Some(mm_number_to_u256(src_amount)?);
+                    lr_data_1.src_amount =
+                        Some(u256_from_coins_mm_number(src_amount, lr_data_1.src_decimals()?).map_mm_err()?);
                     log::debug!(
-                        "estimate_lr_1_source_amounts_from_dest lr_data_1._src_token={} lr_price={} lr_data.src_amount={:?}",
+                        "estimate_lr_1_source_amounts_from_dest lr_data_1._src_token={} lr_price={} lr_data_1.src_amount={:?}",
                         lr_data_1._src_token,
                         lr_price.to_decimal(),
-                        src_amount
+                        lr_data_1.src_amount
                     );
                 }
             } else {
