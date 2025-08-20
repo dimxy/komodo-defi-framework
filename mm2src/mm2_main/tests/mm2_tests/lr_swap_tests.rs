@@ -38,15 +38,7 @@ fn test_aggregated_swap_mainnet_polygon_utxo_sell() {
     let swap_amount: BigDecimal = "0.0046".parse().unwrap();
     let rel_amount: BigDecimal = "1".parse().unwrap();
     let method = "sell"; // Sell 0.0046 MATIC to get approx 1 DOC
-    test_aggregated_swap_mainnet_polygon_utxo_impl(
-        &user_base,
-        &user_rel,
-        swap_amount,
-        rel_amount,
-        method,
-        true,
-        false,
-    );
+    test_aggregated_swap_mainnet_polygon_utxo_impl(&user_base, &user_rel, swap_amount, rel_amount, method, true, false);
 }
 
 /// Test for an aggregated taker swap to buy DOC for MATIC with interim routing MATIC via a PLG20 token

@@ -285,28 +285,14 @@ fn geth_erc1155_balance(wallet_addr: Address, token_id: U256) -> U256 {
 pub(crate) fn geth_erc20_decimals() -> u8 {
     let erc20_contract =
         Contract::from_json(GETH_WEB3.eth(), unsafe { GETH_ERC20_CONTRACT }, ERC20_ABI.as_bytes()).unwrap();
-    let decimals: U256 = block_on(erc20_contract.query(
-        "decimals",
-        (),
-        None,
-        Options::default(),
-        None,
-    ))
-    .unwrap();
+    let decimals: U256 = block_on(erc20_contract.query("decimals", (), None, Options::default(), None)).unwrap();
     decimals.as_u64() as u8
 }
 
 pub(crate) fn geth_erc20_balance(address: Address) -> U256 {
     let erc20_contract =
         Contract::from_json(GETH_WEB3.eth(), unsafe { GETH_ERC20_CONTRACT }, ERC20_ABI.as_bytes()).unwrap();
-    block_on(erc20_contract.query(
-        "balanceOf",
-        Token::Address(address),
-        None,
-        Options::default(),
-        None,
-    ))
-    .unwrap()
+    block_on(erc20_contract.query("balanceOf", Token::Address(address), None, Options::default(), None)).unwrap()
 }
 
 pub(crate) async fn fill_erc1155_info(eth_coin: &EthCoin, token_address: Address, token_id: u32, amount: u32) {
@@ -501,8 +487,8 @@ fn sepolia_coin_from_privkey(ctx: &MmArc, secret: &'static str, ticker: &str, co
         taker_swap_v2_contract: sepolia_taker_swap_v2(),
         nft_maker_swap_v2_contract: sepolia_etomic_maker_nft(),
     };
-    let swap_contract_address: sepolia_taker_swap_v2();
-    let fallback_swap_contract_address: sepolia_taker_swap_v2();
+    let swap_contract_address = sepolia_taker_swap_v2();
+    let fallback_swap_contract_address = sepolia_taker_swap_v2();
 
     let priv_key = Secp256k1Secret::from(secret);
     let build_policy = EthPrivKeyBuildPolicy::IguanaPrivKey(priv_key);
@@ -2828,7 +2814,7 @@ fn test_v2_eth_eth_kickstart() {
                     swap_legacy_addr,
                     swap_v2_addrs,
                     None,
-                    &[&GETH_RPC_URL],
+                    &[GETH_RPC_URL],
                     &[],
                 ))
             );

@@ -5,8 +5,8 @@ pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, 
                                       enable_native_bch, erc20_dev_conf, eth_dev_conf, mm_dump,
                                       wait_check_stats_swap_status, MarketMakerIt};
 
-use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, geth_swap_contracts,
-                              swap_contract, geth_account, geth_wait_for_confirmation};
+use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, geth_account,
+                              geth_swap_contracts, geth_wait_for_confirmation, swap_contract};
 use super::z_coin_docker_tests::z_coin_from_spending_key;
 use crate::integration_tests_common::enable_eth_coin_v2;
 use bitcrypto::{dhash160, ChecksumType};
@@ -49,12 +49,12 @@ pub use std::{env, thread};
 use std::{path::PathBuf, sync::Mutex, time::Duration};
 use testcontainers::{clients::Cli, core::WaitFor, Container, GenericImage, RunnableImage};
 use trading_api::one_inch_api::api_mock::TEST_LR_SWAP_CONTRACT_ABI;
+use web3::contract::{Contract, Options};
+use web3::ethabi::Token;
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 use web3::types::Address as EthAddress;
 use web3::types::{BlockId, BlockNumber, TransactionRequest};
 use web3::{transports::Http, Web3};
-use web3::contract::{Contract, Options};
-use web3::ethabi::Token;
 
 lazy_static! {
     static ref MY_COIN_LOCK: Mutex<()> = Mutex::new(());
@@ -174,7 +174,7 @@ pub const MAKER_SWAP_V2_BYTES: &str = include_str!("../../../mm2_test_helpers/co
 pub const TAKER_SWAP_V2_BYTES: &str = include_str!("../../../mm2_test_helpers/contract_bytes/taker_swap_v2_bytes");
 /// TODO: add ref to contract source
 pub const TEST_LR_SWAP_BYTES: &str =
-    include_str!("../../../mm2_test_helpers/contract_bytes/test_lr_swap_contract_bytes");
+    include_str!("../../../mm2_test_helpers/contract_bytes/lr_swap_test_contract_bytes");
 
 pub trait CoinDockerOps {
     fn rpc_client(&self) -> &UtxoRpcClientEnum;
@@ -1727,22 +1727,21 @@ pub fn geth_deploy_lr_swap_contract(price: U256) -> H160Eth {
         max_fee_per_gas: None,
         max_priority_fee_per_gas: None,
     };
-    let deploy_test_lr_swap_hash =
-        block_on(GETH_WEB3.eth().send_transaction(tx_request_deploy_test_lr_swap)).unwrap();
+    let deploy_test_lr_swap_hash = block_on(GETH_WEB3.eth().send_transaction(tx_request_deploy_test_lr_swap)).unwrap();
     log!(
         "Sent test LR swap contract deploy transaction {:?}",
         deploy_test_lr_swap_hash
     );
 
     loop {
-        let deploy_test_lr_swap_receipt =
-            match block_on(GETH_WEB3.eth().transaction_receipt(deploy_test_lr_swap_hash)) {
-                Ok(receipt) => receipt,
-                Err(_) => {
-                    thread::sleep(Duration::from_millis(100));
-                    continue;
-                },
-            };
+        let deploy_test_lr_swap_receipt = match block_on(GETH_WEB3.eth().transaction_receipt(deploy_test_lr_swap_hash))
+        {
+            Ok(receipt) => receipt,
+            Err(_) => {
+                thread::sleep(Duration::from_millis(100));
+                continue;
+            },
+        };
 
         if let Some(receipt) = deploy_test_lr_swap_receipt {
             let lr_swap_contract = receipt.contract_address.unwrap();
@@ -1764,14 +1763,7 @@ pub fn deposit_eth_to_lr_swap_contract(lr_swap_address: H160Eth, amount: U256) {
         ..Options::default()
     };
 
-    let tx_hash = block_on(lr_swap_contract.call(
-        "depositEth",
-        (),
-        geth_account(),
-        options,
-    ))
-    .unwrap();
-    println!("deposit_eth_to_lr_swap_contract tx_hash={}", tx_hash);
+    let tx_hash = block_on(lr_swap_contract.call("depositEth", (), geth_account(), options)).unwrap();
     geth_wait_for_confirmation(tx_hash);
 }
 
@@ -1785,21 +1777,14 @@ pub fn deposit_erc20_to_lr_swap_contract(lr_swap_address: H160Eth, amount: U256)
         ..Options::default()
     };
 
-    let tx_hash = block_on(lr_swap_contract.call(
-        "depositTokens",
-        Token::Uint(amount),
-        geth_account(),
-        options,
-    ))
-    .unwrap();
-    println!("deposit_erc20_to_lr_swap_contract tx_hash={}", tx_hash);
+    let tx_hash =
+        block_on(lr_swap_contract.call("depositTokens", Token::Uint(amount), geth_account(), options)).unwrap();
     geth_wait_for_confirmation(tx_hash);
 }
 
 pub fn geth_approve_tokens(token_address: H160Eth, spender: H160Eth, amount: U256) {
     let _guard = GETH_NONCE_LOCK.lock().unwrap();
-    let erc20_contract =
-        Contract::from_json(GETH_WEB3.eth(), token_address, ERC20_ABI.as_bytes()).unwrap();
+    let erc20_contract = Contract::from_json(GETH_WEB3.eth(), token_address, ERC20_ABI.as_bytes()).unwrap();
 
     let options = Options {
         gas: Some(U256::from(150_000)),
@@ -1813,6 +1798,5 @@ pub fn geth_approve_tokens(token_address: H160Eth, spender: H160Eth, amount: U25
         options,
     ))
     .unwrap();
-    println!("geth_approve_tokens tx_hash={}", tx_hash);
     geth_wait_for_confirmation(tx_hash);
 }
