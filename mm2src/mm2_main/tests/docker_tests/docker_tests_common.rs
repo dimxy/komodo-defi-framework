@@ -148,8 +148,10 @@ pub const IBC_RELAYER_IMAGE_WITH_TAG: &str = "docker.io/komodoofficial/ibc-relay
 pub const QTUM_ADDRESS_LABEL: &str = "MM2_ADDRESS_LABEL";
 
 /// ERC721_TEST_TOKEN has additional mint function
+/// https://github.com/KomodoPlatform/etomic-swap/blob/006e6fd52334530f23624a2139d0eb5299c4cd10/contracts/Erc721Token.sol (see public-mint-nft-functions branch)
 pub const ERC721_TEST_ABI: &str = include_str!("../../../mm2_test_helpers/dummy_files/erc721_test_abi.json");
 /// ERC1155_TEST_TOKEN has additional mint function
+/// https://github.com/KomodoPlatform/etomic-swap/blob/006e6fd52334530f23624a2139d0eb5299c4cd10/contracts/Erc1155Token.sol (see public-mint-nft-functions branch)
 pub const ERC1155_TEST_ABI: &str = include_str!("../../../mm2_test_helpers/dummy_files/erc1155_test_abi.json");
 
 /// Ticker of MYCOIN dockerized blockchain.
@@ -161,10 +163,10 @@ pub const ERC20_TOKEN_BYTES: &str = include_str!("../../../mm2_test_helpers/cont
 pub const SWAP_CONTRACT_BYTES: &str = include_str!("../../../mm2_test_helpers/contract_bytes/swap_contract_bytes");
 pub const WATCHERS_SWAP_CONTRACT_BYTES: &str =
     include_str!("../../../mm2_test_helpers/contract_bytes/watchers_swap_contract_bytes");
-/// https://github.com/KomodoPlatform/etomic-swap/blob/7d4eafd4a408188a95aee78a41f0bf5f9116ffa2/contracts/Erc721Token.sol
+/// https://github.com/KomodoPlatform/etomic-swap/blob/006e6fd52334530f23624a2139d0eb5299c4cd10/contracts/Erc721Token.sol
 pub const ERC721_TEST_TOKEN_BYTES: &str =
     include_str!("../../../mm2_test_helpers/contract_bytes/erc721_test_token_bytes");
-/// https://github.com/KomodoPlatform/etomic-swap/blob/7d4eafd4a408188a95aee78a41f0bf5f9116ffa2/contracts/Erc1155Token.sol
+/// https://github.com/KomodoPlatform/etomic-swap/blob/006e6fd52334530f23624a2139d0eb5299c4cd10/contracts/Erc1155Token.sol
 pub const ERC1155_TEST_TOKEN_BYTES: &str =
     include_str!("../../../mm2_test_helpers/contract_bytes/erc1155_test_token_bytes");
 /// https://github.com/KomodoPlatform/etomic-swap/blob/7d4eafd4a408188a95aee78a41f0bf5f9116ffa2/contracts/EtomicSwapMakerNftV2.sol
@@ -1679,6 +1681,7 @@ pub fn init_geth_node() {
         geth_approve_tokens(GETH_ERC20_CONTRACT, lr_swap_test_contract, tokens_to_deposit);
         deposit_erc20_to_lr_swap_contract(lr_swap_test_contract, tokens_to_deposit);
         GETH_LR_SWAP_TEST_CONTRACT = lr_swap_test_contract;
+        log!("GETH_LR_SWAP_TEST_CONTRACT {:?}", GETH_LR_SWAP_TEST_CONTRACT);
 
         #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
         {
