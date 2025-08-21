@@ -5,4 +5,5 @@ pub mod client;
 pub mod errors;
 pub mod portfolio_types;
 
-#[cfg(feature = "run-docker-tests")] pub mod api_mock;
+#[cfg(feature = "run-docker-tests")]
+pub mod api_mock;

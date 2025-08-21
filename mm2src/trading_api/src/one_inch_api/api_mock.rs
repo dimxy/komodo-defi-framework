@@ -2,8 +2,9 @@
 
 #![allow(clippy::result_large_err)]
 
-use super::client::{PortfolioApiMethods, PortfolioUrlBuilder, SwapApiMethods, SwapUrlBuilder,
-                    ONE_INCH_ETH_SPECIAL_CONTRACT};
+use super::client::{
+    PortfolioApiMethods, PortfolioUrlBuilder, SwapApiMethods, SwapUrlBuilder, ONE_INCH_ETH_SPECIAL_CONTRACT,
+};
 use super::errors::OneInchError;
 use coins::hd_wallet::AddrToString;
 use common::log;

@@ -1,11 +1,14 @@
-#[cfg(not(feature = "run-docker-tests"))] use common::StatusCode;
+#[cfg(not(feature = "run-docker-tests"))]
+use common::StatusCode;
 use derive_more::Display;
 use enum_derives::EnumFromStringify;
 use ethereum_types::U256;
 use mm2_net::transport::SlurpError;
-#[cfg(not(feature = "run-docker-tests"))] use serde::Deserialize;
+#[cfg(not(feature = "run-docker-tests"))]
+use serde::Deserialize;
 use serde::Serialize;
-#[cfg(not(feature = "run-docker-tests"))] use serde_json::Value;
+#[cfg(not(feature = "run-docker-tests"))]
+use serde_json::Value;
 
 #[derive(Clone, Debug, Display, Serialize, EnumFromStringify)]
 pub enum OneInchError {
@@ -85,7 +88,7 @@ impl NativeError {
             match serde_json::from_value(body) {
                 Ok(err) => Self::HttpError400(err),
                 Err(err) => Self::ParseError {
-                    error_msg: format!("could not parse error response: {}", err),
+                    error_msg: format!("could not parse error response: {err}"),
                 },
             }
         } else {

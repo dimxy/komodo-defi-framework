@@ -1,12 +1,15 @@
 use coins::z_coin::ZCoin;
 pub use common::{block_on, block_on_f01, now_ms, now_sec, wait_until_ms, wait_until_sec};
 pub use mm2_number::MmNumber;
-pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, enable_eth_coin, enable_native,
-                                      enable_native_bch, erc20_dev_conf, eth_dev_conf, mm_dump,
-                                      wait_check_stats_swap_status, MarketMakerIt};
+pub use mm2_test_helpers::for_tests::{
+    check_my_swap_status, check_recent_swaps, enable_eth_coin, enable_native, enable_native_bch, erc20_dev_conf,
+    eth_dev_conf, mm_dump, wait_check_stats_swap_status, MarketMakerIt,
+};
 
-use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, geth_account,
-                              geth_erc20_decimals, geth_swap_contracts, geth_wait_for_confirmation, swap_contract};
+use super::eth_docker_tests::{
+    erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, geth_account, geth_erc20_decimals,
+    geth_swap_contracts, geth_wait_for_confirmation, swap_contract,
+};
 use super::z_coin_docker_tests::z_coin_from_spending_key;
 use crate::integration_tests_common::enable_eth_coin_v2;
 use bitcrypto::{dhash160, ChecksumType};
@@ -20,16 +23,20 @@ use coins::utxo::rpc_clients::{NativeClient, UtxoRpcClientEnum, UtxoRpcClientOps
 use coins::utxo::slp::{slp_genesis_output, SlpOutput, SlpToken};
 use coins::utxo::utxo_common::send_outputs_from_my_address;
 use coins::utxo::utxo_standard::{utxo_standard_coin_with_priv_key, UtxoStandardCoin};
-use coins::utxo::{coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path, UtxoActivationParams,
-                  UtxoAddressFormat, UtxoCoinFields, UtxoCommonOps};
+use coins::utxo::{
+    coin_daemon_data_dir, sat_from_big_decimal, zcash_params_path, UtxoActivationParams, UtxoAddressFormat,
+    UtxoCoinFields, UtxoCommonOps,
+};
 use coins::{ConfirmPaymentInput, MarketCoinOps, Transaction};
 use crypto::privkey::{key_pair_from_secret, key_pair_from_seed};
 use crypto::Secp256k1Secret;
 use ethereum_types::{H160 as H160Eth, U256};
 use futures::TryFutureExt;
 use http::StatusCode;
-use keys::{Address, AddressBuilder, AddressHashEnum, AddressPrefix, KeyPair, NetworkAddressPrefixes,
-           NetworkPrefix as CashAddrPrefix};
+use keys::{
+    Address, AddressBuilder, AddressHashEnum, AddressPrefix, KeyPair, NetworkAddressPrefixes,
+    NetworkPrefix as CashAddrPrefix,
+};
 use mm2_core::mm_ctx::{MmArc, MmCtxBuilder};
 use mm2_number::BigDecimal;
 use mm2_rpc::data::legacy::BalanceResponse;
@@ -222,7 +229,9 @@ pub struct UtxoAssetDockerOps {
 }
 
 impl CoinDockerOps for UtxoAssetDockerOps {
-    fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
+    fn rpc_client(&self) -> &UtxoRpcClientEnum {
+        &self.coin.as_ref().rpc_client
+    }
 }
 
 impl UtxoAssetDockerOps {
@@ -245,7 +254,9 @@ pub struct ZCoinAssetDockerOps {
 }
 
 impl CoinDockerOps for ZCoinAssetDockerOps {
-    fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
+    fn rpc_client(&self) -> &UtxoRpcClientEnum {
+        &self.coin.as_ref().rpc_client
+    }
 }
 
 impl ZCoinAssetDockerOps {
@@ -365,7 +376,9 @@ impl BchDockerOps {
 }
 
 impl CoinDockerOps for BchDockerOps {
-    fn rpc_client(&self) -> &UtxoRpcClientEnum { &self.coin.as_ref().rpc_client }
+    fn rpc_client(&self) -> &UtxoRpcClientEnum {
+        &self.coin.as_ref().rpc_client
+    }
 }
 
 pub struct DockerNode<'a> {
@@ -401,7 +414,7 @@ pub fn utxo_asset_docker_node<'a>(docker: &'a Cli, ticker: &'static str, port: u
     let container = docker.run(image);
     let mut conf_path = coin_daemon_data_dir(ticker, true);
     std::fs::create_dir_all(&conf_path).unwrap();
-    conf_path.push(format!("{}.conf", ticker));
+    conf_path.push(format!("{ticker}.conf"));
     Command::new("docker")
         .arg("cp")
         .arg(format!("{}:/data/node_0/{}.conf", container.id(), ticker))
@@ -510,7 +523,7 @@ pub fn zombie_asset_docker_node(docker: &Cli, port: u16) -> DockerNode<'_> {
     let mut conf_path = coin_daemon_data_dir(config_ticker, true);
 
     std::fs::create_dir_all(&conf_path).unwrap();
-    conf_path.push(format!("{}.conf", config_ticker));
+    conf_path.push(format!("{config_ticker}.conf"));
     Command::new("docker")
         .arg("cp")
         .arg(format!("{}:/data/node_0/{}.conf", container.id(), config_ticker))
@@ -536,9 +549,13 @@ pub fn rmd160_from_priv(privkey: Secp256k1Secret) -> H160 {
     dhash160(&public.serialize())
 }
 
-pub fn get_prefilled_slp_privkey() -> [u8; 32] { SLP_TOKEN_OWNERS.lock().unwrap().remove(0) }
+pub fn get_prefilled_slp_privkey() -> [u8; 32] {
+    SLP_TOKEN_OWNERS.lock().unwrap().remove(0)
+}
 
-pub fn get_slp_token_id() -> String { hex::encode(SLP_TOKEN_ID.lock().unwrap().as_slice()) }
+pub fn get_slp_token_id() -> String {
+    hex::encode(SLP_TOKEN_ID.lock().unwrap().as_slice())
+}
 
 pub fn import_address<T>(coin: &T)
 where
@@ -620,7 +637,7 @@ fn qrc20_coin_conf_item(ticker: &str) -> Json {
             _ => panic!("Expected either QICK or QORTY ticker, found {}", ticker),
         }
     };
-    let contract_address = format!("{:#02x}", contract_address);
+    let contract_address = format!("{contract_address:#02x}");
 
     let confpath = unsafe { QTUM_CONF_PATH.as_ref().expect("Qtum config is not set yet") };
     json!({
@@ -1107,17 +1124,17 @@ pub fn trade_base_rel((base, rel): (&str, &str)) {
 
     // ensure the swaps are started
     block_on(mm_bob.wait_for_log(22., |log| {
-        log.contains(&format!("Entering the maker_swap_loop {}/{}", base, rel))
+        log.contains(&format!("Entering the maker_swap_loop {base}/{rel}"))
     }))
     .unwrap();
     block_on(mm_alice.wait_for_log(22., |log| {
-        log.contains(&format!("Entering the taker_swap_loop {}/{}", base, rel))
+        log.contains(&format!("Entering the taker_swap_loop {base}/{rel}"))
     }))
     .unwrap();
 
     // ensure the swaps are finished
-    block_on(mm_bob.wait_for_log(600., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))).unwrap();
-    block_on(mm_alice.wait_for_log(600., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))).unwrap();
+    block_on(mm_bob.wait_for_log(600., |log| log.contains(&format!("[swap uuid={uuid}] Finished")))).unwrap();
+    block_on(mm_alice.wait_for_log(600., |log| log.contains(&format!("[swap uuid={uuid}] Finished")))).unwrap();
 
     log!("Checking alice/taker status..");
     block_on(check_my_swap_status(

@@ -86,7 +86,9 @@ impl From<CoinFindError> for LrSwapError {
 
 // Implement conversion from lower-level errors
 impl From<SwapStateMachineError> for LrSwapError {
-    fn from(e: SwapStateMachineError) -> Self { LrSwapError::StateError(e.to_string()) }
+    fn from(e: SwapStateMachineError) -> Self {
+        LrSwapError::StateError(e.to_string())
+    }
 }
 
 impl From<MySwapStatusError> for LrSwapError {

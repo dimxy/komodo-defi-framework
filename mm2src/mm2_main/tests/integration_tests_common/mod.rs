@@ -1,7 +1,8 @@
 use coins::eth::SwapV2Contracts;
 use coins::hd_wallet::AddrToString;
 use common::executor::Timer;
-#[cfg(target_arch = "wasm32")] use common::log::LogLevel;
+#[cfg(target_arch = "wasm32")]
+use common::log::LogLevel;
 use common::{block_on, log, now_ms, wait_until_ms};
 use crypto::privkey::key_pair_from_seed;
 use ethereum_types::Address as EthAddress;
@@ -9,14 +10,17 @@ use http::StatusCode;
 use mm2_main::{lp_main, lp_run, LpMainParams};
 use mm2_rpc::data::legacy::CoinInitResponse;
 use mm2_test_helpers::electrums::{doc_electrums, marty_electrums};
-use mm2_test_helpers::for_tests::{create_new_account_status, enable_native as enable_native_impl,
-                                  init_create_new_account, MarketMakerIt};
-use mm2_test_helpers::structs::{CreateNewAccountStatus, HDAccountAddressId, HDAccountBalanceMap, InitTaskResult,
-                                RpcV2Response};
+use mm2_test_helpers::for_tests::{
+    create_new_account_status, enable_native as enable_native_impl, init_create_new_account, MarketMakerIt,
+};
+use mm2_test_helpers::structs::{
+    CreateNewAccountStatus, HDAccountAddressId, HDAccountBalanceMap, InitTaskResult, RpcV2Response,
+};
 use serde_json::{self, json, Value as Json};
 use std::collections::HashMap;
 use std::env::var;
-#[cfg(target_arch = "wasm32")] use std::str::FromStr;
+#[cfg(target_arch = "wasm32")]
+use std::str::FromStr;
 
 #[cfg(any(feature = "run-docker-tests", feature = "test-ext-api"))]
 pub(crate) mod lr_tests_common;
@@ -24,7 +28,9 @@ pub(crate) mod lr_tests_common;
 /// This is not a separate test but a helper used by `MarketMakerIt` to run the MarketMaker from the test binary.
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-fn test_mm_start() { test_mm_start_impl(); }
+fn test_mm_start() {
+    test_mm_start_impl();
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn test_mm_start_impl() {

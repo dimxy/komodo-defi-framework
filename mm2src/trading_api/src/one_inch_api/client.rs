@@ -22,9 +22,11 @@ use mm2_err_handle::mm_error::MmResult;
 use serde::de::DeserializeOwned;
 use url::Url;
 
-#[cfg(feature = "test-ext-api")] use lazy_static::lazy_static;
+#[cfg(feature = "test-ext-api")]
+use lazy_static::lazy_static;
 
-#[cfg(feature = "test-ext-api")] use common::executor::Timer;
+#[cfg(feature = "test-ext-api")]
+use common::executor::Timer;
 
 #[cfg(feature = "test-ext-api")]
 use futures::lock::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
@@ -203,9 +205,13 @@ impl ApiClient {
         Ok(Url::parse(url_cfg)?)
     }
 
-    pub const fn eth_special_contract() -> &'static str { ONE_INCH_ETH_SPECIAL_CONTRACT } // TODO: must use the 1inch call, not a const (on zk chain it's not const)
+    pub const fn eth_special_contract() -> &'static str {
+        ONE_INCH_ETH_SPECIAL_CONTRACT
+    } // TODO: must use the 1inch call, not a const (on zk chain it's not const)
 
-    pub const fn classic_swap_contract() -> &'static str { ONE_INCH_AGGREGATION_ROUTER_CONTRACT_V6_0 }
+    pub const fn classic_swap_contract() -> &'static str {
+        ONE_INCH_AGGREGATION_ROUTER_CONTRACT_V6_0
+    }
 
     pub fn is_chain_supported(chain_id: u64) -> bool {
         ONE_INCH_V6_0_SUPPORTED_CHAINS.iter().any(|(_name, id)| *id == chain_id)

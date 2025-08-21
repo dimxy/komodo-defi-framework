@@ -8,8 +8,9 @@ use mm2_number::BigDecimal;
 use mm2_rpc::data::legacy::MatchBy;
 use mm2_test_helpers::for_tests::orderbook_v2;
 use mm2_test_helpers::for_tests::{my_balance, MarketMakerIt};
-use mm2_test_helpers::structs::lr_test_structs::{ClassicSwapResponse, LrExecuteRoutedTradeResponse,
-                                                 LrFindBestQuoteResponse};
+use mm2_test_helpers::structs::lr_test_structs::{
+    ClassicSwapResponse, LrExecuteRoutedTradeResponse, LrFindBestQuoteResponse,
+};
 use mm2_test_helpers::structs::SetPriceResult;
 use mm2_test_helpers::structs::{OrderbookV2Response, RpcOrderbookEntryV2, RpcV2Response, SetPriceResponse};
 use serde_json::{json, Value};

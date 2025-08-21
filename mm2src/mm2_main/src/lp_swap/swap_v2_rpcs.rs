@@ -3,8 +3,10 @@ use super::maker_swap_v2::MakerSwapEvent;
 use super::my_swaps_storage::{MySwapsError, MySwapsOps, MySwapsStorage};
 use super::taker_swap::TakerSavedSwap;
 use super::taker_swap_v2::{AbortReason, TakerSwapEvent};
-use super::{active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, AGG_TAKER_SWAP_TYPE,
-            LEGACY_SWAP_TYPE, MAKER_SWAP_V2_TYPE, TAKER_SWAP_V2_TYPE};
+use super::{
+    active_swaps, MySwapsFilter, SavedSwap, SavedSwapError, SavedSwapIo, AGG_TAKER_SWAP_TYPE, LEGACY_SWAP_TYPE,
+    MAKER_SWAP_V2_TYPE, TAKER_SWAP_V2_TYPE,
+};
 #[cfg(target_arch = "wasm32")]
 use crate::lr_swap::lr_swap_state_machine::AggTakerSwapStateMachine;
 use crate::lr_swap::lr_swap_state_machine::{AggTakerSwapDbRepr, AggTakerSwapEvent};
@@ -66,17 +68,23 @@ pub enum SwapV2DbError {
 
 #[cfg(target_arch = "wasm32")]
 impl From<DbTransactionError> for SwapV2DbError {
-    fn from(e: DbTransactionError) -> Self { SwapV2DbError::DbTransaction(e) }
+    fn from(e: DbTransactionError) -> Self {
+        SwapV2DbError::DbTransaction(e)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 impl From<InitDbError> for SwapV2DbError {
-    fn from(e: InitDbError) -> Self { SwapV2DbError::InitDb(e) }
+    fn from(e: InitDbError) -> Self {
+        SwapV2DbError::InitDb(e)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 impl From<serde_json::Error> for SwapV2DbError {
-    fn from(e: serde_json::Error) -> Self { SwapV2DbError::Serde(e) }
+    fn from(e: serde_json::Error) -> Self {
+        SwapV2DbError::Serde(e)
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -159,7 +167,9 @@ impl MySwapForRpc<TakerSwapEvent> {
         })
     }
 
-    pub(crate) fn is_completed(&self) -> bool { self.events.iter().any(|ev| matches!(*ev, TakerSwapEvent::Completed)) }
+    pub(crate) fn is_completed(&self) -> bool {
+        self.events.iter().any(|ev| matches!(*ev, TakerSwapEvent::Completed))
+    }
 
     pub(crate) fn is_refunded(&self) -> bool {
         self.events.iter().any(|ev| {
@@ -314,17 +324,23 @@ enum GetSwapDataErr {
 }
 
 impl From<SavedSwapError> for GetSwapDataErr {
-    fn from(e: SavedSwapError) -> Self { GetSwapDataErr::DbError(e.to_string()) }
+    fn from(e: SavedSwapError) -> Self {
+        GetSwapDataErr::DbError(e.to_string())
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl From<SqlError> for GetSwapDataErr {
-    fn from(e: SqlError) -> Self { GetSwapDataErr::DbError(e.to_string()) }
+    fn from(e: SqlError) -> Self {
+        GetSwapDataErr::DbError(e.to_string())
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 impl From<SwapV2DbError> for GetSwapDataErr {
-    fn from(e: SwapV2DbError) -> Self { GetSwapDataErr::DbError(e.to_string()) }
+    fn from(e: SwapV2DbError) -> Self {
+        GetSwapDataErr::DbError(e.to_string())
+    }
 }
 
 async fn get_swap_data_by_uuid_and_type(
@@ -371,12 +387,16 @@ pub(crate) enum MySwapStatusError {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl From<SqlError> for MySwapStatusError {
-    fn from(e: SqlError) -> Self { MySwapStatusError::DbError(e.to_string()) }
+    fn from(e: SqlError) -> Self {
+        MySwapStatusError::DbError(e.to_string())
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 impl From<SwapV2DbError> for MySwapStatusError {
-    fn from(e: SwapV2DbError) -> Self { MySwapStatusError::DbError(e.to_string()) }
+    fn from(e: SwapV2DbError) -> Self {
+        MySwapStatusError::DbError(e.to_string())
+    }
 }
 
 impl From<GetSwapDataErr> for MySwapStatusError {

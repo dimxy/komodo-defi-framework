@@ -1,14 +1,17 @@
 //! Docker tests for 'aggregated taker swaps with liquidity routing' (LR).
 
-use crate::docker_tests::docker_tests_common::{enable_geth_tokens, generate_utxo_coin_with_privkey,
-                                               GETH_ERC20_CONTRACT, GETH_LR_SWAP_TEST_CONTRACT};
-use crate::docker_tests::eth_docker_tests::{erc20_contract_checksum, fill_erc20_with_privkey, fill_eth_with_privkey,
-                                            geth_erc20_balance, geth_erc20_decimals, GETH_DEV_CHAIN_ID};
+use crate::docker_tests::docker_tests_common::{
+    enable_geth_tokens, generate_utxo_coin_with_privkey, GETH_ERC20_CONTRACT, GETH_LR_SWAP_TEST_CONTRACT,
+};
+use crate::docker_tests::eth_docker_tests::{
+    erc20_contract_checksum, fill_erc20_with_privkey, fill_eth_with_privkey, geth_erc20_balance, geth_erc20_decimals,
+    GETH_DEV_CHAIN_ID,
+};
 use crate::integration_tests_common::enable_native;
-use crate::integration_tests_common::lr_tests_common::{cancel_order, check_my_agg_swap_final_status,
-                                                       create_and_start_agg_taker_swap, create_maker_order,
-                                                       find_best_lr_swap, print_balances, print_quote_resp,
-                                                       set_swap_gas_fee_policy, wait_for_orderbook};
+use crate::integration_tests_common::lr_tests_common::{
+    cancel_order, check_my_agg_swap_final_status, create_and_start_agg_taker_swap, create_maker_order,
+    find_best_lr_swap, print_balances, print_quote_resp, set_swap_gas_fee_policy, wait_for_orderbook,
+};
 use crate::GETH_ACCOUNT;
 use coins::hd_wallet::AddrToString;
 use common::executor::Timer;
@@ -16,8 +19,10 @@ use common::{block_on, log};
 use crypto::privkey::key_pair_from_seed;
 use mm2_number::BigDecimal;
 use mm2_test_helpers::for_tests::best_orders_v2_by_number;
-use mm2_test_helpers::for_tests::{active_swaps, disable_coin, erc20_dev_conf, eth_dev_conf, mm_dump, my_balance,
-                                  my_swap_status, mycoin_conf, wait_for_swap_finished, MarketMakerIt, Mm2TestConf};
+use mm2_test_helpers::for_tests::{
+    active_swaps, disable_coin, erc20_dev_conf, eth_dev_conf, mm_dump, my_balance, my_swap_status, mycoin_conf,
+    wait_for_swap_finished, MarketMakerIt, Mm2TestConf,
+};
 use num_traits::FromPrimitive;
 use serde_json::json;
 use trading_api::one_inch_api::api_mock::ETH_ERC20_MOCK_PRICE;
@@ -179,19 +184,19 @@ fn test_aggregated_swap_eth_utxo_impl(
 
     let _bob_enable_tokens = block_on(enable_geth_tokens(&mm_bob, &[&erc20_ticker]));
     let _bob_enable_doc = block_on(enable_native(&mm_bob, &utxo_ticker, &[], None));
-    print_balances(&mm_bob, "Bob balance before swap:", &[
-        &utxo_ticker,
-        &eth_ticker,
-        &erc20_ticker,
-    ]);
+    print_balances(
+        &mm_bob,
+        "Bob balance before swap:",
+        &[&utxo_ticker, &eth_ticker, &erc20_ticker],
+    );
 
     let _alice_enable_tokens = block_on(enable_geth_tokens(&mm_alice, &[&erc20_ticker]));
     let _alice_enable_doc = block_on(enable_native(&mm_alice, &utxo_ticker, &[], None));
-    print_balances(&mm_alice, "Alice balance before swap:", &[
-        &utxo_ticker,
-        &eth_ticker,
-        &erc20_ticker,
-    ]);
+    print_balances(
+        &mm_alice,
+        "Alice balance before swap:",
+        &[&utxo_ticker, &eth_ticker, &erc20_ticker],
+    );
 
     let alice_rel_balance_before = block_on(my_balance(&mm_alice, user_rel));
 
@@ -259,16 +264,16 @@ fn test_aggregated_swap_eth_utxo_impl(
     check_my_agg_swap_final_status(&taker_swap_status);
 
     let alice_rel_balance_after = block_on(my_balance(&mm_alice, user_rel));
-    print_balances(&mm_bob, "Bob balance after swap:", &[
-        &utxo_ticker,
-        &eth_ticker,
-        &erc20_ticker,
-    ]);
-    print_balances(&mm_alice, "Alice balance after swap:", &[
-        &utxo_ticker,
-        &eth_ticker,
-        &erc20_ticker,
-    ]);
+    print_balances(
+        &mm_bob,
+        "Bob balance after swap:",
+        &[&utxo_ticker, &eth_ticker, &erc20_ticker],
+    );
+    print_balances(
+        &mm_alice,
+        "Alice balance after swap:",
+        &[&utxo_ticker, &eth_ticker, &erc20_ticker],
+    );
 
     let status = block_on(my_swap_status(&mm_alice, &agg_uuid.to_string())).unwrap();
     if let Some(atomic_swap_uuid) = status["result"]["atomic_swap_uuid"].as_str() {

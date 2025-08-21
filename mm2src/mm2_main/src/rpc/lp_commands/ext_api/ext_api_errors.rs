@@ -178,11 +178,15 @@ impl From<CheckBalanceError> for ExtApiRpcError {
 }
 
 impl From<UnexpectedDerivationMethod> for ExtApiRpcError {
-    fn from(err: UnexpectedDerivationMethod) -> Self { Self::MyAddressError(err.to_string()) }
+    fn from(err: UnexpectedDerivationMethod) -> Self {
+        Self::MyAddressError(err.to_string())
+    }
 }
 
 impl From<NumConversError> for ExtApiRpcError {
-    fn from(err: NumConversError) -> Self { Self::ConversionError(err.to_string()) }
+    fn from(err: NumConversError) -> Self {
+        Self::ConversionError(err.to_string())
+    }
 }
 
 impl From<TradePreimageError> for ExtApiRpcError {
@@ -216,23 +220,33 @@ impl From<TradePreimageError> for ExtApiRpcError {
 pub(crate) struct FromApiValueError(String);
 
 impl FromApiValueError {
-    pub(crate) fn new(msg: String) -> Self { Self(msg) }
+    pub(crate) fn new(msg: String) -> Self {
+        Self(msg)
+    }
 }
 
 impl From<NumConversError> for FromApiValueError {
-    fn from(err: NumConversError) -> Self { Self(err.to_string()) }
+    fn from(err: NumConversError) -> Self {
+        Self(err.to_string())
+    }
 }
 
 impl From<primitive_types::Error> for FromApiValueError {
-    fn from(err: primitive_types::Error) -> Self { Self(format!("{:?}", err)) }
+    fn from(err: primitive_types::Error) -> Self {
+        Self(format!("{:?}", err))
+    }
 }
 
 impl From<hex::FromHexError> for FromApiValueError {
-    fn from(err: hex::FromHexError) -> Self { Self(err.to_string()) }
+    fn from(err: hex::FromHexError) -> Self {
+        Self(err.to_string())
+    }
 }
 
 impl From<ethereum_types::FromDecStrErr> for FromApiValueError {
-    fn from(err: ethereum_types::FromDecStrErr) -> Self { Self(err.to_string()) }
+    fn from(err: ethereum_types::FromDecStrErr) -> Self {
+        Self(err.to_string())
+    }
 }
 
 impl From<LrSwapError> for ExtApiRpcError {
