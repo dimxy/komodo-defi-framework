@@ -6,7 +6,7 @@ pub use mm2_test_helpers::for_tests::{check_my_swap_status, check_recent_swaps, 
                                       wait_check_stats_swap_status, MarketMakerIt};
 
 use super::eth_docker_tests::{erc20_contract_checksum, fill_eth, fill_eth_erc20_with_private_key, geth_account,
-                              geth_swap_contracts, geth_wait_for_confirmation, swap_contract};
+                              geth_erc20_decimals, geth_swap_contracts, geth_wait_for_confirmation, swap_contract};
 use super::z_coin_docker_tests::z_coin_from_spending_key;
 use crate::integration_tests_common::enable_eth_coin_v2;
 use bitcrypto::{dhash160, ChecksumType};
@@ -48,7 +48,7 @@ use std::str::FromStr;
 pub use std::{env, thread};
 use std::{path::PathBuf, sync::Mutex, time::Duration};
 use testcontainers::{clients::Cli, core::WaitFor, Container, GenericImage, RunnableImage};
-use trading_api::one_inch_api::api_mock::TEST_LR_SWAP_CONTRACT_ABI;
+use trading_api::one_inch_api::api_mock::{price_for_token_smallest_unit, TEST_LR_SWAP_CONTRACT_ABI};
 use web3::contract::{Contract, Options};
 use web3::ethabi::Token;
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
@@ -114,6 +114,8 @@ pub static mut GETH_ERC721_CONTRACT: H160Eth = H160Eth::zero();
 pub static mut GETH_ERC1155_CONTRACT: H160Eth = H160Eth::zero();
 /// NFT Maker Swap V2 contract address on Geth dev node
 pub static mut GETH_NFT_MAKER_SWAP_V2: H160Eth = H160Eth::zero();
+/// LR swap provider emulator contract
+pub static mut GETH_LR_SWAP_TEST_CONTRACT: H160Eth = H160Eth::zero();
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
 /// NFT Maker Swap V2 contract address on Sepolia testnet
 pub static mut SEPOLIA_ETOMIC_MAKER_NFT_SWAP_V2: H160Eth = H160Eth::zero();
@@ -1667,6 +1669,16 @@ pub fn init_geth_node() {
             }
             thread::sleep(Duration::from_millis(100));
         }
+
+        // Deploy and top up LR provider emulator
+        let erc20_decimals = geth_erc20_decimals();
+        let lr_swap_test_contract = geth_deploy_lr_swap_contract(price_for_token_smallest_unit(erc20_decimals as u32));
+        let wei_to_deposit = U256::from(10) * U256::from(10_u64.pow(18));
+        let tokens_to_deposit = U256::from(500) * U256::from(10_u64.pow(erc20_decimals as u32));
+        deposit_eth_to_lr_swap_contract(lr_swap_test_contract, wei_to_deposit);
+        geth_approve_tokens(GETH_ERC20_CONTRACT, lr_swap_test_contract, tokens_to_deposit);
+        deposit_erc20_to_lr_swap_contract(lr_swap_test_contract, tokens_to_deposit);
+        GETH_LR_SWAP_TEST_CONTRACT = lr_swap_test_contract;
 
         #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
         {

@@ -12,6 +12,8 @@ use ethabi::{Contract, Token};
 use ethereum_types::{Address, U256};
 use lazy_static::lazy_static;
 use mm2_err_handle::mm_error::{MmError, MmResult};
+use mm2_number::bigdecimal::FromPrimitive;
+use mm2_number::BigDecimal;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -36,27 +38,28 @@ macro_rules! unsupported_call_error {
 }
 
 const ETH_DECIMALS: u32 = 18;
-pub const ETH_ERC20_MOCK_PRICE: u32 = 2500;
+pub const ETH_ERC20_MOCK_PRICE: f64 = 2500.0;
 pub const TEST_LR_SWAP_CONTRACT_ABI: &str = include_str!("../../../mm2_test_helpers/dummy_files/test_lr_swap_abi.json");
 lazy_static! {
     static ref ETH_CONTRACT: Address = Address::from_str(ONE_INCH_ETH_SPECIAL_CONTRACT).unwrap();
     static ref TEST_LR_SWAP_CONTRACT: Contract = Contract::load(TEST_LR_SWAP_CONTRACT_ABI.as_bytes()).unwrap();
-    static ref GETH_ERC20_CONTRACT: Address =
-        Address::from_str(&std::env::var("GETH_ERC20_CONTRACT").expect("need GETH_ERC20_CONTRACT env var"))
-            .unwrap_or_default();
-    static ref GETH_ERC20_DECIMALS: u32 =
-        u32::from_str(&std::env::var("GETH_ERC20_DECIMALS").expect("need GETH_ERC20_DECIMALS env var"))
-            .unwrap_or_default();
-    static ref GETH_CHAIN_ID: u64 =
-        u64::from_str(&std::env::var("GETH_CHAIN_ID").expect("need GETH_CHAIN_ID env var")).unwrap_or_default();
-    static ref GETH_TEST_LR_SWAP_CONTRACT: Address = Address::from_str(
-        &std::env::var("GETH_TEST_LR_SWAP_CONTRACT").expect("need GETH_TEST_LR_SWAP_CONTRACT env var")
-    )
-    .unwrap_or_default();
+    static ref GETH_ERC20_CONTRACT: Option<Address> = std::env::var("GETH_ERC20_CONTRACT")
+        .ok()
+        .map(|v| Address::from_str(&v).unwrap_or_default());
+    static ref GETH_ERC20_DECIMALS: Option<u32> = std::env::var("GETH_ERC20_DECIMALS")
+        .ok()
+        .map(|v| u32::from_str(&v).unwrap_or_default());
+    static ref GETH_CHAIN_ID: Option<u64> = std::env::var("GETH_CHAIN_ID")
+        .ok()
+        .map(|v| u64::from_str(&v).unwrap_or_default());
+    static ref GETH_TEST_LR_SWAP_CONTRACT: Option<Address> = std::env::var("GETH_TEST_LR_SWAP_CONTRACT")
+        .ok()
+        .map(|v| Address::from_str(&v).unwrap_or_default());
 }
 
 pub fn api_mock_entry(api_url: Url) -> MmResult<Value, OneInchError> {
     log::debug!("api_mock_entry entered for {}", api_url);
+    let chain_id = GETH_CHAIN_ID.expect("GETH_CHAIN_ID env var needed");
     let cross_prices_path = format!(
         "/{}{}",
         PortfolioUrlBuilder::PORTFOLIO_PRICES_ENDPOINT_V1_0,
@@ -65,13 +68,13 @@ pub fn api_mock_entry(api_url: Url) -> MmResult<Value, OneInchError> {
     let quote_path = format!(
         "/{}{}/{}",
         SwapUrlBuilder::CLASSIC_SWAP_ENDPOINT_V6_0,
-        *GETH_CHAIN_ID,
+        chain_id,
         SwapApiMethods::ClassicSwapQuote.name()
     );
     let swap_path = format!(
         "/{}{}/{}",
         SwapUrlBuilder::CLASSIC_SWAP_ENDPOINT_V6_0,
-        *GETH_CHAIN_ID,
+        chain_id,
         SwapApiMethods::ClassicSwapCreate.name()
     );
     let resp = if api_url.path() == cross_prices_path.as_str() {
@@ -89,6 +92,7 @@ pub fn api_mock_entry(api_url: Url) -> MmResult<Value, OneInchError> {
 
 /// Note: response is in token or eth units, for example: for ETH/USDT pair the price is 2500.0 USDT
 fn mock_cross_prices(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchError> {
+    let erc20_contract = GETH_ERC20_CONTRACT.expect("GETH_ERC20_CONTRACT env var needed");
     let token0_address = query_pairs
         .get("token0_address")
         .map(|s| Address::from_str(s).unwrap())
@@ -97,26 +101,26 @@ fn mock_cross_prices(query_pairs: HashMap<String, String>) -> MmResult<Value, On
         .get("token1_address")
         .map(|s| Address::from_str(s).unwrap())
         .ok_or_else(|| missing_param_error!("token1_address"))?;
-    if token0_address == *ETH_CONTRACT && token1_address == *GETH_ERC20_CONTRACT {
+    if token0_address == *ETH_CONTRACT && token1_address == erc20_contract {
         Ok(json!(
             [{
                 "timestamp": now_sec(),
-                "open": ETH_ERC20_MOCK_PRICE as f64 * 0.995,
-                "low": ETH_ERC20_MOCK_PRICE as f64 * 0.997,
-                "avg": ETH_ERC20_MOCK_PRICE as f64 * 1.0,
-                "high": ETH_ERC20_MOCK_PRICE as f64 * 1.001,
-                "close": ETH_ERC20_MOCK_PRICE as f64 * 0.996,
+                "open": ETH_ERC20_MOCK_PRICE * 0.995,
+                "low": ETH_ERC20_MOCK_PRICE * 0.997,
+                "avg": ETH_ERC20_MOCK_PRICE * 1.0,
+                "high": ETH_ERC20_MOCK_PRICE * 1.001,
+                "close": ETH_ERC20_MOCK_PRICE * 0.996,
             }]
         ))
-    } else if token0_address == *GETH_ERC20_CONTRACT && token1_address == *ETH_CONTRACT {
+    } else if token0_address == erc20_contract && token1_address == *ETH_CONTRACT {
         Ok(json!(
             [{
                 "timestamp": now_sec(),
-                "open": 1.0 / (ETH_ERC20_MOCK_PRICE as f64 * 0.997),
-                "low": 1.0 / (ETH_ERC20_MOCK_PRICE as f64 * 1.003),
-                "avg": 1.0 / (ETH_ERC20_MOCK_PRICE as f64 * 1.0),
-                "high": 1.0 / (ETH_ERC20_MOCK_PRICE as f64 * 0.997),
-                "close": 1.0 / (ETH_ERC20_MOCK_PRICE as f64 * 1.002),
+                "open": 1.0 / (ETH_ERC20_MOCK_PRICE * 0.997),
+                "low": 1.0 / (ETH_ERC20_MOCK_PRICE * 1.003),
+                "avg": 1.0 / (ETH_ERC20_MOCK_PRICE * 1.0),
+                "high": 1.0 / (ETH_ERC20_MOCK_PRICE * 0.997),
+                "close": 1.0 / (ETH_ERC20_MOCK_PRICE * 1.002),
             }]
         ))
     } else {
@@ -125,6 +129,8 @@ fn mock_cross_prices(query_pairs: HashMap<String, String>) -> MmResult<Value, On
 }
 
 fn mock_quote(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchError> {
+    let erc20_contract = GETH_ERC20_CONTRACT.expect("GETH_ERC20_CONTRACT env var needed");
+    let erc20_decimals = GETH_ERC20_DECIMALS.expect("GETH_ERC20_DECIMALS env var needed");
     let src = query_pairs
         .get("src")
         .map(|s| Address::from_str(s).unwrap())
@@ -137,7 +143,7 @@ fn mock_quote(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchEr
         .get("amount")
         .map(|s| U256::from_dec_str(s).unwrap())
         .ok_or_else(|| missing_param_error!("amount"))?;
-    if src == *ETH_CONTRACT && dst == *GETH_ERC20_CONTRACT {
+    if src == *ETH_CONTRACT && dst == erc20_contract {
         Ok(json!({
             "dstAmount": calc_dst_tokens(src_amount).to_string(),
             "srcToken":{
@@ -153,21 +159,21 @@ fn mock_quote(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchEr
                 "address": dst.addr_to_string(),
                 "symbol": "ERC20",
                 "name": "erc20 dev token",
-                "decimals": *GETH_ERC20_DECIMALS,
+                "decimals": erc20_decimals,
                 "eip2612": true,
                 "isFoT": false,
                 "tags": []
             },
             "gas":230000
         }))
-    } else if src == *GETH_ERC20_CONTRACT && dst == *ETH_CONTRACT {
+    } else if src == erc20_contract && dst == *ETH_CONTRACT {
         Ok(json!({
             "dstAmount": calc_dst_wei(src_amount).to_string(),
             "srcToken":{
                 "address": src.addr_to_string(),
                 "symbol": "ERC20",
                 "name": "erc20 dev token",
-                "decimals": *GETH_ERC20_DECIMALS,
+                "decimals": erc20_decimals,
                 "eip2612": true,
                 "isFoT": false,
                 "tags": []
@@ -189,33 +195,37 @@ fn mock_quote(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchEr
 }
 
 fn mock_swap(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchError> {
-    fn make_eth_to_token_tx(from: Address, value: U256, slippage: U256) -> Value {
+    let erc20_contract = GETH_ERC20_CONTRACT.expect("GETH_ERC20_CONTRACT env var needed");
+    let erc20_decimals = GETH_ERC20_DECIMALS.expect("GETH_ERC20_DECIMALS env var needed");
+    let lr_swap_test_contract = GETH_TEST_LR_SWAP_CONTRACT.expect("GETH_TEST_LR_SWAP_CONTRACT env var needed");
+
+    let make_eth_to_token_tx = |from: Address, value: U256, slippage: U256| -> Value {
         let function = TEST_LR_SWAP_CONTRACT.function("swapEthForTokens").unwrap();
         let data = function.encode_input(&[Token::Uint(slippage)]).unwrap();
         json!({
             "from": from.addr_to_string(),
-            "to": GETH_TEST_LR_SWAP_CONTRACT.addr_to_string(),
+            "to": lr_swap_test_contract.addr_to_string(),
             "data": hex::encode(data),
             "value": value.to_string(),
             "gas": 150000,
             "gasPrice": "1_000_000_000"
         })
-    }
+    };
 
-    fn make_token_to_eth_tx(from: Address, value: U256, slippage: U256) -> Value {
+    let make_token_to_eth_tx = |from: Address, value: U256, slippage: U256| -> Value {
         let function = TEST_LR_SWAP_CONTRACT.function("swapTokensForEth").unwrap();
         let data = function
             .encode_input(&[Token::Uint(value), Token::Uint(slippage)])
             .unwrap();
         json!({
             "from": from.addr_to_string(),
-            "to": GETH_TEST_LR_SWAP_CONTRACT.addr_to_string(),
+            "to": lr_swap_test_contract.addr_to_string(),
             "data": hex::encode(data),
             "value": value.to_string(),
             "gas": 150000,
             "gasPrice": "1_000_000_000"
         })
-    }
+    };
 
     let from = query_pairs
         .get("from")
@@ -238,7 +248,7 @@ fn mock_swap(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchErr
         .map(|s| f64::from_str(s).unwrap())
         .ok_or_else(|| missing_param_error!("slippage"))?; // slippage in percent
     let slippage_for_call = (slippage * 10.0) as u64; // slippage for call in 1/1000
-    if src == *ETH_CONTRACT && dst == *GETH_ERC20_CONTRACT {
+    if src == *ETH_CONTRACT && dst == erc20_contract {
         Ok(json!({
             "dstAmount": calc_dst_tokens(src_amount).to_string(),
             "tx": make_eth_to_token_tx(from, src_amount, slippage_for_call.into()),
@@ -255,14 +265,14 @@ fn mock_swap(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchErr
                 "address": dst.addr_to_string(),
                 "symbol": "ERC20DEV",
                 "name": "erc20 dev token",
-                "decimals": *GETH_ERC20_DECIMALS,
+                "decimals": erc20_decimals,
                 "eip2612": true,
                 "isFoT": false,
                 "tags":[]
             },
             "protocols":[[[]]]
         }))
-    } else if src == *GETH_ERC20_CONTRACT && dst == *ETH_CONTRACT {
+    } else if src == erc20_contract && dst == *ETH_CONTRACT {
         Ok(json!({
             "dstAmount": calc_dst_wei(src_amount).to_string(),
             "tx": make_token_to_eth_tx(from, src_amount, slippage_for_call.into()),
@@ -270,7 +280,7 @@ fn mock_swap(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchErr
                 "address": src.addr_to_string(),
                 "symbol": "ERC20",
                 "name": "erc20 dev token",
-                "decimals": *GETH_ERC20_DECIMALS,
+                "decimals": erc20_decimals,
                 "eip2612": true,
                 "isFoT": false,
                 "tags": []
@@ -290,14 +300,21 @@ fn mock_swap(query_pairs: HashMap<String, String>) -> MmResult<Value, OneInchErr
     }
 }
 
+pub fn price_for_token_smallest_unit(erc20_decimals: u32) -> U256 {
+    let price = (BigDecimal::from_f64(ETH_ERC20_MOCK_PRICE).unwrap() * BigDecimal::from(10_u64.pow(erc20_decimals)))
+        .round(0)
+        .to_string();
+    U256::from_dec_str(&price).unwrap()
+}
+
 /// src_amount is in wei, response is in token smallest units
 fn calc_dst_tokens(src_amount: U256) -> U256 {
-    src_amount * U256::from(ETH_ERC20_MOCK_PRICE) * U256::from(10_u64.pow(*GETH_ERC20_DECIMALS))
-        / U256::from(10_u64.pow(ETH_DECIMALS))
+    let erc20_decimals = GETH_ERC20_DECIMALS.expect("GETH_ERC20_DECIMALS env var needed");
+    src_amount * price_for_token_smallest_unit(erc20_decimals) / U256::from(10_u64.pow(ETH_DECIMALS))
 }
 
 /// src_amount is in token smallest units, response is in wei
 fn calc_dst_wei(src_amount: U256) -> U256 {
-    src_amount * U256::from(10_u64.pow(ETH_DECIMALS))
-        / (U256::from(ETH_ERC20_MOCK_PRICE) * U256::from(10_u64.pow(*GETH_ERC20_DECIMALS)))
+    let erc20_decimals = GETH_ERC20_DECIMALS.expect("GETH_ERC20_DECIMALS env var needed");
+    src_amount * U256::from(10_u64.pow(ETH_DECIMALS)) / price_for_token_smallest_unit(erc20_decimals)
 }

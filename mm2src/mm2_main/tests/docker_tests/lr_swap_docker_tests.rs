@@ -1,8 +1,7 @@
 //! Docker tests for 'aggregated taker swaps with liquidity routing' (LR).
 
-use crate::docker_tests::docker_tests_common::{deposit_erc20_to_lr_swap_contract, deposit_eth_to_lr_swap_contract,
-                                               enable_geth_tokens, generate_utxo_coin_with_privkey,
-                                               geth_approve_tokens, geth_deploy_lr_swap_contract, GETH_ERC20_CONTRACT};
+use crate::docker_tests::docker_tests_common::{enable_geth_tokens, generate_utxo_coin_with_privkey,
+                                               GETH_ERC20_CONTRACT, GETH_LR_SWAP_TEST_CONTRACT};
 use crate::docker_tests::eth_docker_tests::{erc20_contract_checksum, fill_erc20_with_privkey, fill_eth_with_privkey,
                                             geth_erc20_balance, geth_erc20_decimals, GETH_DEV_CHAIN_ID};
 use crate::integration_tests_common::enable_native;
@@ -15,7 +14,6 @@ use coins::hd_wallet::AddrToString;
 use common::executor::Timer;
 use common::{block_on, log};
 use crypto::privkey::key_pair_from_seed;
-use ethereum_types::U256;
 use mm2_number::BigDecimal;
 use mm2_test_helpers::for_tests::best_orders_v2_by_number;
 use mm2_test_helpers::for_tests::{active_swaps, disable_coin, erc20_dev_conf, eth_dev_conf, mm_dump, my_balance,
@@ -41,7 +39,7 @@ fn test_aggregated_swap_eth_utxo_sell() {
     let swap_amount: BigDecimal = "0.0333".parse().unwrap(); // in ETH
     let maker_order_params = (utxo_rel.as_str(), erc20_ticker.as_str(), utxo_to_erc20_price, 200.0);
     let rel_amount = &swap_amount
-        * &BigDecimal::from_u32(ETH_ERC20_MOCK_PRICE).unwrap() // ERC20 value
+        * &BigDecimal::from_f64(ETH_ERC20_MOCK_PRICE).unwrap() // ERC20 value
         / &BigDecimal::from_f64(utxo_to_erc20_price).unwrap(); // MYCOIN value
     let method = "sell"; // Sell ETH for MYCOIN
     test_aggregated_swap_eth_utxo_impl(
@@ -70,7 +68,7 @@ fn test_aggregated_swap_eth_utxo_buy() {
     let maker_order_params = (utxo_base.as_str(), erc20_ticker.as_str(), utxo_to_erc20_price, 200.0);
     let rel_amount = &swap_amount
         * &BigDecimal::from_f64(utxo_to_erc20_price).unwrap() // ERC20 value
-        / &BigDecimal::from_u32(ETH_ERC20_MOCK_PRICE).unwrap(); // ETH value
+        / &BigDecimal::from_f64(ETH_ERC20_MOCK_PRICE).unwrap(); // ETH value
     let method = "buy"; // Buy MYCOIN for ETH
     test_aggregated_swap_eth_utxo_impl(
         &utxo_base,
@@ -109,23 +107,10 @@ fn test_aggregated_swap_eth_utxo_impl(
         geth_erc20_balance(unsafe { GETH_ACCOUNT })
     );
     let erc20_decimals = geth_erc20_decimals();
-    let price_for_token_smallest_unit = (BigDecimal::from_u32(ETH_ERC20_MOCK_PRICE).unwrap()
-        * BigDecimal::from_u64(10_u64.pow(erc20_decimals as u32)).unwrap())
-    .round(0)
-    .to_string();
-    let wei_to_deposit = U256::from(TEST_ETH_AMOUNT) * U256::from(10_u64.pow(18)); // 10 eth
-    let tokens_to_deposit = U256::from(TEST_ERC20_AMOUNT) * U256::from(10_u64.pow(erc20_decimals as u32)); // 500_0000_0000
-
-    // Deploy and top up LR provider emulator
-    let lr_swap_test_contract =
-        geth_deploy_lr_swap_contract(U256::from_dec_str(&price_for_token_smallest_unit).unwrap());
-    deposit_eth_to_lr_swap_contract(lr_swap_test_contract, wei_to_deposit);
-    geth_approve_tokens(unsafe { GETH_ERC20_CONTRACT }, lr_swap_test_contract, tokens_to_deposit);
-    deposit_erc20_to_lr_swap_contract(lr_swap_test_contract, tokens_to_deposit);
     log!(
         "lr_swap_test_contract={} erc20 balance={}",
-        lr_swap_test_contract,
-        geth_erc20_balance(lr_swap_test_contract)
+        unsafe { GETH_LR_SWAP_TEST_CONTRACT },
+        geth_erc20_balance(unsafe { GETH_LR_SWAP_TEST_CONTRACT })
     );
 
     let alice_passphrase =
@@ -160,7 +145,10 @@ fn test_aggregated_swap_eth_utxo_impl(
             ("GETH_ERC20_CONTRACT", &unsafe { GETH_ERC20_CONTRACT }.addr_to_string()),
             ("GETH_ERC20_DECIMALS", &erc20_decimals.to_string()),
             ("GETH_CHAIN_ID", &GETH_DEV_CHAIN_ID.to_string()),
-            ("GETH_TEST_LR_SWAP_CONTRACT", &lr_swap_test_contract.addr_to_string()),
+            (
+                "GETH_TEST_LR_SWAP_CONTRACT",
+                &unsafe { GETH_LR_SWAP_TEST_CONTRACT }.addr_to_string(),
+            ),
         ],
     ))
     .unwrap();
@@ -176,7 +164,10 @@ fn test_aggregated_swap_eth_utxo_impl(
             ("GETH_ERC20_CONTRACT", &unsafe { GETH_ERC20_CONTRACT }.addr_to_string()),
             ("GETH_ERC20_DECIMALS", &erc20_decimals.to_string()),
             ("GETH_CHAIN_ID", &GETH_DEV_CHAIN_ID.to_string()),
-            ("GETH_TEST_LR_SWAP_CONTRACT", &lr_swap_test_contract.addr_to_string()),
+            (
+                "GETH_TEST_LR_SWAP_CONTRACT",
+                &unsafe { GETH_LR_SWAP_TEST_CONTRACT }.addr_to_string(),
+            ),
         ],
     ))
     .unwrap();
