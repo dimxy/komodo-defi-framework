@@ -172,9 +172,9 @@ impl EthCoin {
             ))
         })?;
         let taker_address = public_to_address(args.taker_pub);
-        let tx_parity = signed_tx_from_web3_tx(tx_from_rpc.clone())
+        let signed_tx = signed_tx_from_web3_tx(tx_from_rpc.clone())
             .map_err(|err| ValidateSwapV2TxError::WrongPaymentTx(format!("Could not parse tx: {:?}", err)))?;
-        validate_from_to_addresses(&tx_parity, taker_address, taker_swap_v2_contract).map_mm_err()?;
+        validate_from_to_addresses(&signed_tx, taker_address, taker_swap_v2_contract).map_mm_err()?;
 
         let validation_args = {
             let dex_fee = u256_from_big_decimal(&args.dex_fee.fee_amount().into(), self.decimals).map_mm_err()?;

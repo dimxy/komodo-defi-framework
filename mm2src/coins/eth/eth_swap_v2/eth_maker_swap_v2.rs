@@ -1,5 +1,6 @@
 use super::{validate_amount, EthPaymentType, PaymentMethod, PrepareTxDataError, ZERO_VALUE};
 use crate::coin_errors::{ValidatePaymentError, ValidatePaymentResult};
+use crate::eth::eth_swap_v2::validate_from_to_addresses;
 use crate::eth::{
     decode_contract_call, get_function_input_data, u256_from_big_decimal, EthCoin, EthCoinType, SignedEthTx,
     MAKER_SWAP_V2,
@@ -136,29 +137,7 @@ impl EthCoin {
         let maker_address = public_to_address(args.maker_pub);
         let taker_address = self.my_addr().await;
 
-        match tx.unsigned().action() {
-            Action::Call(to) => {
-                if *to != maker_swap_v2_contract {
-                    return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                        "Payment tx was sent to wrong address, expected {:?}, got {:?}",
-                        maker_swap_v2_contract, to
-                    )));
-                }
-            },
-            Action::Create => {
-                return MmError::err(ValidatePaymentError::WrongPaymentTx(
-                    "Tx action must be Call, found Create instead".to_string(),
-                ));
-            },
-        }
-
-        if tx.sender() != maker_address {
-            return MmError::err(ValidatePaymentError::WrongPaymentTx(format!(
-                "Payment tx was sent from wrong address, expected {:?}, got {:?}",
-                maker_address,
-                tx.sender()
-            )));
-        }
+        validate_from_to_addresses(&tx, maker_address, maker_swap_v2_contract).map_mm_err()?;
 
         let validation_args = {
             let amount = u256_from_big_decimal(&args.amount, self.decimals).map_mm_err()?;
