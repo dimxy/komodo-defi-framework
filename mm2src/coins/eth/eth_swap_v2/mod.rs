@@ -177,17 +177,17 @@ impl EthCoin {
 }
 
 pub(crate) fn validate_from_to_addresses(
-    tx_from_rpc: &SignedEthTx,
+    signed_tx: &SignedEthTx,
     expected_from: Address,
     expected_to: Address,
 ) -> Result<(), MmError<ValidatePaymentV2Err>> {
-    if tx_from_rpc.sender() != expected_from {
+    if signed_tx.sender() != expected_from {
         return MmError::err(ValidatePaymentV2Err::WrongPaymentTx(format!(
-            "Payment tx {tx_from_rpc:?} was sent from wrong address, expected {expected_from:?}"
+            "Payment tx {signed_tx:?} was sent from wrong address, expected {expected_from:?}"
         )));
     }
     // (in NFT case) as NFT owner calls "safeTransferFrom" directly, then in Transaction 'to' field we expect token_address
-    match tx_from_rpc.unsigned().action() {
+    match signed_tx.unsigned().action() {
         Action::Call(to) => {
             if *to != expected_to {
                 return MmError::err(ValidatePaymentV2Err::WrongPaymentTx(format!(
