@@ -179,6 +179,22 @@ async fn experimental_rpcs_dispatcher(
     ctx: MmArc,
     experimental_method: &str,
 ) -> DispatcherResult<Response<Vec<u8>>> {
+    #[cfg(feature = "enable-solana")]
+    match request.method.as_str() {
+        "experimental::enable_solana_with_assets" => {
+            return handle_mmrpc(
+                ctx,
+                request,
+                enable_platform_coin_with_tokens::<coins::solana::SolanaCoin>,
+            )
+            .await
+        },
+        "experimental::enable_solana_token" => {
+            return handle_mmrpc(ctx, request, enable_token::<coins::solana::SolanaToken>).await
+        },
+        _ => {},
+    };
+
     if let Some(staking_method) = experimental_method.strip_prefix("staking::") {
         return staking_dispatcher(request, ctx, staking_method).await;
     }

@@ -35,6 +35,7 @@ for-tests = [
     "common/for-tests",
     "trading_api/for-tests"
 ]
+enable-solana = ["coins/enable-solana", "coins_activation/enable-solana"]
 
 [dependencies]
 async-std = { workspace = true, features = ["unstable"] }
