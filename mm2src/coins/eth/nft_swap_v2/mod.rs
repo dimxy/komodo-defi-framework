@@ -12,7 +12,8 @@ use super::ContractType;
 use crate::coin_errors::{ValidatePaymentError, ValidatePaymentResult};
 use crate::eth::eth_swap_v2::{validate_from_to_addresses, PaymentMethod, PrepareTxDataError, ZERO_VALUE};
 use crate::eth::{
-    decode_contract_call, EthCoin, EthCoinType, SignedEthTx, ERC1155_CONTRACT, ERC721_CONTRACT, NFT_MAKER_SWAP_V2,
+    decode_contract_call, signed_tx_from_web3_tx, EthCoin, EthCoinType, SignedEthTx, ERC1155_CONTRACT, ERC721_CONTRACT,
+    NFT_MAKER_SWAP_V2,
 };
 use crate::{
     ParseCoinAssocTypes, RefundNftMakerPaymentArgs, SendNftMakerPaymentArgs, SpendNftMakerPaymentArgs, TransactionErr,
@@ -92,7 +93,9 @@ impl EthCoin {
                         args.maker_payment_tx.tx_hash()
                     ))
                 })?;
-                validate_from_to_addresses(tx_from_rpc, maker_address, *token_address).map_mm_err()?;
+                let tx_parity = signed_tx_from_web3_tx(tx_from_rpc.clone())
+                    .map_err(|err| ValidatePaymentError::WrongPaymentTx(format!("Could not parse tx: {:?}", err)))?;
+                validate_from_to_addresses(&tx_parity, maker_address, *token_address).map_mm_err()?;
 
                 let (decoded, bytes_index) = get_decoded_tx_data_and_bytes_index(contract_type, &tx_from_rpc.input.0)?;
 

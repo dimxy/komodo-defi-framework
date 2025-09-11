@@ -1,4 +1,6 @@
-use crate::eth::{decode_contract_call, signed_tx_from_web3_tx, EthCoin, EthCoinType, Transaction, TransactionErr};
+use crate::eth::{
+    decode_contract_call, signed_tx_from_web3_tx, Action, EthCoin, EthCoinType, Transaction, TransactionErr,
+};
 use crate::{FindPaymentSpendError, MarketCoinOps};
 use common::executor::Timer;
 use common::log::{error, info};
@@ -12,7 +14,7 @@ use futures::compat::Future01CompatExt;
 use mm2_err_handle::prelude::{MmError, MmResult};
 use mm2_number::BigDecimal;
 use num_traits::Signed;
-use web3::types::{Transaction as Web3Tx, TransactionId};
+use web3::types::TransactionId;
 
 pub(crate) mod eth_maker_swap_v2;
 pub(crate) mod eth_taker_swap_v2;
@@ -175,20 +177,30 @@ impl EthCoin {
 }
 
 pub(crate) fn validate_from_to_addresses(
-    tx_from_rpc: &Web3Tx,
+    tx_from_rpc: &SignedEthTx,
     expected_from: Address,
     expected_to: Address,
 ) -> Result<(), MmError<ValidatePaymentV2Err>> {
-    if tx_from_rpc.from != Some(expected_from) {
+    if tx_from_rpc.sender() != expected_from {
         return MmError::err(ValidatePaymentV2Err::WrongPaymentTx(format!(
             "Payment tx {tx_from_rpc:?} was sent from wrong address, expected {expected_from:?}"
         )));
     }
     // (in NFT case) as NFT owner calls "safeTransferFrom" directly, then in Transaction 'to' field we expect token_address
-    if tx_from_rpc.to != Some(expected_to) {
-        return MmError::err(ValidatePaymentV2Err::WrongPaymentTx(format!(
-            "Payment tx {tx_from_rpc:?} was sent to wrong address, expected {expected_to:?}",
-        )));
+    match tx_from_rpc.unsigned().action() {
+        Action::Call(to) => {
+            if *to != expected_to {
+                return MmError::err(ValidatePaymentV2Err::WrongPaymentTx(format!(
+                    "Payment tx was sent to wrong address, expected {:?}, got {:?}",
+                    expected_to, to
+                )));
+            }
+        },
+        Action::Create => {
+            return MmError::err(ValidatePaymentV2Err::WrongPaymentTx(
+                "Tx action must be Call, found Create instead".to_string(),
+            ));
+        },
     }
     Ok(())
 }
