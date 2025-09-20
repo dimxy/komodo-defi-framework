@@ -316,18 +316,34 @@ pub async fn check_balance_for_swap(
     Ok(balance)
 }
 
-/// Helper to return swap volume and total fees to the calculate balance function
+/// Helper to return total fees for legacy and TPU swaps, either for maker or taker,
+/// to balance checking or calculating function
 #[async_trait]
 pub trait SwapTotalFeeHelper {
+    /// Returns my coin object
     fn get_my_coin(&self) -> &dyn MmCoin;
+
+    /// Returns my coin trade volume
     fn get_my_coin_volume(&self) -> MmNumber;
+
+    /// Returns dex fee for taker or None
     fn get_dex_fee(&self) -> Option<MmNumber>;
+
+    /// Estimates fees for the party trading my_coin
     async fn get_my_coin_fees(&self, upper_bound_amount: bool) -> CheckBalanceResult<TradeFee>;
+
+    /// Returns for other coin object
     fn get_other_coin(&self) -> &dyn MmCoin;
+
+    /// Estimates fees for the party trading other_coin
     async fn get_other_coin_fees(&self) -> CheckBalanceResult<TradeFee>;
+
+    /// Returns true if fees for my_coin are paid in platfrom coin (different from my_coin)
     fn is_my_platform_fee(&self, fees: &TradeFee) -> bool {
         self.get_my_coin().ticker() != fees.coin
     }
+
+    /// Returns true if fees for other_coin are paid in platfrom coin (different from other__coin)
     fn is_other_platform_fee(&self, fees: &TradeFee) -> bool {
         self.get_other_coin().ticker() != fees.coin
     }
