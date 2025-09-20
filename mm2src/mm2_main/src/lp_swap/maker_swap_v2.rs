@@ -941,8 +941,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2 + Clone, TakerCoin: MmCoin + TakerCo
                 return Self::change_state(Aborted::new(reason), state_machine).await;
             },
         };
-        if let Err(e) =
-            check_balance_for_swap(&state_machine.ctx, Some(&state_machine.uuid), &fee_helper, false).await
+        if let Err(e) = check_balance_for_swap(&state_machine.ctx, Some(&state_machine.uuid), &fee_helper, false).await
         {
             let reason = AbortReason::BalanceCheckFailure(e.to_string());
             return Self::change_state(Aborted::new(reason), state_machine).await;
