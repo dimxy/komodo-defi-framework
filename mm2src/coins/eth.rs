@@ -3978,10 +3978,12 @@ impl EthCoin {
                 default_gas
             } else {
                 match &action {
-                    Action::Call(contract_addr) => coin
-                        .estimate_gas_for_contract_call_if_conf(*contract_addr, Bytes::from(data.clone()), value)
-                        .await
-                        .map_err(|err| TransactionErr::Plain(ERRL!("{}", err.get_inner())))?,
+                    Action::Call(contract_addr) => {
+                        coin.estimate_gas_for_contract_call_if_conf(*contract_addr, Bytes::from(data.clone()), value)
+                            .await
+                            .map_err(|err| TransactionErr::Plain(ERRL!("{}", err.get_inner())))?
+                            .0
+                    },
                     _ => return Err(TransactionErr::InternalError("no gas limit set".to_owned())),
                 }
             };
@@ -4884,7 +4886,7 @@ impl EthCoin {
         contract_addr: Address,
         call_data: Bytes,
         value: U256,
-    ) -> Web3RpcResult<U256> {
+    ) -> Web3RpcResult<(U256, U256)> {
         let coin = self.clone();
         let my_address = coin.derivation_method.single_addr_or_err().await.map_mm_err()?;
         let fee_policy_for_estimate =
@@ -4902,11 +4904,17 @@ impl EthCoin {
         };
         // gas price must be supplied because some smart contracts base their
         // logic on gas price, e.g. TUSD: https://github.com/KomodoPlatform/atomicDEX-API/issues/643
-        let estimate_gas_req = call_request_with_pay_for_gas_option(estimate_gas_req, pay_for_gas_option);
-        coin.estimate_gas_wrapper(estimate_gas_req)
+        let estimate_gas_req = call_request_with_pay_for_gas_option(estimate_gas_req, pay_for_gas_option.clone());
+        let gas_limit = coin
+            .estimate_gas_wrapper(estimate_gas_req)
             .compat()
             .await
-            .map_to_mm(Web3RpcError::from)
+            .map_to_mm(Web3RpcError::from)?;
+        let fee_per_gas = match pay_for_gas_option {
+            PayForGasOption::Legacy { gas_price } => gas_price,
+            PayForGasOption::Eip1559 { max_fee_per_gas, .. } => max_fee_per_gas,
+        };
+        Ok((gas_limit, fee_per_gas))
     }
 
     /// Calls estimate_gas_for_contract_call if the `estimate_gas_mult` conf param is set or `default_gas` is None.
@@ -4916,16 +4924,16 @@ impl EthCoin {
         contract_addr: Address,
         call_data: Bytes,
         value: U256,
-    ) -> Web3RpcResult<U256> {
-        let gas_estimated = self
+    ) -> Web3RpcResult<(U256, U256)> {
+        let (gas_estimated, fee_per_gas) = self
             .estimate_gas_for_contract_call(contract_addr, call_data, value)
             .await?;
         if let Some(estimate_gas_mult) = self.estimate_gas_mult {
             let gas_estimated = u256_to_big_decimal(gas_estimated, 0).map_mm_err()?
                 * BigDecimal::from_f64(estimate_gas_mult).unwrap_or(BigDecimal::from(1));
-            Ok(u256_from_big_decimal(&gas_estimated, 0).map_mm_err()?)
+            Ok((u256_from_big_decimal(&gas_estimated, 0).map_mm_err()?, fee_per_gas))
         } else {
-            Ok(gas_estimated)
+            Ok((gas_estimated, fee_per_gas))
         }
     }
 
@@ -5898,6 +5906,27 @@ impl EthCoin {
             },
         }
     }
+
+    /// Estimated trade fee for the provided gas limit
+    pub async fn estimate_trade_fee(&self, gas_limit: U256, stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
+        let pay_for_gas_option = self
+            .get_swap_pay_for_gas_option(self.get_swap_gas_fee_policy().await.map_mm_err()?)
+            .await
+            .map_mm_err()?;
+        let pay_for_gas_option = increase_gas_price_by_stage(pay_for_gas_option, &stage);
+        let total_fee = calc_total_fee(gas_limit, &pay_for_gas_option).map_mm_err()?;
+        let amount = u256_to_big_decimal(total_fee, ETH_DECIMALS).map_mm_err()?;
+        let fee_coin = match &self.coin_type {
+            EthCoinType::Eth => &self.ticker,
+            EthCoinType::Erc20 { platform, .. } => platform,
+            EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
+        };
+        Ok(TradeFee {
+            coin: fee_coin.into(),
+            amount: amount.into(),
+            paid_from_trading_vol: false,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -6096,7 +6125,7 @@ impl MmCoin for EthCoin {
                     let spender = self.derivation_method.single_addr_or_err().await.map_mm_err()?;
                     let approve_function = ERC20_CONTRACT.function("approve")?;
                     let approve_data = approve_function.encode_input(&[Token::Address(spender), Token::Uint(value)])?;
-                    let approve_gas_limit = self
+                    let (approve_gas_limit, _) = self
                         .estimate_gas_for_contract_call(token_addr, Bytes::from(approve_data), 0.into())
                         .await
                         .map_mm_err()?;
@@ -7547,6 +7576,24 @@ impl Eip1559Ops for EthCoin {
 
 #[async_trait]
 impl TakerCoinSwapOpsV2 for EthCoin {
+    /// Wrapper for [EthCoin::get_fee_to_send_taker_funding_impl]
+    async fn get_fee_to_send_taker_funding(&self, args: GetTakerFundingFeeArgs) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_send_taker_funding_impl(args).await
+    }
+
+    async fn get_fee_to_spend_taker_funding(&self) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_spend_taker_funding_impl().await
+    }
+
+    async fn get_fee_to_spend_taker_payment(&self) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_spend_taker_payment_impl().await
+    }
+
+    /// Estimate tx fee to spend taker payment
+    async fn get_fee_to_refund_taker_payment(&self) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_refund_taker_payment_impl().await
+    }
+
     /// Wrapper for [EthCoin::send_taker_funding_impl]
     async fn send_taker_funding(&self, args: SendTakerFundingArgs<'_>) -> Result<Self::Tx, TransactionErr> {
         self.send_taker_funding_impl(args).await
@@ -7755,6 +7802,21 @@ impl EthCoin {
 
 #[async_trait]
 impl MakerCoinSwapOpsV2 for EthCoin {
+    async fn get_fee_to_send_maker_payment_v2(
+        &self,
+        args: GetFeeToSendMakerPaymentArgs,
+    ) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_send_maker_payment_v2_impl(args).await
+    }
+
+    async fn get_fee_to_spend_maker_payment_v2(&self) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_spend_maker_payment_v2_impl().await
+    }
+
+    async fn get_fee_to_refund_maker_payment_v2(&self) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_refund_maker_payment_v2_impl().await
+    }
+
     async fn send_maker_payment_v2(&self, args: SendMakerPaymentArgs<'_, Self>) -> Result<Self::Tx, TransactionErr> {
         self.send_maker_payment_v2_impl(args).await
     }

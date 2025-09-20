@@ -3,12 +3,13 @@ use super::{
 };
 use crate::coin_errors::{ValidatePaymentError, ValidatePaymentResult};
 use crate::eth::{
-    decode_contract_call, get_function_input_data, u256_from_big_decimal, EthCoin, EthCoinType, SignedEthTx,
-    MAKER_SWAP_V2,
+    decode_contract_call, get_function_input_data, u256_from_big_decimal, u256_to_big_decimal, EthCoin, EthCoinType,
+    FeeApproxStage, SignedEthTx, ETH_DECIMALS, MAKER_SWAP_V2,
 };
 use crate::{
-    ParseCoinAssocTypes, RefundMakerPaymentSecretArgs, RefundMakerPaymentTimelockArgs, SendMakerPaymentArgs,
-    SpendMakerPaymentArgs, SwapTxTypeWithSecretHash, TransactionErr, ValidateMakerPaymentArgs,
+    GetFeeToSendMakerPaymentArgs, MarketCoinOps, ParseCoinAssocTypes, RefundMakerPaymentSecretArgs,
+    RefundMakerPaymentTimelockArgs, SendMakerPaymentArgs, SpendMakerPaymentArgs, SwapTxTypeWithSecretHash, TradeFee,
+    TradePreimageError, TradePreimageResult, TransactionErr, ValidateMakerPaymentArgs,
 };
 use ethabi::{Function, Token};
 use ethcore_transaction::Action;
@@ -18,7 +19,7 @@ use futures::compat::Future01CompatExt;
 use mm2_err_handle::mm_error::MmError;
 use mm2_err_handle::prelude::{MapToMmResult, MmResultExt};
 use std::convert::TryInto;
-use web3::types::TransactionId;
+use web3::types::{Bytes, TransactionId};
 
 const ETH_MAKER_PAYMENT: &str = "ethMakerPayment";
 const ERC20_MAKER_PAYMENT: &str = "erc20MakerPayment";
@@ -58,6 +59,60 @@ struct MakerRefundSecretArgs<'a> {
 }
 
 impl EthCoin {
+    pub(crate) async fn get_fee_to_send_maker_payment_v2_impl(
+        &self,
+        args: GetFeeToSendMakerPaymentArgs,
+    ) -> TradePreimageResult<TradeFee> {
+        const NON_ZERO_SECRET_HASH: [u8; 32] = [1_u8; 32];
+        let maker_swap_v2_contract = self
+            .swap_v2_contracts
+            .ok_or_else(|| {
+                TradePreimageError::InternalError(ERRL!("Expected swap_v2_contracts to be Some, but found None"))
+            })?
+            .maker_swap_v2_contract;
+        let payment_amount = u256_from_big_decimal(&args.amount, self.decimals)
+            .map_err(|err| TradePreimageError::InternalError(ERRL!("{}", err)))?;
+        let payment_args = {
+            MakerPaymentArgs {
+                taker_address: Default::default(),
+                taker_secret_hash: &NON_ZERO_SECRET_HASH,
+                maker_secret_hash: &NON_ZERO_SECRET_HASH,
+                payment_time_lock: args.time_lock,
+            }
+        };
+        let (eth_value, data) = match &self.coin_type {
+            EthCoinType::Eth => {
+                let data = self
+                    .prepare_maker_eth_payment_data(&payment_args)
+                    .await
+                    .map_err(|err| TradePreimageError::InternalError(ERRL!("{}", err)))?;
+                (payment_amount, data)
+            },
+            EthCoinType::Erc20 {
+                platform: _,
+                token_addr,
+            } => {
+                let data = self
+                    .prepare_maker_erc20_payment_data(&payment_args, payment_amount, *token_addr)
+                    .await
+                    .map_err(|err| TradePreimageError::InternalError(ERRL!("{}", err)))?;
+                (0.into(), data)
+            },
+            EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
+        };
+        let (gas_limit, fee_per_gas) = self
+            .estimate_gas_for_contract_call_if_conf(maker_swap_v2_contract, Bytes::from(data.clone()), eth_value)
+            .await
+            .map_mm_err()?;
+        let total_fee = gas_limit * fee_per_gas;
+        let total_fee = u256_to_big_decimal(total_fee, ETH_DECIMALS).map_mm_err()?;
+        Ok(TradeFee {
+            coin: self.platform_ticker().to_owned(),
+            amount: total_fee.into(),
+            paid_from_trading_vol: false,
+        })
+    }
+
     pub(crate) async fn send_maker_payment_v2_impl(
         &self,
         args: SendMakerPaymentArgs<'_, Self>,
@@ -275,6 +330,27 @@ impl EthCoin {
         )
         .compat()
         .await
+    }
+
+    /// Estimate spend payment fee using the gas_limit const.
+    /// Using the gas_limit const because we cannot get correct estimation from the chain for spending a non-existent payment.
+    pub(crate) async fn get_fee_to_spend_maker_payment_v2_impl(&self) -> TradePreimageResult<TradeFee> {
+        let gas_limit = self
+            .gas_limit_v2
+            .gas_limit(&self.coin_type, EthPaymentType::MakerPayments, PaymentMethod::Spend)
+            .map_err(|e| TradePreimageError::InternalError(ERRL!("{}", e)))?;
+        self.estimate_trade_fee(gas_limit.into(), FeeApproxStage::TradePreimage)
+            .await
+    }
+
+    /// Estimate refund payment fee
+    pub(crate) async fn get_fee_to_refund_maker_payment_v2_impl(&self) -> TradePreimageResult<TradeFee> {
+        let gas_limit = self
+            .gas_limit_v2
+            .gas_limit(&self.coin_type, EthPaymentType::MakerPayments, PaymentMethod::Spend)
+            .map_err(|e| TradePreimageError::InternalError(ERRL!("{}", e)))?;
+        self.estimate_trade_fee(gas_limit.into(), FeeApproxStage::TradePreimage)
+            .await
     }
 
     pub(crate) async fn spend_maker_payment_v2_impl(

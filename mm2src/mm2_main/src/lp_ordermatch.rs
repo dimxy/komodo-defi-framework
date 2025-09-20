@@ -86,11 +86,12 @@ use crate::lp_network::{broadcast_p2p_msg, request_any_relay, request_one_peer, 
 use crate::lp_swap::maker_swap_v2::{self, MakerSwapStateMachine, MakerSwapStorage};
 use crate::lp_swap::taker_swap_v2::{self, TakerSwapStateMachine, TakerSwapStorage};
 use crate::lp_swap::{
-    calc_max_maker_vol, check_balance_for_maker_swap, check_balance_for_taker_swap, check_other_coin_balance_for_swap,
-    detect_secret_hash_algo_v2, generate_secret, get_max_maker_vol, insert_new_swap_to_db, is_pubkey_banned,
-    lp_atomic_locktime, p2p_keypair_and_peer_id_to_broadcast, p2p_private_and_peer_id_to_broadcast, run_maker_swap,
-    run_taker_swap, swap_v2_topic, AtomicLocktimeVersion, CheckBalanceError, CheckBalanceResult, CoinVolumeInfo,
-    MakerSwap, RunMakerSwapInput, RunTakerSwapInput, SwapConfirmationsSettings, TakerSwap, LEGACY_SWAP_TYPE,
+    calc_max_maker_vol, check_balance_for_taker_swap, check_other_coin_balance_for_swap, create_maker_total_fee_helper,
+    create_taker_total_fee_helper, detect_secret_hash_algo_v2, generate_secret, get_max_maker_vol,
+    insert_new_swap_to_db, is_pubkey_banned, lp_atomic_locktime, p2p_keypair_and_peer_id_to_broadcast,
+    p2p_private_and_peer_id_to_broadcast, run_maker_swap, run_taker_swap, swap_v2_topic, AtomicLocktimeVersion,
+    CheckBalanceError, CheckBalanceResult, CoinVolumeInfo, MakerSwap, RunMakerSwapInput, RunTakerSwapInput,
+    SwapConfirmationsSettings, TakerSwap, LEGACY_SWAP_TYPE,
 };
 use crate::swap_versioning::{legacy_swap_version, SwapVersion};
 
@@ -4617,18 +4618,15 @@ pub async fn buy(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
     try_s!(base_coin.pre_check_for_order_creation(&ctx, &rel_coin).await);
 
     let my_amount = &input.volume * &input.price;
-    try_s!(
-        check_balance_for_taker_swap(
-            &ctx,
-            rel_coin.deref(),
-            base_coin.deref(),
-            my_amount,
-            None,
-            None,
-            FeeApproxStage::OrderIssue
-        )
-        .await
-    );
+    let fee_helper = try_s!(create_taker_total_fee_helper(
+        &ctx,
+        &rel_coin,
+        &base_coin,
+        my_amount,
+        None,
+        FeeApproxStage::OrderIssue
+    ));
+    try_s!(check_balance_for_taker_swap(&ctx, None, fee_helper.deref(), false,).await);
     let res = try_s!(lp_auto_buy(&ctx, &base_coin, &rel_coin, input).await);
     Ok(try_s!(Response::builder().body(res)))
 }
@@ -4645,18 +4643,15 @@ pub async fn sell(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
 
     try_s!(base_coin.pre_check_for_order_creation(&ctx, &rel_coin).await);
 
-    try_s!(
-        check_balance_for_taker_swap(
-            &ctx,
-            base_coin.deref(),
-            rel_coin.deref(),
-            input.volume.clone(),
-            None,
-            None,
-            FeeApproxStage::OrderIssue
-        )
-        .await
-    );
+    let fee_helper = try_s!(create_taker_total_fee_helper(
+        &ctx,
+        &base_coin,
+        &rel_coin,
+        input.volume.clone(),
+        None,
+        FeeApproxStage::OrderIssue
+    ));
+    try_s!(check_balance_for_taker_swap(&ctx, None, fee_helper.deref(), false,).await);
 
     let res = try_s!(lp_auto_buy(&ctx, &base_coin, &rel_coin, input).await);
     Ok(try_s!(Response::builder().body(res)))
@@ -5463,18 +5458,17 @@ pub async fn create_maker_order(ctx: &MmArc, req: SetPriceReq) -> Result<MakerOr
         try_s!(check_other_coin_balance_for_order_issue(ctx, &rel_coin).await);
         (volume, balance.to_decimal())
     } else {
+        let fee_helper = try_s!(create_maker_total_fee_helper(
+            ctx,
+            &rel_coin,
+            &base_coin,
+            req.volume.clone(),
+            FeeApproxStage::OrderIssue
+        ));
         let balance = try_s!(
-            check_balance_for_maker_swap(
-                ctx,
-                base_coin.deref(),
-                rel_coin.deref(),
-                req.volume.clone(),
-                None,
-                None,
-                FeeApproxStage::OrderIssue
-            )
-            .or_else(|e| cancel_orders_on_error(ctx, &req, e))
-            .await
+            check_balance_for_taker_swap(ctx, None, fee_helper.deref(), req.max,)
+                .or_else(|e| cancel_orders_on_error(ctx, &req, e))
+                .await
         );
         (req.volume.clone(), balance)
     };
@@ -5661,18 +5655,15 @@ pub async fn update_maker_order(ctx: &MmArc, req: MakerOrderUpdateReq) -> Result
         if volume <= MmNumber::from("0") {
             return ERR!("New volume {} should be more than zero", volume);
         }
-        try_s!(
-            check_balance_for_maker_swap(
-                ctx,
-                base_coin.deref(),
-                rel_coin.deref(),
-                volume.clone(),
-                None,
-                None,
-                FeeApproxStage::OrderIssue
-            )
-            .await
-        );
+        let fee_helper = try_s!(create_maker_total_fee_helper(
+            ctx,
+            &base_coin,
+            &rel_coin,
+            volume.clone(),
+            FeeApproxStage::OrderIssue
+        ));
+        let _ =
+            try_s!(check_balance_for_taker_swap(ctx, None, fee_helper.deref(), req.max.unwrap_or_default(),).await);
         update_msg.with_new_max_volume(volume.clone().into());
         volume
     } else {

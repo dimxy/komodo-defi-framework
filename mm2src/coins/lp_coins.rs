@@ -1441,6 +1441,16 @@ pub struct SendTakerFundingArgs<'a> {
     pub swap_unique_data: &'a [u8],
 }
 
+/// Helper struct wirg params to get taker funding fee
+pub struct GetTakerFundingFeeArgs {
+    pub dex_fee: DexFee,
+    pub stage: FeeApproxStage,
+    pub premium_amount: BigDecimal,
+    pub trading_amount: BigDecimal,
+    pub upper_bound_amount: bool,
+    pub lock_time: u64,
+}
+
 /// Helper struct wrapping arguments for [TakerCoinSwapOpsV2::refund_taker_funding_secret]
 pub struct RefundFundingSecretArgs<'a, Coin: ParseCoinAssocTypes + ?Sized> {
     pub funding_tx: &'a Coin::Tx,
@@ -1738,6 +1748,13 @@ pub trait ParseNftAssocTypes {
     fn parse_contract_type(&self, contract_type: &[u8]) -> Result<Self::ContractType, Self::NftAssocTypesError>;
 }
 
+pub struct GetFeeToSendMakerPaymentArgs {
+    pub time_lock: u64,
+    pub amount: BigDecimal,
+    pub stage: FeeApproxStage,
+    pub upper_bound_amount: bool,
+}
+
 pub struct SendMakerPaymentArgs<'a, Coin: ParseCoinAssocTypes + ?Sized> {
     /// Maker will be able to refund the payment after this timestamp
     pub time_lock: u64,
@@ -1853,6 +1870,12 @@ pub struct RefundNftMakerPaymentArgs<'a, Coin: ParseCoinAssocTypes + ParseNftAss
     pub contract_type: &'a Coin::ContractType,
 }
 
+/// Helper struct to estimate tx fee to spend maker payment
+pub struct SpendMakerPaymentFeeArgs {
+    pub time_lock: u64,
+    pub amount: BigDecimal,
+}
+
 pub struct SpendMakerPaymentArgs<'a, Coin: ParseCoinAssocTypes + ?Sized> {
     /// Maker payment tx
     pub maker_payment_tx: &'a Coin::Tx,
@@ -1891,6 +1914,18 @@ pub struct SpendNftMakerPaymentArgs<'a, Coin: ParseCoinAssocTypes + ParseNftAsso
 /// Operations specific to maker coin in [Trading Protocol Upgrade implementation](https://github.com/KomodoPlatform/komodo-defi-framework/issues/1895)
 #[async_trait]
 pub trait MakerCoinSwapOpsV2: ParseCoinAssocTypes + CommonSwapOpsV2 + Send + Sync + 'static {
+    /// Get fee estimate to send maker payment
+    async fn get_fee_to_send_maker_payment_v2(
+        &self,
+        args: GetFeeToSendMakerPaymentArgs,
+    ) -> TradePreimageResult<TradeFee>;
+
+    /// Get fee estimate to spend maker payment
+    async fn get_fee_to_spend_maker_payment_v2(&self) -> TradePreimageResult<TradeFee>;
+
+    /// Get fee estimate to refund maker payment (assume time unlocked refund)
+    async fn get_fee_to_refund_maker_payment_v2(&self) -> TradePreimageResult<TradeFee>;
+
     /// Generate and broadcast maker payment transaction
     async fn send_maker_payment_v2(&self, args: SendMakerPaymentArgs<'_, Self>) -> Result<Self::Tx, TransactionErr>;
 
@@ -2040,6 +2075,18 @@ pub enum SearchForFundingSpendErr {
 /// Operations specific to taker coin in [Trading Protocol Upgrade implementation](https://github.com/KomodoPlatform/komodo-defi-framework/issues/1895)
 #[async_trait]
 pub trait TakerCoinSwapOpsV2: ParseCoinAssocTypes + CommonSwapOpsV2 + Send + Sync + 'static {
+    /// Estimate tx fee to send taker funding
+    async fn get_fee_to_send_taker_funding(&self, args: GetTakerFundingFeeArgs) -> TradePreimageResult<TradeFee>;
+
+    /// Estimate tx fee to spend taker funding
+    async fn get_fee_to_spend_taker_funding(&self) -> TradePreimageResult<TradeFee>;
+
+    /// Estimate tx fee to spend taker payment
+    async fn get_fee_to_spend_taker_payment(&self) -> TradePreimageResult<TradeFee>;
+
+    /// Estimate tx fee to spend taker payment
+    async fn get_fee_to_refund_taker_payment(&self) -> TradePreimageResult<TradeFee>;
+
     /// Generate and broadcast taker funding transaction that includes dex fee, maker premium and actual trading volume.
     /// Funding tx can be reclaimed immediately if maker back-outs (doesn't send maker payment)
     async fn send_taker_funding(&self, args: SendTakerFundingArgs<'_>) -> Result<Self::Tx, TransactionErr>;
@@ -2746,9 +2793,12 @@ pub enum FeeApproxStage {
     TradePreimageMax,
 }
 
+/// Swap trade volume parameter used in RPCs estimating transaction fee for swaps
 #[derive(Debug)]
 pub enum TradePreimageValue {
+    /// The whole trade amount will be sent to the HTLC contract
     Exact(BigDecimal),
+    /// Transaction fee will be deducted from the trade volume (supported for UTXO for now)
     UpperBound(BigDecimal),
 }
 
