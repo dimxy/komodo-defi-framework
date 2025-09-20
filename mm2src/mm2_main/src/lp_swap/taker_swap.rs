@@ -2657,7 +2657,7 @@ impl SwapTotalFeeHelper for LegacyTakerSwapTotalFeeHelper<'_> {
         Ok(TradeFee {
             coin: fee_to_send_dex_fee.coin,
             amount: fee_to_send_dex_fee.amount + taker_payment_trade_fee.amount,
-            paid_from_trading_vol: false,
+            paid_from_trading_vol: fee_to_send_dex_fee.paid_from_trading_vol,
         })
     }
 
