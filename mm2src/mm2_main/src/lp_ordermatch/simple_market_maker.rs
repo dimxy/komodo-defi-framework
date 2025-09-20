@@ -204,6 +204,7 @@ pub enum StartSimpleMakerBotError {
     InternalError(String),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum SwapUpdateNotificationError {

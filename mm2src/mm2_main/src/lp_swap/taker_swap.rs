@@ -2643,11 +2643,10 @@ impl SwapTotalFeeHelper for LegacyTakerSwapTotalFeeHelper<'_> {
             .get_fee_to_send_taker_fee(self.dex_fee.clone(), self.stage)
             .await
             .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, self.my_coin.ticker()))?;
-        let total_value = &self.volume + &self.dex_fee.total_spend_amount();
         let preimage_value = if upper_bound_amount {
-            TradePreimageValue::UpperBound(total_value.into())
+            TradePreimageValue::UpperBound(self.volume.to_decimal())
         } else {
-            TradePreimageValue::Exact(total_value.into())
+            TradePreimageValue::Exact(self.volume.to_decimal())
         };
         let taker_payment_trade_fee = self
             .my_coin
