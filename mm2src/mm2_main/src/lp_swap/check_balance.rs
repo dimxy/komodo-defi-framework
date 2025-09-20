@@ -383,11 +383,9 @@ pub(crate) fn create_taker_total_fee_helper<'a>(
                     stage,
                 }))
             },
-            (_, _) => {
-                MmError::err(CheckBalanceError::InternalError(
-                    "swap v2 not supported for this coin".to_string(), 
-                ))
-            },
+            (_, _) => MmError::err(CheckBalanceError::InternalError(
+                "swap v2 not supported for this coin".to_string(),
+            )),
         }
     } else {
         Ok(Box::new(LegacyTakerSwapTotalFeeHelper {
@@ -444,11 +442,9 @@ pub(crate) fn create_maker_total_fee_helper<'a>(
                     stage,
                 }))
             },
-            (_, _) => {
-                MmError::err(CheckBalanceError::InternalError(
-                    "swap v2 not supported for this coin".to_string()
-                ))
-            },
+            (_, _) => MmError::err(CheckBalanceError::InternalError(
+                "swap v2 not supported for this coin".to_string(),
+            )),
         }
     } else {
         Ok(Box::new(LegacyMakerSwapTotalFeeHelper {

@@ -5662,8 +5662,7 @@ pub async fn update_maker_order(ctx: &MmArc, req: MakerOrderUpdateReq) -> Result
             volume.clone(),
             FeeApproxStage::OrderIssue
         ));
-        let _ =
-            try_s!(check_balance_for_taker_swap(ctx, None, fee_helper.deref(), req.max.unwrap_or_default(),).await);
+        let _ = try_s!(check_balance_for_taker_swap(ctx, None, fee_helper.deref(), req.max.unwrap_or_default(),).await);
         update_msg.with_new_max_volume(volume.clone().into());
         volume
     } else {
