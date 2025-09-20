@@ -7,7 +7,7 @@ use super::{
 use crate::lp_swap::swap_lock::SwapLock;
 use crate::lp_swap::swap_v2_pb::*;
 use crate::lp_swap::{
-    broadcast_swap_v2_msg_every, check_balance_for_taker_swap, lp_atomic_locktime_v2_default, recv_swap_v2_msg,
+    broadcast_swap_v2_msg_every, check_balance_for_swap, lp_atomic_locktime_v2_default, recv_swap_v2_msg,
     swap_v2_topic, SwapConfirmationsSettings, TransactionIdentifier, MAX_STARTED_AT_DIFF, TAKER_SWAP_V2_TYPE,
 };
 use async_trait::async_trait;
@@ -1057,7 +1057,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2 + Clone, TakerCoin: MmCoin + TakerCo
             },
         };
 
-        if let Err(e) = check_balance_for_taker_swap(
+        if let Err(e) = check_balance_for_swap(
             &state_machine.ctx,
             Some(&state_machine.uuid),
             &TakerSwapV2TotalFeeHelper {

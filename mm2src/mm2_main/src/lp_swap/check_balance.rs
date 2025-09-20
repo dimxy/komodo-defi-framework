@@ -269,7 +269,7 @@ impl CheckBalanceError {
     }
 }
 
-pub async fn check_balance_for_taker_swap(
+pub async fn check_balance_for_swap(
     ctx: &MmArc,
     swap_uuid: Option<&Uuid>,
     total_fee_helper: &(dyn SwapTotalFeeHelper + Sync),

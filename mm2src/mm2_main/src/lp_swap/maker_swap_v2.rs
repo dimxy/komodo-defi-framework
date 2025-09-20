@@ -7,7 +7,7 @@ use super::{
 };
 use crate::lp_swap::swap_lock::SwapLock;
 use crate::lp_swap::{
-    broadcast_swap_v2_msg_every, check_balance_for_taker_swap, recv_swap_v2_msg, SwapConfirmationsSettings,
+    broadcast_swap_v2_msg_every, check_balance_for_swap, recv_swap_v2_msg, SwapConfirmationsSettings,
     TransactionIdentifier, MAKER_SWAP_V2_TYPE, MAX_STARTED_AT_DIFF,
 };
 use crate::lp_swap::{lp_atomic_locktime_v2_default, swap_v2_pb::*};
@@ -942,7 +942,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2 + Clone, TakerCoin: MmCoin + TakerCo
             },
         };
         if let Err(e) =
-            check_balance_for_taker_swap(&state_machine.ctx, Some(&state_machine.uuid), &fee_helper, false).await
+            check_balance_for_swap(&state_machine.ctx, Some(&state_machine.uuid), &fee_helper, false).await
         {
             let reason = AbortReason::BalanceCheckFailure(e.to_string());
             return Self::change_state(Aborted::new(reason), state_machine).await;
