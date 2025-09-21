@@ -84,6 +84,8 @@ impl EthCoin {
         &self,
         args: GetTakerFundingFeeArgs,
     ) -> TradePreimageResult<TradeFee> {
+        const NON_ZERO_SECRET_HASH: [u8; 32] = [1_u8; 32];
+        const NON_EMPTY_ADDRESS: [u8; 20] = [1_u8; 20];
         let taker_swap_v2_contract = self
             .swap_v2_contracts
             .ok_or_else(|| {
@@ -102,9 +104,9 @@ impl EthCoin {
             TakerFundingArgs {
                 dex_fee: dex_fee_amount,
                 payment_amount,
-                maker_address: Default::default(),
-                taker_secret_hash: &[1_u8; 32],
-                maker_secret_hash: &[1_u8; 32],
+                maker_address: Address::from_slice(&NON_EMPTY_ADDRESS),
+                taker_secret_hash: &NON_ZERO_SECRET_HASH,
+                maker_secret_hash: &NON_ZERO_SECRET_HASH,
                 funding_time_lock: now_sec() + args.lock_time * 3,
                 payment_time_lock: now_sec() + args.lock_time,
             }

@@ -4626,7 +4626,7 @@ pub async fn buy(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
         None,
         FeeApproxStage::OrderIssue
     ));
-    try_s!(check_balance_for_swap(&ctx, None, fee_helper.deref(), false,).await);
+    try_s!(check_balance_for_swap(&ctx, None, fee_helper.deref(), false).await);
     let res = try_s!(lp_auto_buy(&ctx, &base_coin, &rel_coin, input).await);
     Ok(try_s!(Response::builder().body(res)))
 }
@@ -4651,7 +4651,7 @@ pub async fn sell(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
         None,
         FeeApproxStage::OrderIssue
     ));
-    try_s!(check_balance_for_swap(&ctx, None, fee_helper.deref(), false,).await);
+    try_s!(check_balance_for_swap(&ctx, None, fee_helper.deref(), false).await);
 
     let res = try_s!(lp_auto_buy(&ctx, &base_coin, &rel_coin, input).await);
     Ok(try_s!(Response::builder().body(res)))
@@ -5466,7 +5466,7 @@ pub async fn create_maker_order(ctx: &MmArc, req: SetPriceReq) -> Result<MakerOr
             FeeApproxStage::OrderIssue
         ));
         let balance = try_s!(
-            check_balance_for_swap(ctx, None, fee_helper.deref(), req.max,)
+            check_balance_for_swap(ctx, None, fee_helper.deref(), req.max)
                 .or_else(|e| cancel_orders_on_error(ctx, &req, e))
                 .await
         );
@@ -5662,7 +5662,7 @@ pub async fn update_maker_order(ctx: &MmArc, req: MakerOrderUpdateReq) -> Result
             volume.clone(),
             FeeApproxStage::OrderIssue
         ));
-        let _ = try_s!(check_balance_for_swap(ctx, None, fee_helper.deref(), req.max.unwrap_or_default(),).await);
+        let _ = try_s!(check_balance_for_swap(ctx, None, fee_helper.deref(), req.max.unwrap_or_default()).await);
         update_msg.with_new_max_volume(volume.clone().into());
         volume
     } else {

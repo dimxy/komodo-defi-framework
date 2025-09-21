@@ -2711,20 +2711,28 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
     }
 
     async fn get_my_coin_fees(&self, upper_bound_amount: bool) -> CheckBalanceResult<TradeFee> {
-        let fee = self
+        let funding_fee = self
             .my_coin
             .get_fee_to_send_taker_funding(GetTakerFundingFeeArgs {
                 dex_fee: self.dex_fee.clone(),
                 stage: self.stage,
-                premium_amount: self.volume.clone().into(),
-                trading_amount: 0.into(),
+                premium_amount: 0.into(),
+                trading_amount: self.volume.clone().into(),
                 upper_bound_amount,
                 lock_time: now_sec() + lp_atomic_locktime_v2_default(self.my_coin.ticker(), self.other_coin.ticker()),
             })
             .await
             .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, self.my_coin.ticker()))?;
-        // TODO: add spend funding fees
-        Ok(fee)
+        let spend_fees = self
+            .my_coin
+            .get_fee_to_spend_taker_funding()
+            .await
+            .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, self.my_coin.ticker()))?;
+        Ok(TradeFee {
+            coin: funding_fee.coin,
+            amount: funding_fee.amount + spend_fees.amount,
+            paid_from_trading_vol: funding_fee.paid_from_trading_vol,
+        })
     }
 
     fn get_other_coin(&self) -> &dyn MmCoin {

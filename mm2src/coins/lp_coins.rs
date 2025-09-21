@@ -2785,11 +2785,13 @@ pub enum FeeApproxStage {
     WatcherPreimage,
     /// Increase the trade fee significantly.
     OrderIssue,
-    /// Increase the trade fee significantly (used to calculate max volume).
+    /// Increase the trade fee significantly, include refund fee.
+    /// Used to calculate max order volume taking into account possible swap refund.
     OrderIssueMax,
     /// Increase the trade fee largely in the trade_preimage rpc.
     TradePreimage,
-    /// Increase the trade fee in the trade_preimage rpc (used to calculate max volume for trade preimage).
+    /// Increase the trade fee largely, include refund fee.
+    /// Used to calculate max volume for trade preimage rpc, taking into account possible swap refund.
     TradePreimageMax,
 }
 

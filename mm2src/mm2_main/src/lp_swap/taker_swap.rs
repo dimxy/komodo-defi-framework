@@ -2892,7 +2892,7 @@ pub async fn calc_max_taker_vol(
 
     let max_possible = &balance - &locked;
     let preimage_value = TradePreimageValue::UpperBound(max_possible.to_decimal());
-    // TODO: use fee_helper for bot swap versions
+    // TODO: use fee_helper for both swap versions
     let max_trade_fee = coin
         .get_sender_trade_fee(preimage_value, stage)
         .await

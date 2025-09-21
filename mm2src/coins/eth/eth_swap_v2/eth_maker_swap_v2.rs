@@ -64,6 +64,7 @@ impl EthCoin {
         args: GetFeeToSendMakerPaymentArgs,
     ) -> TradePreimageResult<TradeFee> {
         const NON_ZERO_SECRET_HASH: [u8; 32] = [1_u8; 32];
+        const NON_EMPTY_ADDRESS: [u8; 20] = [1_u8; 20];
         let maker_swap_v2_contract = self
             .swap_v2_contracts
             .ok_or_else(|| {
@@ -74,7 +75,7 @@ impl EthCoin {
             .map_err(|err| TradePreimageError::InternalError(ERRL!("{}", err)))?;
         let payment_args = {
             MakerPaymentArgs {
-                taker_address: Default::default(),
+                taker_address: Address::from_slice(&NON_EMPTY_ADDRESS),
                 taker_secret_hash: &NON_ZERO_SECRET_HASH,
                 maker_secret_hash: &NON_ZERO_SECRET_HASH,
                 payment_time_lock: args.time_lock,

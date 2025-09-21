@@ -294,7 +294,7 @@ pub async fn check_balance_for_swap(
         check_platform_coin_balance_for_swap(ctx, total_fee_helper.get_my_coin(), my_coin_fees.clone(), swap_uuid)
             .await?;
     }
-    if total_fee_helper.is_other_platform_fee(&other_coin_fees) {
+    if !total_fee_helper.is_other_platform_fee(&other_coin_fees) {
         check_my_coin_balance_for_swap(
             ctx,
             total_fee_helper.get_other_coin(),
