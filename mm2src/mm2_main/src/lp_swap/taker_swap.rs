@@ -2637,8 +2637,8 @@ impl SwapTotalFeeHelper for LegacyTakerSwapTotalFeeHelper<'_> {
         Some(self.dex_fee.total_spend_amount())
     }
 
-    async fn get_my_coin_fees(&self, upper_bound_amount: bool) -> CheckBalanceResult<TradeFee> {            
-        let fee_to_send_dex_fee = if matches!(self.dex_fee, DexFee::NoFee) { 
+    async fn get_my_coin_fees(&self, upper_bound_amount: bool) -> CheckBalanceResult<TradeFee> {
+        let fee_to_send_dex_fee = if matches!(self.dex_fee, DexFee::NoFee) {
             TradeFee {
                 coin: self.my_coin.ticker().to_owned(),
                 amount: MmNumber::from(0),

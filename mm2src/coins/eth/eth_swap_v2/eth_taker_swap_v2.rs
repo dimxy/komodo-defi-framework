@@ -3,16 +3,14 @@ use super::{
     PaymentMethod, PrepareTxDataError, SpendTxSearchParams, ZERO_VALUE,
 };
 use crate::eth::{
-    decode_contract_call, get_function_input_data, u256_from_big_decimal, u256_to_big_decimal, EthCoin, EthCoinType,
-    FeeApproxStage, GetTakerFundingFeeArgs, ParseCoinAssocTypes, RefundFundingSecretArgs, RefundTakerPaymentArgs,
-    SendTakerFundingArgs, SignedEthTx, SwapTxTypeWithSecretHash, TakerPaymentStateV2, TradeFee, TradePreimageError,
-    TradePreimageResult, TransactionErr, ValidateSwapV2TxError, ValidateSwapV2TxResult, ValidateTakerFundingArgs,
-    ETH_DECIMALS, TAKER_SWAP_V2,
+    decode_contract_call, get_function_input_data, u256_from_big_decimal, EthCoin, EthCoinType, FeeApproxStage,
+    GetTakerFundingFeeArgs, ParseCoinAssocTypes, RefundFundingSecretArgs, RefundTakerPaymentArgs, SendTakerFundingArgs,
+    SignedEthTx, SwapTxTypeWithSecretHash, TakerPaymentStateV2, TradeFee, TradePreimageError, TradePreimageResult,
+    TransactionErr, ValidateSwapV2TxError, ValidateSwapV2TxResult, ValidateTakerFundingArgs, TAKER_SWAP_V2,
 };
 use crate::{
     FindPaymentSpendError, FundingTxSpend, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs, SearchForFundingSpendErr,
 };
-use common::now_sec;
 use derive_more::Display;
 use enum_derives::EnumFromStringify;
 use ethabi::{Contract, Function, Token};
@@ -22,7 +20,7 @@ use ethkey::public_to_address;
 use futures::compat::Future01CompatExt;
 use mm2_err_handle::prelude::{MapToMmResult, MmError, MmResult, MmResultExt};
 use std::convert::TryInto;
-use web3::types::{BlockNumber, Bytes, TransactionId};
+use web3::types::{BlockNumber, TransactionId};
 
 const ETH_TAKER_PAYMENT: &str = "ethTakerPayment";
 const ERC20_TAKER_PAYMENT: &str = "erc20TakerPayment";
