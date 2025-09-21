@@ -295,16 +295,18 @@ pub async fn check_balance_for_swap(
             .await?;
     }
     if !total_fee_helper.is_other_platform_fee(&other_coin_fees) {
-        check_my_coin_balance_for_swap(
-            ctx,
-            total_fee_helper.get_other_coin(),
-            swap_uuid,
-            None,
-            None,
-            Some(other_coin_fees.amount),
-        )
-        .await?;
-    } else if !other_coin_fees.paid_from_trading_vol {
+        if !other_coin_fees.paid_from_trading_vol {
+            check_my_coin_balance_for_swap(
+                ctx,
+                total_fee_helper.get_other_coin(),
+                swap_uuid,
+                None,
+                None,
+                Some(other_coin_fees.amount),
+            )
+            .await?;
+        }
+    } else {
         check_platform_coin_balance_for_swap(
             ctx,
             total_fee_helper.get_other_coin(),

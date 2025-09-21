@@ -2681,6 +2681,7 @@ pub struct TakerTradePreimage {
     /// The dex fee to be paid by taker coin.
     pub taker_fee: TradeFee,
     /// The miner fee is paid to send the dex fee.
+    /// TODO: we don't need this for TPU
     pub fee_to_send_taker_fee: TradeFee,
 }
 
