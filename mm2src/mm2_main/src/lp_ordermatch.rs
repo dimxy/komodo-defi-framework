@@ -5460,8 +5460,8 @@ pub async fn create_maker_order(ctx: &MmArc, req: SetPriceReq) -> Result<MakerOr
     } else {
         let fee_helper = try_s!(create_maker_total_fee_helper(
             ctx,
-            &rel_coin,
             &base_coin,
+            &rel_coin,
             req.volume.clone(),
             FeeApproxStage::OrderIssue
         ));
