@@ -84,64 +84,11 @@ impl EthCoin {
         &self,
         args: GetTakerFundingFeeArgs,
     ) -> TradePreimageResult<TradeFee> {
-        const NON_ZERO_SECRET_HASH: [u8; 32] = [1_u8; 32];
-        const NON_EMPTY_ADDRESS: [u8; 20] = [1_u8; 20];
-        let taker_swap_v2_contract = self
-            .swap_v2_contracts
-            .ok_or_else(|| {
-                TradePreimageError::InternalError(ERRL!("Expected swap_v2_contracts to be Some, but found None"))
-            })?
-            .taker_swap_v2_contract;
-
-        let payment_amount = u256_from_big_decimal(
-            &(args.trading_amount.clone() + args.premium_amount.clone()),
-            self.decimals,
-        )
-        .map_err(|err| TradePreimageError::InternalError(ERRL!("{}", err)))?;
-        let dex_fee_amount = u256_from_big_decimal(&args.dex_fee.fee_amount().into(), self.decimals)
-            .map_err(|err| TradePreimageError::InternalError(ERRL!("{}", err)))?;
-        let funding_args = {
-            TakerFundingArgs {
-                dex_fee: dex_fee_amount,
-                payment_amount,
-                maker_address: Address::from_slice(&NON_EMPTY_ADDRESS),
-                taker_secret_hash: &NON_ZERO_SECRET_HASH,
-                maker_secret_hash: &NON_ZERO_SECRET_HASH,
-                funding_time_lock: now_sec() + args.lock_time * 3,
-                payment_time_lock: now_sec() + args.lock_time,
-            }
-        };
-        let (eth_value, data, fee_coin) = match &self.coin_type {
-            EthCoinType::Eth => {
-                let data = self
-                    .prepare_taker_eth_funding_data(&funding_args)
-                    .await
-                    .map_err(|err| TradePreimageError::InternalError(ERRL!("{}", err)))?;
-                let eth_value = payment_amount.checked_add(dex_fee_amount).ok_or_else(|| {
-                    TradePreimageError::InternalError(ERRL!("Overflow occurred while calculating eth_total_payment"))
-                })?;
-                (eth_value, data, &self.ticker)
-            },
-            EthCoinType::Erc20 { platform, token_addr } => {
-                let data = self
-                    .prepare_taker_erc20_funding_data(&funding_args, *token_addr)
-                    .await
-                    .map_err(|err| TradePreimageError::InternalError(ERRL!("{}", err)))?;
-                (0.into(), data, platform)
-            },
-            EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
-        };
-        let (gas_limit, fee_per_gas) = self
-            .estimate_gas_for_contract_call_if_conf(taker_swap_v2_contract, Bytes::from(data.clone()), eth_value)
-            .await
-            .map_mm_err()?;
-        let total_fee = gas_limit * fee_per_gas;
-        let total_fee = u256_to_big_decimal(total_fee, ETH_DECIMALS).map_mm_err()?;
-        Ok(TradeFee {
-            coin: fee_coin.into(),
-            amount: total_fee.into(),
-            paid_from_trading_vol: false,
-        })
+        let gas_limit = self
+            .gas_limit_v2
+            .gas_limit(&self.coin_type, EthPaymentType::TakerPayments, PaymentMethod::Send)
+            .map_err(|e| TradePreimageError::InternalError(ERRL!("{}", e)))?;
+        self.estimate_trade_fee(gas_limit.into(), args.stage).await
     }
 
     /// Calls `"ethTakerPayment"` or `"erc20TakerPayment"` swap contract methods.
@@ -699,6 +646,7 @@ impl EthCoin {
             .gas_limit_v2
             .gas_limit(&self.coin_type, EthPaymentType::TakerPayments, PaymentMethod::Spend)
             .map_err(|e| TradePreimageError::InternalError(ERRL!("{}", e)))?;
+        // TODO: add stage to param
         self.estimate_trade_fee(gas_limit.into(), FeeApproxStage::TradePreimage)
             .await
     }
