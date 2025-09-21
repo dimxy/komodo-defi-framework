@@ -2443,7 +2443,6 @@ pub async fn maker_swap_trade_preimage(
         req.volume
     };
 
-    // TODO: use fee_helper
     let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
     let base_coin_fee = base_coin
         .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage)

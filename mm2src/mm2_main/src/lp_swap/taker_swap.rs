@@ -1085,8 +1085,7 @@ impl TakerSwap {
                 paid_from_trading_vol: false,
             }
         } else {
-            let fee_to_send_dex_fee_fut = self.taker_coin.get_fee_to_send_taker_fee(dex_fee.clone(), stage);
-            match fee_to_send_dex_fee_fut.await {
+            match self.taker_coin.get_fee_to_send_taker_fee(dex_fee.clone(), stage).await {
                 Ok(fee) => fee,
                 Err(e) => {
                     return Ok((
@@ -1098,8 +1097,7 @@ impl TakerSwap {
                 },
             }
         };
-        let get_sender_trade_fee_fut = self.taker_coin.get_sender_trade_fee(preimage_value, stage);
-        let taker_payment_trade_fee = match get_sender_trade_fee_fut.await {
+        let taker_payment_trade_fee = match self.taker_coin.get_sender_trade_fee(preimage_value, stage).await {
             Ok(fee) => fee,
             Err(e) => {
                 return Ok((
@@ -1110,8 +1108,7 @@ impl TakerSwap {
                 ))
             },
         };
-        let maker_payment_spend_trade_fee_fut = self.maker_coin.get_receiver_trade_fee(stage);
-        let maker_payment_spend_trade_fee = match maker_payment_spend_trade_fee_fut.compat().await {
+        let maker_payment_spend_trade_fee = match self.maker_coin.get_receiver_trade_fee(stage).compat().await {
             Ok(fee) => fee,
             Err(e) => {
                 return Ok((

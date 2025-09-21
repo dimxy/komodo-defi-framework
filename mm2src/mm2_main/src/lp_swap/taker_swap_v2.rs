@@ -17,7 +17,7 @@ use coins::{
     CanRefundHtlc, ConfirmPaymentInput, DexFee, FeeApproxStage, GenTakerFundingSpendArgs, GenTakerPaymentSpendArgs,
     GetTakerFundingFeeArgs, MakerCoinSwapOpsV2, MmCoin, ParseCoinAssocTypes, RefundFundingSecretArgs,
     RefundTakerPaymentArgs, SendTakerFundingArgs, SpendMakerPaymentArgs, SwapTxTypeWithSecretHash, TakerCoinSwapOpsV2,
-    ToBytes, TradeFee, TradePreimageValue, Transaction, TxPreimageWithSig, ValidateMakerPaymentArgs,
+    ToBytes, TradeFee, Transaction, TxPreimageWithSig, ValidateMakerPaymentArgs,
 };
 use common::executor::abortable_queue::AbortableQueue;
 use common::executor::{AbortableSystem, Timer};
@@ -1032,16 +1032,16 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2 + Clone, TakerCoin: MmCoin + TakerCo
             },
         };
 
-        let payment_value_with_premium = &state_machine.taker_volume + &state_machine.dex_fee().total_spend_amount();
-        let total_payment_value = &payment_value_with_premium + &state_machine.taker_premium;
-        let preimage_value = TradePreimageValue::Exact(total_payment_value.to_decimal());
+        let total_payment_value = &state_machine.taker_volume + &state_machine.taker_premium;
         let stage = FeeApproxStage::StartSwap;
-
-        let taker_payment_fee = match state_machine
-            .taker_coin
-            .get_sender_trade_fee(preimage_value, stage) // TODO: use v2 fn
-            .await
-        {
+        let fee_helper = TakerSwapV2TotalFeeHelper {
+            my_coin: state_machine.taker_coin.clone(),
+            other_coin: state_machine.maker_coin.clone(),
+            volume: total_payment_value,
+            dex_fee: state_machine.dex_fee().clone(),
+            stage,
+        };
+        let taker_payment_fee = match fee_helper.get_my_coin_fees(false).await {
             Ok(fee) => fee,
             Err(e) => {
                 let reason = AbortReason::FailedToGetTakerPaymentFee(e.to_string());
@@ -1049,7 +1049,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2 + Clone, TakerCoin: MmCoin + TakerCo
             },
         };
 
-        let maker_payment_spend_fee = match state_machine.maker_coin.get_receiver_trade_fee(stage).compat().await {
+        let maker_payment_spend_fee = match fee_helper.get_other_coin_fees().await {
             Ok(fee) => fee,
             Err(e) => {
                 let reason = AbortReason::FailedToGetMakerPaymentSpendFee(e.to_string());
@@ -1057,19 +1057,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2 + Clone, TakerCoin: MmCoin + TakerCo
             },
         };
 
-        if let Err(e) = check_balance_for_swap(
-            &state_machine.ctx,
-            Some(&state_machine.uuid),
-            &TakerSwapV2TotalFeeHelper {
-                my_coin: state_machine.taker_coin.clone(),
-                other_coin: state_machine.maker_coin.clone(),
-                volume: payment_value_with_premium,
-                dex_fee: state_machine.dex_fee().clone(),
-                stage: FeeApproxStage::StartSwap,
-            },
-            false,
-        )
-        .await
+        if let Err(e) = check_balance_for_swap(&state_machine.ctx, Some(&state_machine.uuid), &fee_helper, false).await
         {
             let reason = AbortReason::BalanceCheckFailure(e.to_string());
             return Self::change_state(Aborted::new(reason), state_machine).await;
