@@ -5,7 +5,7 @@ use super::pubkey_banning::ban_pubkey_on_failed_swap;
 use super::swap_lock::{SwapLock, SwapLockOps};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{
-    broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_every, check_balance_for_swap,
+    broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_every, check_coin_balances_for_swap,
     check_other_coin_balance_for_swap, detect_secret_hash_algo, get_locked_amount, recv_swap_msg, swap_topic,
     taker_payment_spend_deadline, tx_helper_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount,
     MySwapInfo, NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction,
@@ -527,7 +527,7 @@ impl MakerSwap {
                 ))
             },
         };
-        match check_balance_for_swap(
+        match check_coin_balances_for_swap(
             &self.ctx,
             Some(&self.uuid),
             &LegacyMakerSwapTotalFeeHelper {
@@ -2443,16 +2443,14 @@ pub async fn maker_swap_trade_preimage(
         req.volume
     };
 
-    let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
-    let base_coin_fee = base_coin
-        .get_sender_trade_fee(preimage_value, FeeApproxStage::TradePreimage)
-        .await
-        .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, base_coin_ticker))?;
-    let rel_coin_fee = rel_coin
-        .get_receiver_trade_fee(FeeApproxStage::TradePreimage)
-        .compat()
-        .await
-        .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, rel_coin_ticker))?;
+    let fee_helper = LegacyMakerSwapTotalFeeHelper {
+        my_coin: base_coin.deref(),
+        other_coin: rel_coin.deref(),
+        volume: volume.clone(),
+        stage: FeeApproxStage::TradePreimage,
+    };
+    let base_coin_fee = fee_helper.get_my_coin_fees(req.max).await.map_mm_err()?;
+    let rel_coin_fee = fee_helper.get_other_coin_fees().await.map_mm_err()?;
 
     if req.max {
         // Note the `calc_max_maker_vol` returns [`CheckBalanceError::NotSufficientBalance`] error if the balance of `base_coin` is not sufficient.
@@ -2461,19 +2459,9 @@ pub async fn maker_swap_trade_preimage(
             .await
             .map_mm_err()?
     } else {
-        check_balance_for_swap(
-            ctx,
-            None,
-            &LegacyMakerSwapTotalFeeHelper {
-                my_coin: base_coin.deref(),
-                other_coin: rel_coin.deref(),
-                volume: volume.clone(),
-                stage: FeeApproxStage::TradePreimage,
-            },
-            false,
-        )
-        .await
-        .map_mm_err()?;
+        check_coin_balances_for_swap(ctx, None, &fee_helper, false)
+            .await
+            .map_mm_err()?;
     }
 
     let conf_settings = OrderConfirmationsSettings {

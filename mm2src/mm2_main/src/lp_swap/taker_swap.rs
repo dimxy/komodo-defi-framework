@@ -4,7 +4,7 @@ use super::swap_lock::{SwapLock, SwapLockOps};
 use super::swap_watcher::{watcher_topic, SwapWatcherMsg};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{
-    broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg_every, check_balance_for_swap,
+    broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg_every, check_coin_balances_for_swap,
     get_locked_amount, recv_swap_msg, swap_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount,
     MySwapInfo, NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction,
     SavedSwap, SavedSwapIo, SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
@@ -1130,7 +1130,7 @@ impl TakerSwap {
         )
         .map_err(|err| err.to_string())?;
 
-        if let Err(e) = check_balance_for_swap(&self.ctx, Some(&self.uuid), fee_helper.deref(), false).await {
+        if let Err(e) = check_coin_balances_for_swap(&self.ctx, Some(&self.uuid), fee_helper.deref(), false).await {
             return Ok((
                 Some(TakerSwapCommand::Finish),
                 vec![TakerSwapEvent::StartFailed(
@@ -2750,7 +2750,7 @@ pub async fn taker_swap_trade_preimage(
         .await
         .mm_err(|e| TradePreimageRpcError::from_trade_preimage_error(e, other_coin_ticker))?;
 
-    check_balance_for_swap(
+    check_coin_balances_for_swap(
         ctx,
         None,
         &LegacyTakerSwapTotalFeeHelper {

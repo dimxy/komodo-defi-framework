@@ -41,10 +41,10 @@ use mm2_test_helpers::for_tests::{
     account_balance, active_swaps, coins_needed_for_kickstart, disable_coin, enable_erc20_token_v2, enable_eth_coin_v2,
     enable_eth_with_tokens_v2, erc20_dev_conf, eth1_dev_conf, eth_dev_conf, get_locked_amount, get_new_address,
     get_token_info, mm_dump, my_swap_status, nft_dev_conf, start_swaps, MarketMakerIt, Mm2TestConf,
-    SwapV2TestContracts, TestNode, ETH_SEPOLIA_CHAIN_ID,
+    SwapV2TestContracts, TestNode,
 };
 #[cfg(any(feature = "sepolia-maker-swap-v2-tests", feature = "sepolia-taker-swap-v2-tests"))]
-use mm2_test_helpers::for_tests::{eth_sepolia_conf, sepolia_erc20_dev_conf};
+use mm2_test_helpers::for_tests::{eth_sepolia_conf, sepolia_erc20_dev_conf, ETH_SEPOLIA_CHAIN_ID};
 use mm2_test_helpers::structs::{
     Bip44Chain, EnableCoinBalanceMap, EthWithTokensActivationResult, HDAccountAddressId, TokenInfo,
 };

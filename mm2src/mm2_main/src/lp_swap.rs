@@ -125,9 +125,9 @@ mod trade_preimage;
 mod swap_wasm_db;
 
 pub use check_balance::{
-    check_balance_for_swap, check_other_coin_balance_for_swap, CheckBalanceError, CheckBalanceResult,
+    check_coin_balances_for_swap, check_other_coin_balance_for_swap, CheckBalanceError, CheckBalanceResult,
 };
-pub(crate) use check_balance::{create_maker_total_fee_helper, create_taker_total_fee_helper};
+pub(crate) use check_balance::{create_maker_total_fee_helper, create_taker_total_fee_helper, SwapTotalFeeHelper};
 use crypto::secret_hash_algo::SecretHashAlgo;
 use crypto::CryptoCtx;
 use keys::{KeyPair, SECP_SIGN, SECP_VERIFY};

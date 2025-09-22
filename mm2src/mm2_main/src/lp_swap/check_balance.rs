@@ -72,9 +72,12 @@ pub async fn check_other_coin_balance_for_swap(
     swap_uuid: Option<&Uuid>,
     trade_fee: TradeFee,
 ) -> CheckBalanceResult<()> {
-    if trade_fee.paid_from_trading_vol {
-        return Ok(());
+    macro_rules! is_platform_fee {
+        ($ticker: expr, $trade_fee: expr) => {
+            $ticker != $trade_fee.coin
+        };
     }
+
     let ticker = coin.ticker();
     debug!(
         "Check other_coin '{}' balance for swap to pay trade fee, trade_fee coin {}",
@@ -87,7 +90,10 @@ pub async fn check_other_coin_balance_for_swap(
         None => get_locked_amount(ctx, ticker),
     };
 
-    if ticker == trade_fee.coin {
+    if !is_platform_fee!(ticker, trade_fee) {
+        if trade_fee.paid_from_trading_vol {
+            return Ok(());
+        }
         let available = &balance - &locked;
         let required = trade_fee.amount;
         debug!(
@@ -269,7 +275,7 @@ impl CheckBalanceError {
     }
 }
 
-pub async fn check_balance_for_swap(
+pub async fn check_coin_balances_for_swap(
     ctx: &MmArc,
     swap_uuid: Option<&Uuid>,
     total_fee_helper: &(dyn SwapTotalFeeHelper + Sync),
@@ -294,27 +300,7 @@ pub async fn check_balance_for_swap(
         check_platform_coin_balance_for_swap(ctx, total_fee_helper.get_my_coin(), my_coin_fees.clone(), swap_uuid)
             .await?;
     }
-    if !total_fee_helper.is_other_platform_fee(&other_coin_fees) {
-        if !other_coin_fees.paid_from_trading_vol {
-            check_my_coin_balance_for_swap(
-                ctx,
-                total_fee_helper.get_other_coin(),
-                swap_uuid,
-                None,
-                None,
-                Some(other_coin_fees.amount),
-            )
-            .await?;
-        }
-    } else {
-        check_platform_coin_balance_for_swap(
-            ctx,
-            total_fee_helper.get_other_coin(),
-            other_coin_fees.clone(),
-            swap_uuid,
-        )
-        .await?;
-    }
+    check_other_coin_balance_for_swap(ctx, total_fee_helper.get_other_coin(), swap_uuid, other_coin_fees).await?;
     Ok(balance)
 }
 
