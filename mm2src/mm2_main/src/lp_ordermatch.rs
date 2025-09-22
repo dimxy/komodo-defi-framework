@@ -5449,23 +5449,29 @@ pub async fn create_maker_order(ctx: &MmArc, req: SetPriceReq) -> Result<MakerOr
 
     try_s!(base_coin.pre_check_for_order_creation(ctx, &rel_coin).await);
 
-    let fee_helper = try_s!(create_maker_total_fee_helper(
-        ctx,
-        &base_coin,
-        &rel_coin,
-        req.volume.clone(),
-        FeeApproxStage::OrderIssue
-    ));
-
     let (volume, balance) = if req.max {
         let CoinVolumeInfo { volume, balance, .. } = try_s!(
             get_max_maker_vol(ctx, &base_coin)
                 .or_else(|e| cancel_orders_on_error(ctx, &req, e))
                 .await
         );
+        let fee_helper = try_s!(create_maker_total_fee_helper(
+            ctx,
+            &base_coin,
+            &rel_coin,
+            volume.clone(),
+            FeeApproxStage::OrderIssue
+        ));
         try_s!(check_other_coin_balance_for_order_issue(ctx, fee_helper.deref()).await);
         (volume, balance.to_decimal())
     } else {
+        let fee_helper = try_s!(create_maker_total_fee_helper(
+            ctx,
+            &base_coin,
+            &rel_coin,
+            req.volume.clone(),
+            FeeApproxStage::OrderIssue
+        ));
         let balance = try_s!(
             check_coin_balances_for_swap(ctx, None, fee_helper.deref(), req.max)
                 .or_else(|e| cancel_orders_on_error(ctx, &req, e))

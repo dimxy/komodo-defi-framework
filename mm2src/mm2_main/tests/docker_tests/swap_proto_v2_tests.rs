@@ -716,15 +716,15 @@ fn test_v2_swap_utxo_utxo_impl() {
     // coins must be virtually locked until swap transactions are sent
     let locked_bob = block_on(get_locked_amount(&mm_bob, MYCOIN));
     assert_eq!(locked_bob.coin, MYCOIN);
-    let expected: MmNumberMultiRepr = MmNumber::from("777.00000274").into();
+    let expected: MmNumberMultiRepr = MmNumber::from("777.00000770").into();
     assert_eq!(locked_bob.locked_amount, expected);
 
     let locked_alice = block_on(get_locked_amount(&mm_alice, MYCOIN1));
     assert_eq!(locked_alice.coin, MYCOIN1);
     let expected: MmNumberMultiRepr = if SET_BURN_PUBKEY_TO_ALICE.get() {
-        MmNumber::from("777.00000274").into()
+        MmNumber::from("777.00000770").into()
     } else {
-        MmNumber::from("778.00000274").into()
+        MmNumber::from("778.00000770").into()
     };
     assert_eq!(locked_alice.locked_amount, expected);
 
@@ -851,12 +851,12 @@ fn test_v2_swap_utxo_utxo_kickstart() {
     // coins must be virtually locked after kickstart until swap transactions are sent
     let locked_alice = block_on(get_locked_amount(&mm_alice, MYCOIN1));
     assert_eq!(locked_alice.coin, MYCOIN1);
-    let expected: MmNumberMultiRepr = MmNumber::from("778.00000274").into();
+    let expected: MmNumberMultiRepr = MmNumber::from("778.00000770").into();
     assert_eq!(locked_alice.locked_amount, expected);
 
     let locked_bob = block_on(get_locked_amount(&mm_bob, MYCOIN));
     assert_eq!(locked_bob.coin, MYCOIN);
-    let expected: MmNumberMultiRepr = MmNumber::from("777.00000274").into();
+    let expected: MmNumberMultiRepr = MmNumber::from("777.00000770").into();
     assert_eq!(locked_bob.locked_amount, expected);
 
     // amount must unlocked after funding tx is sent

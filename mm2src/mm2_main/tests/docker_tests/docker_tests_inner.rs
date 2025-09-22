@@ -1416,11 +1416,11 @@ fn test_maker_trade_preimage() {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!trade_preimage: {}", rc.1);
-    let base_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000274", false); // txfee from get_sender_trade_fee
+    let base_coin_fee = TradeFeeForTest::new("MYCOIN", "0.00000514", false); // txfee from get_sender_trade_fee + refund fee
     let rel_coin_fee = TradeFeeForTest::new("MYCOIN1", "0.00000992", true);
-    let volume = MmNumber::from("9.99999726"); // 1.0 - 0.00000274 from calc_max_maker_vol
+    let volume = MmNumber::from("9.99999486"); // 1.0 - 0.00000514 from calc_max_maker_vol
 
-    let my_coin_total = TotalTradeFeeForTest::new("MYCOIN", "0.00000274", "0.00000274");
+    let my_coin_total = TotalTradeFeeForTest::new("MYCOIN", "0.00000514", "0.00000514");
     let my_coin1_total = TotalTradeFeeForTest::new("MYCOIN1", "0.00000992", "0");
 
     let expected = TradePreimageResult::MakerPreimage(MakerPreimage {
