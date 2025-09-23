@@ -335,23 +335,27 @@ impl EthCoin {
 
     /// Estimate spend payment fee using the gas_limit const.
     /// Using the gas_limit const because we cannot get correct estimation from the chain for spending a non-existent payment.
-    pub(crate) async fn get_fee_to_spend_maker_payment_v2_impl(&self) -> TradePreimageResult<TradeFee> {
+    pub(crate) async fn get_fee_to_spend_maker_payment_v2_impl(
+        &self,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
         let gas_limit = self
             .gas_limit_v2
             .gas_limit(&self.coin_type, EthPaymentType::MakerPayments, PaymentMethod::Spend)
             .map_err(|e| TradePreimageError::InternalError(ERRL!("{}", e)))?;
-        self.estimate_trade_fee(gas_limit.into(), FeeApproxStage::TradePreimage)
-            .await
+        self.estimate_trade_fee(gas_limit.into(), stage).await
     }
 
     /// Estimate refund payment fee
-    pub(crate) async fn get_fee_to_refund_maker_payment_v2_impl(&self) -> TradePreimageResult<TradeFee> {
+    pub(crate) async fn get_fee_to_refund_maker_payment_v2_impl(
+        &self,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
         let gas_limit = self
             .gas_limit_v2
             .gas_limit(&self.coin_type, EthPaymentType::MakerPayments, PaymentMethod::Spend)
             .map_err(|e| TradePreimageError::InternalError(ERRL!("{}", e)))?;
-        self.estimate_trade_fee(gas_limit.into(), FeeApproxStage::TradePreimage)
-            .await
+        self.estimate_trade_fee(gas_limit.into(), stage).await
     }
 
     pub(crate) async fn spend_maker_payment_v2_impl(

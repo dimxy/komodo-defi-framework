@@ -7580,17 +7580,17 @@ impl TakerCoinSwapOpsV2 for EthCoin {
         self.get_fee_to_send_taker_funding_impl(args).await
     }
 
-    async fn get_fee_to_spend_taker_funding(&self) -> TradePreimageResult<TradeFee> {
-        self.get_fee_to_spend_taker_funding_impl().await
+    async fn get_fee_to_spend_taker_funding(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_spend_taker_funding_impl(stage).await
     }
 
-    async fn get_fee_to_spend_taker_payment(&self) -> TradePreimageResult<TradeFee> {
-        self.get_fee_to_spend_taker_payment_impl().await
+    async fn get_fee_to_spend_taker_payment(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_spend_taker_payment_impl(stage).await
     }
 
     /// Estimate tx fee to spend taker payment
-    async fn get_fee_to_refund_taker_payment(&self) -> TradePreimageResult<TradeFee> {
-        self.get_fee_to_refund_taker_payment_impl().await
+    async fn get_fee_to_refund_taker_payment(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_refund_taker_payment_impl(stage).await
     }
 
     /// Wrapper for [EthCoin::send_taker_funding_impl]
@@ -7808,12 +7808,12 @@ impl MakerCoinSwapOpsV2 for EthCoin {
         self.get_fee_to_send_maker_payment_v2_impl(args).await
     }
 
-    async fn get_fee_to_spend_maker_payment_v2(&self) -> TradePreimageResult<TradeFee> {
-        self.get_fee_to_spend_maker_payment_v2_impl().await
+    async fn get_fee_to_spend_maker_payment_v2(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_spend_maker_payment_v2_impl(stage).await
     }
 
-    async fn get_fee_to_refund_maker_payment_v2(&self) -> TradePreimageResult<TradeFee> {
-        self.get_fee_to_refund_maker_payment_v2_impl().await
+    async fn get_fee_to_refund_maker_payment_v2(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
+        self.get_fee_to_refund_maker_payment_v2_impl(stage).await
     }
 
     async fn send_maker_payment_v2(&self, args: SendMakerPaymentArgs<'_, Self>) -> Result<Self::Tx, TransactionErr> {

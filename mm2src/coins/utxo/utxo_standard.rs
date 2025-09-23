@@ -605,11 +605,11 @@ impl MakerCoinSwapOpsV2 for UtxoStandardCoin {
         utxo_common::get_sender_trade_fee(self, preimage_value, args.stage).await
     }
 
-    async fn get_fee_to_spend_maker_payment_v2(&self) -> TradePreimageResult<TradeFee> {
+    async fn get_fee_to_spend_maker_payment_v2(&self, _stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
         utxo_common::get_receiver_trade_fee(self.clone()).compat().await
     }
 
-    async fn get_fee_to_refund_maker_payment_v2(&self) -> TradePreimageResult<TradeFee> {
+    async fn get_fee_to_refund_maker_payment_v2(&self, _stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
         utxo_common::get_receiver_trade_fee(self.clone()).compat().await
     }
 
@@ -684,17 +684,17 @@ impl TakerCoinSwapOpsV2 for UtxoStandardCoin {
     }
 
     /// Estimate tx fee to spend taker funding
-    async fn get_fee_to_spend_taker_funding(&self) -> TradePreimageResult<TradeFee> {
+    async fn get_fee_to_spend_taker_funding(&self, _stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
         utxo_common::get_receiver_trade_fee(self.clone()).compat().await
     }
 
     /// Estimate tx fee to spend taker payment
-    async fn get_fee_to_spend_taker_payment(&self) -> TradePreimageResult<TradeFee> {
+    async fn get_fee_to_spend_taker_payment(&self, _stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
         utxo_common::get_receiver_trade_fee(self.clone()).compat().await
     }
 
     /// Estimate tx fee to refund taker payment
-    async fn get_fee_to_refund_taker_payment(&self) -> TradePreimageResult<TradeFee> {
+    async fn get_fee_to_refund_taker_payment(&self, _stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
         utxo_common::get_receiver_trade_fee(self.clone()).compat().await
     }
 

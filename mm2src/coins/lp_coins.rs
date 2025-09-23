@@ -1921,10 +1921,10 @@ pub trait MakerCoinSwapOpsV2: ParseCoinAssocTypes + CommonSwapOpsV2 + Send + Syn
     ) -> TradePreimageResult<TradeFee>;
 
     /// Get fee estimate to spend maker payment
-    async fn get_fee_to_spend_maker_payment_v2(&self) -> TradePreimageResult<TradeFee>;
+    async fn get_fee_to_spend_maker_payment_v2(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee>;
 
     /// Get fee estimate to refund maker payment (assume time unlocked refund)
-    async fn get_fee_to_refund_maker_payment_v2(&self) -> TradePreimageResult<TradeFee>;
+    async fn get_fee_to_refund_maker_payment_v2(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee>;
 
     /// Generate and broadcast maker payment transaction
     async fn send_maker_payment_v2(&self, args: SendMakerPaymentArgs<'_, Self>) -> Result<Self::Tx, TransactionErr>;
@@ -2079,13 +2079,13 @@ pub trait TakerCoinSwapOpsV2: ParseCoinAssocTypes + CommonSwapOpsV2 + Send + Syn
     async fn get_fee_to_send_taker_funding(&self, args: GetTakerFundingFeeArgs) -> TradePreimageResult<TradeFee>;
 
     /// Estimate tx fee to spend taker funding
-    async fn get_fee_to_spend_taker_funding(&self) -> TradePreimageResult<TradeFee>;
+    async fn get_fee_to_spend_taker_funding(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee>;
 
     /// Estimate tx fee to spend taker payment
-    async fn get_fee_to_spend_taker_payment(&self) -> TradePreimageResult<TradeFee>;
+    async fn get_fee_to_spend_taker_payment(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee>;
 
     /// Estimate tx fee to spend taker payment
-    async fn get_fee_to_refund_taker_payment(&self) -> TradePreimageResult<TradeFee>;
+    async fn get_fee_to_refund_taker_payment(&self, stage: FeeApproxStage) -> TradePreimageResult<TradeFee>;
 
     /// Generate and broadcast taker funding transaction that includes dex fee, maker premium and actual trading volume.
     /// Funding tx can be reclaimed immediately if maker back-outs (doesn't send maker payment)

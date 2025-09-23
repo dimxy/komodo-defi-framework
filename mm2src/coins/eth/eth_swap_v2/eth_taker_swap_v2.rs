@@ -639,28 +639,35 @@ impl EthCoin {
 
     /// Estimate fee to spend taker funding using the gas_limit const
     /// because we cannot get correct estimation from the chain for spending a non-existent funding.
-    pub(crate) async fn get_fee_to_spend_taker_funding_impl(&self) -> TradePreimageResult<TradeFee> {
+    pub(crate) async fn get_fee_to_spend_taker_funding_impl(
+        &self,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
         let gas_limit = self
             .gas_limit_v2
             .gas_limit(&self.coin_type, EthPaymentType::TakerPayments, PaymentMethod::Spend)
             .map_err(|e| TradePreimageError::InternalError(ERRL!("{}", e)))?;
         // TODO: add stage to param
-        self.estimate_trade_fee(gas_limit.into(), FeeApproxStage::TradePreimage)
-            .await
+        self.estimate_trade_fee(gas_limit.into(), stage).await
     }
 
     /// Estimate fee to spend taker funding using the gas_limit const
-    pub(crate) async fn get_fee_to_spend_taker_payment_impl(&self) -> TradePreimageResult<TradeFee> {
+    pub(crate) async fn get_fee_to_spend_taker_payment_impl(
+        &self,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
         let gas_limit = match self.coin_type {
             EthCoinType::Eth | EthCoinType::Erc20 { .. } => self.gas_limit_v2.taker.approve_payment,
             EthCoinType::Nft { .. } => return MmError::err(TradePreimageError::NftProtocolNotSupported),
         };
-        self.estimate_trade_fee(gas_limit.into(), FeeApproxStage::TradePreimage)
-            .await
+        self.estimate_trade_fee(gas_limit.into(), stage).await
     }
 
     /// Estimate fee to spend taker funding using the gas_limit const
-    pub(crate) async fn get_fee_to_refund_taker_payment_impl(&self) -> TradePreimageResult<TradeFee> {
+    pub(crate) async fn get_fee_to_refund_taker_payment_impl(
+        &self,
+        stage: FeeApproxStage,
+    ) -> TradePreimageResult<TradeFee> {
         let gas_limit = self
             .gas_limit_v2
             .gas_limit(
@@ -669,8 +676,7 @@ impl EthCoin {
                 PaymentMethod::RefundTimelock,
             )
             .map_err(|e| TradePreimageError::InternalError(ERRL!("{}", e)))?;
-        self.estimate_trade_fee(gas_limit.into(), FeeApproxStage::TradePreimage)
-            .await
+        self.estimate_trade_fee(gas_limit.into(), stage).await
     }
 
     /// Retrieves the taker smart contract address, the corresponding function, and the token address.

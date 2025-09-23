@@ -623,15 +623,15 @@ impl TakerCoinSwapOpsV2 for TestCoin {
         unimplemented!()
     }
 
-    async fn get_fee_to_spend_taker_funding(&self) -> TradePreimageResult<TradeFee> {
+    async fn get_fee_to_spend_taker_funding(&self, _stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }
 
-    async fn get_fee_to_spend_taker_payment(&self) -> TradePreimageResult<TradeFee> {
+    async fn get_fee_to_spend_taker_payment(&self, _stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }
 
-    async fn get_fee_to_refund_taker_payment(&self) -> TradePreimageResult<TradeFee> {
+    async fn get_fee_to_refund_taker_payment(&self, _stage: FeeApproxStage) -> TradePreimageResult<TradeFee> {
         unimplemented!()
     }
 

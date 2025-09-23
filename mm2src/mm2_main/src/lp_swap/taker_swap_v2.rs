@@ -2714,7 +2714,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, self.my_coin.ticker()))?;
         let spend_fees = self
             .my_coin
-            .get_fee_to_spend_taker_funding()
+            .get_fee_to_spend_taker_funding(self.stage)
             .await
             .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, self.my_coin.ticker()))?;
         Ok(TradeFee {
@@ -2731,7 +2731,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
 
     async fn get_other_coin_fees(&self) -> CheckBalanceResult<TradeFee> {
         self.other_coin
-            .get_fee_to_spend_maker_payment_v2()
+            .get_fee_to_spend_maker_payment_v2(self.stage)
             .await
             .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, self.other_coin.ticker()))
     }
