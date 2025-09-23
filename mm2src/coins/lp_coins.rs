@@ -3965,7 +3965,7 @@ impl MmCoinEnum {
         matches!(self, MmCoinEnum::EthCoin(_))
     }
 
-    fn is_platform_coin(&self) -> bool {
+    pub fn is_platform_coin(&self) -> bool {
         self.ticker() == self.platform_ticker()
     }
 

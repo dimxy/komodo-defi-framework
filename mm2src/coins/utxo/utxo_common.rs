@@ -4433,8 +4433,8 @@ where
     T: MarketCoinOps + UtxoCommonOps,
 {
     let (amount, fee_policy) = match value {
-        TradePreimageValue::UpperBound(upper_bound) => (upper_bound, FeePolicy::DeductFromOutput(0)),
-        TradePreimageValue::Exact(amount) => (amount, FeePolicy::SendExact),
+        TradePreimageValue::UpperBound(ref upper_bound) => (upper_bound.clone(), FeePolicy::DeductFromOutput(0)),
+        TradePreimageValue::Exact(ref amount) => (amount.clone(), FeePolicy::SendExact),
     };
 
     // pass the dummy params
@@ -4459,6 +4459,12 @@ where
     let fee_amount = coin
         .preimage_trade_fee_required_to_send_outputs(outputs, fee_policy, gas_fee, &stage)
         .await?;
+    println!(
+        "{} value={:?} fee_amount={}",
+        coin.as_ref().conf.ticker,
+        value,
+        fee_amount
+    );
     Ok(TradeFee {
         coin: coin.as_ref().conf.ticker.clone(),
         amount: fee_amount.into(),

@@ -1,14 +1,14 @@
-use super::check_balance::{create_taker_total_fee_helper, CheckBalanceError, CheckBalanceResult, SwapTotalFeeHelper};
+use super::check_balance::{CheckBalanceError, CheckBalanceResult, SwapTotalFeeHelper};
 use super::pubkey_banning::ban_pubkey_on_failed_swap;
 use super::swap_lock::{SwapLock, SwapLockOps};
 use super::swap_watcher::{watcher_topic, SwapWatcherMsg};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{
     broadcast_my_swap_status, broadcast_swap_message, broadcast_swap_msg_every, check_coin_balances_for_swap,
-    get_locked_amount, recv_swap_msg, swap_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount,
-    MySwapInfo, NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction,
-    SavedSwap, SavedSwapIo, SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
-    SwapsContext, TransactionIdentifier, WAIT_CONFIRM_INTERVAL_SEC,
+    create_taker_total_fee_helper, get_locked_amount, recv_swap_msg, swap_topic, wait_for_maker_payment_conf_until,
+    AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap,
+    RecoveredSwapAction, SavedSwap, SavedSwapIo, SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg,
+    SwapPubkeys, SwapTxDataMsg, SwapsContext, TransactionIdentifier, WAIT_CONFIRM_INTERVAL_SEC,
 };
 use crate::lp_network::subscribe_to_topic;
 use crate::lp_ordermatch::TakerOrderBuilder;
@@ -1119,18 +1119,14 @@ impl TakerSwap {
                 ))
             },
         };
-
-        let fee_helper = create_taker_total_fee_helper(
-            &self.ctx,
-            &self.taker_coin,
-            &self.maker_coin,
-            self.taker_amount.clone(),
-            Some(dex_fee.clone()),
+        let fee_helper = LegacyTakerSwapTotalFeeHelper {
+            my_coin: self.taker_coin.deref(),
+            other_coin: self.maker_coin.deref(),
+            volume: self.taker_amount.clone(),
+            dex_fee,
             stage,
-        )
-        .map_err(|err| err.to_string())?;
-
-        if let Err(e) = check_coin_balances_for_swap(&self.ctx, Some(&self.uuid), fee_helper.deref(), false).await {
+        };
+        if let Err(e) = check_coin_balances_for_swap(&self.ctx, Some(&self.uuid), &fee_helper, false).await {
             return Ok((
                 Some(TakerSwapCommand::Finish),
                 vec![TakerSwapEvent::StartFailed(
@@ -2894,38 +2890,31 @@ pub async fn calc_max_taker_vol(
     let balance: MmNumber = coin.my_spendable_balance().compat().await.map_mm_err()?.into();
     let locked = get_locked_amount(ctx, my_coin);
     let min_tx_amount = MmNumber::from(coin.min_tx_amount());
-
     let max_possible = &balance - &locked;
-    let preimage_value = TradePreimageValue::UpperBound(max_possible.to_decimal());
-    // TODO: use fee_helper for both swap versions
-    let max_trade_fee = coin
-        .get_sender_trade_fee(preimage_value, stage)
-        .await
-        .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, my_coin))?;
-
-    let max_vol = if my_coin == max_trade_fee.coin {
-        // second case
-        let max_possible_2 = &max_possible - &max_trade_fee.amount;
-        let max_dex_fee = DexFee::new_from_taker_coin(coin.deref(), other_coin, &max_possible_2); // taker_pubkey is not known yet so we get max dex fee to calc max volume
-        let max_fee_to_send_taker_fee = coin
-            .get_fee_to_send_taker_fee(max_dex_fee.clone(), stage)
-            .await
-            .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, my_coin))?;
-        let min_max_possible = &max_possible_2 - &max_fee_to_send_taker_fee.amount;
-
+    let fee_helper = create_taker_total_fee_helper(
+        ctx,
+        coin,
+        coin, // Send same coin as we won't need other_coin fees here
+        max_possible.clone(),
+        None,
+        stage,
+    )?;
+    let max_vol = if !coin.is_platform_coin() {
+        // second case (fee are paid in this coin)
+        let max_total_fees = fee_helper.get_my_coin_fees(true).await?;
+        let min_max_possible = &max_possible - &max_total_fees.amount;
         debug!(
-            "max_taker_vol case 2: min_max_possible {:?}, balance {:?}, locked {:?}, max_trade_fee {:?}, max_dex_fee {:?}, max_fee_to_send_taker_fee {:?}",
+            "max_taker_vol case 2: min_max_possible {:?}, balance {:?}, locked {:?}, max_total_fees {:?}, max_dex_fee {:?}",
             min_max_possible.to_fraction(),
             balance.to_fraction(),
             locked.to_fraction(),
-            max_trade_fee.amount.to_fraction(),
-            max_dex_fee.total_spend_amount().to_fraction(),
-            max_fee_to_send_taker_fee.amount.to_fraction()
+            max_total_fees.amount.to_fraction(),
+            fee_helper.get_dex_fee().map(|dex_fee| dex_fee.to_fraction())
         );
         max_taker_vol_from_available(min_max_possible, my_coin, other_coin, &min_tx_amount)
             .mm_err(|e| CheckBalanceError::from_max_taker_vol_error(e, my_coin.to_owned(), locked.to_decimal()))?
     } else {
-        // first case
+        // first case (fee are paid in platform coin)
         debug!(
             "max_taker_vol case 1: balance {:?}, locked {:?}",
             balance.to_fraction(),

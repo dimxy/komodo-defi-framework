@@ -6,12 +6,12 @@ use super::swap_lock::{SwapLock, SwapLockOps};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
 use super::{
     broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_every, check_coin_balances_for_swap,
-    check_other_coin_balance_for_swap, detect_secret_hash_algo, get_locked_amount, recv_swap_msg, swap_topic,
-    taker_payment_spend_deadline, tx_helper_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount,
-    MySwapInfo, NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction,
-    SavedSwap, SavedSwapIo, SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
-    SwapsContext, TransactionIdentifier, TAKER_FEE_VALIDATION_ATTEMPTS, TAKER_FEE_VALIDATION_RETRY_DELAY_SECS,
-    WAIT_CONFIRM_INTERVAL_SEC,
+    check_other_coin_balance_for_swap, create_maker_total_fee_helper, detect_secret_hash_algo, get_locked_amount,
+    recv_swap_msg, swap_topic, taker_payment_spend_deadline, tx_helper_topic, wait_for_maker_payment_conf_until,
+    AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg, NegotiationDataV2, NegotiationDataV3, RecoveredSwap,
+    RecoveredSwapAction, SavedSwap, SavedSwapIo, SavedTradeFee, SwapConfirmationsSettings, SwapError, SwapMsg,
+    SwapPubkeys, SwapTxDataMsg, SwapsContext, TransactionIdentifier, TAKER_FEE_VALIDATION_ATTEMPTS,
+    TAKER_FEE_VALIDATION_RETRY_DELAY_SECS, WAIT_CONFIRM_INTERVAL_SEC,
 };
 use crate::lp_dispatcher::{DispatcherContext, LpEvents};
 use crate::lp_network::subscribe_to_topic;
@@ -503,8 +503,7 @@ impl MakerSwap {
         // do not use self.r().data here as it is not initialized at this step yet
         let preimage_value = TradePreimageValue::Exact(self.maker_amount.clone());
         let stage = FeeApproxStage::StartSwap;
-        let get_sender_trade_fee_fut = self.maker_coin.get_sender_trade_fee(preimage_value, stage);
-        let maker_payment_trade_fee = match get_sender_trade_fee_fut.await {
+        let maker_payment_trade_fee = match self.maker_coin.get_sender_trade_fee(preimage_value, stage).await {
             Ok(fee) => fee,
             Err(e) => {
                 return Ok((
@@ -515,8 +514,7 @@ impl MakerSwap {
                 ))
             },
         };
-        let taker_payment_spend_trade_fee_fut = self.taker_coin.get_receiver_trade_fee(stage);
-        let taker_payment_spend_trade_fee = match taker_payment_spend_trade_fee_fut.compat().await {
+        let taker_payment_spend_trade_fee = match self.taker_coin.get_receiver_trade_fee(stage).compat().await {
             Ok(fee) => fee,
             Err(e) => {
                 return Ok((
@@ -2442,15 +2440,26 @@ pub async fn maker_swap_trade_preimage(
         }
         req.volume
     };
+    println!(
+        "maker_swap_trade_preimage {} volume={}",
+        base_coin.ticker(),
+        volume.to_decimal()
+    );
 
+    // Estimate tx fee for requested or calculated volume
     let fee_helper = LegacyMakerSwapTotalFeeHelper {
         my_coin: base_coin.deref(),
         other_coin: rel_coin.deref(),
         volume: volume.clone(),
         stage: FeeApproxStage::TradePreimage,
     };
-    let base_coin_fee = fee_helper.get_my_coin_fees(req.max).await.map_mm_err()?;
+    let base_coin_fee = fee_helper.get_my_coin_fees(false).await.map_mm_err()?;
     let rel_coin_fee = fee_helper.get_other_coin_fees().await.map_mm_err()?;
+    println!(
+        "maker_swap_trade_preimage {} base_coin_fee={}",
+        base_coin.ticker(),
+        base_coin_fee.amount.to_decimal()
+    );
 
     if req.max {
         // Note the `calc_max_maker_vol` returns [`CheckBalanceError::NotSufficientBalance`] error if the balance of `base_coin` is not sufficient.
@@ -2515,15 +2524,18 @@ pub async fn calc_max_maker_vol(
     let available = &MmNumber::from(balance) - &locked_by_swaps;
     let mut volume = available.clone();
 
-    let preimage_value = TradePreimageValue::UpperBound(volume.to_decimal());
-    let trade_fee = coin
-        .get_sender_trade_fee(preimage_value, stage)
-        .await
-        .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, ticker))?;
+    let fee_helper = create_maker_total_fee_helper(
+        ctx,
+        coin,
+        coin, // Send same coin as we won't need other_coin fees here
+        volume.clone(),
+        stage,
+    )?;
 
+    let trade_fee = fee_helper.get_my_coin_fees(true).await?;
     debug!("{} trade fee {}", trade_fee.coin, trade_fee.amount.to_decimal());
     let mut required_to_pay_fee = MmNumber::from(0);
-    if trade_fee.coin == ticker {
+    if coin.is_platform_coin() {
         volume = &volume - &trade_fee.amount;
         required_to_pay_fee = trade_fee.amount;
     } else {

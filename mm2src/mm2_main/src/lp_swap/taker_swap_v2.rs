@@ -2719,6 +2719,7 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, self.my_coin.ticker()))?;
         Ok(TradeFee {
             coin: funding_fee.coin,
+            // Add fees both to send taker funding and spend funding
             amount: funding_fee.amount + spend_fees.amount,
             paid_from_trading_vol: funding_fee.paid_from_trading_vol,
         })
