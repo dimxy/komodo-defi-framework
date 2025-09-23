@@ -2899,7 +2899,7 @@ pub async fn calc_max_taker_vol(
         None,
         stage,
     )?;
-    let max_vol = if !coin.is_platform_coin() {
+    let max_vol = if coin.is_platform_coin() {
         // second case (fee are paid in this coin)
         let max_total_fees = fee_helper.get_my_coin_fees(true).await?;
         let min_max_possible = &max_possible - &max_total_fees.amount;

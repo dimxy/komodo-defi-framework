@@ -2440,11 +2440,6 @@ pub async fn maker_swap_trade_preimage(
         }
         req.volume
     };
-    println!(
-        "maker_swap_trade_preimage {} volume={}",
-        base_coin.ticker(),
-        volume.to_decimal()
-    );
 
     // Estimate tx fee for requested or calculated volume
     let fee_helper = LegacyMakerSwapTotalFeeHelper {
@@ -2455,12 +2450,6 @@ pub async fn maker_swap_trade_preimage(
     };
     let base_coin_fee = fee_helper.get_my_coin_fees(false).await.map_mm_err()?;
     let rel_coin_fee = fee_helper.get_other_coin_fees().await.map_mm_err()?;
-    println!(
-        "maker_swap_trade_preimage {} base_coin_fee={}",
-        base_coin.ticker(),
-        base_coin_fee.amount.to_decimal()
-    );
-
     if req.max {
         // Note the `calc_max_maker_vol` returns [`CheckBalanceError::NotSufficientBalance`] error if the balance of `base_coin` is not sufficient.
         // So we have to check the balance of the other coin only.
