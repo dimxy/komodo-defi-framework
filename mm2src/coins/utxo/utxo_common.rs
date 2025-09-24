@@ -4459,12 +4459,6 @@ where
     let fee_amount = coin
         .preimage_trade_fee_required_to_send_outputs(outputs, fee_policy, gas_fee, &stage)
         .await?;
-    println!(
-        "{} value={:?} fee_amount={}",
-        coin.as_ref().conf.ticker,
-        value,
-        fee_amount
-    );
     Ok(TradeFee {
         coin: coin.as_ref().conf.ticker.clone(),
         amount: fee_amount.into(),

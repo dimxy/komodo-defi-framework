@@ -5653,8 +5653,7 @@ pub async fn update_maker_order(ctx: &MmArc, req: MakerOrderUpdateReq) -> Result
 
     // Calculate new order volume
     let new_volume = if req.max.unwrap_or(false) {
-        let max_volume = try_s!(get_max_maker_vol(ctx, &base_coin).await).volume + reserved_amount.clone();
-        max_volume
+        try_s!(get_max_maker_vol(ctx, &base_coin).await).volume + reserved_amount.clone()
     } else if Option::is_some(&req.volume_delta) {
         let volume = original_volume + req.volume_delta.clone().unwrap();
         if volume <= MmNumber::from("0") {
