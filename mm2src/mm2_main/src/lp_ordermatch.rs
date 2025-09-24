@@ -5676,6 +5676,7 @@ pub async fn update_maker_order(ctx: &MmArc, req: MakerOrderUpdateReq) -> Result
     // Check balances for new volume and add it update_msg if new_volume is found in the request
     if req.max.unwrap_or(false) {
         try_s!(check_other_coin_balance_for_order_issue(ctx, fee_helper.deref()).await);
+        update_msg.with_new_max_volume(new_volume.clone().into());
     } else if Option::is_some(&req.volume_delta) {
         let _ = try_s!(check_coin_balances_for_swap(ctx, None, fee_helper.deref(), req.max.unwrap_or(false)).await);
         update_msg.with_new_max_volume(new_volume.clone().into());
