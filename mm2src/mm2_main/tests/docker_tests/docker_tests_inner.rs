@@ -901,9 +901,7 @@ fn test_order_should_be_updated_when_matched_partially() {
     block_on(mm_alice.stop()).unwrap();
 }
 
-#[test]
-// https://github.com/KomodoPlatform/atomicDEX-API/issues/471
-fn test_match_and_trade_setprice_max() {
+fn test_match_and_trade_setprice_max_impl(is_tpu: bool) {
     let (_ctx, _, bob_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN", 1000.into());
     let (_ctx, _, alice_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN1", 2000.into());
     let coins = json!([mycoin_conf(1000), mycoin1_conf(1000)]);
@@ -914,11 +912,12 @@ fn test_match_and_trade_setprice_max() {
             "dht": "on",  // Enable DHT without delay.
             "passphrase": format!("0x{}", hex::encode(bob_priv_key)),
             "coins": coins,
-            "rpc_password": "pass",
+            "rpc_password": DEFAULT_RPC_PASSWORD,
             "i_am_seed": true,
+            "use_trading_proto_v2": is_tpu,
             "is_bootstrap_node": true
         }),
-        "pass".to_string(),
+        DEFAULT_RPC_PASSWORD.to_string(),
         None,
     )
     .unwrap();
@@ -931,10 +930,11 @@ fn test_match_and_trade_setprice_max() {
             "dht": "on",  // Enable DHT without delay.
             "passphrase": format!("0x{}", hex::encode(alice_priv_key)),
             "coins": coins,
-            "rpc_password": "pass",
+            "rpc_password": DEFAULT_RPC_PASSWORD,
             "seednodes": vec![format!("{}", mm_bob.ip)],
+            "use_trading_proto_v2": is_tpu
         }),
-        "pass".to_string(),
+        DEFAULT_RPC_PASSWORD.to_string(),
         None,
     )
     .unwrap();
@@ -1002,8 +1002,18 @@ fn test_match_and_trade_setprice_max() {
 }
 
 #[test]
-// https://github.com/KomodoPlatform/atomicDEX-API/issues/888
-fn test_max_taker_vol_swap() {
+// https://github.com/KomodoPlatform/atomicDEX-API/issues/471
+fn test_match_and_trade_setprice_max() {
+    test_match_and_trade_setprice_max_impl(false)
+}
+
+
+#[test]
+fn test_match_and_trade_setprice_max_v2() {
+    test_match_and_trade_setprice_max_impl(true)
+}
+
+fn test_max_taker_vol_swap_impl(is_tpu: bool) {
     let (_ctx, _, bob_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN", 1000.into());
     let (_ctx, _, alice_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN1", 50.into());
     let coins = json!([mycoin_conf(1000), mycoin1_conf(1000)]);
@@ -1016,7 +1026,8 @@ fn test_max_taker_vol_swap() {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
-            "is_bootstrap_node": true
+            "is_bootstrap_node": true,
+            "use_trading_proto_v2": is_tpu
         }),
         "pass".to_string(),
         None,
@@ -1035,6 +1046,7 @@ fn test_max_taker_vol_swap() {
             "coins": coins,
             "rpc_password": "pass",
             "seednodes": vec![format!("{}", mm_bob.ip)],
+            "use_trading_proto_v2": is_tpu
         }),
         "pass".to_string(),
         None,
@@ -1121,6 +1133,17 @@ fn test_max_taker_vol_swap() {
     assert_eq!("Started", first_event_type);
     block_on(mm_bob.stop()).unwrap();
     block_on(mm_alice.stop()).unwrap();
+}
+
+#[test]
+// https://github.com/KomodoPlatform/atomicDEX-API/issues/888
+fn test_max_taker_vol_swap() {
+    test_max_taker_vol_swap_impl(false)
+}
+
+#[test]
+fn test_max_taker_vol_swap_v2() {
+    test_max_taker_vol_swap_impl(true)
 }
 
 #[test]
