@@ -1,5 +1,7 @@
+// TODO: a lof of these implementations should be handled in `mm2_net`
+
 /******************************************************************************
- * Copyright © 2022 Atomic Private Limited and its contributors               *
+ * Copyright © 2023 Pampex LTD and TillyHK LTD                                *
  *                                                                            *
  * See the CONTRIBUTOR-LICENSE-AGREEMENT, COPYING, LICENSE-COPYRIGHT-NOTICE   *
  * and DEVELOPER-CERTIFICATE-OF-ORIGIN files in the LEGAL directory in        *
@@ -7,7 +9,7 @@
  * holder information and the developer policies on copyright and licensing.  *
  *                                                                            *
  * Unless otherwise agreed in a custom licensing agreement, no part of the    *
- * AtomicDEX software, including this file may be copied, modified, propagated*
+ * Komodo DeFi Framework software, including this file may be copied, modified, propagated*
  * or distributed except according to the terms contained in the              *
  * LICENSE-COPYRIGHT-NOTICE file.                                             *
  *                                                                            *
@@ -21,28 +23,27 @@
 use coins::lp_coinfind;
 use common::executor::SpawnFuture;
 use common::{log, Future01CompatExt};
+use compatible_time::Instant;
 use derive_more::Display;
 use futures::{channel::oneshot, StreamExt};
-use instant::Instant;
 use keys::KeyPair;
 use mm2_core::mm_ctx::{MmArc, MmWeak};
 use mm2_err_handle::prelude::*;
-use mm2_libp2p::atomicdex_behaviour::{AdexBehaviourCmd, AdexBehaviourEvent, AdexCmdTx, AdexEventRx, AdexResponse,
-                                      AdexResponseChannel};
-use mm2_libp2p::peers_exchange::PeerAddresses;
-use mm2_libp2p::{decode_message, encode_message, DecodingError, GossipsubMessage, Libp2pPublic, Libp2pSecpPublic,
-                 MessageId, NetworkPorts, PeerId, TopicHash, TOPIC_SEPARATOR};
+use mm2_libp2p::application::request_response::P2PRequest;
+use mm2_libp2p::p2p_ctx::P2PContext;
+use mm2_libp2p::{
+    decode_message, encode_message, DecodingError, GossipsubEvent, GossipsubMessage, Libp2pPublic, Libp2pSecpPublic,
+    MessageId, NetworkPorts, PeerId, TOPIC_SEPARATOR,
+};
+use mm2_libp2p::{AdexBehaviourCmd, AdexBehaviourEvent, AdexEventRx, AdexResponse};
+use mm2_libp2p::{PeerAddresses, RequestResponseBehaviourEvent};
 use mm2_metrics::{mm_label, mm_timing};
-#[cfg(test)] use mocktopus::macros::*;
-use parking_lot::Mutex as PaMutex;
 use serde::de;
-use std::net::ToSocketAddrs;
-use std::sync::Arc;
 
-use crate::mm2::lp_ordermatch;
-use crate::mm2::{lp_stats, lp_swap};
+use crate::{lp_healthcheck, lp_ordermatch, lp_stats, lp_swap};
 
 pub type P2PRequestResult<T> = Result<T, MmError<P2PRequestError>>;
+pub type P2PProcessResult<T> = Result<T, MmError<P2PProcessError>>;
 
 pub trait Libp2pPeerId {
     fn libp2p_peer_id(&self) -> PeerId;
@@ -50,7 +51,9 @@ pub trait Libp2pPeerId {
 
 impl Libp2pPeerId for KeyPair {
     #[inline(always)]
-    fn libp2p_peer_id(&self) -> PeerId { peer_id_from_secp_public(self.public_slice()).expect("valid public") }
+    fn libp2p_peer_id(&self) -> PeerId {
+        peer_id_from_secp_public(self.public_slice()).expect("valid public")
+    }
 }
 
 #[derive(Debug, Display)]
@@ -60,48 +63,36 @@ pub enum P2PRequestError {
     DecodeError(String),
     SendError(String),
     ResponseError(String),
-    #[display(fmt = "Expected 1 response, found {}", _0)]
+    #[display(fmt = "Expected 1 response, found {_0}")]
     ExpectedSingleResponseError(usize),
+    ValidationFailed(String),
+}
+
+/// Enum covering error cases that can happen during P2P message processing.
+#[derive(Debug, Display)]
+#[allow(clippy::enum_variant_names)]
+pub enum P2PProcessError {
+    /// The message could not be decoded.
+    DecodeError(String),
+    /// Message signature is invalid.
+    InvalidSignature(String),
+    /// Unexpected message sender.
+    #[display(fmt = "Unexpected message sender {_0}")]
+    UnexpectedSender(String),
+    /// Message did not pass additional validation
+    #[display(fmt = "Message validation failed: {_0}")]
+    ValidationFailed(String),
 }
 
 impl From<rmp_serde::encode::Error> for P2PRequestError {
-    fn from(e: rmp_serde::encode::Error) -> Self { P2PRequestError::EncodeError(e.to_string()) }
+    fn from(e: rmp_serde::encode::Error) -> Self {
+        P2PRequestError::EncodeError(e.to_string())
+    }
 }
 
 impl From<rmp_serde::decode::Error> for P2PRequestError {
-    fn from(e: rmp_serde::decode::Error) -> Self { P2PRequestError::DecodeError(e.to_string()) }
-}
-
-#[derive(Eq, Debug, Deserialize, PartialEq, Serialize)]
-pub enum P2PRequest {
-    Ordermatch(lp_ordermatch::OrdermatchRequest),
-    NetworkInfo(lp_stats::NetworkInfoRequest),
-}
-
-pub struct P2PContext {
-    /// Using Mutex helps to prevent cloning which can actually result to channel being unbounded in case of using 1 tx clone per 1 message.
-    pub cmd_tx: PaMutex<AdexCmdTx>,
-}
-
-#[cfg_attr(test, mockable)]
-impl P2PContext {
-    pub fn new(cmd_tx: AdexCmdTx) -> Self {
-        P2PContext {
-            cmd_tx: PaMutex::new(cmd_tx),
-        }
-    }
-
-    pub fn store_to_mm_arc(self, ctx: &MmArc) { *ctx.p2p_ctx.lock().unwrap() = Some(Arc::new(self)) }
-
-    pub fn fetch_from_mm_arc(ctx: &MmArc) -> Arc<Self> {
-        ctx.p2p_ctx
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .clone()
-            .downcast()
-            .unwrap()
+    fn from(e: rmp_serde::decode::Error) -> Self {
+        P2PRequestError::DecodeError(e.to_string())
     }
 }
 
@@ -113,21 +104,36 @@ pub async fn p2p_event_process_loop(ctx: MmWeak, mut rx: AdexEventRx, i_am_relay
             None => return,
         };
         match adex_event {
-            Some(AdexBehaviourEvent::Message(peer_id, message_id, message)) => {
-                let spawner = ctx.spawner();
-                spawner.spawn(process_p2p_message(ctx, peer_id, message_id, message, i_am_relay));
+            Some(AdexBehaviourEvent::Gossipsub(event)) => match event {
+                GossipsubEvent::Message {
+                    propagation_source,
+                    message_id,
+                    message,
+                } => {
+                    let spawner = ctx.spawner();
+                    spawner.spawn(process_p2p_message(
+                        ctx,
+                        propagation_source,
+                        message_id,
+                        message,
+                        i_am_relay,
+                    ));
+                },
+                GossipsubEvent::GossipsubNotSupported { peer_id } => {
+                    log::error!("Received unsupported event from Peer: {peer_id}");
+                },
+                _ => {},
             },
-            Some(AdexBehaviourEvent::PeerRequest {
+            Some(AdexBehaviourEvent::RequestResponse(RequestResponseBehaviourEvent::InboundRequest {
                 peer_id,
                 request,
                 response_channel,
-            }) => {
-                if let Err(e) = process_p2p_request(ctx, peer_id, request, response_channel) {
+            })) => {
+                if let Err(e) = process_p2p_request(ctx, peer_id, request.req, response_channel.into()) {
                     log::error!("Error on process P2P request: {:?}", e);
                 }
             },
-            None => break,
-            _ => (),
+            _ => {},
         }
     }
 }
@@ -136,104 +142,70 @@ async fn process_p2p_message(
     ctx: MmArc,
     peer_id: PeerId,
     message_id: MessageId,
-    mut message: GossipsubMessage,
+    message: GossipsubMessage,
     i_am_relay: bool,
 ) {
-    fn is_valid(topics: &[TopicHash]) -> Result<(), String> {
-        if topics.is_empty() {
-            return Err("At least one topic must be provided.".to_string());
-        }
-
-        let first_topic_prefix = topics[0].as_str().split(TOPIC_SEPARATOR).next().unwrap_or_default();
-        for item in topics.iter().skip(1) {
-            if !item.as_str().starts_with(first_topic_prefix) {
-                return Err(format!(
-                    "Topics are invalid, received more than one topic kind. Topics '{:?}",
-                    topics
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
     let mut to_propagate = false;
 
-    message.topics.dedup();
-    drop_mutability!(message);
-
-    if let Err(err) = is_valid(&message.topics) {
-        log::error!("{}", err);
-        return;
-    }
-
-    let inform_about_break = |used: &str, all: &[TopicHash]| {
-        log::debug!(
-            "Topic '{}' proceed and loop is killed. Whole topic list was '{:?}'",
-            used,
-            all
-        );
-    };
-
-    for topic in message.topics.iter() {
-        let mut split = topic.as_str().split(TOPIC_SEPARATOR);
-
-        match split.next() {
-            Some(lp_ordermatch::ORDERBOOK_PREFIX) => {
-                let fut = lp_ordermatch::handle_orderbook_msg(
-                    ctx.clone(),
-                    &message.topics,
-                    peer_id.to_string(),
-                    &message.data,
-                    i_am_relay,
-                );
-
-                if let Err(e) = fut.await {
-                    if e.get_inner().is_warning() {
-                        log::warn!("{}", e);
-                    } else {
-                        log::error!("{}", e);
-                    }
-                    return;
+    let mut split = message.topic.as_str().split(TOPIC_SEPARATOR);
+    match split.next() {
+        Some(lp_ordermatch::ORDERBOOK_PREFIX) => {
+            if let Err(e) = lp_ordermatch::handle_orderbook_msg(
+                ctx.clone(),
+                &message.topic,
+                peer_id.to_string(),
+                &message.data,
+                i_am_relay,
+            )
+            .await
+            {
+                if e.get_inner().is_warning() {
+                    log::warn!("{}", e);
+                } else {
+                    log::error!("{}", e);
                 }
+                return;
+            }
 
-                to_propagate = true;
-                break;
-            },
-            Some(lp_swap::SWAP_PREFIX) => {
-                if let Err(e) =
-                    lp_swap::process_swap_msg(ctx.clone(), split.next().unwrap_or_default(), &message.data).await
-                {
+            to_propagate = true;
+        },
+        Some(lp_swap::SWAP_PREFIX) => {
+            if let Err(e) =
+                lp_swap::process_swap_msg(ctx.clone(), split.next().unwrap_or_default(), &message.data).await
+            {
+                log::error!("{}", e);
+                return;
+            }
+
+            to_propagate = true;
+        },
+        Some(lp_swap::SWAP_V2_PREFIX) => {
+            if let Err(e) = lp_swap::process_swap_v2_msg(ctx.clone(), split.next().unwrap_or_default(), &message.data) {
+                log::error!("{}", e);
+                return;
+            }
+
+            to_propagate = true;
+        },
+        Some(lp_swap::WATCHER_PREFIX) => {
+            if ctx.is_watcher() {
+                if let Err(e) = lp_swap::process_watcher_msg(ctx.clone(), &message.data) {
                     log::error!("{}", e);
                     return;
                 }
+            }
 
-                to_propagate = true;
-
-                inform_about_break(topic.as_str(), &message.topics);
-                break;
-            },
-            Some(lp_swap::WATCHER_PREFIX) => {
-                if ctx.is_watcher() {
-                    if let Err(e) = lp_swap::process_watcher_msg(ctx.clone(), &message.data) {
-                        log::error!("{}", e);
+            to_propagate = true;
+        },
+        Some(lp_swap::TX_HELPER_PREFIX) => {
+            if let Some(ticker) = split.next() {
+                if let Ok(Some(coin)) = lp_coinfind(&ctx, ticker).await {
+                    if let Err(e) = coin.tx_enum_from_bytes(&message.data) {
+                        log::error!("Message cannot continue the process due to: {:?}", e);
                         return;
-                    }
-                }
+                    };
 
-                to_propagate = true;
-
-                inform_about_break(topic.as_str(), &message.topics);
-                break;
-            },
-            Some(lp_swap::TX_HELPER_PREFIX) => {
-                if let Some(pair) = split.next() {
-                    if let Ok(Some(coin)) = lp_coinfind(&ctx, pair).await {
-                        if let Err(e) = coin.tx_enum_from_bytes(&message.data) {
-                            log::error!("Message cannot continue the process due to: {:?}", e);
-                            return;
-                        };
-
+                    if coin.is_utxo_in_native_mode() {
                         let fut = coin.send_raw_tx_bytes(&message.data);
                         ctx.spawner().spawn(async {
                             match fut.compat().await {
@@ -247,11 +219,18 @@ async fn process_p2p_message(
                     }
                 }
 
-                inform_about_break(topic.as_str(), &message.topics);
-                break;
-            },
-            None | Some(_) => (),
-        }
+                to_propagate = true;
+            }
+        },
+        Some(lp_healthcheck::PEER_HEALTHCHECK_PREFIX) => {
+            if let Err(e) = lp_healthcheck::process_p2p_healthcheck_message(&ctx, message).await {
+                log::error!("{}", e);
+                return;
+            }
+
+            to_propagate = true;
+        },
+        None | Some(_) => (),
     }
 
     if to_propagate && i_am_relay {
@@ -263,12 +242,14 @@ fn process_p2p_request(
     ctx: MmArc,
     _peer_id: PeerId,
     request: Vec<u8>,
-    response_channel: AdexResponseChannel,
+    response_channel: mm2_libp2p::AdexResponseChannel,
 ) -> P2PRequestResult<()> {
     let request = decode_message::<P2PRequest>(&request)?;
+    log::debug!("Got P2PRequest {:?}", request);
+
     let result = match request {
         P2PRequest::Ordermatch(req) => lp_ordermatch::process_peer_request(ctx.clone(), req),
-        P2PRequest::NetworkInfo(req) => lp_stats::process_info_request(ctx.clone(), req),
+        P2PRequest::NetworkInfo(req) => lp_stats::process_info_request(ctx.clone(), req).map(Some),
     };
 
     let res = match result {
@@ -287,11 +268,11 @@ fn process_p2p_request(
     Ok(())
 }
 
-pub fn broadcast_p2p_msg(ctx: &MmArc, topics: Vec<String>, msg: Vec<u8>, from: Option<PeerId>) {
+pub fn broadcast_p2p_msg(ctx: &MmArc, topic: String, msg: Vec<u8>, from: Option<PeerId>) {
     let ctx = ctx.clone();
     let cmd = match from {
-        Some(from) => AdexBehaviourCmd::PublishMsgFrom { topics, msg, from },
-        None => AdexBehaviourCmd::PublishMsg { topics, msg },
+        Some(from) => AdexBehaviourCmd::PublishMsgFrom { topic, msg, from },
+        None => AdexBehaviourCmd::PublishMsg { topic, msg },
     };
     let p2p_ctx = P2PContext::fetch_from_mm_arc(&ctx);
     if let Err(e) = p2p_ctx.cmd_tx.lock().try_send(cmd) {
@@ -309,6 +290,15 @@ pub fn subscribe_to_topic(ctx: &MmArc, topic: String) {
     let cmd = AdexBehaviourCmd::Subscribe { topic };
     if let Err(e) = p2p_ctx.cmd_tx.lock().try_send(cmd) {
         log::error!("subscribe_to_topic cmd_tx.send error {:?}", e);
+    };
+}
+
+/// Unsubscribe from the given `topic`.
+pub fn unsubscribe_from_topic(ctx: &MmArc, topic: String) {
+    let p2p_ctx = P2PContext::fetch_from_mm_arc(ctx);
+    let cmd = AdexBehaviourCmd::Unsubscribe { topic };
+    if let Err(e) = p2p_ctx.cmd_tx.lock().try_send(cmd) {
+        log::error!("unsubscribe_from_topic cmd_tx.send error {:?}", e);
     };
 }
 
@@ -456,55 +446,12 @@ pub fn add_reserved_peer_addresses(ctx: &MmArc, peer: PeerId, addresses: PeerAdd
     };
 }
 
-#[derive(Debug, Display)]
-pub enum ParseAddressError {
-    #[display(fmt = "Address/Seed {} resolved to IPv6 which is not supported", _0)]
-    UnsupportedIPv6Address(String),
-    #[display(fmt = "Address/Seed {} to_socket_addrs empty iter", _0)]
-    EmptyIterator(String),
-    #[display(fmt = "Couldn't resolve '{}' Address/Seed: {}", _0, _1)]
-    UnresolvedAddress(String, String),
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn addr_to_ipv4_string(address: &str) -> Result<String, MmError<ParseAddressError>> {
-    // Remove "https:// or http://" etc.. from address str
-    let formated_address = address.split("://").last().unwrap_or(address);
-    let address_with_port = if formated_address.contains(':') {
-        formated_address.to_string()
-    } else {
-        format!("{}:0", formated_address)
-    };
-    match address_with_port.as_str().to_socket_addrs() {
-        Ok(mut iter) => match iter.next() {
-            Some(addr) => {
-                if addr.is_ipv4() {
-                    Ok(addr.ip().to_string())
-                } else {
-                    log::warn!(
-                        "Address/Seed {} resolved to IPv6 {} which is not supported",
-                        address,
-                        addr
-                    );
-                    MmError::err(ParseAddressError::UnsupportedIPv6Address(address.into()))
-                }
-            },
-            None => {
-                log::warn!("Address/Seed {} to_socket_addrs empty iter", address);
-                MmError::err(ParseAddressError::EmptyIterator(address.into()))
-            },
-        },
-        Err(e) => {
-            log::error!("Couldn't resolve '{}' seed: {}", address, e);
-            MmError::err(ParseAddressError::UnresolvedAddress(address.into(), e.to_string()))
-        },
-    }
-}
-
 #[derive(Clone, Debug, Display, Serialize)]
 pub enum NetIdError {
-    #[display(fmt = "Netid {} is larger than max {}", netid, max_netid)]
+    #[display(fmt = "Netid {netid} is larger than max {max_netid}")]
     LargerThanMax { netid: u16, max_netid: u16 },
+    #[display(fmt = "{netid} netid is deprecated.")]
+    Deprecated { netid: u16 },
 }
 
 pub fn lp_ports(netid: u16) -> Result<(u16, u16, u16), MmError<NetIdError>> {
@@ -533,6 +480,6 @@ pub fn lp_network_ports(netid: u16) -> Result<NetworkPorts, MmError<NetIdError>>
 }
 
 pub fn peer_id_from_secp_public(secp_public: &[u8]) -> Result<PeerId, MmError<DecodingError>> {
-    let public_key = Libp2pSecpPublic::decode(secp_public)?;
-    Ok(PeerId::from_public_key(&Libp2pPublic::Secp256k1(public_key)))
+    let public_key = Libp2pSecpPublic::try_from_bytes(secp_public)?;
+    Ok(PeerId::from_public_key(&Libp2pPublic::from(public_key)))
 }

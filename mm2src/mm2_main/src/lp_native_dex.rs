@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright © 2022 Atomic Private Limited and its contributors               *
+ * Copyright © 2023 Pampex LTD and TillyHK LTD                                *
  *                                                                            *
  * See the CONTRIBUTOR-LICENSE-AGREEMENT, COPYING, LICENSE-COPYRIGHT-NOTICE   *
  * and DEVELOPER-CERTIFICATE-OF-ORIGIN files in the LEGAL directory in        *
@@ -7,7 +7,7 @@
  * holder information and the developer policies on copyright and licensing.  *
  *                                                                            *
  * Unless otherwise agreed in a custom licensing agreement, no part of the    *
- * AtomicDEX software, including this file may be copied, modified, propagated*
+ * Komodo DeFi Framework software, including this file may be copied, modified, propagated*
  * or distributed except according to the terms contained in the LICENSE file *
  *                                                                            *
  * Removal or modification of this copyright notice is prohibited.            *
@@ -18,146 +18,157 @@
 //  marketmaker
 //
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::database::init_and_migrate_sql_db;
+use crate::lp_healthcheck::peer_healthcheck_topic;
+use crate::lp_message_service::{init_message_service, InitMessageServiceError};
+use crate::lp_network::{lp_network_ports, p2p_event_process_loop, subscribe_to_topic, NetIdError};
+use crate::lp_ordermatch::{
+    broadcast_maker_orders_keep_alive_loop, clean_memory_loop, init_ordermatch_context, lp_ordermatch_loop,
+    orders_kick_start, BalanceUpdateOrdermatchHandler, OrdermatchInitError,
+};
+use crate::lp_swap::swap_kick_starts;
+use crate::lp_wallet::{initialize_wallet_passphrase, WalletInitError};
+use crate::rpc::spawn_rpc;
 use bitcrypto::sha256;
 use coins::register_balance_update_handler;
-use common::executor::{SpawnFuture, Timer};
+use common::executor::SpawnFuture;
 use common::log::{info, warn};
-use crypto::{from_hw_error, CryptoCtx, CryptoInitError, HwError, HwProcessingError, HwRpcError, WithHwRpcError};
+use crypto::{from_hw_error, CryptoCtx, HwError, HwProcessingError, HwRpcError, WithHwRpcError};
 use derive_more::Display;
-use enum_from::EnumFromTrait;
+use enum_derives::EnumFromTrait;
 use mm2_core::mm_ctx::{MmArc, MmCtx};
 use mm2_err_handle::common_errors::InternalError;
 use mm2_err_handle::prelude::*;
-use mm2_libp2p::{spawn_gossipsub, AdexBehaviourError, NodeType, RelayAddress, RelayAddressError, SwarmRuntime,
-                 WssCerts};
+use mm2_libp2p::behaviours::atomicdex::{generate_ed25519_keypair, GossipsubConfig, DEPRECATED_NETID_LIST};
+use mm2_libp2p::p2p_ctx::P2PContext;
+use mm2_libp2p::{
+    spawn_gossipsub, AdexBehaviourError, NodeType, RelayAddress, RelayAddressError, SwarmRuntime, WssCerts,
+};
 use mm2_metrics::mm_gauge;
 use rpc_task::RpcTaskError;
-use serde_json::{self as json};
+use serde_json as json;
+use std::convert::TryInto;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::str;
 use std::time::Duration;
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::mm2::database::init_and_migrate_db;
-use crate::mm2::lp_message_service::{init_message_service, InitMessageServiceError};
-use crate::mm2::lp_network::{lp_network_ports, p2p_event_process_loop, NetIdError, P2PContext};
-use crate::mm2::lp_ordermatch::{broadcast_maker_orders_keep_alive_loop, clean_memory_loop, init_ordermatch_context,
-                                lp_ordermatch_loop, orders_kick_start, BalanceUpdateOrdermatchHandler,
-                                OrdermatchInitError};
-use crate::mm2::lp_swap::{running_swaps_num, swap_kick_starts};
-use crate::mm2::rpc::spawn_rpc;
-
 cfg_native! {
+    use db_common::sqlite::rusqlite::Error as SqlError;
     use mm2_io::fs::{ensure_dir_is_writable, ensure_file_is_writable};
     use mm2_net::ip_addr::myipaddr;
-    use db_common::sqlite::rusqlite::Error as SqlError;
+    use rustls_pemfile as pemfile;
 }
 
-#[path = "lp_init/init_context.rs"] mod init_context;
-#[path = "lp_init/init_hw.rs"] pub mod init_hw;
-#[cfg(target_arch = "wasm32")]
-#[path = "lp_init/init_metamask.rs"]
-pub mod init_metamask;
+#[path = "lp_init/init_context.rs"]
+mod init_context;
+#[path = "lp_init/init_hw.rs"]
+pub mod init_hw;
 
-const NETID_7777_SEEDNODES: [&str; 3] = ["seed1.defimania.live", "seed2.defimania.live", "seed3.defimania.live"];
+cfg_wasm32! {
+    use mm2_net::event_streaming::wasm_event_stream::handle_worker_stream;
+
+    #[path = "lp_init/init_metamask.rs"]
+    pub mod init_metamask;
+}
 
 pub type P2PResult<T> = Result<T, MmError<P2PInitError>>;
 pub type MmInitResult<T> = Result<T, MmError<MmInitError>>;
 
 #[derive(Clone, Debug, Display, Serialize)]
 pub enum P2PInitError {
-    #[display(
-        fmt = "Invalid WSS key/cert at {:?}. The file must contain {}'",
-        path,
-        expected_format
-    )]
+    #[display(fmt = "Invalid WSS key/cert at {path:?}. The file must contain {expected_format}'")]
     InvalidWssCert { path: PathBuf, expected_format: String },
-    #[display(fmt = "Error deserializing '{}' config field: {}", field, error)]
+    #[display(fmt = "Error deserializing '{field}' config field: {error}")]
     ErrorDeserializingConfig { field: String, error: String },
-    #[display(fmt = "The '{}' field not found in the config", field)]
+    #[display(fmt = "The '{field}' field not found in the config")]
     FieldNotFoundInConfig { field: String },
-    #[display(fmt = "Error reading WSS key/cert file {:?}: {}", path, error)]
+    #[display(fmt = "Error reading WSS key/cert file {path:?}: {error}")]
     ErrorReadingCertFile { path: PathBuf, error: String },
-    #[display(fmt = "Error getting my IP address: '{}'", _0)]
+    #[display(fmt = "Error getting my IP address: '{_0}'")]
     ErrorGettingMyIpAddr(String),
-    #[display(fmt = "Invalid netid: '{}'", _0)]
+    #[display(fmt = "Invalid netid: '{_0}'")]
     InvalidNetId(NetIdError),
-    #[display(fmt = "Invalid relay address: '{}'", _0)]
+    #[display(fmt = "Invalid relay address: '{_0}'")]
     InvalidRelayAddress(RelayAddressError),
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    #[display(fmt = "WASM node can be a seed if only 'p2p_in_memory' is true")]
+    #[display(fmt = "WASM node can be a seed only if 'p2p_in_memory' is true")]
     WasmNodeCannotBeSeed,
-    #[display(fmt = "Internal error: '{}'", _0)]
+    #[display(fmt = "Precheck failed: '{reason}'")]
+    Precheck { reason: String },
+    #[display(fmt = "Internal error: '{_0}'")]
     Internal(String),
 }
 
 impl From<NetIdError> for P2PInitError {
-    fn from(e: NetIdError) -> Self { P2PInitError::InvalidNetId(e) }
+    fn from(e: NetIdError) -> Self {
+        P2PInitError::InvalidNetId(e)
+    }
 }
 
 impl From<AdexBehaviourError> for P2PInitError {
     fn from(e: AdexBehaviourError) -> Self {
         match e {
             AdexBehaviourError::ParsingRelayAddress(e) => P2PInitError::InvalidRelayAddress(e),
+            error => P2PInitError::Internal(error.to_string()),
         }
     }
 }
-
 #[derive(Clone, Debug, Display, EnumFromTrait, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum MmInitError {
     Cancelled,
     #[from_trait(WithTimeout::timeout)]
-    #[display(fmt = "Initialization timeout {:?}", _0)]
+    #[display(fmt = "Initialization timeout {_0:?}")]
     Timeout(Duration),
-    #[display(fmt = "Error deserializing '{}' config field: {}", field, error)]
+    #[display(fmt = "Error deserializing '{field}' config field: {error}")]
     ErrorDeserializingConfig {
         field: String,
         error: String,
     },
-    #[display(fmt = "The '{}' field not found in the config", field)]
+    #[display(fmt = "The '{field}' field not found in the config")]
     FieldNotFoundInConfig {
         field: String,
     },
-    #[display(fmt = "The '{}' field has wrong value in the config: {}", field, error)]
+    #[display(fmt = "The '{field}' field has wrong value in the config: {error}")]
     FieldWrongValueInConfig {
         field: String,
         error: String,
     },
-    #[display(fmt = "P2P initializing error: '{}'", _0)]
+    #[display(fmt = "P2P initializing error: '{_0}'")]
     P2PError(P2PInitError),
-    #[display(fmt = "Error creating DB director '{:?}': {}", path, error)]
+    #[display(fmt = "Error creating DB director '{path:?}': {error}")]
     ErrorCreatingDbDir {
         path: PathBuf,
         error: String,
     },
-    #[display(fmt = "{} db dir is not writable", path)]
+    #[display(fmt = "{path} db dir is not writable")]
     DbDirectoryIsNotWritable {
         path: String,
     },
-    #[display(fmt = "{} db file is not writable", path)]
+    #[display(fmt = "{path} db file is not writable")]
     DbFileIsNotWritable {
         path: String,
     },
-    #[display(fmt = "sqlite initializing error: {}", _0)]
+    #[display(fmt = "sqlite initializing error: {_0}")]
     ErrorSqliteInitializing(String),
-    #[display(fmt = "DB migrating error: {}", _0)]
+    #[display(fmt = "DB migrating error: {_0}")]
     ErrorDbMigrating(String),
-    #[display(fmt = "Swap kick start error: {}", _0)]
+    #[display(fmt = "Swap kick start error: {_0}")]
     SwapsKickStartError(String),
-    #[display(fmt = "Order kick start error: {}", _0)]
+    #[display(fmt = "Order kick start error: {_0}")]
     OrdersKickStartError(String),
-    #[display(fmt = "Passphrase cannot be an empty string")]
-    EmptyPassphrase,
-    #[display(fmt = "Invalid passphrase: {}", _0)]
-    InvalidPassphrase(String),
+    #[display(fmt = "Error initializing wallet: {_0}")]
+    WalletInitError(String),
+    #[display(fmt = "Event streamer initialization failed: {_0}")]
+    EventStreamerInitFailed(String),
     #[from_trait(WithHwRpcError::hw_rpc_error)]
-    #[display(fmt = "{}", _0)]
+    #[display(fmt = "{_0}")]
     HwError(HwRpcError),
     #[from_trait(WithInternal::internal)]
-    #[display(fmt = "Internal error: {}", _0)]
+    #[display(fmt = "Internal error: {_0}")]
     Internal(String),
 }
 
@@ -176,7 +187,9 @@ impl From<P2PInitError> for MmInitError {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl From<SqlError> for MmInitError {
-    fn from(e: SqlError) -> Self { MmInitError::ErrorSqliteInitializing(e.to_string()) }
+    fn from(e: SqlError) -> Self {
+        MmInitError::ErrorSqliteInitializing(e.to_string())
+    }
 }
 
 impl From<OrdermatchInitError> for MmInitError {
@@ -186,6 +199,17 @@ impl From<OrdermatchInitError> for MmInitError {
                 MmInitError::ErrorDeserializingConfig { field, error }
             },
             OrdermatchInitError::Internal(internal) => MmInitError::Internal(internal),
+        }
+    }
+}
+
+impl From<WalletInitError> for MmInitError {
+    fn from(e: WalletInitError) -> Self {
+        match e {
+            WalletInitError::ErrorDeserializingConfig { field, error } => {
+                MmInitError::ErrorDeserializingConfig { field, error }
+            },
+            other => MmInitError::WalletInitError(other.to_string()),
         }
     }
 }
@@ -200,25 +224,10 @@ impl From<InitMessageServiceError> for MmInitError {
     }
 }
 
-impl From<CryptoInitError> for MmInitError {
-    fn from(e: CryptoInitError) -> Self {
-        match e {
-            e @ CryptoInitError::InitializedAlready | e @ CryptoInitError::NotInitialized => {
-                MmInitError::Internal(e.to_string())
-            },
-            CryptoInitError::EmptyPassphrase => MmInitError::EmptyPassphrase,
-            CryptoInitError::InvalidPassphrase(pass) => MmInitError::InvalidPassphrase(pass.to_string()),
-            CryptoInitError::InvalidHdAccount { error, .. } => MmInitError::FieldWrongValueInConfig {
-                field: "hd_account".to_string(),
-                error,
-            },
-            CryptoInitError::Internal(internal) => MmInitError::Internal(internal),
-        }
-    }
-}
-
 impl From<HwError> for MmInitError {
-    fn from(e: HwError) -> Self { from_hw_error(e) }
+    fn from(e: HwError) -> Self {
+        from_hw_error(e)
+    }
 }
 
 impl From<RpcTaskError> for MmInitError {
@@ -240,12 +249,15 @@ impl From<HwProcessingError<RpcTaskError>> for MmInitError {
         match e {
             HwProcessingError::HwError(hw) => MmInitError::from(hw),
             HwProcessingError::ProcessorError(rpc_task) => MmInitError::from(rpc_task),
+            HwProcessingError::InternalError(err) => MmInitError::Internal(err),
         }
     }
 }
 
 impl From<InternalError> for MmInitError {
-    fn from(e: InternalError) -> Self { MmInitError::Internal(e.take()) }
+    fn from(e: InternalError) -> Self {
+        MmInitError::Internal(e.take())
+    }
 }
 
 impl MmInitError {
@@ -254,41 +266,11 @@ impl MmInitError {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-fn default_seednodes(netid: u16) -> Vec<RelayAddress> {
-    if netid == 7777 {
-        NETID_7777_SEEDNODES
-            .iter()
-            .map(|seed| RelayAddress::Dns(seed.to_string()))
-            .collect()
-    } else {
-        Vec::new()
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn default_seednodes(netid: u16) -> Vec<RelayAddress> {
-    use crate::mm2::lp_network::addr_to_ipv4_string;
-    if netid == 7777 {
-        NETID_7777_SEEDNODES
-            .iter()
-            .filter_map(|seed| addr_to_ipv4_string(seed).ok())
-            .map(RelayAddress::IPv4)
-            .collect()
-    } else {
-        Vec::new()
-    }
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 pub fn fix_directories(ctx: &MmCtx) -> MmInitResult<()> {
     fix_shared_dbdir(ctx)?;
 
     let dbdir = ctx.dbdir();
-    fs::create_dir_all(&dbdir).map_to_mm(|e| MmInitError::ErrorCreatingDbDir {
-        path: dbdir.clone(),
-        error: e.to_string(),
-    })?;
 
     if !ensure_dir_is_writable(&dbdir.join("SWAPS")) {
         return MmError::err(MmInitError::db_directory_is_not_writable("SWAPS"));
@@ -380,11 +362,19 @@ fn migrate_db(ctx: &MmArc) -> MmInitResult<()> {
 #[cfg(not(target_arch = "wasm32"))]
 fn migration_1(_ctx: &MmArc) {}
 
-pub async fn lp_init_continue(ctx: MmArc) -> MmInitResult<()> {
-    init_ordermatch_context(&ctx)?;
-    init_p2p(ctx.clone()).await?;
+#[cfg(target_arch = "wasm32")]
+fn init_wasm_event_streaming(ctx: &MmArc) {
+    if let Some(event_streaming_config) = ctx.event_streaming_configuration() {
+        ctx.spawner()
+            .spawn(handle_worker_stream(ctx.clone(), event_streaming_config.worker_path));
+    }
+}
 
-    if !CryptoCtx::is_init(&ctx)? {
+pub async fn lp_init_continue(ctx: MmArc) -> MmInitResult<()> {
+    init_ordermatch_context(&ctx).map_mm_err()?;
+    init_p2p(ctx.clone()).await.map_mm_err()?;
+
+    if !CryptoCtx::is_init(&ctx).map_mm_err()? {
         return Ok(());
     }
 
@@ -395,16 +385,35 @@ pub async fn lp_init_continue(ctx: MmArc) -> MmInitResult<()> {
             .map_to_mm(MmInitError::ErrorSqliteInitializing)?;
         ctx.init_shared_sqlite_conn()
             .map_to_mm(MmInitError::ErrorSqliteInitializing)?;
-        init_and_migrate_db(&ctx).await?;
+        ctx.init_async_sqlite_connection()
+            .await
+            .map_to_mm(MmInitError::ErrorSqliteInitializing)?;
+        init_and_migrate_sql_db(&ctx).await?;
         migrate_db(&ctx)?;
+        #[cfg(feature = "new-db-arch")]
+        {
+            let global_dir = ctx.global_dir();
+            let wallet_dir = ctx.wallet_dir();
+            if !ensure_dir_is_writable(&global_dir) {
+                return MmError::err(MmInitError::db_directory_is_not_writable("global"));
+            };
+            if !ensure_dir_is_writable(&wallet_dir) {
+                return MmError::err(MmInitError::db_directory_is_not_writable("wallets"));
+            }
+            ctx.init_global_and_wallet_db()
+                .await
+                .map_to_mm(MmInitError::ErrorSqliteInitializing)?;
+        }
     }
 
-    init_message_service(&ctx).await?;
+    init_message_service(&ctx).await.map_mm_err()?;
 
     let balance_update_ordermatch_handler = BalanceUpdateOrdermatchHandler::new(ctx.clone());
     register_balance_update_handler(ctx.clone(), Box::new(balance_update_ordermatch_handler)).await;
 
-    ctx.initialized.pin(true).map_to_mm(MmInitError::Internal)?;
+    ctx.initialized
+        .set(true)
+        .map_to_mm(|_| MmInitError::Internal("Already Initialized".to_string()))?;
 
     // launch kickstart threads before RPC is available, this will prevent the API user to place
     // an order and start new swap that might get started 2 times because of kick-start
@@ -414,27 +423,30 @@ pub async fn lp_init_continue(ctx: MmArc) -> MmInitResult<()> {
 
     ctx.spawner().spawn(broadcast_maker_orders_keep_alive_loop(ctx.clone()));
 
+    #[cfg(target_arch = "wasm32")]
+    init_wasm_event_streaming(&ctx);
+
     ctx.spawner().spawn(clean_memory_loop(ctx.weak()));
+
     Ok(())
 }
 
-#[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
-/// * `ctx_cb` - callback used to share the `MmCtx` ID with the call site.
 pub async fn lp_init(ctx: MmArc, version: String, datetime: String) -> MmInitResult<()> {
     info!("Version: {} DT {}", version, datetime);
 
-    if !ctx.conf["passphrase"].is_null() {
-        let passphrase: String =
-            json::from_value(ctx.conf["passphrase"].clone()).map_to_mm(|e| MmInitError::ErrorDeserializingConfig {
-                field: "passphrase".to_owned(),
-                error: e.to_string(),
-            })?;
-
-        match ctx.conf["hd_account_id"].as_u64() {
-            Some(hd_account_id) => CryptoCtx::init_with_global_hd_account(ctx.clone(), &passphrase, hd_account_id)?,
-            None => CryptoCtx::init_with_iguana_passphrase(ctx.clone(), &passphrase)?,
-        };
+    // Ensure the database root directory exists before initializing the wallet passphrase.
+    // This is necessary to store the encrypted wallet passphrase if needed.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let dbdir = ctx.db_root();
+        fs::create_dir_all(&dbdir).map_to_mm(|e| MmInitError::ErrorCreatingDbDir {
+            path: dbdir.clone(),
+            error: e.to_string(),
+        })?;
     }
+
+    // This either initializes the cryptographic context or sets up the context for "no login mode".
+    initialize_wallet_passphrase(&ctx).await.map_mm_err()?;
 
     lp_init_continue(ctx.clone()).await?;
 
@@ -442,26 +454,13 @@ pub async fn lp_init(ctx: MmArc, version: String, datetime: String) -> MmInitRes
 
     spawn_rpc(ctx_id);
     let ctx_c = ctx.clone();
+
     ctx.spawner().spawn(async move {
         if let Err(err) = ctx_c.init_metrics() {
             warn!("Couldn't initialize metrics system: {}", err);
         }
     });
-    // In the mobile version we might depend on `lp_init` staying around until the context stops.
-    loop {
-        if ctx.is_stopping() {
-            break;
-        };
-        Timer::sleep(0.2).await
-    }
 
-    // wait for swaps to stop
-    loop {
-        if running_swaps_num(&ctx) == 0 {
-            break;
-        };
-        Timer::sleep(0.2).await
-    }
     Ok(())
 }
 
@@ -482,29 +481,109 @@ async fn kick_start(ctx: MmArc) -> MmInitResult<()> {
     Ok(())
 }
 
+fn get_p2p_key(ctx: &MmArc, is_seed_node: bool) -> P2PResult<[u8; 32]> {
+    // TODO: Use persistent peer ID regardless the node  type.
+    if is_seed_node {
+        if let Ok(crypto_ctx) = CryptoCtx::from_ctx(ctx) {
+            let key = sha256(crypto_ctx.mm2_internal_privkey_slice());
+            return Ok(key.take());
+        }
+    }
+
+    let mut p2p_key = [0; 32];
+    common::os_rng(&mut p2p_key).map_err(|e| P2PInitError::Internal(e.to_string()))?;
+    Ok(p2p_key)
+}
+
+fn p2p_precheck(ctx: &MmArc) -> P2PResult<()> {
+    let is_seed_node = ctx.is_seed_node();
+    let is_bootstrap_node = ctx.is_bootstrap_node();
+    let disable_p2p = ctx.disable_p2p();
+    let p2p_in_memory = ctx.p2p_in_memory();
+    let netid = ctx.netid();
+
+    if DEPRECATED_NETID_LIST.contains(&netid) {
+        return MmError::err(P2PInitError::InvalidNetId(NetIdError::Deprecated { netid }));
+    }
+
+    let seednodes = seednodes(ctx)?;
+
+    let precheck_err = |reason: &str| {
+        MmError::err(P2PInitError::Precheck {
+            reason: reason.to_owned(),
+        })
+    };
+
+    if is_bootstrap_node {
+        if !is_seed_node {
+            return precheck_err("Bootstrap node must also be a seed node.");
+        }
+
+        if !seednodes.is_empty() {
+            return precheck_err("Bootstrap node cannot have seed nodes to connect.");
+        }
+    }
+
+    if !is_bootstrap_node && seednodes.is_empty() && !disable_p2p {
+        return precheck_err("Non-bootstrap node must have seed nodes configured to connect.");
+    }
+
+    if disable_p2p {
+        if !seednodes.is_empty() {
+            return precheck_err("Cannot disable P2P while seed nodes are configured.");
+        }
+
+        if p2p_in_memory {
+            return precheck_err("Cannot disable P2P while using in-memory P2P mode.");
+        }
+
+        if is_seed_node {
+            return precheck_err("Seed nodes cannot disable P2P.");
+        }
+    }
+
+    if is_seed_node && !CryptoCtx::is_init(ctx).unwrap_or(false) {
+        return precheck_err("Seed node requires a persistent identity to generate its P2P key.");
+    }
+
+    Ok(())
+}
+
 pub async fn init_p2p(ctx: MmArc) -> P2PResult<()> {
-    let i_am_seed = ctx.conf["i_am_seed"].as_bool().unwrap_or(false);
+    p2p_precheck(&ctx)?;
+
+    if ctx.disable_p2p() {
+        warn!("P2P is disabled. Features that require a P2P network (like swaps, peer health checks, etc.) will not work.");
+        return Ok(());
+    }
+
+    let is_seed_node = ctx.is_seed_node();
     let netid = ctx.netid();
 
     let seednodes = seednodes(&ctx)?;
 
     let ctx_on_poll = ctx.clone();
-    let force_p2p_key = if i_am_seed {
-        let crypto_ctx = CryptoCtx::from_ctx(&ctx).mm_err(|e| P2PInitError::Internal(e.to_string()))?;
-        let key = sha256(crypto_ctx.mm2_internal_privkey_slice());
-        Some(key.take())
-    } else {
-        None
-    };
 
-    let node_type = if i_am_seed {
+    let p2p_key = get_p2p_key(&ctx, is_seed_node)?;
+
+    let node_type = if is_seed_node {
         relay_node_type(&ctx).await?
     } else {
         light_node_type(&ctx)?
     };
 
     let spawner = SwarmRuntime::new(ctx.spawner());
-    let spawn_result = spawn_gossipsub(netid, force_p2p_key, spawner, seednodes, node_type, move |swarm| {
+    let max_num_streams: usize = ctx.conf["max_concurrent_connections"]
+        .as_u64()
+        .unwrap_or(512)
+        .try_into()
+        .unwrap_or(usize::MAX);
+
+    let mut gossipsub_config = GossipsubConfig::new(netid, spawner, node_type, p2p_key);
+    gossipsub_config.to_dial(seednodes);
+    gossipsub_config.max_num_streams(max_num_streams);
+
+    let spawn_result = spawn_gossipsub(gossipsub_config, move |swarm| {
         let behaviour = swarm.behaviour();
         mm_gauge!(
             ctx_on_poll.metrics,
@@ -534,27 +613,25 @@ pub async fn init_p2p(ctx: MmArc) -> P2PResult<()> {
         );
     })
     .await;
+
     let (cmd_tx, event_rx, peer_id) = spawn_result?;
-    ctx.peer_id.pin(peer_id.to_string()).map_to_mm(P2PInitError::Internal)?;
-    let p2p_context = P2PContext::new(cmd_tx);
+
+    let p2p_context = P2PContext::new(cmd_tx, generate_ed25519_keypair(p2p_key));
     p2p_context.store_to_mm_arc(&ctx);
 
-    let fut = p2p_event_process_loop(ctx.weak(), event_rx, i_am_seed);
+    let fut = p2p_event_process_loop(ctx.weak(), event_rx, is_seed_node);
     ctx.spawner().spawn(fut);
+
+    // Listen for health check messages.
+    subscribe_to_topic(&ctx, peer_healthcheck_topic(&peer_id.into()));
 
     Ok(())
 }
 
 fn seednodes(ctx: &MmArc) -> P2PResult<Vec<RelayAddress>> {
-    if ctx.conf["seednodes"].is_null() {
-        if ctx.p2p_in_memory() {
-            // If the network is in memory, there is no need to use default seednodes.
-            return Ok(Vec::new());
-        }
-        return Ok(default_seednodes(ctx.netid()));
-    }
+    let seednodes_value = ctx.conf.get("seednodes").unwrap_or(&json!([])).clone();
 
-    json::from_value(ctx.conf["seednodes"].clone()).map_to_mm(|e| P2PInitError::ErrorDeserializingConfig {
+    json::from_value(seednodes_value).map_to_mm(|e| P2PInitError::ErrorDeserializingConfig {
         field: "seednodes".to_owned(),
         error: e.to_string(),
     })
@@ -578,7 +655,7 @@ async fn relay_node_type(ctx: &MmArc) -> P2PResult<NodeType> {
     let ip = myipaddr(ctx.clone())
         .await
         .map_to_mm(P2PInitError::ErrorGettingMyIpAddr)?;
-    let network_ports = lp_network_ports(netid)?;
+    let network_ports = lp_network_ports(netid).map_mm_err()?;
     let wss_certs = wss_certs(ctx)?;
     if wss_certs.is_none() {
         const WARN_MSG: &str = r#"Please note TLS private key and certificate are not specified.
@@ -609,7 +686,7 @@ fn light_node_type(ctx: &MmArc) -> P2PResult<NodeType> {
     }
 
     let netid = ctx.netid();
-    let network_ports = lp_network_ports(netid)?;
+    let network_ports = lp_network_ports(netid).map_mm_err()?;
     Ok(NodeType::Light { network_ports })
 }
 
@@ -617,7 +694,7 @@ fn light_node_type(ctx: &MmArc) -> P2PResult<NodeType> {
 #[cfg(not(target_arch = "wasm32"))]
 fn extract_cert_from_file<T, P>(path: PathBuf, parser: P, expected_format: String) -> P2PResult<Vec<T>>
 where
-    P: Fn(&mut dyn io::BufRead) -> Result<Vec<T>, ()>,
+    P: Fn(&mut dyn io::BufRead) -> Result<Vec<T>, io::Error>,
 {
     let certfile = fs::File::open(path.as_path()).map_to_mm(|e| P2PInitError::ErrorReadingCertFile {
         path: path.clone(),
@@ -633,8 +710,6 @@ where
 
 #[cfg(not(target_arch = "wasm32"))]
 fn wss_certs(ctx: &MmArc) -> P2PResult<Option<WssCerts>> {
-    use futures_rustls::rustls;
-
     #[derive(Deserialize)]
     struct WssCertsInfo {
         server_priv_key: PathBuf,
@@ -653,24 +728,28 @@ fn wss_certs(ctx: &MmArc) -> P2PResult<Option<WssCerts>> {
     // First, try to extract the all PKCS8 private keys
     let mut server_priv_keys = extract_cert_from_file(
         certs.server_priv_key.clone(),
-        rustls::internal::pemfile::pkcs8_private_keys,
+        pemfile::pkcs8_private_keys,
         "Private key, DER-encoded ASN.1 in either PKCS#8 or PKCS#1 format".to_owned(),
     )
     // or try to extract all PKCS1 private keys
     .or_else(|_| {
         extract_cert_from_file(
             certs.server_priv_key.clone(),
-            rustls::internal::pemfile::rsa_private_keys,
+            pemfile::rsa_private_keys,
             "Private key, DER-encoded ASN.1 in either PKCS#8 or PKCS#1 format".to_owned(),
         )
     })?;
     // `extract_cert_from_file` returns either non-empty vector or an error.
-    let server_priv_key = server_priv_keys.remove(0);
+    let server_priv_key = rustls::PrivateKey(server_priv_keys.remove(0));
 
     let certs = extract_cert_from_file(
         certs.certificate,
-        rustls::internal::pemfile::certs,
+        pemfile::certs,
         "Certificate, DER-encoded X.509 format".to_owned(),
-    )?;
+    )?
+    .into_iter()
+    .map(rustls::Certificate)
+    .collect();
+
     Ok(Some(WssCerts { server_priv_key, certs }))
 }

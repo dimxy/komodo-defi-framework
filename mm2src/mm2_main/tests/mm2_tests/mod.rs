@@ -1,28 +1,25 @@
 mod bch_and_slp_tests;
 mod best_orders_tests;
 mod eth_tests;
-mod iris_swap;
 mod lightning_tests;
 mod lp_bot_tests;
 mod mm2_tests_inner;
 mod orderbook_sync_tests;
-mod tendermint_ibc_asset_tests;
-mod tendermint_tests;
 mod z_coin_tests;
 
-mod zhtlc_native_reexport {
-    pub use common::executor::Timer;
-    pub use common::{now_ms, wait_until_ms};
-    pub use mm2_test_helpers::for_tests::MarketMakerIt;
-    pub use mm2_test_helpers::for_tests::{init_z_coin_native, init_z_coin_status};
-    pub use mm2_test_helpers::structs::{CoinActivationResult, InitTaskResult, InitZcoinStatus, RpcV2Response};
-}
+#[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
+use mm2_test_helpers::for_tests::MarketMakerIt;
+#[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
+use mm2_test_helpers::structs::ZCoinActivationResult;
 
 #[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
-use zhtlc_native_reexport::*;
+async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> ZCoinActivationResult {
+    use common::{executor::Timer, wait_until_ms};
+    use mm2_test_helpers::{
+        for_tests::{init_z_coin_native, init_z_coin_status},
+        structs::{InitTaskResult, InitZcoinStatus, RpcV2Response},
+    };
 
-#[cfg(all(feature = "zhtlc-native-tests", not(target_arch = "wasm32")))]
-async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> CoinActivationResult {
     let init = init_z_coin_native(mm, coin).await;
     let init: RpcV2Response<InitTaskResult> = serde_json::from_value(init).unwrap();
     let timeout = wait_until_ms(120000);
@@ -45,4 +42,6 @@ async fn enable_z_coin(mm: &MarketMakerIt, coin: &str) -> CoinActivationResult {
 // dummy test helping IDE to recognize this as test module
 #[test]
 #[allow(clippy::assertions_on_constants)]
-fn dummy() { assert!(true) }
+fn dummy() {
+    assert!(true)
+}

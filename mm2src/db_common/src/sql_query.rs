@@ -1,9 +1,11 @@
 use crate::sql_condition::SqlCondition;
 use crate::sql_value::{SqlValue, SqlValueToString};
-use crate::sqlite::{query_single_row, validate_ident, validate_table_name, OwnedSqlParam, OwnedSqlParams,
-                    SqlParamsBuilder, StringError, ToValidSqlIdent, ToValidSqlTable};
+use crate::sqlite::{
+    query_single_row, validate_ident, validate_table_name, OwnedSqlParam, OwnedSqlParams, SqlParamsBuilder,
+    StringError, ToValidSqlIdent, ToValidSqlTable,
+};
 use log::debug;
-use rusqlite::{Connection, Error as SqlError, Result as SqlResult, Row};
+use rusqlite::{params_from_iter, Connection, Error as SqlError, Result as SqlResult, Row};
 use sql_builder::SqlBuilder;
 
 /// A `SELECT` SQL query builder.
@@ -37,7 +39,7 @@ impl<'a> SqlQuery<'a> {
         validate_table_name(alias)?;
         Ok(SqlQuery {
             conn,
-            sql_builder: SqlBuilder::select_from(format!("{} AS {}", table, alias)),
+            sql_builder: SqlBuilder::select_from(format!("{table} AS {alias}")),
             params: SqlParamsBuilder::default(),
             ordering: Vec::default(),
         })
@@ -76,7 +78,7 @@ impl<'a> SqlQuery<'a> {
     #[inline]
     pub fn count_distinct<S: ToValidSqlIdent>(&mut self, field: S) -> SqlResult<&mut Self> {
         let field = field.to_valid_sql_ident()?;
-        self.sql_builder.count(format!("DISTINCT {}", field));
+        self.sql_builder.count(format!("DISTINCT {field}"));
         Ok(self)
     }
 
@@ -196,11 +198,15 @@ impl<'a> SqlQuery<'a> {
 
     /// Returns an SQL subquery that can be used in [`SqlQuery::select_from_subquery`].
     #[inline]
-    pub fn subquery(self) -> SqlSubquery<'a> { SqlSubquery(self) }
+    pub fn subquery(self) -> SqlSubquery<'a> {
+        SqlSubquery(self)
+    }
 
     /// Returns the reference to the specified SQL parameters.
     #[inline]
-    pub fn params(&self) -> &OwnedSqlParams { self.params.params() }
+    pub fn params(&self) -> &OwnedSqlParams {
+        self.params.params()
+    }
 
     /// # Usage
     ///
@@ -266,7 +272,9 @@ impl<'a> SqlQuery<'a> {
 
         debug!("Trying to execute SQL query {} with params {:?}", sql, self.params());
         let mut stmt = self.conn.prepare(&sql)?;
-        let items = stmt.query_map(self.params(), f)?.collect::<SqlResult<Vec<_>>>()?;
+        let items = stmt
+            .query_map(params_from_iter(self.params().iter()), f)?
+            .collect::<SqlResult<Vec<_>>>()?;
         // Otherwise, we'll get the compile error:
         // `stmt` does not live long enough
         Ok(items)
@@ -284,7 +292,7 @@ impl<'a> SqlQuery<'a> {
             .sql()
             .map_err(|e| SqlError::ToSqlConversionFailure(e.into()))?;
         debug!("Trying to execute SQL query {} with params {:?}", sql, self.params());
-        query_single_row(self.conn, &sql, self.params(), f)
+        query_single_row(self.conn, &sql, params_from_iter(self.params().iter()), f)
     }
 
     /// Applies [`SqlQuery::ordering`] to [`SqlQuery::sql_builder`].
@@ -313,8 +321,25 @@ impl<'a> SqlQuery<'a> {
             .join(", ");
         // Query the number of the row with the specified `order_by` ordering.
         self.sql_builder
-            .field(format!("ROW_NUMBER() OVER (ORDER BY {}) AS {}", order_by, alias));
+            .field(format!("ROW_NUMBER() OVER (ORDER BY {order_by}) AS {alias}"));
         Ok(self)
+    }
+
+    /// Count all rows
+    pub fn count_all(&mut self) -> SqlResult<&mut Self> {
+        self.sql_builder.count("*");
+        Ok(self)
+    }
+
+    /// Select from union tables
+    pub fn select_from_union_alias(conn: &'a Connection, union_sql: &str, alias: &'static str) -> SqlResult<Self> {
+        validate_table_name(alias)?;
+        Ok(SqlQuery {
+            conn,
+            sql_builder: SqlBuilder::select_from(format!("({union_sql}) AS {alias}")),
+            params: SqlParamsBuilder::default(),
+            ordering: Vec::default(),
+        })
     }
 }
 
@@ -329,10 +354,14 @@ impl<'a> SqlQuery<'a> {
 /// - [`SqlQuery::or_where_in`]
 /// - [`SqlQuery::or_where_in_quoted`]
 /// - [`SqlQuery::or_where_in_params`]
-impl<'a> SqlCondition for SqlQuery<'a> {
-    fn sql_builder(&mut self) -> &mut SqlBuilder { &mut self.sql_builder }
+impl SqlCondition for SqlQuery<'_> {
+    fn sql_builder(&mut self) -> &mut SqlBuilder {
+        &mut self.sql_builder
+    }
 
-    fn sql_params(&mut self) -> &mut SqlParamsBuilder { &mut self.params }
+    fn sql_params(&mut self) -> &mut SqlParamsBuilder {
+        &mut self.params
+    }
 }
 
 /// An instance of this structure is returned by [`SqlQuery::subquery`].
@@ -347,8 +376,8 @@ enum SqlOrdering {
 impl SqlOrdering {
     fn to_sql(&self) -> String {
         match self {
-            SqlOrdering::Asc(column) => format!("{} ASC", column),
-            SqlOrdering::Desc(column) => format!("{} DESC", column),
+            SqlOrdering::Asc(column) => format!("{column} ASC"),
+            SqlOrdering::Desc(column) => format!("{column} DESC"),
         }
     }
 }
@@ -357,7 +386,6 @@ impl SqlOrdering {
 mod tests {
     use super::*;
     use crate::sql_insert::SqlInsert;
-    use rusqlite::NO_PARAMS;
 
     const CREATE_TX_HISTORY_TABLE: &str = "CREATE TABLE tx_history (
         tx_hash VARCHAR(255) NOT NULL UNIQUE,
@@ -371,8 +399,8 @@ mod tests {
     );";
 
     fn init_table_for_test(conn: &Connection) {
-        conn.execute(CREATE_TX_HISTORY_TABLE, NO_PARAMS).unwrap();
-        conn.execute(CREATE_TX_ADDRESS_TABLE, NO_PARAMS).unwrap();
+        conn.execute(CREATE_TX_HISTORY_TABLE, []).unwrap();
+        conn.execute(CREATE_TX_ADDRESS_TABLE, []).unwrap();
 
         let history_items = vec![
             ("tx_hash_1", 699545, 23, Some(0.5)),

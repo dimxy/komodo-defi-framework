@@ -39,7 +39,9 @@ impl TxInternalId {
             return ERR!("Incorrect bytes len {}, expected {}", bytes.len(), EXPECTED_LEN);
         }
 
-        let tx_hash: H256Json = bytes[0..32].into();
+        let mut tx_hash = [0u8; 32];
+        tx_hash.copy_from_slice(&bytes[0..32]);
+        let tx_hash = H256Json::from(tx_hash);
 
         let buf = bytes[32..].to_vec();
         let mut cursor = Cursor::new(buf);
@@ -192,9 +194,12 @@ impl Qrc20Coin {
         let receipts = try_s!(self.utxo.rpc_client.get_transaction_receipts(&tx_hash).compat().await);
         // request Qtum transaction details to get a tx_hex, timestamp, block_height and calculate a miner_fee
         let mut input_transactions = HistoryUtxoTxMap::new();
-        let qtum_details = try_s!(utxo_common::tx_details_by_hash(self, &tx_hash.0, &mut input_transactions).await);
+        let qtum_details = try_s!(utxo_common::tx_details_by_hash(self, &tx_hash, &mut input_transactions).await);
         // Deserialize the UtxoTx to get a script pubkey
-        let qtum_tx: UtxoTx = try_s!(deserialize(qtum_details.tx_hex.as_slice()).map_err(|e| ERRL!("{:?}", e)));
+        let qtum_tx: UtxoTx = try_s!(deserialize(
+            try_s!(qtum_details.tx.tx_hex().ok_or("unexpected tx type")).as_slice()
+        )
+        .map_err(|e| ERRL!("{:?}", e)));
 
         let miner_fee = {
             let total_qtum_fee = match qtum_details.fee_details {
@@ -209,23 +214,29 @@ impl Qrc20Coin {
 
         let mut details = TxTransferMap::new();
         for receipt in receipts {
-            let log_details =
-                try_s!(self.transfer_details_from_receipt(&qtum_tx, &qtum_details, receipt, miner_fee.clone()));
+            let log_details = try_s!(
+                self.transfer_details_from_receipt(&qtum_tx, &qtum_details, receipt, miner_fee.clone())
+                    .await
+            );
             details.extend(log_details.into_iter())
         }
 
         Ok(details)
     }
 
-    fn transfer_details_from_receipt(
+    async fn transfer_details_from_receipt(
         &self,
         qtum_tx: &UtxoTx,
         qtum_details: &TransactionDetails,
         receipt: TxReceipt,
         miner_fee: BigDecimal,
     ) -> Result<TxTransferMap, String> {
-        let my_address = try_s!(self.utxo.derivation_method.single_addr_or_err());
-        let tx_hash: H256Json = try_s!(H256Json::from_str(&qtum_details.tx_hash));
+        let my_address = try_s!(self.utxo.derivation_method.single_addr_or_err().await);
+        let tx_hash: H256Json = try_s!(H256Json::from_str(try_s!(qtum_details
+            .tx
+            .tx_hash()
+            .ok_or("unexpected tx type"))));
+
         if qtum_tx.outputs.len() <= (receipt.output_index as usize) {
             return ERR!(
                 "Length of the transaction {:?} outputs less than output_index {}",
@@ -280,17 +291,17 @@ impl Qrc20Coin {
             };
 
             // https://github.com/qtumproject/qtum-electrum/blob/v4.0.2/electrum/wallet.py#L2102
-            if from != *my_address && to != *my_address {
+            if from != my_address && to != my_address {
                 // address mismatch
                 continue;
             }
 
-            let spent_by_me = if from == *my_address {
+            let spent_by_me = if from == my_address {
                 total_amount.clone()
             } else {
                 0.into()
             };
-            let received_by_me = if to == *my_address {
+            let received_by_me = if to == my_address {
                 total_amount.clone()
             } else {
                 0.into()
@@ -513,7 +524,7 @@ impl Qrc20Coin {
                 ctx.log.log(
                     "😟",
                     &[&"tx_history", &self.utxo.conf.ticker],
-                    &format!("'transfer' details of {:?} were reloaded", tx_hash),
+                    &format!("'transfer' details of {tx_hash:?} were reloaded"),
                 );
             }
 
@@ -547,7 +558,7 @@ impl Qrc20Coin {
                     return Ok(HistoryMapByHash::default());
                 },
             };
-            let tx_hash_history = history_map.entry(id.tx_hash).or_insert_with(HashMap::default);
+            let tx_hash_history = history_map.entry(id.tx_hash).or_default();
             if tx_hash_history.insert(id, tx).is_some() {
                 ctx.log.log(
                     "😟",
@@ -604,16 +615,16 @@ impl TransferHistoryBuilder {
     }
 
     pub async fn build(self) -> Result<Vec<TxReceipt>, MmError<UtxoRpcError>> {
-        let params = self.build_params()?;
+        let params = self.build_params().await?;
         self.coin.utxo.rpc_client.build(params).await
     }
 
     pub async fn build_tx_idents(self) -> Result<Vec<(H256Json, u64)>, MmError<UtxoRpcError>> {
-        let params = self.build_params()?;
+        let params = self.build_params().await?;
         self.coin.utxo.rpc_client.build_tx_idents(params).await
     }
 
-    fn build_params(&self) -> Result<TransferHistoryParams, MmError<UtxoRpcError>> {
+    async fn build_params(&self) -> Result<TransferHistoryParams, MmError<UtxoRpcError>> {
         let address = match self.address {
             Some(addr) => addr,
             None => {
@@ -622,9 +633,9 @@ impl TransferHistoryBuilder {
                     .utxo
                     .derivation_method
                     .single_addr_or_err()
+                    .await
                     .mm_err(|e| UtxoRpcError::Internal(e.to_string()))?;
-                qtum::contract_addr_from_utxo_addr(my_address.clone())
-                    .mm_err(|e| UtxoRpcError::Internal(e.to_string()))?
+                qtum::contract_addr_from_utxo_addr(my_address).mm_err(|e| UtxoRpcError::Internal(e.to_string()))?
             },
         };
 
@@ -814,17 +825,21 @@ fn is_transfer_event_log(log: &LogEntry) -> bool {
 mod tests {
     use super::*;
     use common::block_on;
+    use hex::FromHex;
     use mm2_metrics::{MetricType, MetricsJson, MetricsOps};
     use mm2_test_helpers::for_tests::find_metrics_in_json;
     use qrc20_tests::qrc20_coin_for_test;
 
     #[test]
     fn test_tx_internal_id() {
-        let tx_hash = hex::decode("39104d29d77ba83c5c6c63ab7a0f096301c443b4538dc6b30140453a40caa80a").unwrap();
-        let expected_id = TxInternalId::new(tx_hash.as_slice().into(), 13, 257);
+        let tx_hash: [u8; 32] = hex::decode("39104d29d77ba83c5c6c63ab7a0f096301c443b4538dc6b30140453a40caa80a")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let expected_id = TxInternalId::new(tx_hash.into(), 13, 257);
         let actual_bytes: BytesJson = expected_id.clone().into();
 
-        let mut expected_bytes = tx_hash;
+        let mut expected_bytes = Vec::from(tx_hash);
         expected_bytes.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 13]);
         expected_bytes.extend_from_slice(&[0, 0, 0, 0, 0, 0, 1, 1]);
         assert_eq!(actual_bytes, expected_bytes.into());
@@ -843,10 +858,10 @@ mod tests {
         let (ctx, coin) = qrc20_coin_for_test(priv_key, None);
         ctx.metrics.init();
 
-        let tx_hash: H256Json = hex::decode("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
-            .unwrap()
-            .as_slice()
-            .into();
+        let tx_hash: H256Json =
+            <[u8; 32]>::from_hex("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
+                .unwrap()
+                .into();
         let tx_height = 699545;
         let transfer_map_expected = block_on(coin.transfer_details_by_hash(tx_hash)).unwrap();
 
@@ -858,10 +873,11 @@ mod tests {
         assert_eq!(transfer_map, transfer_map_expected);
 
         let value: MetricsJson = json::from_value(ctx.metrics.collect_json().unwrap()).unwrap();
-        let found = find_metrics_in_json(value, "tx.history.request.count", &[(
-            "method",
-            "transfer_details_by_hash",
-        )]);
+        let found = find_metrics_in_json(
+            value,
+            "tx.history.request.count",
+            &[("method", "transfer_details_by_hash")],
+        );
         assert_eq!(found, None);
     }
 
@@ -875,10 +891,10 @@ mod tests {
         let (ctx, coin) = qrc20_coin_for_test(priv_key, None);
         ctx.metrics.init();
 
-        let tx_hash: H256Json = hex::decode("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
-            .unwrap()
-            .as_slice()
-            .into();
+        let tx_hash: H256Json =
+            <[u8; 32]>::from_hex("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
+                .unwrap()
+                .into();
         let tx_height = 699545;
         let transfer_map_expected = block_on(coin.transfer_details_by_hash(tx_hash)).unwrap();
 
@@ -897,10 +913,11 @@ mod tests {
         assert_eq!(transfer_map_zero_timestamp, transfer_map_expected);
 
         let value: MetricsJson = json::from_value(ctx.metrics.collect_json().unwrap()).unwrap();
-        let found = find_metrics_in_json(value, "tx.history.request.count", &[(
-            "method",
-            "get_verbose_transaction",
-        )]);
+        let found = find_metrics_in_json(
+            value,
+            "tx.history.request.count",
+            &[("method", "get_verbose_transaction")],
+        );
         match found {
             Some(MetricType::Counter { key, value, .. }) if key == "tx.history.request.count" && value == 1 => (),
             found => panic!("Found metric type: {:?}", found),
@@ -917,10 +934,10 @@ mod tests {
         let (ctx, coin) = qrc20_coin_for_test(priv_key, None);
         ctx.metrics.init();
 
-        let tx_hash: H256Json = hex::decode("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
-            .unwrap()
-            .as_slice()
-            .into();
+        let tx_hash: H256Json =
+            <[u8; 32]>::from_hex("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
+                .unwrap()
+                .into();
         let tx_height = 699545;
         let transfer_map_expected = block_on(coin.transfer_details_by_hash(tx_hash)).unwrap();
 
@@ -928,9 +945,8 @@ mod tests {
             .into_iter()
             .map(|(mut id, tx)| {
                 // just another tx_hash
-                id.tx_hash = hex::decode("8a7270110ab7b56142b3bac89999276beb70320a7fe7666f460a05aa615eb0a0")
+                id.tx_hash = <[u8; 32]>::from_hex("8a7270110ab7b56142b3bac89999276beb70320a7fe7666f460a05aa615eb0a0")
                     .unwrap()
-                    .as_slice()
                     .into();
                 (id, tx)
             })
@@ -957,10 +973,10 @@ mod tests {
         ];
         let (ctx, coin) = qrc20_coin_for_test(priv_key, None);
 
-        let tx_hash: H256Json = hex::decode("35e03bc529528a853ee75dde28f27eec8ed7b152b6af7ab6dfa5d55ea46f25ac")
-            .unwrap()
-            .as_slice()
-            .into();
+        let tx_hash: H256Json =
+            <[u8; 32]>::from_hex("35e03bc529528a853ee75dde28f27eec8ed7b152b6af7ab6dfa5d55ea46f25ac")
+                .unwrap()
+                .into();
         let tx_height = 681443;
         let transfer_map_expected = block_on(coin.transfer_details_by_hash(tx_hash)).unwrap();
         let mut history_map_expected = HistoryMapByHash::new();
@@ -982,10 +998,10 @@ mod tests {
         ];
         let (ctx, coin) = qrc20_coin_for_test(priv_key, None);
 
-        let tx_hash: H256Json = hex::decode("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
-            .unwrap()
-            .as_slice()
-            .into();
+        let tx_hash: H256Json =
+            <[u8; 32]>::from_hex("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
+                .unwrap()
+                .into();
         let tx_height = 699545;
         let transfer_map_expected = block_on(coin.transfer_details_by_hash(tx_hash)).unwrap();
         let mut history_map_expected = HistoryMapByHash::new();
@@ -1010,14 +1026,14 @@ mod tests {
         let metrics = MetricsArc::new();
         metrics.init();
 
-        let tx_hash_invalid: H256Json = hex::decode("0000000000000000000000000000000000000000000000000000000000000000")
-            .unwrap()
-            .as_slice()
-            .into();
-        let tx_hash: H256Json = hex::decode("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
-            .unwrap()
-            .as_slice()
-            .into();
+        let tx_hash_invalid: H256Json =
+            <[u8; 32]>::from_hex("0000000000000000000000000000000000000000000000000000000000000000")
+                .unwrap()
+                .into();
+        let tx_hash: H256Json =
+            <[u8; 32]>::from_hex("85ede12ccc12fb1709c4d9e403e96c0c394b0916f2f6098d41d8dfa00013fcdb")
+                .unwrap()
+                .into();
         let tx_height = 699545;
         let transfer_map_expected = block_on(coin.transfer_details_by_hash(tx_hash)).unwrap();
         let mut history_map_expected = HistoryMapByHash::new();

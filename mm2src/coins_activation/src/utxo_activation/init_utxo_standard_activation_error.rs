@@ -1,6 +1,6 @@
 use crate::standalone_coin::InitStandaloneCoinError;
 use coins::coin_balance::EnableCoinBalanceError;
-use coins::hd_wallet::{NewAccountCreatingError, NewAddressDerivingError};
+use coins::hd_wallet::{NewAccountCreationError, NewAddressDerivingError};
 use coins::tx_history_storage::CreateTxHistoryStorageError;
 use coins::utxo::utxo_builder::UtxoCoinBuildError;
 use coins::{BalanceError, RegisterCoinError};
@@ -14,17 +14,17 @@ use std::time::Duration;
 #[derive(Clone, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum InitUtxoStandardError {
-    #[display(fmt = "{}", _0)]
+    #[display(fmt = "{_0}")]
     HwError(HwRpcError),
-    #[display(fmt = "Initialization task has timed out {:?}", duration)]
+    #[display(fmt = "Initialization task has timed out {duration:?}")]
     TaskTimedOut { duration: Duration },
-    #[display(fmt = "Coin {} is activated already", ticker)]
+    #[display(fmt = "Coin {ticker} is activated already")]
     CoinIsAlreadyActivated { ticker: String },
-    #[display(fmt = "Error on platform coin {} creation: {}", ticker, error)]
+    #[display(fmt = "Error on platform coin {ticker} creation: {error}")]
     CoinCreationError { ticker: String, error: String },
-    #[display(fmt = "Transport error: {}", _0)]
+    #[display(fmt = "Transport error: {_0}")]
     Transport(String),
-    #[display(fmt = "Internal error: {}", _0)]
+    #[display(fmt = "Internal error: {_0}")]
     Internal(String),
 }
 
@@ -39,7 +39,9 @@ impl From<RpcTaskError> for InitUtxoStandardError {
 
 impl From<CryptoCtxError> for InitUtxoStandardError {
     /// `CryptoCtx` is expected to be initialized already.
-    fn from(crypto_err: CryptoCtxError) -> Self { InitUtxoStandardError::Internal(crypto_err.to_string()) }
+    fn from(crypto_err: CryptoCtxError) -> Self {
+        InitUtxoStandardError::Internal(crypto_err.to_string())
+    }
 }
 
 impl From<CreateTxHistoryStorageError> for InitUtxoStandardError {
@@ -83,7 +85,7 @@ impl InitUtxoStandardError {
             EnableCoinBalanceError::NewAddressDerivingError(addr) => {
                 Self::from_new_address_deriving_error(addr, ticker)
             },
-            EnableCoinBalanceError::NewAccountCreatingError(acc) => Self::from_new_account_err(acc, ticker),
+            EnableCoinBalanceError::NewAccountCreationError(acc) => Self::from_new_account_err(acc, ticker),
             EnableCoinBalanceError::BalanceError(balance) => Self::from_balance_err(balance, ticker),
         }
     }
@@ -95,11 +97,11 @@ impl InitUtxoStandardError {
         }
     }
 
-    fn from_new_account_err(new_acc_err: NewAccountCreatingError, ticker: String) -> Self {
+    fn from_new_account_err(new_acc_err: NewAccountCreationError, ticker: String) -> Self {
         match new_acc_err {
-            NewAccountCreatingError::RpcTaskError(rpc) => Self::from(rpc),
-            NewAccountCreatingError::HardwareWalletError(hw_err) => Self::from_hw_err(hw_err, ticker),
-            NewAccountCreatingError::Internal(internal) => InitUtxoStandardError::Internal(internal),
+            NewAccountCreationError::RpcTaskError(rpc) => Self::from(rpc),
+            NewAccountCreationError::HardwareWalletError(hw_err) => Self::from_hw_err(hw_err, ticker),
+            NewAccountCreationError::Internal(internal) => InitUtxoStandardError::Internal(internal),
             other => InitUtxoStandardError::CoinCreationError {
                 ticker,
                 error: other.to_string(),

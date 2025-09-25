@@ -28,41 +28,40 @@ pub enum TxProviderError {
 
 #[derive(Debug, Display)]
 pub enum UtxoSignTxError {
-    #[display(fmt = "Coin '{}' is not supported with Trezor", coin)]
+    #[display(fmt = "Coin '{coin}' is not supported with Trezor")]
     CoinNotSupportedWithTrezor { coin: String },
     #[display(fmt = "Trezor doesn't support P2WPKH outputs yet")]
     TrezorDoesntSupportP2WPKH,
-    #[display(fmt = "Trezor client error: {}", _0)]
+    #[display(fmt = "Trezor client error: {_0}")]
     TrezorError(TrezorError),
-    #[display(fmt = "Encountered invalid parameter '{}': {}", param, description)]
+    #[display(fmt = "Encountered invalid parameter '{param}': {description}")]
     InvalidSignParam { param: String, description: String },
     #[display(
-        fmt = "Hardware Device returned an invalid number of signatures: '{}', number of inputs: '{}'",
-        actual,
-        expected
+        fmt = "Hardware Device returned an invalid number of signatures: '{actual}', number of inputs: '{expected}'"
     )]
     InvalidSignaturesNumber { actual: usize, expected: usize },
     #[display(fmt = "Error signing using a private key")]
     ErrorSigning(keys::Error),
     #[display(
-        fmt = "{} script '{}' built from input key pair doesn't match expected prev script '{}'",
-        script_type,
-        script,
-        prev_script
+        fmt = "{script_type} script '{script}' built from input key pair doesn't match expected prev script '{prev_script}'"
     )]
     MismatchScript {
         script_type: String,
         script: Script,
         prev_script: Script,
     },
-    #[display(fmt = "Transport error: {}", _0)]
+    #[display(fmt = "Can't spend the UTXO with script = '{script}'. This script format isn't supported")]
+    UnspendableUTXO { script: Script },
+    #[display(fmt = "Transport error: {_0}")]
     Transport(String),
-    #[display(fmt = "Internal error: {}", _0)]
+    #[display(fmt = "Internal error: {_0}")]
     Internal(String),
 }
 
 impl From<TrezorError> for UtxoSignTxError {
-    fn from(e: TrezorError) -> Self { UtxoSignTxError::TrezorError(e) }
+    fn from(e: TrezorError) -> Self {
+        UtxoSignTxError::TrezorError(e)
+    }
 }
 
 impl From<UtxoSignWithKeyPairError> for UtxoSignTxError {
@@ -82,13 +81,16 @@ impl From<UtxoSignWithKeyPairError> for UtxoSignTxError {
             // that are expected to be checked by [`sign_common::UtxoSignTxParamsBuilder::build`] already.
             // So if this error happens, it's our internal error.
             UtxoSignWithKeyPairError::InputIndexOutOfBound { .. } => UtxoSignTxError::Internal(error),
+            UtxoSignWithKeyPairError::UnspendableUTXO { script } => UtxoSignTxError::UnspendableUTXO { script },
             UtxoSignWithKeyPairError::ErrorSigning(sign) => UtxoSignTxError::ErrorSigning(sign),
         }
     }
 }
 
 impl From<keys::Error> for UtxoSignTxError {
-    fn from(e: keys::Error) -> Self { UtxoSignTxError::ErrorSigning(e) }
+    fn from(e: keys::Error) -> Self {
+        UtxoSignTxError::ErrorSigning(e)
+    }
 }
 
 impl From<TxProviderError> for UtxoSignTxError {
@@ -132,7 +134,7 @@ pub trait UtxoSignerOps {
                 let signer = with_trezor::TrezorTxSigner {
                     trezor,
                     tx_provider: self.tx_provider(),
-                    trezor_coin: self.trezor_coin()?,
+                    trezor_coin: self.trezor_coin().map_mm_err()?,
                     params,
                     fork_id: self.fork_id(),
                     branch_id: self.branch_id(),
@@ -140,13 +142,9 @@ pub trait UtxoSignerOps {
                 signer.sign_tx().await
             },
             SignPolicy::WithKeyPair(key_pair) => {
-                let signed = with_key_pair::sign_tx(
-                    params.unsigned_tx,
-                    key_pair,
-                    params.prev_script,
-                    params.signature_version,
-                    self.fork_id(),
-                )?;
+                let signed =
+                    with_key_pair::sign_tx(params.unsigned_tx, key_pair, params.signature_version, self.fork_id())
+                        .map_mm_err()?;
                 Ok(signed)
             },
         }

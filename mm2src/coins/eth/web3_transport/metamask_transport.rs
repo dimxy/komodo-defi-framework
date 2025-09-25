@@ -4,17 +4,21 @@ use jsonrpc_core::Call;
 use mm2_metamask::{detect_metamask_provider, Eip1193Provider, MetamaskResult, MetamaskSession};
 use serde_json::Value as Json;
 use std::fmt;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use web3::{RequestId, Transport};
 
-pub(crate) struct MetamaskEthConfig {
+/// Configuration for working with the MetaMask wallet.
+pub struct MetamaskEthConfig {
     /// The `ChainId` that the MetaMask wallet should be targeted on each RPC.
     pub chain_id: u64,
 }
 
+/// Transport layer for interacting with the MetaMask wallet.
 #[derive(Clone)]
-pub(crate) struct MetamaskTransport {
+pub struct MetamaskTransport {
     inner: Arc<MetamaskTransportInner>,
+    pub(crate) last_request_failed: Arc<AtomicBool>,
 }
 
 struct MetamaskTransportInner {
@@ -35,7 +39,10 @@ impl MetamaskTransport {
             eip1193,
             _event_handlers: event_handlers,
         };
-        Ok(MetamaskTransport { inner: Arc::new(inner) })
+        Ok(MetamaskTransport {
+            inner: Arc::new(inner),
+            last_request_failed: Arc::new(AtomicBool::new(false)),
+        })
     }
 }
 
@@ -54,7 +61,9 @@ impl Transport for MetamaskTransport {
 }
 
 impl fmt::Debug for MetamaskTransport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "MetamaskTransport") }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MetamaskTransport")
+    }
 }
 
 impl MetamaskTransport {

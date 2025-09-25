@@ -1,17 +1,19 @@
-use crate::mm2::lp_native_dex::init_context::MmInitContext;
+use crate::lp_native_dex::init_context::MmInitContext;
 use async_trait::async_trait;
 use common::{HttpStatusCode, SerdeInfallible, SuccessResponse};
 use crypto::metamask::{from_metamask_error, MetamaskError, MetamaskRpcError, WithMetamaskRpcError};
 use crypto::{CryptoCtx, CryptoCtxError, MetamaskCtxInitError};
 use derive_more::Display;
-use enum_from::EnumFromTrait;
+use enum_derives::EnumFromTrait;
 use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::common_errors::WithInternal;
 use mm2_err_handle::prelude::*;
 use rpc_task::rpc_common::{CancelRpcTaskError, CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusError,
                            RpcTaskStatusRequest};
-use rpc_task::{RpcTask, RpcTaskError, RpcTaskHandle, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{RpcInitReq, RpcTask, RpcTaskError, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared,
+               RpcTaskStatus, RpcTaskTypes};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub type InitMetamaskManagerShared = RpcTaskManagerShared<InitMetamaskTask>;
@@ -20,7 +22,7 @@ pub type InitMetamaskStatus =
 
 type InitMetamaskUserAction = SerdeInfallible;
 type InitMetamaskAwaitingStatus = SerdeInfallible;
-type InitMetamaskTaskHandle = RpcTaskHandle<InitMetamaskTask>;
+type InitMetamaskTaskHandleShared = RpcTaskHandleShared<InitMetamaskTask>;
 
 #[derive(Clone, Display, EnumFromTrait, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
@@ -29,9 +31,9 @@ pub enum InitMetamaskError {
     MetamaskInitializingAlready,
     #[from_trait(WithMetamaskRpcError::metamask_rpc_error)]
     MetamaskError(MetamaskRpcError),
-    #[display(fmt = "RPC timed out {:?}", _0)]
+    #[display(fmt = "RPC timed out {_0:?}")]
     Timeout(Duration),
-    #[display(fmt = "Internal: {}", _0)]
+    #[display(fmt = "Internal: {_0}")]
     #[from_trait(WithInternal::internal)]
     Internal(String),
 }
@@ -119,10 +121,10 @@ impl RpcTask for InitMetamaskTask {
         }
     }
 
-    async fn run(&mut self, _task_handle: &InitMetamaskTaskHandle) -> Result<Self::Item, MmError<Self::Error>> {
-        let crypto_ctx = CryptoCtx::from_ctx(&self.ctx)?;
+    async fn run(&mut self, _task_handle: InitMetamaskTaskHandleShared) -> Result<Self::Item, MmError<Self::Error>> {
+        let crypto_ctx = CryptoCtx::from_ctx(&self.ctx).map_mm_err()?;
 
-        let metamask = crypto_ctx.init_metamask_ctx(self.req.project.clone()).await?;
+        let metamask = crypto_ctx.init_metamask_ctx(self.req.project.clone()).await.map_mm_err()?;
         Ok(InitMetamaskResponse {
             eth_address: metamask.eth_account_str().to_string(),
         })
@@ -131,12 +133,13 @@ impl RpcTask for InitMetamaskTask {
 
 pub async fn connect_metamask(
     ctx: MmArc,
-    req: InitMetamaskRequest,
+    req: RpcInitReq<InitMetamaskRequest>,
 ) -> MmResult<InitRpcTaskResponse, InitMetamaskError> {
+    let (client_id, req) = (req.client_id, req.inner);
     let init_ctx = MmInitContext::from_ctx(&ctx).map_to_mm(InitMetamaskError::Internal)?;
     let spawner = ctx.spawner();
     let task = InitMetamaskTask { ctx, req };
-    let task_id = RpcTaskManager::spawn_rpc_task(&init_ctx.init_metamask_manager, &spawner, task)?;
+    let task_id = RpcTaskManager::spawn_rpc_task(&init_ctx.init_metamask_manager, &spawner, task, client_id).map_mm_err()?;
     Ok(InitRpcTaskResponse { task_id })
 }
 
@@ -163,6 +166,6 @@ pub async fn cancel_connect_metamask(
         .init_metamask_manager
         .lock()
         .map_to_mm(|e| CancelRpcTaskError::Internal(e.to_string()))?;
-    task_manager.cancel_task(req.task_id)?;
+    task_manager.cancel_task(req.task_id).map_mm_err()?;
     Ok(SuccessResponse::new())
 }

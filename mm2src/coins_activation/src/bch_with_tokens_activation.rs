@@ -1,3 +1,5 @@
+use crate::context::CoinsActivationContext;
+use crate::platform_coin_with_tokens::InitPlatformCoinWithTokensTask;
 use crate::platform_coin_with_tokens::*;
 use crate::prelude::*;
 use crate::slp_token_activation::SlpActivationRequest;
@@ -9,8 +11,10 @@ use coins::utxo::slp::{EnableSlpError, SlpProtocolConf, SlpToken};
 use coins::utxo::utxo_tx_history_v2::bch_and_slp_history_loop;
 use coins::utxo::UtxoCommonOps;
 use coins::MmCoinEnum;
-use coins::{CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed,
-            UnexpectedDerivationMethod};
+use coins::{
+    CoinBalance, CoinProtocol, MarketCoinOps, MmCoin, PrivKeyBuildPolicy, PrivKeyPolicyNotAllowed,
+    UnexpectedDerivationMethod,
+};
 use common::executor::{AbortSettings, SpawnAbortable};
 use common::Future01CompatExt;
 use common::{drop_mutability, true_f};
@@ -18,6 +22,7 @@ use crypto::CryptoCtxError;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::BigDecimal;
+use rpc_task::RpcTaskHandleShared;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value as Json;
 use std::collections::{HashMap, HashSet};
@@ -32,6 +37,7 @@ impl From<EnableSlpError> for InitTokensAsMmCoinsError {
             EnableSlpError::UnexpectedDerivationMethod(internal) | EnableSlpError::Internal(internal) => {
                 InitTokensAsMmCoinsError::Internal(internal)
             },
+            EnableSlpError::PlatformCoinMismatch => InitTokensAsMmCoinsError::PlatformCoinMismatch,
         }
     }
 }
@@ -85,11 +91,30 @@ impl TokenInitializer for SlpTokenInitializer {
         Ok(tokens)
     }
 
-    fn platform_coin(&self) -> &BchCoin { &self.platform_coin }
+    fn platform_coin(&self) -> &BchCoin {
+        &self.platform_coin
+    }
+
+    fn validate_token_params(
+        &self,
+        params: &[TokenActivationParams<Self::TokenActivationRequest, Self::TokenProtocol>],
+    ) -> MmResult<(), Self::InitTokensError> {
+        for token_param in params {
+            match &token_param.protocol {
+                SlpProtocolConf {
+                    platform_coin_ticker, ..
+                } if platform_coin_ticker == self.platform_coin().ticker() => {},
+                _ => return MmError::err(EnableSlpError::PlatformCoinMismatch),
+            }
+        }
+        Ok(())
+    }
 }
 
 impl RegisterTokenInfo<SlpToken> for BchCoin {
-    fn register_token_info(&self, token: &SlpToken) { self.add_slp_token_info(token.ticker().into(), token.get_info()) }
+    fn register_token_info(&self, token: &SlpToken) {
+        self.add_slp_token_info(token.ticker().into(), token.get_info())
+    }
 }
 
 impl From<BchWithTokensActivationError> for EnablePlatformCoinWithTokensError {
@@ -100,8 +125,7 @@ impl From<BchWithTokensActivationError> for EnablePlatformCoinWithTokensError {
             },
             BchWithTokensActivationError::InvalidSlpPrefix { ticker, prefix, error } => {
                 EnablePlatformCoinWithTokensError::Internal(format!(
-                    "Invalid slp prefix {} configured for {}. Error: {}",
-                    prefix, ticker, error
+                    "Invalid slp prefix {prefix} configured for {ticker}. Error: {error}"
                 ))
             },
             BchWithTokensActivationError::PrivKeyPolicyNotAllowed(e) => {
@@ -126,7 +150,15 @@ pub struct BchWithTokensActivationRequest {
 }
 
 impl TxHistory for BchWithTokensActivationRequest {
-    fn tx_history(&self) -> bool { self.platform_request.utxo_params.tx_history }
+    fn tx_history(&self) -> bool {
+        self.platform_request.utxo_params.tx_history
+    }
+}
+
+impl ActivationRequestInfo for BchWithTokensActivationRequest {
+    fn is_hw_policy(&self) -> bool {
+        self.platform_request.utxo_params.is_hw_policy()
+    }
 }
 
 pub struct BchProtocolInfo {
@@ -145,7 +177,7 @@ impl TryFromCoinProtocol for BchProtocolInfo {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct BchWithTokensActivationResult {
     current_block: u64,
     bch_addresses_infos: HashMap<String, CoinAddressInfo<CoinBalance>>,
@@ -156,17 +188,19 @@ impl GetPlatformBalance for BchWithTokensActivationResult {
     fn get_platform_balance(&self) -> Option<BigDecimal> {
         self.bch_addresses_infos
             .iter()
-            .fold(Some(BigDecimal::from(0)), |total, (_, addr_info)| {
-                total.and_then(|t| addr_info.balances.as_ref().map(|b| t + b.get_total()))
+            .try_fold(BigDecimal::from(0), |total, (_, addr_info)| {
+                addr_info.balances.as_ref().map(|b| total + b.get_total())
             })
     }
 }
 
 impl CurrentBlock for BchWithTokensActivationResult {
-    fn current_block(&self) -> u64 { self.current_block }
+    fn current_block(&self) -> u64 {
+        self.current_block
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BchWithTokensActivationError {
     PlatformCoinCreationError {
         ticker: String,
@@ -184,7 +218,9 @@ pub enum BchWithTokensActivationError {
 }
 
 impl From<UtxoRpcError> for BchWithTokensActivationError {
-    fn from(err: UtxoRpcError) -> Self { BchWithTokensActivationError::Transport(err.to_string()) }
+    fn from(err: UtxoRpcError) -> Self {
+        BchWithTokensActivationError::Transport(err.to_string())
+    }
 }
 
 impl From<UnexpectedDerivationMethod> for BchWithTokensActivationError {
@@ -194,28 +230,36 @@ impl From<UnexpectedDerivationMethod> for BchWithTokensActivationError {
 }
 
 impl From<PrivKeyPolicyNotAllowed> for BchWithTokensActivationError {
-    fn from(e: PrivKeyPolicyNotAllowed) -> Self { BchWithTokensActivationError::PrivKeyPolicyNotAllowed(e) }
+    fn from(e: PrivKeyPolicyNotAllowed) -> Self {
+        BchWithTokensActivationError::PrivKeyPolicyNotAllowed(e)
+    }
 }
 
 impl From<CryptoCtxError> for BchWithTokensActivationError {
-    fn from(e: CryptoCtxError) -> Self { BchWithTokensActivationError::Internal(e.to_string()) }
+    fn from(e: CryptoCtxError) -> Self {
+        BchWithTokensActivationError::Internal(e.to_string())
+    }
 }
 
 #[async_trait]
-impl PlatformWithTokensActivationOps for BchCoin {
+impl PlatformCoinWithTokensActivationOps for BchCoin {
     type ActivationRequest = BchWithTokensActivationRequest;
     type PlatformProtocolInfo = BchProtocolInfo;
     type ActivationResult = BchWithTokensActivationResult;
     type ActivationError = BchWithTokensActivationError;
 
+    type InProgressStatus = InitPlatformCoinWithTokensInProgressStatus;
+    type AwaitingStatus = InitPlatformCoinWithTokensAwaitingStatus;
+    type UserAction = InitPlatformCoinWithTokensUserAction;
+
     async fn enable_platform_coin(
         ctx: MmArc,
         ticker: String,
-        platform_conf: Json,
+        platform_conf: &Json,
         activation_request: Self::ActivationRequest,
         protocol_conf: Self::PlatformProtocolInfo,
     ) -> Result<Self, MmError<Self::ActivationError>> {
-        let priv_key_policy = PrivKeyBuildPolicy::detect_priv_key_policy(&ctx)?;
+        let priv_key_policy = PrivKeyBuildPolicy::detect_priv_key_policy(&ctx).map_mm_err()?;
 
         let slp_prefix = CashAddrPrefix::from_str(&protocol_conf.slp_prefix).map_to_mm(|error| {
             BchWithTokensActivationError::InvalidSlpPrefix {
@@ -228,14 +272,23 @@ impl PlatformWithTokensActivationOps for BchCoin {
         let platform_coin = bch_coin_with_policy(
             &ctx,
             &ticker,
-            &platform_conf,
+            platform_conf,
             activation_request.platform_request,
             slp_prefix,
             priv_key_policy,
         )
         .await
-        .map_to_mm(|error| BchWithTokensActivationError::PlatformCoinCreationError { ticker, error })?;
+        .map_to_mm(|error| BchWithTokensActivationError::PlatformCoinCreationError { ticker, error })
+        .map_mm_err()?;
+
         Ok(platform_coin)
+    }
+
+    async fn enable_global_nft(
+        &self,
+        _activation_request: &Self::ActivationRequest,
+    ) -> Result<Option<MmCoinEnum>, MmError<Self::ActivationError>> {
+        Ok(None)
     }
 
     fn try_from_mm_coin(coin: MmCoinEnum) -> Option<Self>
@@ -258,27 +311,38 @@ impl PlatformWithTokensActivationOps for BchCoin {
 
     async fn get_activation_result(
         &self,
+        _task_handle: Option<RpcTaskHandleShared<InitPlatformCoinWithTokensTask<BchCoin>>>,
         activation_request: &Self::ActivationRequest,
+        _nft_global: &Option<MmCoinEnum>,
     ) -> Result<BchWithTokensActivationResult, MmError<BchWithTokensActivationError>> {
-        let current_block = self.as_ref().rpc_client.get_block_count().compat().await?;
+        let current_block = self.as_ref().rpc_client.get_block_count().compat().await.map_mm_err()?;
 
-        let my_address = self.as_ref().derivation_method.single_addr_or_err()?;
+        let my_address = self
+            .as_ref()
+            .derivation_method
+            .single_addr_or_err()
+            .await
+            .map_mm_err()?;
         let my_slp_address = self
             .get_my_slp_address()
-            .map_to_mm(BchWithTokensActivationError::Internal)?
+            .await
+            .map_to_mm(BchWithTokensActivationError::Internal)
+            .map_mm_err()?
             .encode()
-            .map_to_mm(BchWithTokensActivationError::Internal)?;
-        let pubkey = self.my_public_key()?.to_string();
+            .map_to_mm(BchWithTokensActivationError::Internal)
+            .map_mm_err()?;
+
+        let pubkey = self.my_public_key().map_mm_err()?.to_string();
 
         let mut bch_address_info = CoinAddressInfo {
-            derivation_method: DerivationMethod::Iguana,
+            derivation_method: self.as_ref().derivation_method.to_response().await.map_mm_err()?,
             pubkey: pubkey.clone(),
             balances: None,
             tickers: None,
         };
 
         let mut slp_address_info = CoinAddressInfo {
-            derivation_method: DerivationMethod::Iguana,
+            derivation_method: self.as_ref().derivation_method.to_response().await.map_mm_err()?,
             pubkey: pubkey.clone(),
             balances: None,
             tickers: None,
@@ -297,7 +361,7 @@ impl PlatformWithTokensActivationOps for BchCoin {
             });
         }
 
-        let bch_unspents = self.bch_unspents_for_display(my_address).await?;
+        let bch_unspents = self.bch_unspents_for_display(&my_address).await.map_mm_err()?;
         bch_address_info.balances = Some(bch_unspents.platform_balance(self.decimals()));
         drop_mutability!(bch_address_info);
 
@@ -322,12 +386,24 @@ impl PlatformWithTokensActivationOps for BchCoin {
     fn start_history_background_fetching(
         &self,
         ctx: MmArc,
-        storage: impl TxHistoryStorage + Send + 'static,
+        storage: impl TxHistoryStorage + 'static,
         initial_balance: Option<BigDecimal>,
     ) {
-        let fut = bch_and_slp_history_loop(self.clone(), storage, ctx.metrics.clone(), initial_balance);
+        let fut = bch_and_slp_history_loop(
+            self.clone(),
+            storage,
+            ctx.metrics.clone(),
+            ctx.event_stream_manager.clone(),
+            initial_balance,
+        );
 
         let settings = AbortSettings::info_on_abort(format!("bch_and_slp_history_loop stopped for {}", self.ticker()));
         self.spawner().spawn_with_settings(fut, settings);
+    }
+
+    fn rpc_task_manager(
+        _activation_ctx: &CoinsActivationContext,
+    ) -> &InitPlatformCoinWithTokensTaskManagerShared<BchCoin> {
+        unimplemented!()
     }
 }

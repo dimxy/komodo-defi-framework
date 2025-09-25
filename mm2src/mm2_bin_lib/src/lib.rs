@@ -1,14 +1,17 @@
 use enum_primitive_derive::Primitive;
 use mm2_core::mm_ctx::MmArc;
-use mm2_main::mm2::lp_dispatcher::{dispatch_lp_event, StopCtxEvent};
+use mm2_main::lp_dispatcher::{dispatch_lp_event, StopCtxEvent};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-#[cfg(target_arch = "wasm32")] use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
-#[cfg(not(target_arch = "wasm32"))] mod mm2_native_lib;
-#[cfg(target_arch = "wasm32")] mod mm2_wasm_lib;
+#[cfg(not(target_arch = "wasm32"))]
+mod mm2_native_lib;
+#[cfg(target_arch = "wasm32")]
+mod mm2_wasm_lib;
 
-const MM_VERSION: &str = env!("MM_VERSION");
-const MM_DATETIME: &str = env!("MM_DATETIME");
+const KDF_VERSION: &str = env!("KDF_VERSION");
+const KDF_DATETIME: &str = env!("KDF_DATETIME");
 
 static LP_MAIN_RUNNING: AtomicBool = AtomicBool::new(false);
 static CTX: AtomicU32 = AtomicU32::new(0);
@@ -41,7 +44,14 @@ fn mm2_status() -> MainStatus {
         Err(_) => return MainStatus::NoRpc,
     };
 
-    if ctx.rpc_started.copy_or(false) {
+    #[cfg(not(target_arch = "wasm32"))]
+    match ctx.rpc_port.get() {
+        Some(_) => MainStatus::RpcIsUp,
+        None => MainStatus::NoRpc,
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    if ctx.wasm_rpc.get().is_some() {
         MainStatus::RpcIsUp
     } else {
         MainStatus::NoRpc
@@ -99,5 +109,22 @@ fn prepare_for_mm2_stop() -> PrepareForStopResult {
 
 async fn finalize_mm2_stop(ctx: MmArc) {
     dispatch_lp_event(ctx.clone(), StopCtxEvent.into()).await;
-    let _ = ctx.stop();
+    let _ = ctx.stop().await;
+}
+
+#[cfg_attr(target_arch = "wasm32", derive(serde::Serialize))]
+#[derive(Clone, Copy, Debug, PartialEq, Primitive)]
+pub enum StartupResultCode {
+    /// Operation completed successfully
+    Ok = 0,
+    /// Invalid parameters were provided to the function
+    InvalidParams = 1,
+    /// The configuration was invalid (missing required fields, etc.)
+    ConfigError = 2,
+    /// MM2 is already running
+    AlreadyRunning = 3,
+    /// MM2 initialization failed
+    InitError = 4,
+    /// Failed to spawn the MM2 process/thread
+    SpawnError = 5,
 }

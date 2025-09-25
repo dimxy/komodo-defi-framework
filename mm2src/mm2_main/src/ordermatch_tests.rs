@@ -1,19 +1,24 @@
 use super::*;
-use crate::mm2::lp_network::P2PContext;
-use crate::mm2::lp_ordermatch::new_protocol::{MakerOrderUpdated, PubkeyKeepAlive};
+use crate::lp_ordermatch::new_protocol::{MakerOrderUpdated, PubkeyKeepAlive};
 use coins::{MmCoin, TestCoin};
 use common::{block_on, executor::spawn};
 use crypto::privkey::key_pair_from_seed;
 use db_common::sqlite::rusqlite::Connection;
 use futures::{channel::mpsc, StreamExt};
 use mm2_core::mm_ctx::{MmArc, MmCtx};
-use mm2_libp2p::atomicdex_behaviour::AdexBehaviourCmd;
+use mm2_libp2p::application::request_response::ordermatch::OrdermatchRequest;
+use mm2_libp2p::application::request_response::P2PRequest;
+use mm2_libp2p::behaviours::atomicdex::generate_ed25519_keypair;
+use mm2_libp2p::p2p_ctx::P2PContext;
+use mm2_libp2p::AdexBehaviourCmd;
 use mm2_libp2p::{decode_message, PeerId};
 use mm2_test_helpers::for_tests::mm_ctx_with_iguana;
 use mocktopus::mocking::*;
 use rand::{seq::SliceRandom, thread_rng, Rng};
+use secp256k1::PublicKey;
 use std::collections::HashSet;
 use std::iter::{self, FromIterator};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 #[test]
@@ -35,6 +40,10 @@ fn test_match_maker_order_and_taker_request() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     let request = TakerRequest {
@@ -50,6 +59,9 @@ fn test_match_maker_order_and_taker_request() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let actual = maker.match_with_request(&request);
@@ -73,6 +85,10 @@ fn test_match_maker_order_and_taker_request() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     let request = TakerRequest {
@@ -88,6 +104,9 @@ fn test_match_maker_order_and_taker_request() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let actual = maker.match_with_request(&request);
@@ -111,6 +130,10 @@ fn test_match_maker_order_and_taker_request() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     let request = TakerRequest {
@@ -126,6 +149,9 @@ fn test_match_maker_order_and_taker_request() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let actual = maker.match_with_request(&request);
@@ -149,6 +175,10 @@ fn test_match_maker_order_and_taker_request() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     let request = TakerRequest {
@@ -164,6 +194,9 @@ fn test_match_maker_order_and_taker_request() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let actual = maker.match_with_request(&request);
@@ -187,6 +220,10 @@ fn test_match_maker_order_and_taker_request() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     let request = TakerRequest {
@@ -202,6 +239,9 @@ fn test_match_maker_order_and_taker_request() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let actual = maker.match_with_request(&request);
@@ -225,6 +265,10 @@ fn test_match_maker_order_and_taker_request() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     let request = TakerRequest {
@@ -240,6 +284,9 @@ fn test_match_maker_order_and_taker_request() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let actual = maker.match_with_request(&request);
@@ -265,6 +312,10 @@ fn test_match_maker_order_and_taker_request() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
     let request = TakerRequest {
         base: "KMD".to_owned(),
@@ -279,6 +330,9 @@ fn test_match_maker_order_and_taker_request() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
     let actual = maker.match_with_request(&request);
     assert_eq!(actual, OrderMatchResult::NotMatched);
@@ -305,6 +359,10 @@ fn test_match_maker_order_and_taker_request() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
     let request = TakerRequest {
         base: "REL".to_owned(),
@@ -319,6 +377,9 @@ fn test_match_maker_order_and_taker_request() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
     let actual = maker.match_with_request(&request);
     let expected_base_amount = MmNumber::from(3);
@@ -376,71 +437,93 @@ fn test_maker_order_available_amount() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
-    maker.matches.insert(new_uuid(), MakerMatch {
-        request: TakerRequest {
-            uuid: new_uuid(),
-            base: "BASE".into(),
-            rel: "REL".into(),
-            base_amount: 5.into(),
-            rel_amount: 5.into(),
-            sender_pubkey: H256Json::default(),
-            dest_pub_key: H256Json::default(),
-            action: TakerAction::Buy,
-            match_by: MatchBy::Any,
-            conf_settings: None,
-            base_protocol_info: None,
-            rel_protocol_info: None,
+    maker.matches.insert(
+        new_uuid(),
+        MakerMatch {
+            request: TakerRequest {
+                uuid: new_uuid(),
+                base: "BASE".into(),
+                rel: "REL".into(),
+                base_amount: 5.into(),
+                rel_amount: 5.into(),
+                sender_pubkey: H256Json::default(),
+                dest_pub_key: H256Json::default(),
+                action: TakerAction::Buy,
+                match_by: MatchBy::Any,
+                conf_settings: None,
+                base_protocol_info: None,
+                rel_protocol_info: None,
+                swap_version: SwapVersion::default(),
+                #[cfg(feature = "ibc-routing-for-swaps")]
+                order_metadata: OrderMetadata::default(),
+            },
+            reserved: MakerReserved {
+                base: "BASE".into(),
+                rel: "REL".into(),
+                base_amount: 5.into(),
+                rel_amount: 5.into(),
+                sender_pubkey: H256Json::default(),
+                dest_pub_key: H256Json::default(),
+                maker_order_uuid: new_uuid(),
+                taker_order_uuid: new_uuid(),
+                conf_settings: None,
+                base_protocol_info: None,
+                rel_protocol_info: None,
+                swap_version: SwapVersion::default(),
+                #[cfg(feature = "ibc-routing-for-swaps")]
+                order_metadata: OrderMetadata::default(),
+            },
+            connect: None,
+            connected: None,
+            last_updated: now_ms(),
         },
-        reserved: MakerReserved {
-            base: "BASE".into(),
-            rel: "REL".into(),
-            base_amount: 5.into(),
-            rel_amount: 5.into(),
-            sender_pubkey: H256Json::default(),
-            dest_pub_key: H256Json::default(),
-            maker_order_uuid: new_uuid(),
-            taker_order_uuid: new_uuid(),
-            conf_settings: None,
-            base_protocol_info: None,
-            rel_protocol_info: None,
+    );
+    maker.matches.insert(
+        new_uuid(),
+        MakerMatch {
+            request: TakerRequest {
+                uuid: new_uuid(),
+                base: "BASE".into(),
+                rel: "REL".into(),
+                base_amount: 1.into(),
+                rel_amount: 1.into(),
+                sender_pubkey: H256Json::default(),
+                dest_pub_key: H256Json::default(),
+                action: TakerAction::Buy,
+                match_by: MatchBy::Any,
+                conf_settings: None,
+                base_protocol_info: None,
+                rel_protocol_info: None,
+                swap_version: SwapVersion::default(),
+                #[cfg(feature = "ibc-routing-for-swaps")]
+                order_metadata: OrderMetadata::default(),
+            },
+            reserved: MakerReserved {
+                base: "BASE".into(),
+                rel: "REL".into(),
+                base_amount: 1.into(),
+                rel_amount: 1.into(),
+                sender_pubkey: H256Json::default(),
+                dest_pub_key: H256Json::default(),
+                maker_order_uuid: new_uuid(),
+                taker_order_uuid: new_uuid(),
+                conf_settings: None,
+                base_protocol_info: None,
+                rel_protocol_info: None,
+                swap_version: SwapVersion::default(),
+                #[cfg(feature = "ibc-routing-for-swaps")]
+                order_metadata: OrderMetadata::default(),
+            },
+            connect: None,
+            connected: None,
+            last_updated: now_ms(),
         },
-        connect: None,
-        connected: None,
-        last_updated: now_ms(),
-    });
-    maker.matches.insert(new_uuid(), MakerMatch {
-        request: TakerRequest {
-            uuid: new_uuid(),
-            base: "BASE".into(),
-            rel: "REL".into(),
-            base_amount: 1.into(),
-            rel_amount: 1.into(),
-            sender_pubkey: H256Json::default(),
-            dest_pub_key: H256Json::default(),
-            action: TakerAction::Buy,
-            match_by: MatchBy::Any,
-            conf_settings: None,
-            base_protocol_info: None,
-            rel_protocol_info: None,
-        },
-        reserved: MakerReserved {
-            base: "BASE".into(),
-            rel: "REL".into(),
-            base_amount: 1.into(),
-            rel_amount: 1.into(),
-            sender_pubkey: H256Json::default(),
-            dest_pub_key: H256Json::default(),
-            maker_order_uuid: new_uuid(),
-            taker_order_uuid: new_uuid(),
-            conf_settings: None,
-            base_protocol_info: None,
-            rel_protocol_info: None,
-        },
-        connect: None,
-        connected: None,
-        last_updated: now_ms(),
-    });
+    );
 
     let expected = BigRational::from_integer(4.into());
     let actual = maker.available_amount();
@@ -464,6 +547,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -491,6 +577,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::Matched, order.match_reserved(&reserved));
@@ -508,6 +597,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -535,6 +627,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::Matched, order.match_reserved(&reserved));
@@ -552,6 +647,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -579,6 +677,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::Matched, order.match_reserved(&reserved));
@@ -596,6 +697,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -623,6 +727,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::NotMatched, order.match_reserved(&reserved));
@@ -640,6 +747,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -667,6 +777,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::Matched, order.match_reserved(&reserved));
@@ -684,6 +797,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -711,6 +827,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::Matched, order.match_reserved(&reserved));
@@ -728,6 +847,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -755,6 +877,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::Matched, order.match_reserved(&reserved));
@@ -772,6 +897,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -799,6 +927,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::NotMatched, order.match_reserved(&reserved));
@@ -820,6 +951,9 @@ fn test_taker_match_reserved() {
             conf_settings: None,
             base_protocol_info: None,
             rel_protocol_info: None,
+            swap_version: SwapVersion::default(),
+            #[cfg(feature = "ibc-routing-for-swaps")]
+            order_metadata: OrderMetadata::default(),
         },
         matches: HashMap::new(),
         order_type: OrderType::GoodTillCancelled,
@@ -843,6 +977,9 @@ fn test_taker_match_reserved() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::Matched, order.match_reserved(&reserved));
@@ -863,6 +1000,9 @@ fn test_taker_order_cancellable() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let order = TakerOrder {
@@ -893,6 +1033,9 @@ fn test_taker_order_cancellable() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let mut order = TakerOrder {
@@ -908,36 +1051,49 @@ fn test_taker_order_cancellable() {
         p2p_privkey: None,
     };
 
-    order.matches.insert(new_uuid(), TakerMatch {
-        last_updated: now_ms(),
-        reserved: MakerReserved {
-            base: "BASE".into(),
-            rel: "REL".into(),
-            base_amount: 1.into(),
-            rel_amount: 3.into(),
-            sender_pubkey: H256Json::default(),
-            dest_pub_key: H256Json::default(),
-            maker_order_uuid: new_uuid(),
-            taker_order_uuid: new_uuid(),
-            conf_settings: None,
-            base_protocol_info: None,
-            rel_protocol_info: None,
+    order.matches.insert(
+        new_uuid(),
+        TakerMatch {
+            last_updated: now_ms(),
+            reserved: MakerReserved {
+                base: "BASE".into(),
+                rel: "REL".into(),
+                base_amount: 1.into(),
+                rel_amount: 3.into(),
+                sender_pubkey: H256Json::default(),
+                dest_pub_key: H256Json::default(),
+                maker_order_uuid: new_uuid(),
+                taker_order_uuid: new_uuid(),
+                conf_settings: None,
+                base_protocol_info: None,
+                rel_protocol_info: None,
+                swap_version: SwapVersion::default(),
+                #[cfg(feature = "ibc-routing-for-swaps")]
+                order_metadata: OrderMetadata::default(),
+            },
+            connect: TakerConnect {
+                sender_pubkey: H256Json::default(),
+                dest_pub_key: H256Json::default(),
+                maker_order_uuid: new_uuid(),
+                taker_order_uuid: new_uuid(),
+            },
+            connected: None,
         },
-        connect: TakerConnect {
-            sender_pubkey: H256Json::default(),
-            dest_pub_key: H256Json::default(),
-            maker_order_uuid: new_uuid(),
-            taker_order_uuid: new_uuid(),
-        },
-        connected: None,
-    });
+    );
 
     assert!(!order.is_cancellable());
 }
 
 fn prepare_for_cancel_by(ctx: &MmArc) -> mpsc::Receiver<AdexBehaviourCmd> {
     let (tx, rx) = mpsc::channel(10);
-    let p2p_ctx = P2PContext::new(tx);
+
+    let p2p_key = {
+        let crypto_ctx = CryptoCtx::from_ctx(ctx).unwrap();
+        let key = bitcrypto::sha256(crypto_ctx.mm2_internal_privkey_slice());
+        key.take()
+    };
+
+    let p2p_ctx = P2PContext::new(tx, generate_ed25519_keypair(p2p_key));
     p2p_ctx.store_to_mm_arc(ctx);
 
     let ordermatch_ctx = OrdermatchContext::from_ctx(ctx).unwrap();
@@ -963,6 +1119,10 @@ fn prepare_for_cancel_by(ctx: &MmArc) -> mpsc::Receiver<AdexBehaviourCmd> {
             base_orderbook_ticker: None,
             rel_orderbook_ticker: None,
             p2p_privkey: None,
+            swap_version: SwapVersion::default(),
+            #[cfg(feature = "ibc-routing-for-swaps")]
+            order_metadata: OrderMetadata::default(),
+            timeout_in_minutes: None,
         },
         None,
     );
@@ -985,6 +1145,10 @@ fn prepare_for_cancel_by(ctx: &MmArc) -> mpsc::Receiver<AdexBehaviourCmd> {
             base_orderbook_ticker: None,
             rel_orderbook_ticker: None,
             p2p_privkey: None,
+            swap_version: SwapVersion::default(),
+            #[cfg(feature = "ibc-routing-for-swaps")]
+            order_metadata: OrderMetadata::default(),
+            timeout_in_minutes: None,
         },
         None,
     );
@@ -1007,34 +1171,44 @@ fn prepare_for_cancel_by(ctx: &MmArc) -> mpsc::Receiver<AdexBehaviourCmd> {
             base_orderbook_ticker: None,
             rel_orderbook_ticker: None,
             p2p_privkey: None,
+            swap_version: SwapVersion::default(),
+            #[cfg(feature = "ibc-routing-for-swaps")]
+            order_metadata: OrderMetadata::default(),
+            timeout_in_minutes: None,
         },
         None,
     );
-    taker_orders.insert(Uuid::from_bytes([3; 16]), TakerOrder {
-        matches: HashMap::new(),
-        created_at: now_ms(),
-        request: TakerRequest {
-            base: "RICK".into(),
-            rel: "MORTY".into(),
-            uuid: Uuid::from_bytes([3; 16]),
-            action: TakerAction::Buy,
-            base_amount: 0.into(),
-            rel_amount: 0.into(),
-            dest_pub_key: H256Json::default(),
-            sender_pubkey: H256Json::default(),
-            match_by: MatchBy::Any,
-            conf_settings: None,
-            base_protocol_info: None,
-            rel_protocol_info: None,
+    taker_orders.insert(
+        Uuid::from_bytes([3; 16]),
+        TakerOrder {
+            matches: HashMap::new(),
+            created_at: now_ms(),
+            request: TakerRequest {
+                base: "RICK".into(),
+                rel: "MORTY".into(),
+                uuid: Uuid::from_bytes([3; 16]),
+                action: TakerAction::Buy,
+                base_amount: 0.into(),
+                rel_amount: 0.into(),
+                dest_pub_key: H256Json::default(),
+                sender_pubkey: H256Json::default(),
+                match_by: MatchBy::Any,
+                conf_settings: None,
+                base_protocol_info: None,
+                rel_protocol_info: None,
+                swap_version: SwapVersion::default(),
+                #[cfg(feature = "ibc-routing-for-swaps")]
+                order_metadata: OrderMetadata::default(),
+            },
+            order_type: OrderType::GoodTillCancelled,
+            min_volume: 0.into(),
+            timeout: 30,
+            save_in_history: false,
+            base_orderbook_ticker: None,
+            rel_orderbook_ticker: None,
+            p2p_privkey: None,
         },
-        order_type: OrderType::GoodTillCancelled,
-        min_volume: 0.into(),
-        timeout: 30,
-        save_in_history: false,
-        base_orderbook_ticker: None,
-        rel_orderbook_ticker: None,
-        p2p_privkey: None,
-    });
+    );
     rx
 }
 
@@ -1044,7 +1218,10 @@ fn test_cancel_by_single_coin() {
     let rx = prepare_for_cancel_by(&ctx);
 
     let connection = Connection::open_in_memory().unwrap();
-    let _ = ctx.sqlite_connection.pin(Arc::new(Mutex::new(connection)));
+    let _ = ctx
+        .sqlite_connection
+        .set(Arc::new(Mutex::new(connection)))
+        .map_err(|_| "Already Initialized".to_string());
 
     delete_my_maker_order.mock_safe(|_, _, _| MockResult::Return(Box::new(futures01::future::ok(()))));
     delete_my_taker_order.mock_safe(|_, _, _| MockResult::Return(Box::new(futures01::future::ok(()))));
@@ -1063,15 +1240,21 @@ fn test_cancel_by_pair() {
     let rx = prepare_for_cancel_by(&ctx);
 
     let connection = Connection::open_in_memory().unwrap();
-    let _ = ctx.sqlite_connection.pin(Arc::new(Mutex::new(connection)));
+    let _ = ctx
+        .sqlite_connection
+        .set(Arc::new(Mutex::new(connection)))
+        .map_err(|_| "Already Initialized".to_string());
 
     delete_my_maker_order.mock_safe(|_, _, _| MockResult::Return(Box::new(futures01::future::ok(()))));
     delete_my_taker_order.mock_safe(|_, _, _| MockResult::Return(Box::new(futures01::future::ok(()))));
 
-    let (cancelled, _) = block_on(cancel_orders_by(&ctx, CancelBy::Pair {
-        base: "RICK".into(),
-        rel: "MORTY".into(),
-    }))
+    let (cancelled, _) = block_on(cancel_orders_by(
+        &ctx,
+        CancelBy::Pair {
+            base: "RICK".into(),
+            rel: "MORTY".into(),
+        },
+    ))
     .unwrap();
     block_on(rx.take(1).collect::<Vec<_>>());
     assert!(cancelled.contains(&Uuid::from_bytes([0; 16])));
@@ -1086,7 +1269,10 @@ fn test_cancel_by_all() {
     let rx = prepare_for_cancel_by(&ctx);
 
     let connection = Connection::open_in_memory().unwrap();
-    let _ = ctx.sqlite_connection.pin(Arc::new(Mutex::new(connection)));
+    let _ = ctx
+        .sqlite_connection
+        .set(Arc::new(Mutex::new(connection)))
+        .map_err(|_| "Already Initialized".to_string());
 
     delete_my_maker_order.mock_safe(|_, _, _| MockResult::Return(Box::new(futures01::future::ok(()))));
     delete_my_taker_order.mock_safe(|_, _, _| MockResult::Return(Box::new(futures01::future::ok(()))));
@@ -1119,6 +1305,9 @@ fn test_taker_order_match_by() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     let mut order = TakerOrder {
@@ -1146,6 +1335,9 @@ fn test_taker_order_match_by() {
         conf_settings: None,
         base_protocol_info: None,
         rel_protocol_info: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
     };
 
     assert_eq!(MatchReservedResult::NotMatched, order.match_reserved(&reserved));
@@ -1186,6 +1378,10 @@ fn test_maker_order_was_updated() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
     let mut update_msg = MakerOrderUpdated::new(maker_order.uuid);
     update_msg.with_new_price(BigRational::from_integer(2.into()));
@@ -1211,18 +1407,24 @@ fn lp_connect_start_bob_should_not_be_invoked_if_order_match_already_connected()
         .lock()
         .add_order(ctx.weak(), maker_order, None);
 
-    static mut CONNECT_START_CALLED: bool = false;
-    lp_connect_start_bob.mock_safe(|_, _, _| {
-        unsafe {
-            CONNECT_START_CALLED = true;
-        }
+    static CONNECT_START_CALLED: AtomicBool = AtomicBool::new(false);
+
+    lp_connect_start_bob.mock_safe(|_, _, _, _| {
+        CONNECT_START_CALLED.store(true, Ordering::Relaxed);
 
         MockResult::Return(())
     });
 
     let connect: TakerConnect = json::from_str(r#"{"taker_order_uuid":"2f9afe84-7a89-4194-8947-45fba563118f","maker_order_uuid":"5f6516ea-ccaa-453a-9e37-e1c2c0d527e3","method":"connect","sender_pubkey":"031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3","dest_pub_key":"c6a78589e18b482aea046975e6d0acbdea7bf7dbf04d9d5bd67fda917815e3ed"}"#).unwrap();
-    block_on(process_taker_connect(ctx, connect.sender_pubkey, connect));
-    assert!(unsafe { !CONNECT_START_CALLED });
+    let mut prefixed_pub = connect.sender_pubkey.0.to_vec();
+    prefixed_pub.insert(0, 2);
+    block_on(process_taker_connect(
+        ctx,
+        PublicKey::from_slice(&prefixed_pub).unwrap().into(),
+        connect,
+    ));
+
+    assert!(!CONNECT_START_CALLED.load(Ordering::Relaxed));
 }
 
 #[test]
@@ -1242,7 +1444,7 @@ fn should_process_request_only_once() {
     let request: TakerRequest = json::from_str(
         r#"{"base":"ETH","rel":"JST","base_amount":"0.1","base_amount_rat":[[1,[1]],[1,[10]]],"rel_amount":"0.2","rel_amount_rat":[[1,[1]],[1,[5]]],"action":"Buy","uuid":"2f9afe84-7a89-4194-8947-45fba563118f","method":"request","sender_pubkey":"031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3","dest_pub_key":"0000000000000000000000000000000000000000000000000000000000000000","match_by":{"type":"Any"}}"#,
     ).unwrap();
-    block_on(process_taker_request(ctx, Default::default(), request));
+    block_on(process_taker_request(ctx, request));
     let maker_orders = &ordermatch_ctx.maker_orders_ctx.lock().orders;
     let order = block_on(maker_orders.get(&uuid).unwrap().lock());
     // when new request is processed match is replaced with new instance resetting
@@ -1662,14 +1864,17 @@ fn pubkey_and_secret_for_test(passphrase: &str) -> (String, [u8; 32]) {
     (pubkey, secret)
 }
 
-fn p2p_context_mock() -> (mpsc::Sender<AdexBehaviourCmd>, mpsc::Receiver<AdexBehaviourCmd>) {
+fn init_p2p_context(ctx: &MmArc) -> (mpsc::Sender<AdexBehaviourCmd>, mpsc::Receiver<AdexBehaviourCmd>) {
     let (cmd_tx, cmd_rx) = mpsc::channel(10);
-    let cmd_sender = cmd_tx.clone();
-    P2PContext::fetch_from_mm_arc.mock_safe(move |_| {
-        MockResult::Return(Arc::new(P2PContext {
-            cmd_tx: PaMutex::new(cmd_sender.clone()),
-        }))
-    });
+
+    let p2p_key = {
+        let crypto_ctx = CryptoCtx::from_ctx(ctx).unwrap();
+        let key = bitcrypto::sha256(crypto_ctx.mm2_internal_privkey_slice());
+        key.take()
+    };
+
+    let p2p_context = P2PContext::new(cmd_tx.clone(), generate_ed25519_keypair(p2p_key));
+    p2p_context.store_to_mm_arc(ctx);
     (cmd_tx, cmd_rx)
 }
 
@@ -1775,11 +1980,11 @@ fn test_request_and_fill_orderbook() {
     const ORDERS_NUMBER: usize = 10;
 
     let (ctx, _pubkey, _secret) = make_ctx_for_tests();
-    let (_, mut cmd_rx) = p2p_context_mock();
+    let (_, mut cmd_rx) = init_p2p_context(&ctx);
 
     let other_pubkeys: Vec<(String, [u8; 32])> = (0..PUBKEYS_NUMBER)
         .map(|idx| {
-            let passphrase = format!("passphrase-{}", idx);
+            let passphrase = format!("passphrase-{idx}");
             pubkey_and_secret_for_test(&passphrase)
         })
         .collect();
@@ -1828,8 +2033,8 @@ fn test_request_and_fill_orderbook() {
                 let orders = orders
                     .into_iter()
                     .map(|(uuid, order)| {
-                        if let Some(conf_settings) = order.conf_settings {
-                            conf_infos.insert(uuid, conf_settings);
+                        if let Some(ref conf_settings) = order.conf_settings {
+                            conf_infos.insert(uuid, conf_settings.clone());
                         }
                         (uuid, order.into())
                     })
@@ -1927,9 +2132,10 @@ fn test_process_order_keep_alive_requested_from_peer() {
     let ordermatch_ctx = Arc::new(OrdermatchContext::default());
     let ordermatch_ctx_clone = ordermatch_ctx.clone();
     OrdermatchContext::from_ctx.mock_safe(move |_| MockResult::Return(Ok(ordermatch_ctx_clone.clone())));
-    let (_, mut cmd_rx) = p2p_context_mock();
 
     let (ctx, pubkey, secret) = make_ctx_for_tests();
+    let (_, mut cmd_rx) = init_p2p_context(&ctx);
+
     let uuid = new_uuid();
     let peer = PeerId::random().to_string();
 
@@ -2048,7 +2254,7 @@ fn test_process_get_order_request() {
 #[test]
 fn test_subscribe_to_ordermatch_topic_not_subscribed() {
     let (ctx, _pubkey, _secret) = make_ctx_for_tests();
-    let (_, mut cmd_rx) = p2p_context_mock();
+    let (_, mut cmd_rx) = init_p2p_context(&ctx);
 
     spawn(async move {
         match cmd_rx.next().await.unwrap() {
@@ -2092,7 +2298,7 @@ fn test_subscribe_to_ordermatch_topic_not_subscribed() {
 #[test]
 fn test_subscribe_to_ordermatch_topic_subscribed_not_filled() {
     let (ctx, _pubkey, _secret) = make_ctx_for_tests();
-    let (_, mut cmd_rx) = p2p_context_mock();
+    let (_, mut cmd_rx) = init_p2p_context(&ctx);
 
     {
         let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).unwrap();
@@ -2144,7 +2350,7 @@ fn test_subscribe_to_ordermatch_topic_subscribed_not_filled() {
 #[test]
 fn test_subscribe_to_ordermatch_topic_subscribed_filled() {
     let (ctx, _pubkey, _secret) = make_ctx_for_tests();
-    let (_, mut cmd_rx) = p2p_context_mock();
+    let (_, mut cmd_rx) = init_p2p_context(&ctx);
 
     // enough time has passed for the orderbook to be filled
     let subscribed_at = now_ms() / 1000 - ORDERBOOK_REQUESTING_TIMEOUT - 1;
@@ -2174,6 +2380,7 @@ fn test_subscribe_to_ordermatch_topic_subscribed_filled() {
     assert_eq!(actual, expected);
 }
 */
+
 #[test]
 fn test_taker_request_can_match_with_maker_pubkey() {
     let coin = TestCoin::default().into();
@@ -2413,6 +2620,7 @@ fn test_orderbook_pubkey_sync_request() {
         OrderbookRequestingState::Requested,
     );
     let pubkey = "pubkey";
+    let propagated_from = "propagated_from";
 
     let mut trie_roots = HashMap::new();
     trie_roots.insert("C1:C2".to_owned(), [1; 8]);
@@ -2423,17 +2631,11 @@ fn test_orderbook_pubkey_sync_request() {
         timestamp: now_sec(),
     };
 
-    let request = orderbook.process_keep_alive(pubkey, message, false).unwrap();
-    match request {
-        OrdermatchRequest::SyncPubkeyOrderbookState {
-            trie_roots: pairs_trie_roots,
-            ..
-        } => {
-            assert!(pairs_trie_roots.contains_key("C1:C2"));
-            assert!(!pairs_trie_roots.contains_key("C2:C3"));
-        },
-        _ => panic!("Invalid request {:?}", request),
-    }
+    let pairs_trie_roots = orderbook
+        .process_keep_alive(pubkey, message, false, propagated_from)
+        .unwrap();
+    assert!(pairs_trie_roots.contains_key("C1:C2"));
+    assert!(!pairs_trie_roots.contains_key("C2:C3"));
 }
 
 #[test]
@@ -2444,6 +2646,7 @@ fn test_orderbook_pubkey_sync_request_relay() {
         OrderbookRequestingState::Requested,
     );
     let pubkey = "pubkey";
+    let propagated_from = "propagated_from";
 
     let mut trie_roots = HashMap::new();
     trie_roots.insert("C1:C2".to_owned(), [1; 8]);
@@ -2454,51 +2657,58 @@ fn test_orderbook_pubkey_sync_request_relay() {
         timestamp: now_sec(),
     };
 
-    let request = orderbook.process_keep_alive(pubkey, message, true).unwrap();
-    match request {
-        OrdermatchRequest::SyncPubkeyOrderbookState {
-            trie_roots: pairs_trie_roots,
-            ..
-        } => {
-            assert!(pairs_trie_roots.contains_key("C1:C2"));
-            assert!(pairs_trie_roots.contains_key("C2:C3"));
-        },
-        _ => panic!("Invalid request {:?}", request),
-    }
+    let pairs_trie_roots = orderbook
+        .process_keep_alive(pubkey, message, true, propagated_from)
+        .unwrap();
+    assert!(pairs_trie_roots.contains_key("C1:C2"));
+    assert!(pairs_trie_roots.contains_key("C2:C3"));
 }
 
 #[test]
 fn test_trie_diff_avoid_cycle_on_insertion() {
-    let mut history = TrieDiffHistory::<String, String> {
-        inner: TimeCache::new(Duration::from_secs(3600)),
+    let mut history = TrieDiffHistory::<String, String> { inner: TimedMap::new() };
+    history.insert_new_diff(
+        [1; 8],
+        TrieDiff {
+            delta: vec![],
+            next_root: [2; 8],
+        },
+    );
+    history.insert_new_diff(
+        [2; 8],
+        TrieDiff {
+            delta: vec![],
+            next_root: [3; 8],
+        },
+    );
+    history.insert_new_diff(
+        [3; 8],
+        TrieDiff {
+            delta: vec![],
+            next_root: [4; 8],
+        },
+    );
+    history.insert_new_diff(
+        [4; 8],
+        TrieDiff {
+            delta: vec![],
+            next_root: [5; 8],
+        },
+    );
+    history.insert_new_diff(
+        [5; 8],
+        TrieDiff {
+            delta: vec![],
+            next_root: [2; 8],
+        },
+    );
+
+    let expected = TrieDiff {
+        delta: vec![],
+        next_root: [2; 8],
     };
-    history.insert_new_diff([1; 8], TrieDiff {
-        delta: vec![],
-        next_root: [2; 8],
-    });
-    history.insert_new_diff([2; 8], TrieDiff {
-        delta: vec![],
-        next_root: [3; 8],
-    });
-    history.insert_new_diff([3; 8], TrieDiff {
-        delta: vec![],
-        next_root: [4; 8],
-    });
-    history.insert_new_diff([4; 8], TrieDiff {
-        delta: vec![],
-        next_root: [5; 8],
-    });
-    history.insert_new_diff([5; 8], TrieDiff {
-        delta: vec![],
-        next_root: [2; 8],
-    });
 
-    let expected = HashMap::from_iter(iter::once(([1u8; 8], TrieDiff {
-        delta: vec![],
-        next_root: [2; 8],
-    })));
-
-    assert_eq!(expected, history.inner.as_hash_map());
+    assert_eq!(&expected, history.inner.get(&[1u8; 8]).unwrap());
 }
 
 #[test]
@@ -2603,7 +2813,12 @@ fn check_if_orderbook_contains_only(orderbook: &Orderbook, pubkey: &str, orders:
     assert_eq!(orderbook.unordered, expected_unordered);
 
     // history
-    let actual_keys: HashSet<_> = pubkey_state.order_pairs_trie_state_history.keys().cloned().collect();
+    let actual_keys: HashSet<_> = pubkey_state
+        .order_pairs_trie_state_history
+        .keys()
+        .iter()
+        .cloned()
+        .collect();
     let expected_keys: HashSet<_> = orders
         .iter()
         .map(|order| alb_ordered_pair(&order.base, &order.rel))
@@ -2985,23 +3200,29 @@ fn check_get_orderbook_p2p_res_serde() {
         pubkey_orders: HashMap::from_iter(std::iter::once(("pubkey".into(), item))),
     };
 
-    let v1_serialized = rmp_serde::to_vec(&v1).unwrap();
+    let v1_serialized = rmp_serde::to_vec_named(&v1).unwrap();
 
-    let mut new: GetOrderbookRes = rmp_serde::from_read_ref(&v1_serialized).unwrap();
-    new.protocol_infos.insert(new_uuid(), BaseRelProtocolInfo {
-        base: vec![1],
-        rel: vec![2],
-    });
-    new.conf_infos.insert(new_uuid(), OrderConfirmationsSettings {
-        base_confs: 6,
-        base_nota: false,
-        rel_confs: 3,
-        rel_nota: true,
-    });
+    let mut new: GetOrderbookRes = rmp_serde::from_slice(&v1_serialized).unwrap();
+    new.protocol_infos.insert(
+        new_uuid(),
+        BaseRelProtocolInfo {
+            base: vec![1],
+            rel: vec![2],
+        },
+    );
+    new.conf_infos.insert(
+        new_uuid(),
+        OrderConfirmationsSettings {
+            base_confs: 6,
+            base_nota: false,
+            rel_confs: 3,
+            rel_nota: true,
+        },
+    );
 
-    let new_serialized = rmp_serde::to_vec(&new).unwrap();
+    let new_serialized = rmp_serde::to_vec_named(&new).unwrap();
 
-    let v1_from_new: GetOrderbookResV1 = rmp_serde::from_read_ref(&new_serialized).unwrap();
+    let v1_from_new: GetOrderbookResV1 = rmp_serde::from_slice(&new_serialized).unwrap();
     assert_eq!(v1, v1_from_new);
 
     #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -3020,25 +3241,31 @@ fn check_get_orderbook_p2p_res_serde() {
 
     let v2 = GetOrderbookResV2 {
         pubkey_orders: HashMap::from_iter(std::iter::once(("pubkey".into(), item))),
-        protocol_infos: HashMap::from_iter(std::iter::once((new_uuid(), BaseRelProtocolInfo {
-            base: vec![1],
-            rel: vec![2],
-        }))),
+        protocol_infos: HashMap::from_iter(std::iter::once((
+            new_uuid(),
+            BaseRelProtocolInfo {
+                base: vec![1],
+                rel: vec![2],
+            },
+        ))),
     };
 
-    let v2_serialized = rmp_serde::to_vec(&v2).unwrap();
+    let v2_serialized = rmp_serde::to_vec_named(&v2).unwrap();
 
-    let mut new: GetOrderbookRes = rmp_serde::from_read_ref(&v2_serialized).unwrap();
-    new.conf_infos.insert(new_uuid(), OrderConfirmationsSettings {
-        base_confs: 6,
-        base_nota: false,
-        rel_confs: 3,
-        rel_nota: true,
-    });
+    let mut new: GetOrderbookRes = rmp_serde::from_slice(&v2_serialized).unwrap();
+    new.conf_infos.insert(
+        new_uuid(),
+        OrderConfirmationsSettings {
+            base_confs: 6,
+            base_nota: false,
+            rel_confs: 3,
+            rel_nota: true,
+        },
+    );
 
-    let new_serialized = rmp_serde::to_vec(&new).unwrap();
+    let new_serialized = rmp_serde::to_vec_named(&new).unwrap();
 
-    let v2_from_new: GetOrderbookResV2 = rmp_serde::from_read_ref(&new_serialized).unwrap();
+    let v2_from_new: GetOrderbookResV2 = rmp_serde::from_slice(&new_serialized).unwrap();
     assert_eq!(v2, v2_from_new);
 }
 
@@ -3094,23 +3321,29 @@ fn check_sync_pubkey_state_p2p_res_serde() {
         ))),
     };
 
-    let v1_serialized = rmp_serde::to_vec(&v1).unwrap();
+    let v1_serialized = rmp_serde::to_vec_named(&v1).unwrap();
 
-    let mut new: SyncPubkeyOrderbookStateRes = rmp_serde::from_read_ref(&v1_serialized).unwrap();
-    new.protocol_infos.insert(new_uuid(), BaseRelProtocolInfo {
-        base: vec![1],
-        rel: vec![2],
-    });
-    new.conf_infos.insert(new_uuid(), OrderConfirmationsSettings {
-        base_confs: 6,
-        base_nota: false,
-        rel_confs: 3,
-        rel_nota: true,
-    });
+    let mut new: SyncPubkeyOrderbookStateRes = rmp_serde::from_slice(&v1_serialized).unwrap();
+    new.protocol_infos.insert(
+        new_uuid(),
+        BaseRelProtocolInfo {
+            base: vec![1],
+            rel: vec![2],
+        },
+    );
+    new.conf_infos.insert(
+        new_uuid(),
+        OrderConfirmationsSettings {
+            base_confs: 6,
+            base_nota: false,
+            rel_confs: 3,
+            rel_nota: true,
+        },
+    );
 
-    let new_serialized = rmp_serde::to_vec(&new).unwrap();
+    let new_serialized = rmp_serde::to_vec_named(&new).unwrap();
 
-    let _v1_from_new: SyncPubkeyOrderbookStateResV1 = rmp_serde::from_read_ref(&new_serialized).unwrap();
+    let _v1_from_new: SyncPubkeyOrderbookStateResV1 = rmp_serde::from_slice(&new_serialized).unwrap();
 
     #[derive(Debug, Deserialize, Serialize)]
     struct SyncPubkeyOrderbookStateResV2 {
@@ -3127,25 +3360,31 @@ fn check_sync_pubkey_state_p2p_res_serde() {
             alb_ordered_pair("RICK", "MORTY"),
             DeltaOrFullTrie::FullTrie(orders.into_iter().map(|order| (order.uuid, order.into())).collect()),
         ))),
-        protocol_infos: HashMap::from_iter(std::iter::once((new_uuid(), BaseRelProtocolInfo {
-            base: vec![1],
-            rel: vec![2],
-        }))),
+        protocol_infos: HashMap::from_iter(std::iter::once((
+            new_uuid(),
+            BaseRelProtocolInfo {
+                base: vec![1],
+                rel: vec![2],
+            },
+        ))),
     };
 
-    let v2_serialized = rmp_serde::to_vec(&v2).unwrap();
+    let v2_serialized = rmp_serde::to_vec_named(&v2).unwrap();
 
-    let mut new: SyncPubkeyOrderbookStateRes = rmp_serde::from_read_ref(&v2_serialized).unwrap();
-    new.conf_infos.insert(new_uuid(), OrderConfirmationsSettings {
-        base_confs: 6,
-        base_nota: false,
-        rel_confs: 3,
-        rel_nota: true,
-    });
+    let mut new: SyncPubkeyOrderbookStateRes = rmp_serde::from_slice(&v2_serialized).unwrap();
+    new.conf_infos.insert(
+        new_uuid(),
+        OrderConfirmationsSettings {
+            base_confs: 6,
+            base_nota: false,
+            rel_confs: 3,
+            rel_nota: true,
+        },
+    );
 
-    let new_serialized = rmp_serde::to_vec(&new).unwrap();
+    let new_serialized = rmp_serde::to_vec_named(&new).unwrap();
 
-    let _v2_from_new: SyncPubkeyOrderbookStateResV2 = rmp_serde::from_read_ref(&new_serialized).unwrap();
+    let _v2_from_new: SyncPubkeyOrderbookStateResV2 = rmp_serde::from_slice(&new_serialized).unwrap();
 }
 
 #[test]
@@ -3181,6 +3420,10 @@ fn test_maker_order_balance_loops() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     let morty_order = MakerOrder {
@@ -3200,6 +3443,10 @@ fn test_maker_order_balance_loops() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     assert!(!maker_orders_ctx.balance_loop_exists(rick_ticker));
@@ -3232,6 +3479,10 @@ fn test_maker_order_balance_loops() {
         base_orderbook_ticker: None,
         rel_orderbook_ticker: None,
         p2p_privkey: None,
+        swap_version: SwapVersion::default(),
+        #[cfg(feature = "ibc-routing-for-swaps")]
+        order_metadata: OrderMetadata::default(),
+        timeout_in_minutes: None,
     };
 
     maker_orders_ctx.add_order(ctx.weak(), rick_order_2.clone(), None);
@@ -3248,4 +3499,71 @@ fn test_maker_order_balance_loops() {
     maker_orders_ctx.remove_order(&morty_order.uuid);
     assert!(!maker_orders_ctx.balance_loop_exists(morty_ticker));
     assert_eq!(*maker_orders_ctx.count_by_tickers.get(morty_ticker).unwrap(), 0);
+}
+
+#[test]
+fn process_orders_keep_alive_with_null_root_clears_pair_and_does_not_request() {
+    let (ctx, _our_pubkey, _our_secret) = make_ctx_for_tests();
+    let (maker_pubkey, maker_secret) = pubkey_and_secret_for_test("maker-passphrase");
+
+    // Build one remote order from maker_pubkey for RICK/MORTY and insert it locally.
+    let mut orders = make_random_orders(maker_pubkey.clone(), &maker_secret, "RICK".into(), "MORTY".into(), 1);
+    let order = orders.pop().expect("one order generated");
+    let inserted_uuid = order.uuid;
+
+    {
+        let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).unwrap();
+        let mut orderbook = ordermatch_ctx.orderbook.lock();
+
+        // Mark the pair as subscribed so keep-alive handling considers it.
+        orderbook.topics_subscribed_to.insert(
+            orderbook_topic_from_base_rel("RICK", "MORTY"),
+            OrderbookRequestingState::Requested,
+        );
+
+        // Insert as if it came from the network; this updates trie state as well.
+        orderbook.insert_or_update_order_update_trie(order);
+
+        // Sanity: the order is present.
+        assert!(
+            orderbook.order_set.contains_key(&inserted_uuid),
+            "precondition: order must be present"
+        );
+    }
+
+    // Craft a keep-alive that advertises a null/empty root for (maker_pubkey, alb_pair).
+    let alb_pair = alb_ordered_pair("RICK", "MORTY");
+    let keep_alive = PubkeyKeepAlive {
+        trie_roots: HashMap::from_iter(std::iter::once((alb_pair.clone(), [0u8; 8]))),
+        timestamp: now_sec(),
+    };
+
+    // For a null root, we must clear the pair locally and NOT request a sync.
+    let res = block_on(process_orders_keep_alive(
+        ctx.clone(),
+        "dummy_peer".to_string(),
+        maker_pubkey.clone(),
+        keep_alive,
+        false,
+    ));
+    assert!(res.is_ok(), "process_orders_keep_alive returned error");
+
+    // The order must be gone now.
+    let ordermatch_ctx = OrdermatchContext::from_ctx(&ctx).unwrap();
+    let orderbook = ordermatch_ctx.orderbook.lock();
+    assert!(
+        !orderbook.order_set.contains_key(&inserted_uuid),
+        "orders for (pubkey, pair) must be cleared by null-root keep-alive"
+    );
+
+    // And the remembered trie root for that pair should be the null root.
+    let state = orderbook
+        .pubkeys_state
+        .get(&maker_pubkey)
+        .expect("pubkey state missing");
+    assert_eq!(
+        state.trie_roots.get(&alb_pair).copied(),
+        Some([0u8; 8]),
+        "null root should be remembered in pubkey state"
+    );
 }

@@ -2,9 +2,9 @@ use crate::{UtxoSignTxError, UtxoSignTxResult};
 use chain::TransactionOutput;
 use crypto::trezor::utxo::TrezorOutputScriptType;
 use crypto::DerivationPath;
-use keys::Public as PublicKey;
+use keys::{AddressFormat, Public as PublicKey};
 use mm2_err_handle::prelude::*;
-use script::{Script, SignatureVersion, TransactionInputSigner, UnsignedTransactionInput};
+use script::{SignatureVersion, TransactionInputSigner, UnsignedTransactionInput};
 
 impl UtxoSignTxError {
     fn no_param(param: &str) -> UtxoSignTxError {
@@ -21,21 +21,36 @@ pub enum SpendingInputInfo {
         address_derivation_path: DerivationPath,
         address_pubkey: PublicKey,
     },
+    P2WPKH {
+        address_derivation_path: DerivationPath,
+        address_pubkey: PublicKey,
+    },
     // The fields are used to generate `trezor::proto::messages_bitcoin::MultisigRedeemScriptType`
     // P2SH {}
 }
 
 /// Either plain destination address or derivation path of a change address.
 pub enum OutputDestination {
-    Plain { address: String },
-    Change { derivation_path: DerivationPath },
+    Plain {
+        address: String,
+    },
+    Change {
+        derivation_path: DerivationPath,
+        addr_format: AddressFormat,
+    },
 }
 
 impl OutputDestination {
-    pub fn plain(address: String) -> OutputDestination { OutputDestination::Plain { address } }
+    pub fn plain(address: String) -> OutputDestination {
+        OutputDestination::Plain { address }
+    }
 
-    pub fn change(derivation_path: DerivationPath) -> OutputDestination {
-        OutputDestination::Change { derivation_path }
+    #[inline]
+    pub fn change(derivation_path: DerivationPath, addr_format: AddressFormat) -> OutputDestination {
+        OutputDestination::Change {
+            derivation_path,
+            addr_format,
+        }
     }
 }
 
@@ -46,7 +61,15 @@ pub struct SendingOutputInfo {
 
 impl SendingOutputInfo {
     /// For now, returns [`TrezorOutputScriptType::PayToAddress`] since we don't support SLP tokens yet.
-    pub fn trezor_output_script_type(&self) -> TrezorOutputScriptType { TrezorOutputScriptType::PayToAddress }
+    #[inline]
+    pub fn trezor_output_script_type(&self) -> TrezorOutputScriptType {
+        match self.destination_address {
+            OutputDestination::Change { ref addr_format, .. } if *addr_format == AddressFormat::Segwit => {
+                TrezorOutputScriptType::PayToWitness
+            },
+            OutputDestination::Change { .. } | OutputDestination::Plain { .. } => TrezorOutputScriptType::PayToAddress,
+        }
+    }
 }
 
 pub struct UtxoSignTxParamsBuilder {
@@ -56,12 +79,12 @@ pub struct UtxoSignTxParamsBuilder {
     inputs_infos: Vec<SpendingInputInfo>,
     /// The number of elements is expected to be the same as `unsigned_tx.outputs.len()`.
     outputs_infos: Vec<SendingOutputInfo>,
-    /// This is used to check if a built from key pair matches the expected `prev_script`.
-    prev_script: Option<Script>,
 }
 
 impl Default for UtxoSignTxParamsBuilder {
-    fn default() -> Self { UtxoSignTxParamsBuilder::new() }
+    fn default() -> Self {
+        UtxoSignTxParamsBuilder::new()
+    }
 }
 
 impl UtxoSignTxParamsBuilder {
@@ -71,7 +94,6 @@ impl UtxoSignTxParamsBuilder {
             unsigned_tx: None,
             inputs_infos: Vec::new(),
             outputs_infos: Vec::new(),
-            prev_script: None,
         }
     }
 
@@ -98,11 +120,6 @@ impl UtxoSignTxParamsBuilder {
         I: IntoIterator<Item = SendingOutputInfo>,
     {
         self.outputs_infos.extend(outputs);
-        self
-    }
-
-    pub fn with_prev_script(&mut self, prev_script: Script) -> &mut UtxoSignTxParamsBuilder {
-        self.prev_script = Some(prev_script);
         self
     }
 
@@ -138,9 +155,6 @@ impl UtxoSignTxParamsBuilder {
             unsigned_tx,
             inputs_infos: self.inputs_infos,
             outputs_infos: self.outputs_infos,
-            prev_script: self
-                .prev_script
-                .or_mm_err(|| UtxoSignTxError::no_param("prev_script"))?,
         };
         Ok(params)
     }
@@ -153,12 +167,12 @@ pub struct UtxoSignTxParams {
     pub(crate) inputs_infos: Vec<SpendingInputInfo>,
     /// The number of elements is exactly the same as `unsigned_tx.outputs.len()`.
     pub(crate) outputs_infos: Vec<SendingOutputInfo>,
-    /// This is used to check if a built from key pair matches the expected `prev_script`.
-    pub(crate) prev_script: Script,
 }
 
 impl UtxoSignTxParams {
-    pub fn inputs_count(&self) -> usize { self.unsigned_tx.inputs.len() }
+    pub fn inputs_count(&self) -> usize {
+        self.unsigned_tx.inputs.len()
+    }
 
     /// We are sure that the number of `unsigned_tx.inputs.len()` is the same as `inputs_infos.len()`.
     /// Please see [`UtxoSignTxParamsBuilder::build`].

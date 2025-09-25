@@ -1,16 +1,17 @@
-use crate::integration_tests_common::{enable_coins_eth_electrum, enable_coins_rick_morty_electrum, enable_electrum,
-                                      enable_electrum_json, enable_z_coin_light};
+use crate::integration_tests_common::{enable_coins_rick_morty_electrum, enable_electrum, enable_electrum_json};
 use common::{block_on, log};
 use http::StatusCode;
-use mm2_main::mm2::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
+use mm2_main::lp_ordermatch::MIN_ORDER_KEEP_ALIVE_INTERVAL;
 use mm2_number::{BigDecimal, BigRational, MmNumber};
-use mm2_test_helpers::electrums::rick_electrums;
-use mm2_test_helpers::for_tests::{eth_jst_testnet_conf, eth_testnet_conf, get_passphrase, morty_conf, orderbook_v2,
-                                  rick_conf, zombie_conf, MarketMakerIt, Mm2TestConf, ETH_DEV_NODES, RICK,
-                                  ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS, ZOMBIE_TICKER};
+use mm2_rpc::data::legacy::{AggregatedOrderbookEntry, CoinInitResponse, OrderbookResponse};
+use mm2_test_helpers::electrums::doc_electrums;
+use mm2_test_helpers::for_tests::{
+    enable_z_coin_light, get_passphrase, morty_conf, orderbook_v2, rick_conf, set_price, zombie_conf, MarketMakerIt,
+    Mm2TestConf, DOC_ELECTRUM_ADDRS, MARTY_ELECTRUM_ADDRS, RICK, ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS,
+    ZOMBIE_TICKER,
+};
 use mm2_test_helpers::get_passphrase;
-use mm2_test_helpers::structs::{EnableElectrumResponse, GetPublicKeyResult, OrderbookEntryAggregate,
-                                OrderbookResponse, OrderbookV2Response, RpcV2Response, SetPriceResponse};
+use mm2_test_helpers::structs::{GetPublicKeyResult, OrderbookV2Response, RpcV2Response, SetPriceResponse};
 use serde_json::{self as json, json, Value as Json};
 use std::env;
 use std::str::FromStr;
@@ -37,6 +38,7 @@ fn alice_can_see_the_active_order_after_connection() {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -75,7 +77,10 @@ fn alice_can_see_the_active_order_after_connection() {
     let bob_orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
     log!("Bob orderbook {:?}", bob_orderbook);
     assert!(!bob_orderbook.asks.is_empty(), "Bob RICK/MORTY asks are empty");
-    assert_eq!(BigDecimal::from_str("0.9").unwrap(), bob_orderbook.asks[0].max_volume);
+    assert_eq!(
+        BigDecimal::from_str("0.9").unwrap(),
+        bob_orderbook.asks[0].entry.max_volume
+    );
 
     // start eve and immediately place the order
     let mm_eve = MarketMakerIt::start(
@@ -233,12 +238,12 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
 
     let bob_coins_config = json!([
         {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
-        {"coin":"tBTC","name":"tbitcoin","fname":"tBitcoin","rpcport":18332,"pubtype":111,"p2shtype":196,"wiftype":239,"segwit":true,"bech32_hrp":"tb","txfee":0,"estimate_fee_mode":"ECONOMICAL","mm2":1,"required_confirmations":0,"protocol":{"type":"UTXO"},"address_format":{"format":"segwit"}}
+        {"coin":"tBTC","name":"tbitcoin","fname":"tBitcoin","rpcport":18332,"pubtype":111,"p2shtype":196,"wiftype":239,"segwit":true,"bech32_hrp":"tb","txfee":1000,"mm2":1,"required_confirmations":0,"protocol":{"type":"UTXO"},"address_format":{"format":"segwit"}}
     ]);
 
     let alice_coins_config = json!([
         {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
-        {"coin":"tBTC","name":"tbitcoin","fname":"tBitcoin","rpcport":18332,"pubtype":111,"p2shtype":196,"wiftype":239,"segwit":true,"bech32_hrp":"tb","txfee":0,"estimate_fee_mode":"ECONOMICAL","mm2":1,"required_confirmations":0,"protocol":{"type":"UTXO"},"address_format":{"format":"segwit"}}
+        {"coin":"tBTC","name":"tbitcoin","fname":"tBitcoin","rpcport":18332,"pubtype":111,"p2shtype":196,"wiftype":239,"segwit":true,"bech32_hrp":"tb","txfee":1000,"mm2":1,"required_confirmations":0,"protocol":{"type":"UTXO"},"address_format":{"format":"segwit"}}
     ]);
 
     let mut mm_bob = MarketMakerIt::start(
@@ -252,6 +257,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
             "coins": bob_coins_config,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -277,26 +283,12 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
         electrum.1
     );
     log!("enable tBTC: {:?}", electrum);
-    let enable_tbtc_res: EnableElectrumResponse = json::from_str(&electrum.1).unwrap();
+    let enable_tbtc_res: CoinInitResponse = json::from_str(&electrum.1).unwrap();
     let tbtc_segwit_address = enable_tbtc_res.address;
 
-    let electrum = block_on(mm_bob.rpc(&json!({
-        "userpass": "pass",
-        "method": "electrum",
-        "coin": "RICK",
-        "servers": [{"url":"electrum1.cipig.net:10017"},{"url":"electrum2.cipig.net:10017"},{"url":"electrum3.cipig.net:10017"}],
-        "mm2": 1,
-    }))).unwrap();
-    assert_eq!(
-        electrum.0,
-        StatusCode::OK,
-        "RPC «electrum» failed with {} {}",
-        electrum.0,
-        electrum.1
-    );
-    log!("enable RICK: {:?}", electrum);
-    let enable_rick_res: Json = json::from_str(&electrum.1).unwrap();
-    let rick_address = enable_rick_res["address"].as_str().unwrap();
+    let enable_rick_res = block_on(enable_electrum(&mm_bob, "RICK", false, DOC_ELECTRUM_ADDRS));
+    log!("enable RICK: {:?}", enable_rick_res);
+    let rick_address = enable_rick_res.address;
 
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell requests");
@@ -373,20 +365,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
     );
     log!("enable Alice tBTC: {:?}", electrum);
 
-    let electrum = block_on(mm_alice.rpc(&json!({
-        "userpass": "pass",
-        "method": "electrum",
-        "coin": "RICK",
-        "servers": [{"url":"electrum1.cipig.net:10017"},{"url":"electrum2.cipig.net:10017"},{"url":"electrum3.cipig.net:10017"}],
-        "mm2": 1,
-    }))).unwrap();
-    assert_eq!(
-        electrum.0,
-        StatusCode::OK,
-        "RPC «electrum» failed with {} {}",
-        electrum.0,
-        electrum.1
-    );
+    let electrum = block_on(enable_electrum(&mm_alice, "RICK", false, DOC_ELECTRUM_ADDRS));
     log!("enable Alice RICK: {:?}", electrum);
 
     // setting the price will trigger Alice's subscription to the orderbook topic
@@ -405,7 +384,7 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
 
     block_on(
         mm_alice.wait_for_log((MIN_ORDER_KEEP_ALIVE_INTERVAL * 2) as f64, |log| {
-            log.contains(&format!("Inserting order OrderbookItem {{ pubkey: \"{}\"", bob_pubkey))
+            log.contains(&format!("Inserting order OrderbookItem {{ pubkey: \"{bob_pubkey}\""))
         }),
     )
     .unwrap();
@@ -420,8 +399,8 @@ fn alice_can_see_the_active_order_after_orderbook_sync_segwit() {
     .unwrap();
     assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
     let response: OrderbookResponse = json::from_str(&rc.1).unwrap();
-    assert_eq!(response.asks[0].address, tbtc_segwit_address);
-    assert_eq!(response.bids[0].address, rick_address);
+    assert_eq!(response.asks[0].entry.address, tbtc_segwit_address);
+    assert_eq!(response.bids[0].entry.address, rick_address);
 
     block_on(mm_bob.stop()).unwrap();
     block_on(mm_alice.stop()).unwrap();
@@ -433,12 +412,12 @@ fn test_orderbook_segwit() {
 
     let bob_coins_config = json!([
         {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
-        {"coin":"tBTC","name":"tbitcoin","fname":"tBitcoin","rpcport":18332,"pubtype":111,"p2shtype":196,"wiftype":239,"segwit":true,"bech32_hrp":"tb","txfee":0,"estimate_fee_mode":"ECONOMICAL","mm2":1,"required_confirmations":0,"protocol":{"type":"UTXO"},"address_format":{"format":"segwit"}}
+        {"coin":"tBTC","name":"tbitcoin","fname":"tBitcoin","rpcport":18332,"pubtype":111,"p2shtype":196,"wiftype":239,"segwit":true,"bech32_hrp":"tb","txfee":1000,"mm2":1,"required_confirmations":0,"protocol":{"type":"UTXO"},"address_format":{"format":"segwit"}}
     ]);
 
     let alice_coins_config = json!([
         {"coin":"RICK","asset":"RICK","rpcport":8923,"txversion":4,"overwintered":1,"protocol":{"type":"UTXO"}},
-        {"coin":"tBTC","name":"tbitcoin","fname":"tBitcoin","rpcport":18332,"pubtype":111,"p2shtype":196,"wiftype":239,"segwit":true,"bech32_hrp":"tb","txfee":0,"estimate_fee_mode":"ECONOMICAL","mm2":1,"required_confirmations":0,"protocol":{"type":"UTXO"}}
+        {"coin":"tBTC","name":"tbitcoin","fname":"tBitcoin","rpcport":18332,"pubtype":111,"p2shtype":196,"wiftype":239,"segwit":true,"bech32_hrp":"tb","txfee":1000,"mm2":1,"required_confirmations":0,"protocol":{"type":"UTXO"}}
     ]);
 
     let mut mm_bob = MarketMakerIt::start(
@@ -452,6 +431,7 @@ fn test_orderbook_segwit() {
             "coins": bob_coins_config,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -477,26 +457,12 @@ fn test_orderbook_segwit() {
         electrum.1
     );
     log!("enable tBTC: {:?}", electrum);
-    let enable_tbtc_res: EnableElectrumResponse = json::from_str(&electrum.1).unwrap();
+    let enable_tbtc_res: CoinInitResponse = json::from_str(&electrum.1).unwrap();
     let tbtc_segwit_address = enable_tbtc_res.address;
 
-    let electrum = block_on(mm_bob.rpc(&json!({
-        "userpass": "pass",
-        "method": "electrum",
-        "coin": "RICK",
-        "servers": [{"url":"electrum1.cipig.net:10017"},{"url":"electrum2.cipig.net:10017"},{"url":"electrum3.cipig.net:10017"}],
-        "mm2": 1,
-    }))).unwrap();
-    assert_eq!(
-        electrum.0,
-        StatusCode::OK,
-        "RPC «electrum» failed with {} {}",
-        electrum.0,
-        electrum.1
-    );
-    log!("enable RICK: {:?}", electrum);
-    let enable_rick_res: Json = json::from_str(&electrum.1).unwrap();
-    let rick_address = enable_rick_res["address"].as_str().unwrap();
+    let enable_rick_res = block_on(enable_electrum(&mm_bob, "RICK", false, DOC_ELECTRUM_ADDRS));
+    log!("enable RICK: {:?}", enable_rick_res);
+    let rick_address = enable_rick_res.address;
 
     // issue sell request on Bob side by setting base/rel price
     log!("Issue bob sell requests");
@@ -555,8 +521,8 @@ fn test_orderbook_segwit() {
     .unwrap();
     assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
     let response: OrderbookResponse = json::from_str(&rc.1).unwrap();
-    assert_eq!(response.asks[0].address, tbtc_segwit_address);
-    assert_eq!(response.bids[0].address, rick_address);
+    assert_eq!(response.asks[0].entry.address, tbtc_segwit_address);
+    assert_eq!(response.bids[0].entry.address, rick_address);
 
     block_on(mm_bob.stop()).unwrap();
     block_on(mm_alice.stop()).unwrap();
@@ -579,6 +545,7 @@ fn test_get_orderbook_with_same_orderbook_ticker() {
             "rpc_password": "password",
             "coins": coins,
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "password".into(),
         None,
@@ -625,6 +592,7 @@ fn test_conf_settings_in_orderbook() {
             "rpc_password": "password",
             "coins": coins,
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "password".into(),
         None,
@@ -701,20 +669,32 @@ fn test_conf_settings_in_orderbook() {
         1,
         "Alice RICK/MORTY orderbook must have exactly 1 ask"
     );
-    assert_eq!(alice_orderbook.asks[0].base_confs, 10);
-    assert!(alice_orderbook.asks[0].base_nota);
-    assert_eq!(alice_orderbook.asks[0].rel_confs, 5);
-    assert!(!alice_orderbook.asks[0].rel_nota);
+    assert_eq!(
+        alice_orderbook.asks[0].entry.conf_settings.as_ref().unwrap().base_confs,
+        10
+    );
+    assert!(alice_orderbook.asks[0].entry.conf_settings.as_ref().unwrap().base_nota);
+    assert_eq!(
+        alice_orderbook.asks[0].entry.conf_settings.as_ref().unwrap().rel_confs,
+        5
+    );
+    assert!(!alice_orderbook.asks[0].entry.conf_settings.as_ref().unwrap().rel_nota);
 
     assert_eq!(
         alice_orderbook.bids.len(),
         1,
         "Alice RICK/MORTY orderbook must have exactly 1 bid"
     );
-    assert_eq!(alice_orderbook.bids[0].base_confs, 10);
-    assert!(alice_orderbook.bids[0].base_nota);
-    assert_eq!(alice_orderbook.bids[0].rel_confs, 5);
-    assert!(!alice_orderbook.bids[0].rel_nota);
+    assert_eq!(
+        alice_orderbook.bids[0].entry.conf_settings.as_ref().unwrap().base_confs,
+        10
+    );
+    assert!(alice_orderbook.bids[0].entry.conf_settings.as_ref().unwrap().base_nota);
+    assert_eq!(
+        alice_orderbook.bids[0].entry.conf_settings.as_ref().unwrap().rel_confs,
+        5
+    );
+    assert!(!alice_orderbook.bids[0].entry.conf_settings.as_ref().unwrap().rel_nota);
 
     block_on(mm_bob.stop()).unwrap();
     block_on(mm_alice.stop()).unwrap();
@@ -735,6 +715,7 @@ fn alice_can_see_confs_in_orderbook_after_sync() {
             "rpc_password": "password",
             "coins": bob_coins,
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "password".into(),
         None,
@@ -814,7 +795,7 @@ fn alice_can_see_confs_in_orderbook_after_sync() {
 
     block_on(
         mm_alice.wait_for_log((MIN_ORDER_KEEP_ALIVE_INTERVAL * 2) as f64, |log| {
-            log.contains(&format!("Inserting order OrderbookItem {{ pubkey: \"{}\"", bob_pubkey))
+            log.contains(&format!("Inserting order OrderbookItem {{ pubkey: \"{bob_pubkey}\""))
         }),
     )
     .unwrap();
@@ -839,12 +820,18 @@ fn alice_can_see_confs_in_orderbook_after_sync() {
     let bob_order_in_orderbook = alice_orderbook
         .asks
         .iter()
-        .find(|entry| entry.pubkey == bob_pubkey)
+        .find(|entry| entry.entry.pubkey == bob_pubkey)
         .unwrap();
-    assert_eq!(bob_order_in_orderbook.base_confs, 10);
-    assert!(bob_order_in_orderbook.base_nota);
-    assert_eq!(bob_order_in_orderbook.rel_confs, 5);
-    assert!(!bob_order_in_orderbook.rel_nota);
+    assert_eq!(
+        bob_order_in_orderbook.entry.conf_settings.as_ref().unwrap().base_confs,
+        10
+    );
+    assert!(bob_order_in_orderbook.entry.conf_settings.as_ref().unwrap().base_nota);
+    assert_eq!(
+        bob_order_in_orderbook.entry.conf_settings.as_ref().unwrap().rel_confs,
+        5
+    );
+    assert!(!bob_order_in_orderbook.entry.conf_settings.as_ref().unwrap().rel_nota);
 
     block_on(mm_bob.stop()).unwrap();
     block_on(mm_alice.stop()).unwrap();
@@ -869,6 +856,7 @@ fn orderbook_extended_data() {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -876,16 +864,8 @@ fn orderbook_extended_data() {
     .unwrap();
     let (_dump_log, _dump_dashboard) = &mm.mm_dump();
     log!("Log path: {}", mm.log_path.display());
-    block_on(enable_electrum(&mm, "RICK", false, &[
-        "electrum3.cipig.net:10017",
-        "electrum2.cipig.net:10017",
-        "electrum1.cipig.net:10017",
-    ]));
-    block_on(enable_electrum(&mm, "MORTY", false, &[
-        "electrum3.cipig.net:10018",
-        "electrum2.cipig.net:10018",
-        "electrum1.cipig.net:10018",
-    ]));
+    block_on(enable_electrum(&mm, "RICK", false, DOC_ELECTRUM_ADDRS));
+    block_on(enable_electrum(&mm, "MORTY", false, MARTY_ELECTRUM_ADDRS));
 
     let bob_orders = &[
         // (base, rel, price, volume)
@@ -924,31 +904,43 @@ fn orderbook_extended_data() {
     let orderbook: OrderbookResponse = json::from_str(&rc.1).unwrap();
     log!("orderbook {:?}", rc.1);
     let expected_total_asks_base_vol = MmNumber::from("2.7");
-    assert_eq!(expected_total_asks_base_vol.to_decimal(), orderbook.total_asks_base_vol);
+    assert_eq!(
+        expected_total_asks_base_vol.to_decimal(),
+        orderbook.total_asks_base.total_asks_base_vol
+    );
 
     let expected_total_bids_base_vol = MmNumber::from("1.62");
-    assert_eq!(expected_total_bids_base_vol.to_decimal(), orderbook.total_bids_base_vol);
+    assert_eq!(
+        expected_total_bids_base_vol.to_decimal(),
+        orderbook.total_bids_base.total_bids_base_vol
+    );
 
     let expected_total_asks_rel_vol = MmNumber::from("2.16");
-    assert_eq!(expected_total_asks_rel_vol.to_decimal(), orderbook.total_asks_rel_vol);
+    assert_eq!(
+        expected_total_asks_rel_vol.to_decimal(),
+        orderbook.total_asks_rel.total_asks_rel_vol
+    );
 
     let expected_total_bids_rel_vol = MmNumber::from("1.8");
-    assert_eq!(expected_total_bids_rel_vol.to_decimal(), orderbook.total_bids_rel_vol);
+    assert_eq!(
+        expected_total_bids_rel_vol.to_decimal(),
+        orderbook.total_bids_rel.total_bids_rel_vol
+    );
 
     fn check_price_and_vol_aggr(
-        order: &OrderbookEntryAggregate,
+        order: &AggregatedOrderbookEntry,
         price: &'static str,
         base_aggr: &'static str,
         rel_aggr: &'static str,
     ) {
         let price = MmNumber::from(price);
-        assert_eq!(price.to_decimal(), order.price);
+        assert_eq!(price.to_decimal(), order.entry.price);
 
         let base_aggr = MmNumber::from(base_aggr);
-        assert_eq!(base_aggr.to_decimal(), order.base_max_volume_aggr);
+        assert_eq!(base_aggr.to_decimal(), order.base_max_volume_aggr.base_max_volume_aggr);
 
         let rel_aggr = MmNumber::from(rel_aggr);
-        assert_eq!(rel_aggr.to_decimal(), order.rel_max_volume_aggr);
+        assert_eq!(rel_aggr.to_decimal(), order.rel_max_volume_aggr.rel_max_volume_aggr);
     }
 
     check_price_and_vol_aggr(&orderbook.asks[0], "0.9", "2.7", "2.16");
@@ -977,6 +969,7 @@ fn orderbook_should_display_base_rel_volumes() {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -984,16 +977,8 @@ fn orderbook_should_display_base_rel_volumes() {
     .unwrap();
     let (_dump_log, _dump_dashboard) = &mm.mm_dump();
     log!("Log path: {}", mm.log_path.display());
-    block_on(enable_electrum(&mm, "RICK", false, &[
-        "electrum3.cipig.net:10017",
-        "electrum2.cipig.net:10017",
-        "electrum1.cipig.net:10017",
-    ]));
-    block_on(enable_electrum(&mm, "MORTY", false, &[
-        "electrum3.cipig.net:10018",
-        "electrum2.cipig.net:10018",
-        "electrum1.cipig.net:10018",
-    ]));
+    block_on(enable_electrum(&mm, "RICK", false, DOC_ELECTRUM_ADDRS));
+    block_on(enable_electrum(&mm, "MORTY", false, MARTY_ELECTRUM_ADDRS));
 
     let price = BigRational::new(2.into(), 1.into());
     let volume = BigRational::new(1.into(), 1.into());
@@ -1026,11 +1011,17 @@ fn orderbook_should_display_base_rel_volumes() {
     log!("orderbook {:?}", orderbook);
     assert_eq!(orderbook.asks.len(), 1, "RICK/MORTY orderbook must have exactly 1 ask");
     let min_volume = BigRational::new(1.into(), 10000.into());
-    assert_eq!(volume, orderbook.asks[0].base_max_volume_rat);
-    assert_eq!(min_volume, orderbook.asks[0].base_min_volume_rat);
+    assert_eq!(volume, orderbook.asks[0].entry.base_max_volume.base_max_volume_rat);
+    assert_eq!(min_volume, orderbook.asks[0].entry.base_min_volume.base_min_volume_rat);
 
-    assert_eq!(&volume * &price, orderbook.asks[0].rel_max_volume_rat);
-    assert_eq!(&min_volume * &price, orderbook.asks[0].rel_min_volume_rat);
+    assert_eq!(
+        &volume * &price,
+        orderbook.asks[0].entry.rel_max_volume.rel_max_volume_rat
+    );
+    assert_eq!(
+        &min_volume * &price,
+        orderbook.asks[0].entry.rel_min_volume.rel_min_volume_rat
+    );
 
     log!("Get MORTY/RICK orderbook");
     let rc = block_on(mm.rpc(&json!({
@@ -1046,11 +1037,17 @@ fn orderbook_should_display_base_rel_volumes() {
     log!("orderbook {:?}", orderbook);
     assert_eq!(orderbook.bids.len(), 1, "MORTY/RICK orderbook must have exactly 1 bid");
     let min_volume = BigRational::new(1.into(), 10000.into());
-    assert_eq!(volume, orderbook.bids[0].rel_max_volume_rat);
-    assert_eq!(min_volume, orderbook.bids[0].rel_min_volume_rat);
+    assert_eq!(volume, orderbook.bids[0].entry.rel_max_volume.rel_max_volume_rat);
+    assert_eq!(min_volume, orderbook.bids[0].entry.rel_min_volume.rel_min_volume_rat);
 
-    assert_eq!(&volume * &price, orderbook.bids[0].base_max_volume_rat);
-    assert_eq!(&min_volume * &price, orderbook.bids[0].base_min_volume_rat);
+    assert_eq!(
+        &volume * &price,
+        orderbook.bids[0].entry.base_max_volume.base_max_volume_rat
+    );
+    assert_eq!(
+        &min_volume * &price,
+        orderbook.bids[0].entry.base_min_volume.base_min_volume_rat
+    );
 }
 
 #[test]
@@ -1058,7 +1055,7 @@ fn orderbook_should_display_base_rel_volumes() {
 fn orderbook_should_work_without_coins_activation() {
     let bob_passphrase = get_passphrase(&".env.seed", "BOB_PASSPHRASE").unwrap();
 
-    let coins = json!([rick_conf(), morty_conf(), eth_testnet_conf(), eth_jst_testnet_conf(),]);
+    let coins = json!([rick_conf(), morty_conf()]);
 
     let mm_bob = MarketMakerIt::start(
         json!({
@@ -1071,6 +1068,7 @@ fn orderbook_should_work_without_coins_activation() {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -1100,29 +1098,29 @@ fn orderbook_should_work_without_coins_activation() {
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
     log!("Alice log path: {}", mm_alice.log_path.display());
 
-    log!(
-        "enable_coins (bob): {:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES))
-    );
+    let electrum = block_on(enable_electrum(&mm_bob, "RICK", false, DOC_ELECTRUM_ADDRS));
+    log!("enable RICK on Bob: {:?}", electrum);
+    let electrum = block_on(enable_electrum(&mm_bob, "MORTY", false, MARTY_ELECTRUM_ADDRS));
+    log!("enable MORTY on Bob: {:?}", electrum);
 
     let rc = block_on(mm_bob.rpc(&json!({
         "userpass": mm_bob.userpass,
         "method": "setprice",
-        "base": "ETH",
-        "rel": "JST",
+        "base": "MORTY",
+        "rel": "RICK",
         "price": "1",
-        "volume": "10",
+        "volume": "5",
         "min_volume": "1",
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
-    log!("Get ETH/JST orderbook on Alice side");
+    log!("Get MORTY/RICK orderbook on Alice side");
     let rc = block_on(mm_alice.rpc(&json!({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
-        "base": "ETH",
-        "rel": "JST",
+        "base": "MORTY",
+        "rel": "RICK",
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
@@ -1130,7 +1128,7 @@ fn orderbook_should_work_without_coins_activation() {
     let orderbook: Json = json::from_str(&rc.1).unwrap();
     log!("orderbook {:?}", orderbook);
     let asks = orderbook["asks"].as_array().unwrap();
-    assert_eq!(asks.len(), 1, "Alice ETH/JST orderbook must have exactly 1 ask");
+    assert_eq!(asks.len(), 1, "Alice MORTY/RICK orderbook must have exactly 1 ask");
 }
 
 #[test]
@@ -1152,6 +1150,7 @@ fn test_all_orders_per_pair_per_node_must_be_displayed_in_orderbook() {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -1159,16 +1158,8 @@ fn test_all_orders_per_pair_per_node_must_be_displayed_in_orderbook() {
     .unwrap();
     let (_dump_log, _dump_dashboard) = mm.mm_dump();
     log!("Log path: {}", mm.log_path.display());
-    block_on(enable_electrum(&mm, "RICK", false, &[
-        "electrum3.cipig.net:10017",
-        "electrum2.cipig.net:10017",
-        "electrum1.cipig.net:10017",
-    ]));
-    block_on(enable_electrum(&mm, "MORTY", false, &[
-        "electrum3.cipig.net:10018",
-        "electrum2.cipig.net:10018",
-        "electrum1.cipig.net:10018",
-    ]));
+    block_on(enable_electrum(&mm, "RICK", false, DOC_ELECTRUM_ADDRS));
+    block_on(enable_electrum(&mm, "MORTY", false, MARTY_ELECTRUM_ADDRS));
 
     // set 2 orders with different prices
     let rc = block_on(mm.rpc(&json!({
@@ -1218,7 +1209,7 @@ fn test_all_orders_per_pair_per_node_must_be_displayed_in_orderbook() {
 fn setprice_min_volume_should_be_displayed_in_orderbook() {
     let bob_passphrase = get_passphrase(&".env.seed", "BOB_PASSPHRASE").unwrap();
 
-    let coins = json!([rick_conf(), morty_conf(), eth_testnet_conf(), eth_jst_testnet_conf(),]);
+    let coins = json!([rick_conf(), morty_conf()]);
 
     let mm_bob = MarketMakerIt::start(
         json!({
@@ -1231,6 +1222,7 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
             "coins": coins,
             "rpc_password": "pass",
             "i_am_seed": true,
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -1260,43 +1252,44 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
     log!("Alice log path: {}", mm_alice.log_path.display());
 
-    log!(
-        "enable_coins (bob): {:?}",
-        block_on(enable_coins_eth_electrum(&mm_bob, ETH_DEV_NODES))
-    );
-    log!(
-        "enable_coins (alice): {:?}",
-        block_on(enable_coins_eth_electrum(&mm_alice, ETH_DEV_NODES))
-    );
+    let electrum = block_on(enable_electrum(&mm_bob, "RICK", false, DOC_ELECTRUM_ADDRS));
+    log!("enable RICK on Bob: {:?}", electrum);
+    let electrum = block_on(enable_electrum(&mm_bob, "MORTY", false, MARTY_ELECTRUM_ADDRS));
+    log!("enable MORTY on Bob: {:?}", electrum);
+
+    let electrum = block_on(enable_electrum(&mm_alice, "RICK", false, DOC_ELECTRUM_ADDRS));
+    log!("enable RICK on Alice: {:?}", electrum);
+    let electrum = block_on(enable_electrum(&mm_alice, "MORTY", false, MARTY_ELECTRUM_ADDRS));
+    log!("enable MORTY on Alice: {:?}", electrum);
 
     // issue orderbook call on Alice side to trigger subscription to a topic
     block_on(mm_alice.rpc(&json!({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
-        "base": "ETH",
-        "rel": "JST",
+        "base": "MORTY",
+        "rel": "RICK",
     })))
     .unwrap();
 
     let rc = block_on(mm_bob.rpc(&json!({
         "userpass": mm_bob.userpass,
         "method": "setprice",
-        "base": "ETH",
-        "rel": "JST",
+        "base": "MORTY",
+        "rel": "RICK",
         "price": "1",
-        "volume": "10",
+        "volume": "5",
         "min_volume": "1",
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!setprice: {}", rc.1);
 
     thread::sleep(Duration::from_secs(2));
-    log!("Get ETH/JST orderbook on Bob side");
+    log!("Get MORTY/RICK orderbook on Bob side");
     let rc = block_on(mm_bob.rpc(&json!({
         "userpass": mm_bob.userpass,
         "method": "orderbook",
-        "base": "ETH",
-        "rel": "JST",
+        "base": "MORTY",
+        "rel": "RICK",
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
@@ -1304,17 +1297,17 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
     let orderbook: Json = json::from_str(&rc.1).unwrap();
     log!("orderbook {:?}", orderbook);
     let asks = orderbook["asks"].as_array().unwrap();
-    assert_eq!(asks.len(), 1, "Bob ETH/JST orderbook must have exactly 1 ask");
+    assert_eq!(asks.len(), 1, "Bob MORTY/RICK orderbook must have exactly 1 ask");
 
     let min_volume = asks[0]["min_volume"].as_str().unwrap();
-    assert_eq!(min_volume, "1", "Bob ETH/JST ask must display correct min_volume");
+    assert_eq!(min_volume, "1", "Bob MORTY/RICK ask must display correct min_volume");
 
-    log!("Get ETH/JST orderbook on Alice side");
+    log!("Get MORTY/RICK orderbook on Alice side");
     let rc = block_on(mm_alice.rpc(&json!({
         "userpass": mm_alice.userpass,
         "method": "orderbook",
-        "base": "ETH",
-        "rel": "JST",
+        "base": "MORTY",
+        "rel": "RICK",
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!orderbook: {}", rc.1);
@@ -1322,10 +1315,83 @@ fn setprice_min_volume_should_be_displayed_in_orderbook() {
     let orderbook: Json = json::from_str(&rc.1).unwrap();
     log!("orderbook {:?}", orderbook);
     let asks = orderbook["asks"].as_array().unwrap();
-    assert_eq!(asks.len(), 1, "Alice ETH/JST orderbook must have exactly 1 ask");
+    assert_eq!(asks.len(), 1, "Alice MORTY/RICK orderbook must have exactly 1 ask");
 
     let min_volume = asks[0]["min_volume"].as_str().unwrap();
-    assert_eq!(min_volume, "1", "Alice ETH/JST ask must display correct min_volume");
+    assert_eq!(min_volume, "1", "Alice MORTY/RICK ask must display correct min_volume");
+}
+
+#[test]
+fn test_order_cancellation_received_before_creation() {
+    let coins = json!([rick_conf(), morty_conf()]);
+
+    let bob_passphrase = "bob passphrase";
+    let mm_bob_conf = Mm2TestConf::seednode(bob_passphrase, &coins);
+    let mm_bob = MarketMakerIt::start(mm_bob_conf.conf, mm_bob_conf.rpc_password, None).unwrap();
+    let (_bob_dump_log, _bob_dump_dashboard) = mm_bob.mm_dump();
+    log!("Bob log path: {}", mm_bob.log_path.display());
+    log!(
+        "enable_coins (bob): {:?}",
+        block_on(enable_coins_rick_morty_electrum(&mm_bob))
+    );
+
+    // Bob places maker order before Alice connects to the network so that Alice receives the order creation through IHAVE/IWANT messages.
+    let set_price = block_on(set_price(&mm_bob, "RICK", "MORTY", "0.9", "0.9", false, None));
+
+    let mm_alice_conf = Mm2TestConf::light_node("alice passphrase", &coins, &[&mm_bob.ip.to_string()]);
+    let mut mm_alice = MarketMakerIt::start(mm_alice_conf.conf, mm_alice_conf.rpc_password, None).unwrap();
+    let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
+    log!("Alice log path: {}", mm_alice.log_path.display());
+    log!(
+        "enable_coins (alice): {:?}",
+        block_on(enable_coins_rick_morty_electrum(&mm_alice))
+    );
+
+    // Alice requests the orderbook to subscribe to the topic
+    let orderbook = block_on(orderbook_v2(&mm_alice, "RICK", "MORTY"));
+    let asks = orderbook["result"]["asks"].as_array().unwrap();
+    // Alice should see the order in the orderbook as she got it through `GetOrderbook` p2p request.
+    assert_eq!(asks.len(), 1, "Alice RICK/MORTY orderbook must have exactly 1 ask");
+
+    // Bob cancels the order straight after Alice subscribes to the orderbook topic
+    // so that Alice receives the cancellation message faster than the creation message
+    // that she will receive later through IHAVE/IWANT messages.
+    let cancel_orders = block_on(mm_bob.rpc(&json! ({
+        "userpass": mm_bob.userpass,
+        "method": "cancel_all_orders",
+        "cancel_by": {
+            "type": "All",
+        }
+    })))
+    .unwrap();
+    assert!(cancel_orders.0.is_success(), "!cancel_all_orders: {}", cancel_orders.1);
+
+    // Make sure Alice receives the order cancellation message.
+    block_on(mm_alice.wait_for_log(10., |log| {
+        log.contains("received ordermatch message MakerOrderCancelled")
+    }))
+    .unwrap();
+
+    // Make sure Alice receives the order creation message.
+    block_on(mm_alice.wait_for_log(10., |log| log.contains("received ordermatch message MakerOrderCreated"))).unwrap();
+
+    // Make sure Alice ignores inserting of the order into the orderbook.
+    block_on(mm_alice.wait_for_log(10., |log| {
+        log.contains(&format!(
+            "Maker order {} was recently cancelled, ignoring",
+            set_price.result.uuid
+        ))
+    }))
+    .unwrap();
+
+    // Check Alice's orderbook again to make sure the order wasn't re-inserted after the cancellation.
+    let orderbook = block_on(orderbook_v2(&mm_alice, "RICK", "MORTY"));
+    let asks = orderbook["result"]["asks"].as_array().unwrap();
+    // Alice shouldn't find the order in the orderbook.
+    assert_eq!(asks.len(), 0, "Alice RICK/MORTY orderbook must have exactly 0 ask");
+
+    block_on(mm_bob.stop()).unwrap();
+    block_on(mm_alice.stop()).unwrap();
 }
 
 // ignored because it requires a long-running ZOMBIE initialization process
@@ -1349,12 +1415,14 @@ fn zhtlc_orders_sync_alice_connected_before_creation() {
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
     log!("Alice log path: {}", mm_alice.log_path.display());
 
-    block_on(enable_electrum_json(&mm_bob, RICK, false, rick_electrums()));
+    block_on(enable_electrum_json(&mm_bob, RICK, false, doc_electrums()));
     block_on(enable_z_coin_light(
         &mm_bob,
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
     let set_price_json = json!({
@@ -1411,12 +1479,14 @@ fn zhtlc_orders_sync_alice_connected_after_creation() {
     let (_dump_log, _dump_dashboard) = mm_bob.mm_dump();
     log!("Bob log path: {}", mm_bob.log_path.display());
 
-    block_on(enable_electrum_json(&mm_bob, "RICK", false, rick_electrums()));
+    block_on(enable_electrum_json(&mm_bob, "RICK", false, doc_electrums()));
     block_on(enable_z_coin_light(
         &mm_bob,
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
     let set_price_json = json!({
@@ -1439,12 +1509,14 @@ fn zhtlc_orders_sync_alice_connected_after_creation() {
     let (_alice_dump_log, _alice_dump_dashboard) = mm_alice.mm_dump();
     log!("Alice log path: {}", mm_alice.log_path.display());
 
-    block_on(enable_electrum_json(&mm_alice, RICK, false, rick_electrums()));
+    block_on(enable_electrum_json(&mm_alice, RICK, false, doc_electrums()));
     block_on(enable_z_coin_light(
         &mm_alice,
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
     let set_price_json = json!({
@@ -1471,4 +1543,49 @@ fn zhtlc_orders_sync_alice_connected_after_creation() {
         .iter()
         .find(|ask| ask.entry.uuid == bob_set_price_res.result.uuid)
         .unwrap();
+}
+
+#[test]
+fn test_expirable_order() {
+    let coins = json!([rick_conf(), morty_conf()]);
+
+    let bob_passphrase = "bob passphrase";
+    let mm_bob_conf = Mm2TestConf::seednode(bob_passphrase, &coins);
+    let mm_bob = MarketMakerIt::start(mm_bob_conf.conf, mm_bob_conf.rpc_password, None).unwrap();
+
+    block_on(enable_electrum(&mm_bob, "RICK", false, DOC_ELECTRUM_ADDRS));
+    block_on(enable_electrum(&mm_bob, "MORTY", false, MARTY_ELECTRUM_ADDRS));
+
+    let expiration_min = 1;
+    let _ = block_on(set_price(
+        &mm_bob,
+        "RICK",
+        "MORTY",
+        "0.1",
+        "0.1",
+        false,
+        Some(expiration_min),
+    ));
+
+    let mm_alice_conf = Mm2TestConf::light_node("alice passphrase", &coins, &[&mm_bob.ip.to_string()]);
+    let mut mm_alice = MarketMakerIt::start(mm_alice_conf.conf, mm_alice_conf.rpc_password, None).unwrap();
+
+    let orderbook = block_on(orderbook_v2(&mm_alice, "RICK", "MORTY"));
+    let asks = orderbook["result"]["asks"].as_array().unwrap();
+    // Alice should see the order in the orderbook as she got it through `GetOrderbook` p2p request.
+    assert_eq!(asks.len(), 1, "Alice RICK/MORTY orderbook must have exactly 1 ask");
+
+    // Sleep until order expires
+    thread::sleep(Duration::from_secs(expiration_min as u64 * 60 + 1));
+
+    // Make sure Alice receives the order cancellation message.
+    block_on(mm_alice.wait_for_log(10., |log| {
+        log.contains("received ordermatch message MakerOrderCancelled")
+    }))
+    .unwrap();
+
+    let orderbook = block_on(orderbook_v2(&mm_alice, "RICK", "MORTY"));
+    let asks = orderbook["result"]["asks"].as_array().unwrap();
+    // Alice shouldn't find the order in the orderbook as it was expired just recently.
+    assert_eq!(asks.len(), 0, "Alice RICK/MORTY orderbook must have exactly 0 ask");
 }

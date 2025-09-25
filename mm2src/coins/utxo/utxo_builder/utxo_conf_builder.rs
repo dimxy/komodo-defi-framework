@@ -1,16 +1,19 @@
 use crate::utxo::rpc_clients::EstimateFeeMode;
-use crate::utxo::{parse_hex_encoded_u32, UtxoCoinConf, DEFAULT_DYNAMIC_FEE_VOLATILITY_PERCENT, KMD_MTP_BLOCK_COUNT,
-                  MATURE_CONFIRMATIONS_DEFAULT};
+use crate::utxo::{
+    parse_hex_encoded_u32, UtxoCoinConf, DEFAULT_DYNAMIC_FEE_VOLATILITY_PERCENT, KMD_MTP_BLOCK_COUNT,
+    MATURE_CONFIRMATIONS_DEFAULT,
+};
 use crate::UtxoActivationParams;
 use bitcrypto::ChecksumType;
-use crypto::{Bip32Error, StandardHDPathToCoin};
+use crypto::{Bip32Error, HDPathToCoin};
 use derive_more::Display;
-pub use keys::{Address, AddressFormat as UtxoAddressFormat, AddressHashEnum, KeyPair, Private, Public, Secret,
-               Type as ScriptType};
+pub use keys::AddressFormat as UtxoAddressFormat;
+use keys::NetworkAddressPrefixes;
 use mm2_err_handle::prelude::*;
 use script::SignatureVersion;
 use serde_json::{self as json, Value as Json};
 use spv_validation::conf::SPVConf;
+use std::convert::TryInto;
 use std::num::NonZeroU64;
 use std::sync::atomic::AtomicBool;
 
@@ -24,18 +27,21 @@ pub enum UtxoConfError {
     DerivationPathIsNotSet,
     #[display(fmt = "'trezor_coin' field is not found in config")]
     TrezorCoinIsNotSet,
-    #[display(fmt = "Error deserializing 'derivation_path': {}", _0)]
+    #[display(fmt = "Error deserializing 'derivation_path': {_0}")]
     ErrorDeserializingDerivationPath(String),
-    #[display(fmt = "Error deserializing 'spv_conf': {}", _0)]
+    #[display(fmt = "Error deserializing 'spv_conf': {_0}")]
     ErrorDeserializingSPVConf(String),
     InvalidConsensusBranchId(String),
     InvalidVersionGroupId(String),
     InvalidAddressFormat(String),
     InvalidDecimals(String),
+    InvalidProtocolData(String),
 }
 
 impl From<Bip32Error> for UtxoConfError {
-    fn from(e: Bip32Error) -> Self { UtxoConfError::ErrorDeserializingDerivationPath(e.to_string()) }
+    fn from(e: Bip32Error) -> Self {
+        UtxoConfError::ErrorDeserializingDerivationPath(e.to_string())
+    }
 }
 
 pub struct UtxoConfBuilder<'a> {
@@ -51,10 +57,29 @@ impl<'a> UtxoConfBuilder<'a> {
 
     pub fn build(&self) -> UtxoConfResult<UtxoCoinConf> {
         let checksum_type = self.checksum_type();
+
         let pub_addr_prefix = self.pub_addr_prefix();
-        let p2sh_addr_prefix = self.p2sh_address_prefix();
         let pub_t_addr_prefix = self.pub_t_address_prefix();
+        let mut p2pkh_prefixes = vec![];
+        if pub_t_addr_prefix != 0 {
+            p2pkh_prefixes.push(pub_t_addr_prefix);
+        }
+        p2pkh_prefixes.push(pub_addr_prefix);
+        drop_mutability!(p2pkh_prefixes);
+
+        let p2sh_addr_prefix = self.p2sh_address_prefix();
         let p2sh_t_addr_prefix = self.p2sh_t_address_prefix();
+        let mut p2sh_prefixes = vec![];
+        if p2sh_t_addr_prefix != 0 {
+            p2sh_prefixes.push(p2sh_t_addr_prefix);
+        }
+        p2sh_prefixes.push(p2sh_addr_prefix);
+        drop_mutability!(p2sh_prefixes);
+
+        let address_prefixes = NetworkAddressPrefixes {
+            p2pkh: p2pkh_prefixes.as_slice().try_into().expect("prefixes valid"),
+            p2sh: p2sh_prefixes.as_slice().try_into().expect("prefixes valid"),
+        };
         let sign_message_prefix = self.sign_message_prefix();
 
         let wif_prefix = self.wif_prefix();
@@ -99,10 +124,7 @@ impl<'a> UtxoConfBuilder<'a> {
             is_posv,
             requires_notarization,
             overwintered,
-            pub_addr_prefix,
-            p2sh_addr_prefix,
-            pub_t_addr_prefix,
-            p2sh_t_addr_prefix,
+            address_prefixes,
             sign_message_prefix,
             bech32_hrp,
             segwit,
@@ -151,9 +173,13 @@ impl<'a> UtxoConfBuilder<'a> {
             .unwrap_or(if self.ticker == "BTC" { 5 } else { 85 }) as u8
     }
 
-    fn pub_t_address_prefix(&self) -> u8 { self.conf["taddr"].as_u64().unwrap_or(0) as u8 }
+    fn pub_t_address_prefix(&self) -> u8 {
+        self.conf["taddr"].as_u64().unwrap_or(0) as u8
+    }
 
-    fn p2sh_t_address_prefix(&self) -> u8 { self.conf["taddr"].as_u64().unwrap_or(0) as u8 }
+    fn p2sh_t_address_prefix(&self) -> u8 {
+        self.conf["taddr"].as_u64().unwrap_or(0) as u8
+    }
 
     fn sign_message_prefix(&self) -> Option<String> {
         json::from_value(self.conf["sign_message_prefix"].clone()).unwrap_or(None)
@@ -166,7 +192,9 @@ impl<'a> UtxoConfBuilder<'a> {
         wiftype as u8
     }
 
-    fn bech32_hrp(&self) -> Option<String> { json::from_value(self.conf["bech32_hrp"].clone()).unwrap_or(None) }
+    fn bech32_hrp(&self) -> Option<String> {
+        json::from_value(self.conf["bech32_hrp"].clone()).unwrap_or(None)
+    }
 
     fn default_address_format(&self) -> UtxoAddressFormat {
         let mut address_format: UtxoAddressFormat =
@@ -185,17 +213,22 @@ impl<'a> UtxoConfBuilder<'a> {
         address_format
     }
 
-    fn asset_chain(&self) -> bool { self.conf["asset"].as_str().is_some() }
+    fn asset_chain(&self) -> bool {
+        self.conf["asset"].as_str().is_some()
+    }
 
-    fn tx_version(&self) -> i32 { self.conf["txversion"].as_i64().unwrap_or(1) as i32 }
+    fn tx_version(&self) -> i32 {
+        self.conf["txversion"].as_i64().unwrap_or(1) as i32
+    }
 
-    fn overwintered(&self) -> bool { self.conf["overwintered"].as_u64().unwrap_or(0) == 1 }
+    fn overwintered(&self) -> bool {
+        self.conf["overwintered"].as_u64().unwrap_or(0) == 1
+    }
 
     fn tx_fee_volatility_percent(&self) -> f64 {
-        match self.conf["txfee_volatility_percent"].as_f64() {
-            Some(volatility) => volatility,
-            None => DEFAULT_DYNAMIC_FEE_VOLATILITY_PERCENT,
-        }
+        self.conf["txfee_volatility_percent"]
+            .as_f64()
+            .unwrap_or(DEFAULT_DYNAMIC_FEE_VOLATILITY_PERCENT)
     }
 
     fn version_group_id(&self, tx_version: i32, overwintered: bool) -> UtxoConfResult<u32> {
@@ -266,11 +299,17 @@ impl<'a> UtxoConfBuilder<'a> {
             .unwrap_or(MATURE_CONFIRMATIONS_DEFAULT)
     }
 
-    fn is_pos(&self) -> bool { self.conf["isPoS"].as_u64() == Some(1) }
+    fn is_pos(&self) -> bool {
+        self.conf["isPoS"].as_u64() == Some(1)
+    }
 
-    fn is_posv(&self) -> bool { self.conf["isPoSV"].as_u64() == Some(1) }
+    fn is_posv(&self) -> bool {
+        self.conf["isPoSV"].as_u64() == Some(1)
+    }
 
-    fn segwit(&self) -> bool { self.conf["segwit"].as_bool().unwrap_or(false) }
+    fn segwit(&self) -> bool {
+        self.conf["segwit"].as_bool().unwrap_or(false)
+    }
 
     fn mtp_block_count(&self) -> NonZeroU64 {
         json::from_value(self.conf["mtp_block_count"].clone()).unwrap_or(KMD_MTP_BLOCK_COUNT)
@@ -280,19 +319,46 @@ impl<'a> UtxoConfBuilder<'a> {
         json::from_value(self.conf["estimate_fee_mode"].clone()).unwrap_or(None)
     }
 
-    fn estimate_fee_blocks(&self) -> u32 { json::from_value(self.conf["estimate_fee_blocks"].clone()).unwrap_or(1) }
+    fn estimate_fee_blocks(&self) -> u32 {
+        json::from_value(self.conf["estimate_fee_blocks"].clone()).unwrap_or(1)
+    }
 
-    fn trezor_coin(&self) -> Option<String> { self.conf["trezor_coin"].as_str().map(|coin| coin.to_string()) }
+    fn trezor_coin(&self) -> Option<String> {
+        self.conf["trezor_coin"].as_str().map(|coin| coin.to_string())
+    }
 
     fn spv_conf(&self) -> UtxoConfResult<Option<SPVConf>> {
         json::from_value(self.conf["spv_conf"].clone())
             .map_to_mm(|e| UtxoConfError::ErrorDeserializingSPVConf(e.to_string()))
     }
 
-    fn derivation_path(&self) -> UtxoConfResult<Option<StandardHDPathToCoin>> {
+    fn derivation_path(&self) -> UtxoConfResult<Option<HDPathToCoin>> {
         json::from_value(self.conf["derivation_path"].clone())
             .map_to_mm(|e| UtxoConfError::ErrorDeserializingDerivationPath(e.to_string()))
     }
 
-    fn avg_blocktime(&self) -> Option<u64> { self.conf["avg_blocktime"].as_u64() }
+    fn avg_blocktime(&self) -> Option<u64> {
+        self.conf["avg_blocktime"].as_u64()
+    }
+}
+
+/// 'txfee' coins param config values
+pub(crate) enum UtxoFeeConfig {
+    NotSet,
+    Dynamic,
+    FixedPerKb(u64),
+    FixedPerKbDingo(u64),
+}
+
+impl UtxoFeeConfig {
+    /// Parse the txfee-related coins param, like:
+    /// "txfee"=0 and/or "dingo_fee"=true
+    pub(crate) fn parse_val(conf: &Json) -> Self {
+        match (conf["txfee"].as_u64(), conf["dingo_fee"].as_bool()) {
+            (Some(0), _) => Self::Dynamic,
+            (Some(val), Some(true)) => Self::FixedPerKbDingo(val),
+            (Some(val), _) => Self::FixedPerKb(val),
+            (_, _) => Self::NotSet,
+        }
+    }
 }

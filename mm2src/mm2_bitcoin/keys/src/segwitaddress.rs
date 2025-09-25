@@ -31,34 +31,34 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Error::InvalidSegwitAddressFormat => write!(f, "Invalid segwit address format"),
-            Error::Bech32(ref e) => write!(f, "bech32: {}", e),
+            Error::Bech32(ref e) => write!(f, "bech32: {e}"),
             Error::EmptyBech32Payload => write!(f, "the bech32 payload was empty"),
-            Error::InvalidWitnessVersion(v) => write!(f, "invalid witness script version: {}", v),
+            Error::InvalidWitnessVersion(v) => write!(f, "invalid witness script version: {v}"),
             Error::InvalidWitnessProgramLength(l) => write!(
                 f,
-                "the witness program must be between 2 and 40 bytes in length: length={}",
-                l,
+                "the witness program must be between 2 and 40 bytes in length: length={l}",
             ),
             Error::InvalidSegwitV0ProgramLength(l) => write!(
                 f,
-                "a v0 witness program must be either of length 20 or 32 bytes: length={}",
-                l,
+                "a v0 witness program must be either of length 20 or 32 bytes: length={l}",
             ),
             Error::UncompressedPubkey => write!(f, "an uncompressed pubkey was used where it is not allowed",),
-            Error::UnsupportedAddressVariant(ref v) => write!(f, "address variant/format {} is not supported yet!", v),
-            Error::UnsupportedWitnessVersion(v) => write!(f, "witness script version: {} is not supported yet!", v),
+            Error::UnsupportedAddressVariant(ref v) => write!(f, "address variant/format {v} is not supported yet!"),
+            Error::UnsupportedWitnessVersion(v) => write!(f, "witness script version: {v} is not supported yet!"),
         }
     }
 }
 
 #[doc(hidden)]
 impl From<bech32::Error> for Error {
-    fn from(e: bech32::Error) -> Error { Error::Bech32(e) }
+    fn from(e: bech32::Error) -> Error {
+        Error::Bech32(e)
+    }
 }
 
 /// The different types of segwit addresses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum AddressType {
+pub enum SegwitAddrType {
     P2wpkh,
     /// pay-to-witness-script-hash
     P2wsh,
@@ -86,12 +86,12 @@ impl SegwitAddress {
 
     /// Get the address type of the address.
     /// None if unknown or non-standard.
-    pub fn address_type(&self) -> Option<AddressType> {
+    pub fn address_type(&self) -> Option<SegwitAddrType> {
         // BIP-141 p2wpkh or p2wsh addresses.
         match self.version.to_u8() {
             0 => match self.program.len() {
-                20 => Some(AddressType::P2wpkh),
-                32 => Some(AddressType::P2wsh),
+                20 => Some(SegwitAddrType::P2wpkh),
+                32 => Some(SegwitAddrType::P2wsh),
                 _ => None,
             },
             _ => None,
@@ -103,7 +103,9 @@ impl SegwitAddress {
     ///
     /// Segwit addresses with unassigned witness versions or non-standard
     /// program sizes are considered non-standard.
-    pub fn is_standard(&self) -> bool { self.address_type().is_some() }
+    pub fn is_standard(&self) -> bool {
+        self.address_type().is_some()
+    }
 }
 
 struct UpperWriter<W: fmt::Write>(W);
@@ -191,7 +193,7 @@ mod tests {
     use Public;
 
     fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {
-        if s.len() % 2 == 0 {
+        if s.len().is_multiple_of(2) {
             (0..s.len())
                 .step_by(2)
                 .map(|i| s.get(i..i + 2).and_then(|sub| u8::from_str_radix(sub, 16).ok()))
@@ -211,7 +213,7 @@ mod tests {
         let hrp = "bc";
         let addr = SegwitAddress::new(&AddressHashEnum::AddressHash(hash), hrp.to_string());
         assert_eq!(&addr.to_string(), "bc1qvzvkjn4q3nszqxrv3nraga2r822xjty3ykvkuw");
-        assert_eq!(addr.address_type(), Some(AddressType::P2wpkh));
+        assert_eq!(addr.address_type(), Some(SegwitAddrType::P2wpkh));
     }
 
     #[test]
@@ -225,7 +227,7 @@ mod tests {
             &addr.to_string(),
             "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
         );
-        assert_eq!(addr.address_type(), Some(AddressType::P2wsh));
+        assert_eq!(addr.address_type(), Some(SegwitAddrType::P2wsh));
     }
 
     #[test]

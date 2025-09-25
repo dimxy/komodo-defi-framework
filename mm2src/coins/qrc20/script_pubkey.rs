@@ -25,10 +25,10 @@ pub fn generate_contract_call_script_pubkey(
 
     Ok(ScriptBuilder::default()
         .push_opcode(Opcode::OP_4)
-        .push_bytes(&gas_limit)
-        .push_bytes(&gas_price)
+        .push_data(&gas_limit)
+        .push_data(&gas_price)
         .push_data(function_call)
-        .push_bytes(contract_address)
+        .push_data(contract_address)
         .push_opcode(Opcode::OP_CALL)
         .into_script())
 }
@@ -193,6 +193,8 @@ fn decode_contract_number(source: &[u8]) -> Result<i64, String> {
 
 #[cfg(test)]
 mod tests {
+    use keys::prefixes::QRC20_PREFIXES;
+
     use super::*;
 
     #[test]
@@ -221,7 +223,7 @@ mod tests {
         ];
 
         for (source, encoded) in numbers {
-            println!("{}", source);
+            println!("{source}");
             let actual_encoded = encode_contract_number(source);
             assert_eq!(actual_encoded, encoded);
             let actual_decoded = decode_contract_number(&encoded).unwrap();
@@ -246,7 +248,8 @@ mod tests {
     fn test_extract_contract_call() {
         let script: Script = "5403a02526012844a9059cbb0000000000000000000000000240b898276ad2cc0d2fe6f527e8e31104e7fde3000000000000000000000000000000000000000000000000000000003b9aca0014d362e096e873eb7907e205fadc6175c6fec7bc44c2".into();
 
-        let to_addr: UtxoAddress = "qHmJ3KA6ZAjR9wGjpFASn4gtUSeFAqdZgs".into();
+        let to_addr: UtxoAddress =
+            UtxoAddress::from_legacyaddress("qHmJ3KA6ZAjR9wGjpFASn4gtUSeFAqdZgs", &QRC20_PREFIXES).unwrap();
         let to_addr = qtum::contract_addr_from_utxo_addr(to_addr).unwrap();
         let amount: U256 = 1000000000.into();
         let function = eth::ERC20_CONTRACT.function("transfer").unwrap();

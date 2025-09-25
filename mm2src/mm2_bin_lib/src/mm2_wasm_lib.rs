@@ -1,8 +1,5 @@
 //! Some specifics of using the [`wasm_bindgen`] library:
 //!
-//! # Currently only `Result<T, JsValue>` is allowed
-//! [tracking issue]: https://github.com/rustwasm/wasm-bindgen/issues/1004
-//!
 //! # JavaScript enums do not support methods at all
 //! [tracking issue]: https://github.com/rustwasm/wasm-bindgen/issues/1715
 //!
@@ -16,22 +13,36 @@ use super::*;
 use common::log::{register_callback, LogLevel, WasmCallback};
 use common::{console_err, console_info, deserialize_from_js, executor, serialize_to_js, set_panic_hook};
 use enum_primitive_derive::Primitive;
-use mm2_main::mm2::{LpMainParams, MmVersionResult};
+use mm2_main::LpMainParams;
+use mm2_rpc::data::legacy::MmVersionResponse;
 use mm2_rpc::wasm_rpc::WasmRpcResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as Json;
-
-/// The errors can be thrown when using the `mm2_main` function incorrectly.
 #[wasm_bindgen]
-#[derive(Primitive)]
-pub enum Mm2MainErr {
-    AlreadyRuns = 1,
-    InvalidParams = 2,
-    NoCoinsInConf = 3,
+#[derive(Debug, Clone, Serialize)]
+struct StartupError {
+    code: StartupResultCode,
+    message: String,
 }
 
-impl From<Mm2MainErr> for JsValue {
-    fn from(e: Mm2MainErr) -> Self { JsValue::from(e as i32) }
+#[wasm_bindgen]
+impl StartupError {
+    fn new(code: StartupResultCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn code(&self) -> i8 {
+        self.code as i8
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn message(&self) -> String {
+        self.message.clone()
+    }
 }
 
 #[derive(Deserialize)]
@@ -41,7 +52,9 @@ struct MainParams {
 }
 
 impl From<MainParams> for LpMainParams {
-    fn from(orig: MainParams) -> Self { LpMainParams::with_conf(orig.conf).log_filter(Some(orig.log_level)) }
+    fn from(orig: MainParams) -> Self {
+        LpMainParams::with_conf(orig.conf).log_filter(Some(orig.log_level))
+    }
 }
 
 /// Runs a MarketMaker2 instance.
@@ -57,7 +70,7 @@ impl From<MainParams> for LpMainParams {
 /// # Usage
 ///
 /// ```javascript
-/// import init, {mm2_main, LogLevel, Mm2MainErr} from "./path/to/mm2.js";
+/// import init, {mm2_main, LogLevel, StartupResultCode} from "./path/to/mm2.js";
 ///
 /// const params = {
 ///     conf: { "gui":"WASMTEST", mm2:1, "passphrase":"YOUR_PASSPHRASE_HERE", "rpc_password":"test123", "coins":[{"coin":"ETH","protocol":{"type":"ETH"}}] },
@@ -67,8 +80,8 @@ impl From<MainParams> for LpMainParams {
 /// try {
 ///     mm2_main(params, handle_log);
 /// } catch (e) {
-///     switch (e) {
-///         case Mm2MainErr.AlreadyRuns:
+///     switch (e.code) {
+///         case StartupResultCode.AlreadyRunning:
 ///             alert("MarketMaker2 already runs...");
 ///             break;
 ///         // handle other errors...
@@ -79,56 +92,77 @@ impl From<MainParams> for LpMainParams {
 /// }
 /// ```
 #[wasm_bindgen]
-pub fn mm2_main(params: JsValue, log_cb: js_sys::Function) -> Result<(), JsValue> {
+pub async fn mm2_main(params: JsValue, log_cb: js_sys::Function) -> Result<i8, JsValue> {
     let params: MainParams = match deserialize_from_js(params.clone()) {
         Ok(p) => p,
         Err(e) => {
-            console_err!("Expected 'MainParams' as the first argument, found {:?}: {}", params, e);
-            return Err(Mm2MainErr::InvalidParams.into());
+            let error = StartupError::new(
+                StartupResultCode::InvalidParams,
+                format!("Expected 'MainParams' as the first argument, found {params:?}: {e}"),
+            );
+            console_err!("{}", error.message());
+            return Err(error.into());
         },
     };
     if params.conf["coins"].is_null() {
-        console_err!("Config must contain 'coins' field: {:?}", params.conf);
-        return Err(Mm2MainErr::NoCoinsInConf.into());
+        let error = StartupError::new(
+            StartupResultCode::ConfigError,
+            format!("Config must contain 'coins' field: {:?}", params.conf),
+        );
+        console_err!("{}", error.message());
+        return Err(error.into());
     }
     let params = LpMainParams::from(params);
 
     if LP_MAIN_RUNNING.load(Ordering::Relaxed) {
-        return Err(Mm2MainErr::AlreadyRuns.into());
+        let error = StartupError::new(StartupResultCode::AlreadyRunning, "MM2 is already running");
+        console_err!("{}", error.message());
+        return Err(error.into());
     }
-    CTX.store(0, Ordering::Relaxed); // Remove the old context ID during restarts.
+
+    // Remove the old context ID during restarts.
+    CTX.store(0, Ordering::Relaxed);
 
     register_callback(WasmCallback::with_js_function(log_cb));
+    // Setting up a global panic hook to log panic information to the console
+    // This doesn't prevent termination of the WebAssembly instance, but ensures error details are visible
+    // We can't use catch_unwind directly with async/await in WebAssembly, so this is our best option for diagnostics
+    // If a panic occurs, the MM2 instance will terminate but the browser tab will remain responsive
     set_panic_hook();
 
-    let fut = async move {
-        if let Err(true) = LP_MAIN_RUNNING.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed) {
-            console_err!("lp_main already started!");
-            return;
-        }
-        let ctx_cb = |ctx| CTX.store(ctx, Ordering::Relaxed);
-        // TODO figure out how to use catch_unwind here
-        // use futures::FutureExt;
-        // match mm2::lp_main(params, &ctx_cb).catch_unwind().await {
-        //     Ok(Ok(_)) => console_info!("run_lp_main finished"),
-        //     Ok(Err(err)) => console_err!("run_lp_main error: {}", err),
-        //     Err(err) => console_err!("run_lp_main panic: {:?}", any_to_str(&*err)),
-        // };
-        match mm2_main::mm2::lp_main(params, &ctx_cb, MM_VERSION.into(), MM_DATETIME.into()).await {
-            Ok(()) => console_info!("run_lp_main finished"),
-            Err(err) => console_err!("run_lp_main error: {}", err),
-        };
-        LP_MAIN_RUNNING.store(false, Ordering::Relaxed)
+    if let Err(true) = LP_MAIN_RUNNING.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed) {
+        let error = StartupError::new(StartupResultCode::AlreadyRunning, "lp_main already started!");
+        console_err!("{}", error.message());
+        return Err(error.into());
+    }
+
+    let ctx_cb = |ctx| CTX.store(ctx, Ordering::Relaxed);
+    let ctx = match mm2_main::lp_main(params, &ctx_cb, KDF_VERSION.into(), KDF_DATETIME.into()).await {
+        Ok(ctx) => {
+            console_info!("lp_main finished");
+            ctx
+        },
+        Err(err) => {
+            let error = StartupError::new(StartupResultCode::InitError, format!("lp_main error: {err}"));
+            console_err!("{}", error.message());
+            LP_MAIN_RUNNING.store(false, Ordering::Relaxed);
+            return Err(error.into());
+        },
     };
 
-    // At this moment we still don't have `MmCtx` context to use its `MmCtx::abortable_system` spawner.
-    executor::spawn_local(fut);
-    Ok(())
+    executor::spawn_local(async move {
+        mm2_main::lp_run(ctx).await;
+        LP_MAIN_RUNNING.store(false, Ordering::Relaxed);
+    });
+
+    Ok(StartupResultCode::Ok as i8)
 }
 
 /// Returns the MarketMaker2 instance status.
 #[wasm_bindgen]
-pub fn mm2_main_status() -> MainStatus { mm2_status() }
+pub fn mm2_main_status() -> MainStatus {
+    mm2_status()
+}
 
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
@@ -153,10 +187,6 @@ pub enum Mm2RpcErr {
     NotRunning = 1,
     InvalidPayload = 2,
     InternalError = 3,
-}
-
-impl From<Mm2RpcErr> for JsValue {
-    fn from(e: Mm2RpcErr) -> Self { JsValue::from(e as i32) }
 }
 
 /// Invokes an RPC request.
@@ -215,7 +245,7 @@ pub async fn mm2_rpc(payload: JsValue) -> Result<JsValue, JsValue> {
         Err(_) => return Err(Mm2RpcErr::NotRunning.into()),
     };
 
-    let wasm_rpc = ctx.wasm_rpc.ok_or(JsValue::from(Mm2RpcErr::NotRunning))?;
+    let wasm_rpc = ctx.wasm_rpc.get().ok_or(JsValue::from(Mm2RpcErr::NotRunning))?;
     let response: Mm2RpcResponse = wasm_rpc.request(request_json).await.into();
 
     serialize_to_js(&response).map_err(|e| {
@@ -240,8 +270,11 @@ pub async fn mm2_rpc(payload: JsValue) -> Result<JsValue, JsValue> {
 /// ```
 #[wasm_bindgen]
 pub fn mm2_version() -> JsValue {
-    serialize_to_js(&MmVersionResult::new(MM_VERSION.into(), MM_DATETIME.into()))
-        .expect("expected serialization to succeed")
+    serialize_to_js(&MmVersionResponse {
+        result: KDF_VERSION.into(),
+        datetime: KDF_DATETIME.into(),
+    })
+    .expect("expected serialization to succeed")
 }
 
 /// Stops the MarketMaker2 instance.

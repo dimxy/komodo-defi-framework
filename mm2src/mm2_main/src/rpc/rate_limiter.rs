@@ -1,4 +1,4 @@
-use crate::mm2::rpc::DispatcherError;
+use crate::rpc::DispatcherError;
 use derive_more::Display;
 use futures::lock::Mutex as AsyncMutex;
 use mm2_core::mm_ctx::from_ctx;
@@ -14,7 +14,7 @@ pub type RateInfosRegistry = HashMap<IpAddr, usize>;
 #[derive(Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum RateLimitError {
-    #[display(fmt = "Rate Limit attempts left: {}", _0)]
+    #[display(fmt = "Rate Limit attempts left: {_0}")]
     NbAttemptsLeft(usize),
 }
 

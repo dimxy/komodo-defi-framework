@@ -1,0 +1,53 @@
+[package]
+name = "mm2_p2p"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["application"]
+application = ["dep:mm2_number"]
+
+[lib]
+doctest = false
+
+[dependencies]
+async-trait.workspace = true
+common = { path = "../common" }
+compatible-time.workspace = true
+derive_more.workspace = true
+futures.workspace = true
+futures-ticker.workspace = true
+hex.workspace = true
+lazy_static.workspace = true
+log.workspace = true
+mm2_core = { path = "../mm2_core" }
+mm2_event_stream = { path = "../mm2_event_stream" }
+mm2_net = { path = "../mm2_net" }
+mm2_number = { path = "../mm2_number", optional = true }
+parking_lot = { workspace = true }
+rand = { workspace = true, features = ["wasm-bindgen"] }
+regex.workspace = true
+rmp-serde.workspace = true
+secp256k1 = { workspace = true, features = ["rand"] }
+serde = { workspace = true, default-features = false }
+serde_bytes.workspace = true
+serde_json = { workspace = true, features = ["preserve_order", "raw_value"] }
+sha2.workspace = true
+smallvec.workspace = true
+void.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+futures-rustls.workspace = true
+libp2p = { workspace = true, features = ["dns", "identify", "floodsub", "gossipsub", "noise", "ping", "request-response", "secp256k1", "tcp", "tokio", "websocket", "macros", "yamux"] }
+timed-map = { workspace = true, features = ["rustc-hash"] }
+tokio.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-rustls = "0.22"
+libp2p = { workspace = true, features = ["identify", "floodsub", "noise", "gossipsub", "ping", "request-response", "secp256k1", "wasm-ext", "wasm-ext-websocket", "macros", "yamux"] }
+timed-map = { workspace = true, features = ["rustc-hash", "wasm"] }
+
+[dev-dependencies]
+async-std.workspace = true 
+env_logger.workspace = true
+common = { path = "../common", features = ["for-tests"] }

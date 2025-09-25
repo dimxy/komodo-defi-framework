@@ -33,10 +33,12 @@ impl From<TrezorInputScriptType> for proto_bitcoin::InputScriptType {
 
 #[derive(Clone, Copy)]
 pub enum TrezorOutputScriptType {
-    /// Used for all addresses (bitcoin, p2sh, witness).
+    /// Used for all addresses: bitcoin, p2sh, witness (except for the change output).
     PayToAddress,
     /// OP_RETURN.
     PayToOpReturn,
+    /// pay to witness v0, used for the change output
+    PayToWitness,
 }
 
 impl From<TrezorOutputScriptType> for proto_bitcoin::OutputScriptType {
@@ -44,6 +46,7 @@ impl From<TrezorOutputScriptType> for proto_bitcoin::OutputScriptType {
         match script {
             TrezorOutputScriptType::PayToAddress => proto_bitcoin::OutputScriptType::Paytoaddress,
             TrezorOutputScriptType::PayToOpReturn => proto_bitcoin::OutputScriptType::Paytoopreturn,
+            TrezorOutputScriptType::PayToWitness => proto_bitcoin::OutputScriptType::Paytowitness,
         }
     }
 }
@@ -147,8 +150,8 @@ impl TxOutput {
 
 /// Missing fields:
 /// * overwintered - deprecated in 2.3.2, the field is not needed as it can be derived from `version`.
-///                  The main reason why it's ignored is that this can be requested asa extra data:
-///                  https://docs.trezor.io/trezor-firmware/common/communication/bitcoin-signing.html#extra-data
+///   The main reason why it's ignored is that this can be requested as an extra data:
+///   https://docs.trezor.io/trezor-firmware/common/communication/bitcoin-signing.html#extra-data
 pub struct UnsignedUtxoTx {
     pub coin: String,
     /// Transaction inputs.
@@ -192,7 +195,7 @@ impl UnsignedUtxoTx {
             .find(|input| input.prev_hash == hash)
             .map(|input| &input.prev_tx)
             .or_mm_err(|| {
-                let error = format!("Previous tx not found by the hash '{:?}'", hash);
+                let error = format!("Previous tx not found by the hash '{hash:?}'");
                 TrezorError::ProtocolError(error)
             })
     }

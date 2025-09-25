@@ -1,31 +1,40 @@
-use crate::lightning::ln_db::{ChannelType, ChannelVisibility, ClosedChannelsFilter, DBChannelDetails,
-                              DBPaymentsFilter, GetClosedChannelsResult, GetPaymentsResult, HTLCStatus, LightningDB,
-                              PaymentInfo, PaymentType};
+#![allow(deprecated)] // TODO: remove this once rusqlite is >= 0.29
+
+use crate::lightning::ln_db::{
+    ChannelType, ChannelVisibility, ClosedChannelsFilter, DBChannelDetails, DBPaymentsFilter, GetClosedChannelsResult,
+    GetPaymentsResult, HTLCStatus, LightningDB, PaymentInfo, PaymentType,
+};
 use async_trait::async_trait;
 use common::{async_blocking, now_sec_i64, PagingOptionsEnum};
 use db_common::owned_named_params;
 use db_common::sqlite::rusqlite::types::Type;
-use db_common::sqlite::rusqlite::{params, Error as SqlError, Row, ToSql, NO_PARAMS};
+use db_common::sqlite::rusqlite::{params, Error as SqlError, Row, ToSql};
 use db_common::sqlite::sql_builder::SqlBuilder;
-use db_common::sqlite::{h256_option_slice_from_row, h256_slice_from_row, offset_by_id, query_single_row,
-                        sql_text_conversion_err, string_from_row, validate_table_name, AsSqlNamedParams,
-                        OwnedSqlNamedParams, SqlNamedParams, SqliteConnShared, CHECK_TABLE_EXISTS_SQL};
+use db_common::sqlite::{
+    h256_option_slice_from_row, h256_slice_from_row, offset_by_id, query_single_row, sql_text_conversion_err,
+    string_from_row, validate_table_name, AsSqlNamedParams, OwnedSqlNamedParams, SqlNamedParams, SqliteConnShared,
+    CHECK_TABLE_EXISTS_SQL,
+};
 use lightning::ln::{PaymentHash, PaymentPreimage};
 use secp256k1v24::PublicKey;
 use std::convert::TryInto;
 use std::str::FromStr;
 use uuid::Uuid;
 
-fn channels_history_table(ticker: &str) -> String { ticker.to_owned() + "_channels_history" }
+fn channels_history_table(ticker: &str) -> String {
+    ticker.to_owned() + "_channels_history"
+}
 
-fn payments_history_table(ticker: &str) -> String { ticker.to_owned() + "_payments_history" }
+fn payments_history_table(ticker: &str) -> String {
+    ticker.to_owned() + "_payments_history"
+}
 
 fn create_channels_history_table_sql(for_coin: &str) -> Result<String, SqlError> {
     let table_name = channels_history_table(for_coin);
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "CREATE TABLE IF NOT EXISTS {} (
+        "CREATE TABLE IF NOT EXISTS {table_name} (
             id INTEGER NOT NULL PRIMARY KEY,
             uuid VARCHAR(255) NOT NULL UNIQUE,
             channel_id VARCHAR(255) NOT NULL,
@@ -42,8 +51,7 @@ fn create_channels_history_table_sql(for_coin: &str) -> Result<String, SqlError>
             is_closed INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
             closed_at INTEGER
-        );",
-        table_name
+        );"
     );
 
     Ok(sql)
@@ -54,7 +62,7 @@ fn create_payments_history_table_sql(for_coin: &str) -> Result<String, SqlError>
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "CREATE TABLE IF NOT EXISTS {} (
+        "CREATE TABLE IF NOT EXISTS {table_name} (
             id INTEGER NOT NULL PRIMARY KEY,
             payment_hash VARCHAR(255) NOT NULL UNIQUE,
             destination VARCHAR(255),
@@ -66,8 +74,7 @@ fn create_payments_history_table_sql(for_coin: &str) -> Result<String, SqlError>
             status VARCHAR(255) NOT NULL,
             created_at INTEGER NOT NULL,
             last_updated INTEGER NOT NULL
-        );",
-        table_name
+        );"
     );
 
     Ok(sql)
@@ -81,7 +88,7 @@ fn insert_channel_sql(
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "INSERT INTO {} (
+        "INSERT INTO {table_name} (
             uuid,
             channel_id,
             counterparty_node_id,
@@ -91,8 +98,7 @@ fn insert_channel_sql(
             created_at
         ) VALUES (
             :uuid, :channel_id, :counterparty_node_id, :is_outbound, :is_public, :is_closed, :created_at
-        )",
-        table_name
+        )"
     );
 
     let params = owned_named_params! {
@@ -135,7 +141,7 @@ fn insert_payment_sql(for_coin: &str, payment_info: &PaymentInfo) -> Result<(Str
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "INSERT INTO {} (
+        "INSERT INTO {table_name} (
             payment_hash,
             destination,
             description,
@@ -148,8 +154,7 @@ fn insert_payment_sql(for_coin: &str, payment_info: &PaymentInfo) -> Result<(Str
             last_updated
         ) VALUES (
             :payment_hash, :destination, :description, :preimage, :amount_msat, :fee_paid_msat, :is_outbound, :status, :created_at, :last_updated
-        )",
-        table_name
+        )"
     );
 
     Ok((sql, payment_info_to_owned_named_params(payment_info)))
@@ -160,7 +165,7 @@ fn upsert_payment_sql(for_coin: &str, payment_info: &PaymentInfo) -> Result<(Str
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "INSERT OR REPLACE INTO {} (
+        "INSERT OR REPLACE INTO {table_name} (
             payment_hash,
             destination,
             description,
@@ -173,8 +178,7 @@ fn upsert_payment_sql(for_coin: &str, payment_info: &PaymentInfo) -> Result<(Str
             last_updated
         ) VALUES (
             :payment_hash, :destination, :description, :preimage, :amount_msat, :fee_paid_msat, :is_outbound, :status, :created_at, :last_updated
-        )",
-        table_name
+        )"
     );
 
     Ok((sql, payment_info_to_owned_named_params(payment_info)))
@@ -185,12 +189,11 @@ fn update_payment_preimage_sql(for_coin: &str) -> Result<String, SqlError> {
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "UPDATE {} SET
+        "UPDATE {table_name} SET
             preimage = ?1,
             last_updated = ?2
         WHERE
-            payment_hash = ?3;",
-        table_name
+            payment_hash = ?3;"
     );
 
     Ok(sql)
@@ -201,12 +204,11 @@ fn update_payment_status_sql(for_coin: &str) -> Result<String, SqlError> {
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "UPDATE {} SET
+        "UPDATE {table_name} SET
             status = ?1,
             last_updated = ?2
         WHERE
-            payment_hash = ?3;",
-        table_name
+            payment_hash = ?3;"
     );
 
     Ok(sql)
@@ -217,13 +219,12 @@ fn update_claimable_payment_sql(for_coin: &str) -> Result<String, SqlError> {
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "UPDATE {} SET
+        "UPDATE {table_name} SET
             preimage = ?1,
             status = ?2,
             last_updated = ?3
         WHERE
-            payment_hash = ?4;",
-        table_name
+            payment_hash = ?4;"
     );
 
     Ok(sql)
@@ -234,14 +235,13 @@ fn update_sent_payment_sql(for_coin: &str) -> Result<String, SqlError> {
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "UPDATE {} SET
+        "UPDATE {table_name} SET
             preimage = ?1,
             fee_paid_msat = ?2,
             status = ?3,
             last_updated = ?4
         WHERE
-            payment_hash = ?5;",
-        table_name
+            payment_hash = ?5;"
     );
 
     Ok(sql)
@@ -269,10 +269,9 @@ fn select_channel_by_uuid_sql(for_coin: &str) -> Result<String, SqlError> {
             created_at,
             closed_at
         FROM
-            {}
+            {table_name}
         WHERE
-            uuid=?1",
-        table_name
+            uuid=?1"
     );
 
     Ok(sql)
@@ -295,10 +294,9 @@ fn select_payment_by_hash_sql(for_coin: &str) -> Result<String, SqlError> {
             created_at,
             last_updated
         FROM
-            {}
+            {table_name}
         WHERE
-            payment_hash=?1;",
-        table_name
+            payment_hash=?1;"
     );
 
     Ok(sql)
@@ -355,13 +353,12 @@ fn update_funding_tx_sql(for_coin: &str) -> Result<String, SqlError> {
     validate_table_name(&table_name)?;
 
     let sql = format!(
-        "UPDATE {} SET
+        "UPDATE {table_name} SET
             funding_tx = ?1,
             funding_value = ?2,
             funding_generated_in_block = ?3
         WHERE
-            uuid = ?4;",
-        table_name
+            uuid = ?4;"
     );
 
     Ok(sql)
@@ -371,10 +368,7 @@ fn update_funding_tx_block_height_sql(for_coin: &str) -> Result<String, SqlError
     let table_name = channels_history_table(for_coin);
     validate_table_name(&table_name)?;
 
-    let sql = format!(
-        "UPDATE {} SET funding_generated_in_block = ?1 WHERE funding_tx = ?2;",
-        table_name
-    );
+    let sql = format!("UPDATE {table_name} SET funding_generated_in_block = ?1 WHERE funding_tx = ?2;");
 
     Ok(sql)
 }
@@ -383,10 +377,7 @@ fn update_channel_to_closed_sql(for_coin: &str) -> Result<String, SqlError> {
     let table_name = channels_history_table(for_coin);
     validate_table_name(&table_name)?;
 
-    let sql = format!(
-        "UPDATE {} SET closure_reason = ?1, is_closed = ?2, closed_at = ?3 WHERE uuid = ?4;",
-        table_name
-    );
+    let sql = format!("UPDATE {table_name} SET closure_reason = ?1, is_closed = ?2, closed_at = ?3 WHERE uuid = ?4;");
 
     Ok(sql)
 }
@@ -395,7 +386,7 @@ fn update_closing_tx_sql(for_coin: &str) -> Result<String, SqlError> {
     let table_name = channels_history_table(for_coin);
     validate_table_name(&table_name)?;
 
-    let sql = format!("UPDATE {} SET closing_tx = ?1 WHERE uuid = ?2;", table_name);
+    let sql = format!("UPDATE {table_name} SET closing_tx = ?1 WHERE uuid = ?2;");
 
     Ok(sql)
 }
@@ -470,7 +461,7 @@ fn apply_get_channels_filter<'a>(
     }
 
     if let Some(closure_reason) = &filter.closure_reason {
-        builder.and_where(format!("closure_reason LIKE '%{}%'", closure_reason));
+        builder.and_where(format!("closure_reason LIKE '%{closure_reason}%'"));
     }
 
     if let Some(claiming_tx) = &filter.claiming_tx {
@@ -549,7 +540,7 @@ fn apply_get_payments_filter<'a>(
     }
 
     if let Some(description) = &filter.description {
-        builder.and_where(format!("description LIKE '%{}%'", description));
+        builder.and_where(format!("description LIKE '%{description}%'"));
     }
 
     if let Some(status) = &filter.status {
@@ -592,10 +583,7 @@ fn update_claiming_tx_sql(for_coin: &str) -> Result<String, SqlError> {
     let table_name = channels_history_table(for_coin);
     validate_table_name(&table_name)?;
 
-    let sql = format!(
-        "UPDATE {} SET claiming_tx = ?1, claimed_balance = ?2 WHERE closing_tx = ?3;",
-        table_name
-    );
+    let sql = format!("UPDATE {table_name} SET claiming_tx = ?1, claimed_balance = ?2 WHERE closing_tx = ?3;");
 
     Ok(sql)
 }
@@ -607,11 +595,14 @@ pub struct SqliteLightningDB {
 }
 
 impl SqliteLightningDB {
-    pub fn new(ticker: String, sqlite_connection: SqliteConnShared) -> Self {
-        Self {
-            db_ticker: ticker.replace('-', "_"),
+    pub fn new(ticker: String, sqlite_connection: SqliteConnShared) -> Result<Self, SqlError> {
+        let db_ticker = ticker.replace('-', "_");
+        validate_table_name(&db_ticker)?;
+
+        Ok(Self {
+            db_ticker,
             sqlite_connection,
-        }
+        })
     }
 }
 
@@ -626,8 +617,8 @@ impl LightningDB for SqliteLightningDB {
         let sql_payments_history = create_payments_history_table_sql(self.db_ticker.as_str())?;
         async_blocking(move || {
             let conn = sqlite_connection.lock().unwrap();
-            conn.execute(&sql_channels_history, NO_PARAMS).map(|_| ())?;
-            conn.execute(&sql_payments_history, NO_PARAMS).map(|_| ())?;
+            conn.execute(&sql_channels_history, []).map(|_| ())?;
+            conn.execute(&sql_payments_history, []).map(|_| ())?;
             Ok(())
         })
         .await
@@ -803,7 +794,7 @@ impl LightningDB for SqliteLightningDB {
             let mut total_builder = sql_builder.clone();
             total_builder.count("id");
             let total_sql = total_builder.sql().expect("valid sql");
-            let total: isize = conn.query_row(&total_sql, NO_PARAMS, |row| row.get(0))?;
+            let total: isize = conn.query_row(&total_sql, [], |row| row.get(0))?;
             let total = total.try_into().expect("count should be always above zero");
 
             let offset = match paging {
@@ -988,7 +979,7 @@ impl LightningDB for SqliteLightningDB {
             let mut total_builder = sql_builder.clone();
             total_builder.count("id");
             let total_sql = total_builder.sql().expect("valid sql");
-            let total: isize = conn.query_row(&total_sql, NO_PARAMS, |row| row.get(0))?;
+            let total: isize = conn.query_row(&total_sql, [], |row| row.get(0))?;
             let total = total.try_into().expect("count should be always above zero");
 
             let offset = match paging {
@@ -1045,7 +1036,7 @@ mod tests {
     use super::*;
     use crate::lightning::ln_db::DBChannelDetails;
     use common::{block_on, new_uuid};
-    use db_common::sqlite::rusqlite::Connection;
+    use db_common::sqlite::rusqlite::{self, Connection};
     use rand::distributions::Alphanumeric;
     use rand::{Rng, RngCore};
     use secp256k1v24::{Secp256k1, SecretKey};
@@ -1054,7 +1045,7 @@ mod tests {
 
     fn generate_random_channels(num: u64) -> Vec<DBChannelDetails> {
         let mut rng = rand::thread_rng();
-        let mut channels = vec![];
+        let mut channels = Vec::with_capacity(num.try_into().expect("Shouldn't overflow."));
         let s = Secp256k1::new();
         let mut bytes = [0; 32];
         for _i in 0..num {
@@ -1079,14 +1070,7 @@ mod tests {
                     rng.fill_bytes(&mut bytes);
                     Some(hex::encode(bytes))
                 },
-                closure_reason: {
-                    Some(
-                        rng.sample_iter(&Alphanumeric)
-                            .take(30)
-                            .map(char::from)
-                            .collect::<String>(),
-                    )
-                },
+                closure_reason: { Some(rng.sample_iter(&Alphanumeric).take(30).collect::<String>()) },
                 claiming_tx: {
                     rng.fill_bytes(&mut bytes);
                     Some(hex::encode(bytes))
@@ -1106,7 +1090,7 @@ mod tests {
 
     fn generate_random_payments(num: u64) -> Vec<PaymentInfo> {
         let mut rng = rand::thread_rng();
-        let mut payments = vec![];
+        let mut payments = Vec::with_capacity(num.try_into().expect("Shouldn't overflow."));
         let s = Secp256k1::new();
         let mut bytes = [0; 32];
         for _ in 0..num {
@@ -1120,14 +1104,14 @@ mod tests {
                 PaymentType::InboundPayment
             };
             let status_rng: u8 = rng.gen();
-            let status = if status_rng % 3 == 0 {
+            let status = if status_rng.is_multiple_of(3) {
                 HTLCStatus::Succeeded
             } else if status_rng % 3 == 1 {
                 HTLCStatus::Pending
             } else {
                 HTLCStatus::Failed
             };
-            let description: String = rng.sample_iter(&Alphanumeric).take(30).map(char::from).collect();
+            let description: String = rng.sample_iter(&Alphanumeric).take(30).collect();
             let info = PaymentInfo {
                 payment_hash: {
                     rng.fill_bytes(&mut bytes);
@@ -1155,7 +1139,8 @@ mod tests {
         let db = SqliteLightningDB::new(
             "init_sql_collection".into(),
             Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
-        );
+        )
+        .unwrap();
         let initialized = block_on(db.is_db_initialized()).unwrap();
         assert!(!initialized);
 
@@ -1172,7 +1157,8 @@ mod tests {
         let db = SqliteLightningDB::new(
             "add_get_channel".into(),
             Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
-        );
+        )
+        .unwrap();
 
         block_on(db.init_db()).unwrap();
 
@@ -1280,7 +1266,8 @@ mod tests {
         let db = SqliteLightningDB::new(
             "add_get_payment".into(),
             Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
-        );
+        )
+        .unwrap();
 
         block_on(db.init_db()).unwrap();
 
@@ -1369,7 +1356,8 @@ mod tests {
         let db = SqliteLightningDB::new(
             "test_get_payments_by_filter".into(),
             Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
-        );
+        )
+        .unwrap();
 
         block_on(db.init_db()).unwrap();
 
@@ -1433,12 +1421,13 @@ mod tests {
         let result = block_on(db.get_payments_by_filter(Some(filter.clone()), paging.clone(), limit)).unwrap();
         let expected_payments_vec: Vec<PaymentInfo> = payments
             .iter()
+            .filter(|&p| p.payment_type == PaymentType::InboundPayment)
             .cloned()
-            .filter(|p| p.payment_type == PaymentType::InboundPayment)
             .collect();
         let expected_payments = if expected_payments_vec.len() > 10 {
             expected_payments_vec[..10].to_vec()
         } else {
+            #[allow(clippy::redundant_clone)] // This is a false-possitive bug from clippy
             expected_payments_vec.clone()
         };
         let actual_payments = result.payments;
@@ -1449,8 +1438,8 @@ mod tests {
         let result = block_on(db.get_payments_by_filter(Some(filter.clone()), paging.clone(), limit)).unwrap();
         let expected_payments_vec: Vec<PaymentInfo> = expected_payments_vec
             .iter()
+            .filter(|&p| p.status == HTLCStatus::Succeeded)
             .cloned()
-            .filter(|p| p.status == HTLCStatus::Succeeded)
             .collect();
         let expected_payments = if expected_payments_vec.len() > 10 {
             expected_payments_vec[..10].to_vec()
@@ -1470,8 +1459,8 @@ mod tests {
         let result = block_on(db.get_payments_by_filter(Some(filter), paging, limit)).unwrap();
         let expected_payments_vec: Vec<PaymentInfo> = payments
             .iter()
+            .filter(|&p| p.description.contains(substr))
             .cloned()
-            .filter(|p| p.description.contains(substr))
             .collect();
         let expected_payments = if expected_payments_vec.len() > 10 {
             expected_payments_vec[..10].to_vec()
@@ -1484,11 +1473,47 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_lightning_db_name() {
+        let db = SqliteLightningDB::new("123".into(), Mutex::new(Connection::open_in_memory().unwrap()).into());
+
+        let expected = || {
+            SqlError::SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: rusqlite::ErrorCode::ApiMisuse,
+                    extended_code: rusqlite::ffi::SQLITE_MISUSE,
+                },
+                None,
+            )
+        };
+
+        assert_eq!(db.err(), Some(expected()));
+
+        let db = SqliteLightningDB::new(
+            "t".repeat(u8::MAX as usize + 1),
+            Mutex::new(Connection::open_in_memory().unwrap()).into(),
+        );
+
+        assert_eq!(db.err(), Some(expected()));
+
+        let db = SqliteLightningDB::new(
+            "PROCEDURE".to_owned(),
+            Mutex::new(Connection::open_in_memory().unwrap()).into(),
+        );
+
+        assert_eq!(db.err(), Some(expected()));
+
+        let db = SqliteLightningDB::new(String::new(), Mutex::new(Connection::open_in_memory().unwrap()).into());
+
+        assert_eq!(db.err(), Some(expected()));
+    }
+
+    #[test]
     fn test_get_channels_by_filter() {
         let db = SqliteLightningDB::new(
             "test_get_channels_by_filter".into(),
             Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
-        );
+        )
+        .unwrap();
 
         block_on(db.init_db()).unwrap();
 
@@ -1562,10 +1587,11 @@ mod tests {
 
         let result = block_on(db.get_closed_channels_by_filter(Some(filter.clone()), paging.clone(), limit)).unwrap();
         let expected_channels_vec: Vec<DBChannelDetails> =
-            channels.iter().cloned().filter(|chan| chan.is_outbound).collect();
+            channels.iter().filter(|&chan| chan.is_outbound).cloned().collect();
         let expected_channels = if expected_channels_vec.len() > 10 {
             expected_channels_vec[..10].to_vec()
         } else {
+            #[allow(clippy::redundant_clone)] // This is a false-possitive bug from clippy
             expected_channels_vec.clone()
         };
         let actual_channels = result.channels;
@@ -1576,8 +1602,8 @@ mod tests {
         let result = block_on(db.get_closed_channels_by_filter(Some(filter.clone()), paging.clone(), limit)).unwrap();
         let expected_channels_vec: Vec<DBChannelDetails> = expected_channels_vec
             .iter()
+            .filter(|&chan| chan.is_public)
             .cloned()
-            .filter(|chan| chan.is_public)
             .collect();
         let expected_channels = if expected_channels_vec.len() > 10 {
             expected_channels_vec[..10].to_vec()
@@ -1595,8 +1621,8 @@ mod tests {
         let result = block_on(db.get_closed_channels_by_filter(Some(filter), paging, limit)).unwrap();
         let expected_channels_vec: Vec<DBChannelDetails> = channels
             .iter()
+            .filter(|&chan| chan.channel_id == channel_id)
             .cloned()
-            .filter(|chan| chan.channel_id == channel_id)
             .collect();
         let expected_channels = if expected_channels_vec.len() > 10 {
             expected_channels_vec[..10].to_vec()

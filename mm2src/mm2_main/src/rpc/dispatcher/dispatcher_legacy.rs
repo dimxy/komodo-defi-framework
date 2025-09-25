@@ -1,5 +1,6 @@
 use super::PUBLIC_METHODS;
 use common::HyRes;
+use derive_more::Display;
 use futures::compat::Future01CompatExt;
 use futures::{Future as Future03, FutureExt, TryFutureExt};
 use http::Response;
@@ -7,24 +8,28 @@ use mm2_core::mm_ctx::MmArc;
 use serde_json::{self as json, Value as Json};
 use std::net::SocketAddr;
 
-use super::lp_commands_legacy::*;
-use crate::mm2::lp_ordermatch::{best_orders_rpc, buy, cancel_all_orders_rpc, cancel_order_rpc, my_orders,
-                                order_status, orderbook_depth_rpc, orderbook_rpc, orders_history_by_filter, sell,
-                                set_price, update_maker_order_rpc};
-use crate::mm2::lp_swap::{active_swaps_rpc, all_swaps_uuids_by_filter, ban_pubkey_rpc, coins_needed_for_kick_start,
-                          import_swaps, list_banned_pubkeys_rpc, max_taker_vol, my_recent_swaps_rpc, my_swap_status,
-                          recover_funds_of_swap, stats_swap_status, unban_pubkeys_rpc};
-use crate::mm2::rpc::rate_limiter::{process_rate_limit, RateLimitContext};
-use coins::{convert_address, convert_utxo_address, get_enabled_coins, get_trade_fee, kmd_rewards_info, my_tx_history,
-            send_raw_transaction, set_required_confirmations, set_requires_notarization, show_priv_key,
-            validate_address};
+use super::lp_commands::legacy::*;
+use crate::lp_ordermatch::{
+    best_orders_rpc, buy, cancel_all_orders_rpc, cancel_order_rpc, my_orders, order_status, orderbook_depth_rpc,
+    orderbook_rpc, orders_history_by_filter, sell, set_price, update_maker_order_rpc,
+};
+use crate::lp_swap::{
+    active_swaps_rpc, all_swaps_uuids_by_filter, ban_pubkey_rpc, coins_needed_for_kick_start, import_swaps,
+    list_banned_pubkeys_rpc, max_taker_vol, my_recent_swaps_rpc, my_swap_status, recover_funds_of_swap,
+    stats_swap_status, unban_pubkeys_rpc,
+};
+use crate::rpc::rate_limiter::{process_rate_limit, RateLimitContext};
+use coins::{
+    convert_address, convert_utxo_address, get_enabled_coins, get_trade_fee, kmd_rewards_info, my_tx_history,
+    send_raw_transaction, set_required_confirmations, set_requires_notarization, show_priv_key, validate_address,
+};
 
 /// Result of `fn dispatcher`.
 pub enum DispatcherRes {
     /// `fn dispatcher` has found a Rust handler for the RPC "method".
     Match(HyRes),
     /// No handler found by `fn dispatcher`. Returning the `Json` request in order for it to be handled elsewhere.
-    NoMatch(Json),
+    NoMatch,
 }
 
 async fn auth(json: &Json, ctx: &MmArc, client: &SocketAddr) -> Result<(), String> {
@@ -54,7 +59,7 @@ fn hyres(handler: impl Future03<Output = Result<Response<Vec<u8>>, String>> + Se
 pub fn dispatcher(req: Json, ctx: MmArc) -> DispatcherRes {
     let method = match req["method"].clone() {
         Json::String(method) => method,
-        _ => return DispatcherRes::NoMatch(req),
+        _ => return DispatcherRes::NoMatch,
     };
     DispatcherRes::Match(match &method[..] {
         // Sorted alphanumerically (on the first latter) for readability.
@@ -73,11 +78,11 @@ pub fn dispatcher(req: Json, ctx: MmArc) -> DispatcherRes {
         "electrum" => hyres(electrum(ctx, req)),
         "enable" => hyres(enable(ctx, req)),
         "get_enabled_coins" => hyres(get_enabled_coins(ctx)),
+        "get_directly_connected_peers" => hyres(get_directly_connected_peers(ctx)),
         "get_gossip_mesh" => hyres(get_gossip_mesh(ctx)),
         "get_gossip_peer_topics" => hyres(get_gossip_peer_topics(ctx)),
         "get_gossip_topic_peers" => hyres(get_gossip_topic_peers(ctx)),
         "get_my_peer_id" => hyres(get_my_peer_id(ctx)),
-        "get_peers_info" => hyres(get_peers_info(ctx)),
         "get_relay_mesh" => hyres(get_relay_mesh(ctx)),
         "get_trade_fee" => hyres(get_trade_fee(ctx, req)),
         // "fundvalue" => lp_fundvalue (ctx, req, false),
@@ -98,7 +103,6 @@ pub fn dispatcher(req: Json, ctx: MmArc) -> DispatcherRes {
         "order_status" => hyres(order_status(ctx, req)),
         "orderbook" => hyres(orderbook_rpc(ctx, req)),
         "orderbook_depth" => hyres(orderbook_depth_rpc(ctx, req)),
-        "sim_panic" => hyres(sim_panic(req)),
         "recover_funds_of_swap" => hyres(recover_funds_of_swap(ctx, req)),
         "sell" => hyres(sell(ctx, req)),
         "show_priv_key" => hyres(show_priv_key(ctx, req)),
@@ -114,8 +118,18 @@ pub fn dispatcher(req: Json, ctx: MmArc) -> DispatcherRes {
         "validateaddress" => hyres(validate_address(ctx, req)),
         "version" => version(ctx),
         "withdraw" => hyres(into_legacy::withdraw(ctx, req)),
-        _ => return DispatcherRes::NoMatch(req),
+        _ => return DispatcherRes::NoMatch,
     })
+}
+
+#[derive(Debug, Display)]
+pub enum LegacyRequestProcessError {
+    #[display(fmt = "Selected method is not allowed: {reason}")]
+    NotAllowed { reason: String },
+    #[display(fmt = "No such method")]
+    NoMatch,
+    #[display(fmt = "RPC call failed: {reason}")]
+    Failed { reason: String },
 }
 
 pub async fn process_single_request(
@@ -123,28 +137,40 @@ pub async fn process_single_request(
     req: Json,
     client: SocketAddr,
     local_only: bool,
-) -> Result<Response<Vec<u8>>, String> {
+) -> Result<Response<Vec<u8>>, LegacyRequestProcessError> {
     // https://github.com/artemii235/SuperNET/issues/368
     if local_only && !client.ip().is_loopback() && !PUBLIC_METHODS.contains(&req["method"].as_str()) {
-        return ERR!("Selected method can be called from localhost only!");
+        return Err(LegacyRequestProcessError::NotAllowed {
+            reason: "Selected method can only be called from localhost.".to_owned(),
+        });
     }
     let rate_limit_ctx = RateLimitContext::from_ctx(&ctx).unwrap();
     if rate_limit_ctx.is_banned(client.ip()).await {
-        return ERR!("Your ip is banned.");
+        return Err(LegacyRequestProcessError::NotAllowed {
+            reason: "Your IP is banned.".to_owned(),
+        });
     }
-    try_s!(auth(&req, &ctx, &client).await);
+    auth(&req, &ctx, &client)
+        .await
+        .map_err(|reason| LegacyRequestProcessError::Failed { reason })?;
 
     let handler = match dispatcher(req, ctx.clone()) {
         DispatcherRes::Match(handler) => handler,
-        DispatcherRes::NoMatch(_) => return ERR!("No such method."),
+        DispatcherRes::NoMatch => {
+            return Err(LegacyRequestProcessError::NoMatch);
+        },
     };
-    Ok(try_s!(handler.compat().await))
+
+    handler
+        .compat()
+        .await
+        .map_err(|reason| LegacyRequestProcessError::Failed { reason })
 }
 
 /// The set of functions that convert the result of the updated handlers into the legacy format.
 mod into_legacy {
     use super::*;
-    use crate::mm2::lp_swap;
+    use crate::lp_swap;
 
     pub async fn withdraw(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, String> {
         let params = try_s!(json::from_value(req));

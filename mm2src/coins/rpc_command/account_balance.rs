@@ -1,13 +1,11 @@
 use crate::coin_balance::HDAddressBalance;
-use crate::hd_wallet::HDWalletCoinOps;
 use crate::rpc_command::hd_account_balance_rpc_error::HDAccountBalanceRpcError;
-use crate::{lp_coinfind_or_err, CoinBalance, CoinWithDerivationMethod, MmCoinEnum};
+use crate::{lp_coinfind_or_err, CoinBalance, CoinBalanceMap, CoinWithDerivationMethod, MmCoinEnum};
 use async_trait::async_trait;
 use common::PagingOptionsEnum;
 use crypto::{Bip44Chain, RpcDerivationPath};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
-use std::fmt;
 
 #[derive(Deserialize)]
 pub struct HDAccountBalanceRequest {
@@ -27,11 +25,12 @@ pub struct AccountBalanceParams {
 }
 
 #[derive(Debug, PartialEq, Serialize)]
-pub struct HDAccountBalanceResponse {
+pub struct HDAccountBalanceResponse<BalanceObject> {
     pub account_index: u32,
     pub derivation_path: RpcDerivationPath,
-    pub addresses: Vec<HDAddressBalance>,
-    pub page_balance: CoinBalance,
+    pub addresses: Vec<HDAddressBalance<BalanceObject>>,
+    // Todo: Add option to get total balance of all addresses in addition to page_balance
+    pub page_balance: BalanceObject,
     pub limit: usize,
     pub skipped: u32,
     pub total: u32,
@@ -39,47 +38,67 @@ pub struct HDAccountBalanceResponse {
     pub paging_options: PagingOptionsEnum<u32>,
 }
 
+/// Enum for the response of the `account_balance` RPC command.
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum HDAccountBalanceResponseEnum {
+    Single(HDAccountBalanceResponse<CoinBalance>),
+    Map(HDAccountBalanceResponse<CoinBalanceMap>),
+}
+
+/// Trait for the `account_balance` RPC command.
 #[async_trait]
 pub trait AccountBalanceRpcOps {
+    type BalanceObject;
+
     async fn account_balance_rpc(
         &self,
         params: AccountBalanceParams,
-    ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError>;
+    ) -> MmResult<HDAccountBalanceResponse<Self::BalanceObject>, HDAccountBalanceRpcError>;
 }
 
+/// `account_balance` RPC command implementation.
 pub async fn account_balance(
     ctx: MmArc,
     req: HDAccountBalanceRequest,
-) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError> {
-    match lp_coinfind_or_err(&ctx, &req.coin).await? {
-        MmCoinEnum::UtxoCoin(utxo) => utxo.account_balance_rpc(req.params).await,
-        MmCoinEnum::QtumCoin(qtum) => qtum.account_balance_rpc(req.params).await,
+) -> MmResult<HDAccountBalanceResponseEnum, HDAccountBalanceRpcError> {
+    match lp_coinfind_or_err(&ctx, &req.coin).await.map_mm_err()? {
+        MmCoinEnum::UtxoCoin(utxo) => Ok(HDAccountBalanceResponseEnum::Map(
+            utxo.account_balance_rpc(req.params).await?,
+        )),
+        MmCoinEnum::QtumCoin(qtum) => Ok(HDAccountBalanceResponseEnum::Map(
+            qtum.account_balance_rpc(req.params).await?,
+        )),
+        MmCoinEnum::EthCoin(eth) => Ok(HDAccountBalanceResponseEnum::Map(
+            eth.account_balance_rpc(req.params).await?,
+        )),
         _ => MmError::err(HDAccountBalanceRpcError::CoinIsActivatedNotWithHDWallet),
     }
 }
 
 pub mod common_impl {
     use super::*;
-    use crate::coin_balance::HDWalletBalanceOps;
+    use crate::coin_balance::{BalanceObjectOps, HDWalletBalanceObject, HDWalletBalanceOps};
     use crate::hd_wallet::{HDAccountOps, HDWalletOps};
     use common::calc_total_pages;
 
+    /// Common implementation for the `account_balance` RPC command.
     pub async fn account_balance_rpc<Coin>(
         coin: &Coin,
         params: AccountBalanceParams,
-    ) -> MmResult<HDAccountBalanceResponse, HDAccountBalanceRpcError>
+    ) -> MmResult<HDAccountBalanceResponse<HDWalletBalanceObject<Coin>>, HDAccountBalanceRpcError>
     where
-        Coin: HDWalletBalanceOps + CoinWithDerivationMethod<HDWallet = <Coin as HDWalletCoinOps>::HDWallet> + Sync,
-        <Coin as HDWalletCoinOps>::Address: fmt::Display + Clone,
+        Coin: HDWalletBalanceOps + CoinWithDerivationMethod + Sync,
     {
         let account_id = params.account_index;
         let hd_account = coin
             .derivation_method()
-            .hd_wallet_or_err()?
+            .hd_wallet_or_err()
+            .map_mm_err()?
             .get_account(account_id)
             .await
             .or_mm_err(|| HDAccountBalanceRpcError::UnknownAccount { account_id })?;
-        let total_addresses_number = hd_account.known_addresses_number(params.chain)?;
+        let total_addresses_number = hd_account.known_addresses_number(params.chain).map_mm_err()?;
 
         let from_address_id = match params.paging_options {
             PagingOptionsEnum::FromId(from_address_id) => from_address_id + 1,
@@ -89,10 +108,15 @@ pub mod common_impl {
 
         let addresses = coin
             .known_addresses_balances_with_ids(&hd_account, params.chain, from_address_id..to_address_id)
-            .await?;
-        let page_balance = addresses.iter().fold(CoinBalance::default(), |total, addr_balance| {
-            total + addr_balance.balance.clone()
-        });
+            .await
+            .map_mm_err()?;
+
+        let page_balance = addresses
+            .iter()
+            .fold(HDWalletBalanceObject::<Coin>::new(), |mut total, addr_balance| {
+                total.add(addr_balance.balance.clone());
+                total
+            });
 
         let result = HDAccountBalanceResponse {
             account_index: account_id,

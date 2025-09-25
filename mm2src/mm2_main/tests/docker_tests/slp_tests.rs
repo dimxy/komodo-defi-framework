@@ -2,9 +2,11 @@ use crate::docker_tests::docker_tests_common::*;
 use crate::integration_tests_common::enable_native;
 use http::StatusCode;
 use mm2_number::BigDecimal;
-use mm2_test_helpers::for_tests::{assert_coin_not_found_on_balance, disable_coin, enable_bch_with_tokens, enable_slp,
-                                  my_balance, UtxoRpcMode};
-use mm2_test_helpers::structs::{EnableBchWithTokensResponse, EnableElectrumResponse, EnableSlpResponse, RpcV2Response};
+use mm2_rpc::data::legacy::CoinInitResponse;
+use mm2_test_helpers::for_tests::{
+    assert_coin_not_found_on_balance, disable_coin, enable_bch_with_tokens, enable_slp, my_balance, UtxoRpcMode,
+};
+use mm2_test_helpers::structs::{EnableBchWithTokensResponse, EnableSlpResponse, RpcV2Response};
 use serde_json::{self as json, json, Value as Json};
 use std::collections::HashSet;
 use std::time::Duration;
@@ -45,10 +47,14 @@ async fn enable_bch_with_tokens_without_balance(
 }
 
 #[test]
-fn trade_test_with_maker_slp() { trade_base_rel(("ADEXSLP", "FORSLP")); }
+fn trade_test_with_maker_slp() {
+    trade_base_rel(("ADEXSLP", "FORSLP"));
+}
 
 #[test]
-fn trade_test_with_taker_slp() { trade_base_rel(("FORSLP", "ADEXSLP")); }
+fn trade_test_with_taker_slp() {
+    trade_base_rel(("FORSLP", "ADEXSLP"));
+}
 
 #[test]
 fn test_bch_and_slp_balance() {
@@ -56,7 +62,7 @@ fn test_bch_and_slp_balance() {
     let mm = slp_supplied_node();
 
     let enable_bch = block_on(enable_native_bch(&mm, "FORSLP", &[]));
-    let enable_bch: EnableElectrumResponse = json::from_value(enable_bch).unwrap();
+    let enable_bch: CoinInitResponse = json::from_value(enable_bch).unwrap();
 
     let expected_spendable = BigDecimal::from(1000);
     assert_eq!(expected_spendable, enable_bch.balance);
@@ -69,7 +75,7 @@ fn test_bch_and_slp_balance() {
     assert_eq!(expected_spendable, bch_balance.balance);
     assert_eq!(expected_unspendable, bch_balance.unspendable_balance);
 
-    let enable_slp = block_on(enable_native(&mm, "ADEXSLP", &[]));
+    let enable_slp = block_on(enable_native(&mm, "ADEXSLP", &[], None));
 
     let expected_spendable = BigDecimal::from(1000);
     assert_eq!(expected_spendable, enable_slp.balance);
@@ -89,7 +95,7 @@ fn test_bch_and_slp_balance_enable_slp_v2() {
     let mm = slp_supplied_node();
 
     let enable_bch = block_on(enable_native_bch(&mm, "FORSLP", &[]));
-    let enable_bch: EnableElectrumResponse = json::from_value(enable_bch).unwrap();
+    let enable_bch: CoinInitResponse = json::from_value(enable_bch).unwrap();
 
     let expected_spendable = BigDecimal::from(1000);
     assert_eq!(expected_spendable, enable_bch.balance);
@@ -131,6 +137,7 @@ fn test_bch_and_slp_balance_enable_bch_with_tokens_v2() {
         &["ADEXSLP"],
         UtxoRpcMode::Native,
         tx_history,
+        None,
     ));
     let enable_bch_with_tokens: RpcV2Response<EnableBchWithTokensResponse> =
         json::from_value(enable_bch_with_tokens).unwrap();
@@ -209,7 +216,7 @@ fn test_withdraw_bch_max_must_not_spend_slp() {
     let mm = slp_supplied_node();
 
     block_on(enable_native_bch(&mm, "FORSLP", &[]));
-    block_on(enable_native(&mm, "ADEXSLP", &[]));
+    block_on(enable_native(&mm, "ADEXSLP", &[], None));
 
     withdraw_max_and_send_v1(&mm, "FORSLP", &utxo_burn_address().to_string());
     thread::sleep(Duration::from_secs(1));
@@ -236,6 +243,7 @@ fn test_disable_platform_coin_with_tokens() {
         &["ADEXSLP"],
         UtxoRpcMode::Native,
         false,
+        None,
     ));
     // Try to disable ADEXSLP token.
     let res = block_on(disable_coin(&mm, "ADEXSLP", false));
@@ -255,6 +263,7 @@ fn test_disable_platform_coin_with_tokens() {
         &["ADEXSLP"],
         UtxoRpcMode::Native,
         false,
+        None,
     ));
 
     // Try to force disable platform coin, FORSLP.

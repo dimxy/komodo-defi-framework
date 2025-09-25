@@ -21,7 +21,7 @@ where
     ///
     /// ```rust
     /// let fut = futures01::future::err("An error".to_owned());
-    /// let mapped_res: Result<(), MmError<usize>> = fut.map_to_mm_fut(|e| e.len()).wait();
+    /// let mapped_res: Result<(), MmError<usize>> = block_on_f01(fut.map_to_mm_fut(|e| e.len()));
     /// ```
     #[track_caller]
     fn map_to_mm_fut<F>(self, f: F) -> MapToMmFuture<'a, T, E1, E2>
@@ -43,7 +43,7 @@ pub struct MapToMmFuture<'a, T, E1: NotMmError, E2: NotMmError> {
     closure: Option<Box<dyn FnOnce(E1) -> E2 + Send + 'a>>,
 }
 
-impl<'a, T, E1: NotMmError, E2: NotMmError> Future for MapToMmFuture<'a, T, E1, E2> {
+impl<T, E1: NotMmError, E2: NotMmError> Future for MapToMmFuture<'_, T, E1, E2> {
     type Item = T;
     type Error = MmError<E2>;
 

@@ -1,6 +1,6 @@
-use crate::mm2::lp_native_dex::init_hw::InitHwTaskManagerShared;
+use crate::lp_native_dex::init_hw::InitHwTaskManagerShared;
 #[cfg(target_arch = "wasm32")]
-use crate::mm2::lp_native_dex::init_metamask::InitMetamaskManagerShared;
+use crate::lp_native_dex::init_metamask::InitMetamaskManagerShared;
 use mm2_core::mm_ctx::{from_ctx, MmArc};
 use rpc_task::RpcTaskManager;
 use std::sync::Arc;
@@ -16,9 +16,9 @@ impl MmInitContext {
     pub fn from_ctx(ctx: &MmArc) -> Result<Arc<MmInitContext>, String> {
         from_ctx(&ctx.mm_init_ctx, move || {
             Ok(MmInitContext {
-                init_hw_task_manager: RpcTaskManager::new_shared(),
+                init_hw_task_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
                 #[cfg(target_arch = "wasm32")]
-                init_metamask_manager: RpcTaskManager::new_shared(),
+                init_metamask_manager: RpcTaskManager::new_shared(ctx.event_stream_manager.clone()),
             })
         })
     }

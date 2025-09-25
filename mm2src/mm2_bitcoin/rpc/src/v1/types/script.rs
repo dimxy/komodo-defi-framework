@@ -13,13 +13,17 @@ pub enum ScriptType {
     NullData,
     WitnessScript,
     WitnessKey,
+    Taproot,
     // Qtum specific
     CallSender,
     CreateSender,
     Call,
     Create,
     LelantusMint,
+    SparkMint,
     ColdStaking,
+    // Komodo smart chains specific
+    CryptoCondition,
 }
 
 impl From<GlobalScriptType> for ScriptType {
@@ -33,11 +37,13 @@ impl From<GlobalScriptType> for ScriptType {
             GlobalScriptType::NullData => ScriptType::NullData,
             GlobalScriptType::WitnessScript => ScriptType::WitnessScript,
             GlobalScriptType::WitnessKey => ScriptType::WitnessKey,
+            GlobalScriptType::Taproot => ScriptType::Taproot,
             GlobalScriptType::CallSender => ScriptType::CallSender,
             GlobalScriptType::CreateSender => ScriptType::CreateSender,
             GlobalScriptType::Call => ScriptType::Call,
             GlobalScriptType::Create => ScriptType::Create,
             GlobalScriptType::ColdStaking => ScriptType::ColdStaking,
+            GlobalScriptType::CryptoCondition => ScriptType::CryptoCondition,
         }
     }
 }
@@ -56,12 +62,15 @@ impl Serialize for ScriptType {
             ScriptType::NullData => "nulldata".serialize(serializer),
             ScriptType::WitnessScript => "witness_v0_scripthash".serialize(serializer),
             ScriptType::WitnessKey => "witness_v0_keyhash".serialize(serializer),
+            ScriptType::Taproot => "witness_v1_taproot".serialize(serializer),
             ScriptType::CallSender => "call_sender".serialize(serializer),
             ScriptType::CreateSender => "create_sender".serialize(serializer),
             ScriptType::Call => "call".serialize(serializer),
             ScriptType::Create => "create".serialize(serializer),
             ScriptType::LelantusMint => "lelantusmint".serialize(serializer),
+            ScriptType::SparkMint => "sparksmint".serialize(serializer),
             ScriptType::ColdStaking => "cold_staking".serialize(serializer),
+            ScriptType::CryptoCondition => "cryptocondition".serialize(serializer),
         }
     }
 }
@@ -75,10 +84,12 @@ impl<'a> Deserialize<'a> for ScriptType {
 
         struct ScriptTypeVisitor;
 
-        impl<'b> Visitor<'b> for ScriptTypeVisitor {
+        impl Visitor<'_> for ScriptTypeVisitor {
             type Value = ScriptType;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("script type") }
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("script type")
+            }
 
             fn visit_str<E>(self, value: &str) -> Result<ScriptType, E>
             where
@@ -93,12 +104,15 @@ impl<'a> Deserialize<'a> for ScriptType {
                     "nulldata" => Ok(ScriptType::NullData),
                     "witness_v0_scripthash" => Ok(ScriptType::WitnessScript),
                     "witness_v0_keyhash" => Ok(ScriptType::WitnessKey),
+                    "witness_v1_taproot" => Ok(ScriptType::Taproot),
                     "call_sender" => Ok(ScriptType::CallSender),
                     "create_sender" => Ok(ScriptType::CreateSender),
                     "call" => Ok(ScriptType::Call),
                     "create" => Ok(ScriptType::Create),
                     "lelantusmint" => Ok(ScriptType::LelantusMint),
+                    "sparksmint" => Ok(ScriptType::SparkMint),
                     "cold_staking" => Ok(ScriptType::ColdStaking),
+                    "cryptocondition" => Ok(ScriptType::CryptoCondition),
                     _ => Err(E::invalid_value(Unexpected::Str(value), &self)),
                 }
             }
@@ -151,6 +165,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&ScriptType::ColdStaking).unwrap(),
             r#""cold_staking""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ScriptType::CryptoCondition).unwrap(),
+            r#""cryptocondition""#
         );
     }
 
@@ -207,6 +225,10 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<ScriptType>(r#""cold_staking""#).unwrap(),
             ScriptType::ColdStaking
+        );
+        assert_eq!(
+            serde_json::from_str::<ScriptType>(r#""cryptocondition""#).unwrap(),
+            ScriptType::CryptoCondition
         );
     }
 }

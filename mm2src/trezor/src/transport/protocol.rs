@@ -1,5 +1,7 @@
 //! This file is inspired by https://github.com/tezedge/tezedge-client/blob/master/trezor_api/src/transport/protocol.rs
 
+use std::convert::TryFrom;
+
 use crate::proto::messages::MessageType;
 use crate::proto::ProtoMessage;
 use crate::{TrezorError, TrezorResult};
@@ -34,16 +36,22 @@ pub struct ProtocolV1<L: Link> {
 
 #[cfg(target_arch = "wasm32")]
 impl<L: Link> ProtocolV1<L> {
-    pub(crate) fn link(&self) -> &L { &self.link }
+    pub(crate) fn link(&self) -> &L {
+        &self.link
+    }
 }
 
 #[async_trait]
 impl<L: Link + Send> Protocol for ProtocolV1<L> {
     /// Protocol V1 doesn't support sessions.
-    async fn session_begin(&mut self) -> TrezorResult<()> { Ok(()) }
+    async fn session_begin(&mut self) -> TrezorResult<()> {
+        Ok(())
+    }
 
     /// Protocol V1 doesn't support sessions.
-    async fn session_end(&mut self) -> TrezorResult<()> { Ok(()) }
+    async fn session_end(&mut self) -> TrezorResult<()> {
+        Ok(())
+    }
 
     async fn write(&mut self, message: ProtoMessage) -> TrezorResult<()> {
         // First generate the total payload, then write it to the transport in chunks.
@@ -85,9 +93,9 @@ impl<L: Link + Send> Protocol for ProtocolV1<L> {
             );
             return MmError::err(TrezorError::ProtocolError(error));
         }
-        let message_type_id = BigEndian::read_u16(&chunk[3..5]) as u32;
-        let message_type = MessageType::from_i32(message_type_id as i32)
-            .or_mm_err(|| TrezorError::ProtocolError(format!("Invalid message type: {}", message_type_id)))?;
+        let message_type_id = BigEndian::read_u16(&chunk[3..5]) as i32;
+        let message_type = MessageType::try_from(message_type_id)
+            .map_err(|e| TrezorError::ProtocolError(format!("Invalid message type: {message_type_id}, Error: {e}")))?;
         let data_length = BigEndian::read_u32(&chunk[5..9]) as usize;
         let mut data: Vec<u8> = chunk[9..].into();
 

@@ -1,36 +1,56 @@
 [package]
 name = "mm2_net"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 [lib]
 doctest = false
 
+[features]
+
 [dependencies]
-async-trait = "0.1"
-serde = "1"
-serde_json = { version = "1", features = ["preserve_order", "raw_value"] }
-bytes = "1.1"
-cfg-if = "1.0"
+async-stream.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+cfg-if.workspace = true
 common = { path = "../common" }
-ethkey = { git = "https://github.com/KomodoPlatform/mm2-parity-ethereum.git" }
-mm2_err_handle = { path = "../mm2_err_handle" }
+derive_more.workspace = true
+ethkey.workspace = true
+futures = { workspace = true, features = ["compat", "async-await", "thread-pool"] }
+gstuff.workspace = true
+http.workspace = true
+lazy_static.workspace = true
 mm2_core = { path = "../mm2_core" }
-derive_more = "0.99"
-http = "0.2"
-rand = { version = "0.7", features = ["std", "small_rng", "wasm-bindgen"] }
-futures = { version = "0.3", package = "futures", features = ["compat", "async-await", "thread-pool"] }
-lazy_static = "1.4"
-prost = "0.10"
+mm2_err_handle = { path = "../mm2_err_handle" }
+mm2_number = { path = "../mm2_number" }
+prost.workspace = true
+rand.workspace = true 
+serde.workspace = true
+serde_json = { workspace = true, features = ["preserve_order", "raw_value"] }
+thiserror.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-gstuff = { version = "0.7", features = ["nightly"] }
-wasm-bindgen = "0.2.86"
-wasm-bindgen-test = { version = "0.3.2" }
-wasm-bindgen-futures = "0.4.21"
-web-sys = { version = "0.3.55", features = ["console", "CloseEvent", "DomException", "ErrorEvent", "IdbDatabase", "IdbCursor", "IdbCursorWithValue", "IdbFactory", "IdbIndex", "IdbIndexParameters", "IdbObjectStore", "IdbObjectStoreParameters", "IdbOpenDbRequest", "IdbKeyRange", "IdbTransaction", "IdbTransactionMode", "IdbVersionChangeEvent", "MessageEvent", "WebSocket"] }
-js-sys = "0.3.27"
+base64.workspace = true
+futures-util.workspace = true
+mm2_state_machine = { path = "../mm2_state_machine"}
+http-body.workspace = true
+httparse.workspace = true
+js-sys.workspace = true
+pin-project.workspace = true
+tonic = { workspace = true, default-features = false, features = ["prost", "codegen"] }
+tower-service.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-test.workspace = true
+wasm-bindgen-futures.workspace = true
+web-sys = { workspace = true, features = ["console", "CloseEvent", "DomException", "ErrorEvent", "IdbDatabase",
+    "IdbCursor", "IdbCursorWithValue", "IdbFactory", "IdbIndex", "IdbIndexParameters", "IdbObjectStore",
+    "IdbObjectStoreParameters", "IdbOpenDbRequest", "IdbKeyRange", "IdbTransaction", "IdbTransactionMode",
+    "IdbVersionChangeEvent", "MessageEvent", "MessagePort", "ReadableStreamDefaultReader", "ReadableStream", "SharedWorker", "Url", "WebSocket"] }
+
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-hyper = { version = "0.14.11", features = ["client", "http2", "server", "tcp"] }
-gstuff = { version = "0.7", features = ["nightly"] }
+futures-util.workspace = true
+hyper = { workspace = true, features = ["client", "http2", "server", "tcp", "stream"] }
+rustls.workspace = true
+tokio.workspace = true
+tokio-rustls = { workspace = true, default-features = false }

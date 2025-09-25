@@ -1,21 +1,24 @@
 //! Bitcoin keys.
 
-extern crate base58;
 extern crate bech32;
 extern crate bitcrypto as crypto;
+extern crate bs58;
 extern crate derive_more;
 extern crate lazy_static;
 extern crate primitives;
 extern crate rustc_hex as hex;
 extern crate secp256k1;
 extern crate serde;
-#[macro_use] extern crate serde_derive;
+#[macro_use]
+extern crate serde_derive;
 
 mod address;
+mod address_prefixes;
 mod cashaddress;
 mod display;
 mod error;
 mod keypair;
+mod legacyaddress;
 mod network;
 mod private;
 mod public;
@@ -24,11 +27,14 @@ mod signature;
 
 pub use primitives::{bytes, hash};
 
-pub use address::{Address, AddressFormat, Type};
-pub use cashaddress::{AddressType as CashAddrType, CashAddress, NetworkPrefix};
+pub use address::{Address, AddressBuilder, AddressBuilderOption, AddressFormat, AddressScriptType};
+pub use address_prefixes::prefixes;
+pub use address_prefixes::{AddressPrefix, NetworkAddressPrefixes};
+pub use cashaddress::{CashAddrType, CashAddress, NetworkPrefix};
 pub use display::DisplayLayout;
 pub use error::Error;
 pub use keypair::KeyPair;
+pub use legacyaddress::LegacyAddress;
 pub use network::Network;
 pub use private::Private;
 pub use public::Public;
@@ -47,16 +53,20 @@ pub type Message = H256;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum AddressHashEnum {
-    /// 20 bytes long hash derived from public `ripemd160(sha256(public))` used in P2PKH, P2SH, P2WPKH
+    /// 20 bytes long hash derived from public `ripemd160(sha256(public/script))` used in P2PKH, P2SH, P2WPKH
     AddressHash(H160),
     /// 32 bytes long hash derived from script `sha256(script)` used in P2WSH
     WitnessScriptHash(H256),
 }
 
 impl AddressHashEnum {
-    pub fn default_address_hash() -> Self { AddressHashEnum::AddressHash(H160::default()) }
+    pub fn default_address_hash() -> Self {
+        AddressHashEnum::AddressHash(H160::default())
+    }
 
-    pub fn default_witness_script_hash() -> Self { AddressHashEnum::WitnessScriptHash(H256::default()) }
+    pub fn default_witness_script_hash() -> Self {
+        AddressHashEnum::WitnessScriptHash(H256::default())
+    }
 
     pub fn copy_from_slice(&mut self, src: &[u8]) {
         match self {
@@ -72,9 +82,13 @@ impl AddressHashEnum {
         }
     }
 
-    pub fn is_address_hash(&self) -> bool { matches!(*self, AddressHashEnum::AddressHash(_)) }
+    pub fn is_address_hash(&self) -> bool {
+        matches!(*self, AddressHashEnum::AddressHash(_))
+    }
 
-    pub fn is_witness_script_hash(&self) -> bool { matches!(*self, AddressHashEnum::WitnessScriptHash(_)) }
+    pub fn is_witness_script_hash(&self) -> bool {
+        matches!(*self, AddressHashEnum::WitnessScriptHash(_))
+    }
 }
 
 impl fmt::Display for AddressHashEnum {
@@ -87,7 +101,9 @@ impl fmt::Display for AddressHashEnum {
 }
 
 impl From<H160> for AddressHashEnum {
-    fn from(hash: H160) -> Self { AddressHashEnum::AddressHash(hash) }
+    fn from(hash: H160) -> Self {
+        AddressHashEnum::AddressHash(hash)
+    }
 }
 
 lazy_static! {

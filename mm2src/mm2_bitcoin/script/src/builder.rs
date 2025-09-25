@@ -1,7 +1,7 @@
 //! Script builder
 
 use bytes::Bytes;
-use keys::{AddressHashEnum, Public};
+use keys::{AddressHashEnum, Error, Public};
 use {Num, Opcode, Script};
 
 /// Script builder
@@ -16,7 +16,7 @@ impl Builder {
         Builder::default()
             .push_opcode(Opcode::OP_DUP)
             .push_opcode(Opcode::OP_HASH160)
-            .push_bytes(&address.to_vec())
+            .push_data(&address.to_vec())
             .push_opcode(Opcode::OP_EQUALVERIFY)
             .push_opcode(Opcode::OP_CHECKSIG)
             .into_script()
@@ -25,7 +25,7 @@ impl Builder {
     /// Builds p2pk script pubkey
     pub fn build_p2pk(pubkey: &Public) -> Script {
         Builder::default()
-            .push_bytes(pubkey)
+            .push_data(pubkey)
             .push_opcode(Opcode::OP_CHECKSIG)
             .into_script()
     }
@@ -34,24 +34,38 @@ impl Builder {
     pub fn build_p2sh(address: &AddressHashEnum) -> Script {
         Builder::default()
             .push_opcode(Opcode::OP_HASH160)
-            .push_bytes(&address.to_vec())
+            .push_data(&address.to_vec())
             .push_opcode(Opcode::OP_EQUAL)
             .into_script()
     }
 
-    /// Builds p2wpkh or p2wsh script pubkey
-    pub fn build_witness_script(address: &AddressHashEnum) -> Script {
-        Builder::default()
-            .push_opcode(Opcode::OP_0)
-            .push_bytes(&address.to_vec())
-            .into_script()
+    /// Builds p2wpkh script pubkey
+    pub fn build_p2wpkh(address_hash: &AddressHashEnum) -> Result<Script, Error> {
+        match address_hash {
+            AddressHashEnum::AddressHash(wpkh_hash) => Ok(Builder::default()
+                .push_opcode(Opcode::OP_0)
+                .push_data(wpkh_hash.as_ref())
+                .into_script()),
+            AddressHashEnum::WitnessScriptHash(_) => Err(Error::WitnessHashMismatched),
+        }
+    }
+
+    /// Builds p2wsh script pubkey
+    pub fn build_p2wsh(address_hash: &AddressHashEnum) -> Result<Script, Error> {
+        match address_hash {
+            AddressHashEnum::WitnessScriptHash(wsh_hash) => Ok(Builder::default()
+                .push_opcode(Opcode::OP_0)
+                .push_data(wsh_hash.as_ref())
+                .into_script()),
+            AddressHashEnum::AddressHash(_) => Err(Error::WitnessHashMismatched),
+        }
     }
 
     /// Builds op_return script
     pub fn build_nulldata(bytes: &[u8]) -> Script {
         Builder::default()
             .push_opcode(Opcode::OP_RETURN)
-            .push_bytes(bytes)
+            .push_data(bytes)
             .into_script()
     }
 
@@ -72,20 +86,8 @@ impl Builder {
     }
 
     /// Appends num push operation to the end of script
-    pub fn push_num(self, num: Num) -> Self { self.push_data(&num.to_bytes()) }
-
-    /// Appends bytes push operation to the end od script
-    pub fn push_bytes(mut self, bytes: &[u8]) -> Self {
-        let len = bytes.len();
-        if !(1..=75).contains(&len) {
-            panic!("Canot push {} bytes", len);
-        }
-
-        let opcode: Opcode = Opcode::from_u8(((Opcode::OP_PUSHBYTES_1 as usize) + len - 1) as u8)
-            .expect("value is within [OP_PUSHBYTES_1; OP_PUSHBYTES_75] interval; qed");
-        self.data.push(opcode as u8);
-        self.data.extend_from_slice(bytes);
-        self
+    pub fn push_num(self, num: Num) -> Self {
+        self.push_data(&num.to_bytes())
     }
 
     /// Appends data push operation to the end of script
@@ -137,8 +139,12 @@ impl Builder {
     }
 
     /// Builds final script
-    pub fn into_script(self) -> Script { Script::new(self.data) }
+    pub fn into_script(self) -> Script {
+        Script::new(self.data)
+    }
 
     /// Builds final script bytes
-    pub fn into_bytes(self) -> Bytes { self.data }
+    pub fn into_bytes(self) -> Bytes {
+        self.data
+    }
 }

@@ -26,13 +26,17 @@ impl GracefulShutdownRegistry {
 }
 
 impl From<InnerShared<ShutdownInnerState>> for GracefulShutdownRegistry {
-    fn from(inner: InnerShared<ShutdownInnerState>) -> Self { GracefulShutdownRegistry { inner } }
+    fn from(inner: InnerShared<ShutdownInnerState>) -> Self {
+        GracefulShutdownRegistry { inner }
+    }
 }
 
 impl AbortableSystem for GracefulShutdownRegistry {
     type Inner = ShutdownInnerState;
 
-    fn abort_all(&self) -> Result<(), AbortedError> { self.inner.lock().abort_all() }
+    fn __inner(&self) -> InnerShared<Self::Inner> {
+        self.inner.clone()
+    }
 
     fn __push_subsystem_abort_tx(&self, subsystem_abort_tx: oneshot::Sender<()>) -> Result<(), AbortedError> {
         self.inner.lock().insert_handle(subsystem_abort_tx)
@@ -72,5 +76,9 @@ impl SystemInner for ShutdownInnerState {
 
         *self = ShutdownInnerState::Aborted;
         Ok(())
+    }
+
+    fn is_aborted(&self) -> bool {
+        matches!(self, ShutdownInnerState::Aborted)
     }
 }

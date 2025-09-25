@@ -2,7 +2,7 @@ use super::*;
 use crate::lp_coininit;
 use crypto::CryptoCtx;
 use mm2_core::mm_ctx::MmCtxBuilder;
-use mm2_test_helpers::for_tests::{ETH_DEV_NODE, ETH_DEV_SWAP_CONTRACT};
+use mm2_test_helpers::for_tests::{ETH_SEPOLIA_CHAIN_ID, ETH_SEPOLIA_NODES, ETH_SEPOLIA_SWAP_CONTRACT};
 use wasm_bindgen_test::*;
 use web_sys::console;
 
@@ -14,73 +14,21 @@ fn pass() {
     let _coins_context = CoinsContext::from_ctx(&ctx).unwrap();
 }
 
-#[wasm_bindgen_test]
-async fn test_send() {
-    let key_pair = KeyPair::from_secret_slice(
-        &hex::decode("809465b17d0a4ddb3e4c69e8f23c2cabad868f51f8bed5c765ad1d6516c3306f").unwrap(),
-    )
-    .unwrap();
-    let transport = Web3Transport::single_node(ETH_DEV_NODE, false);
-    let web3 = Web3::new(transport);
-    let ctx = MmCtxBuilder::new().into_mm_arc();
-    let coin = EthCoin(Arc::new(EthCoinImpl {
-        ticker: "ETH".into(),
-        coin_type: EthCoinType::Eth,
-        my_address: key_pair.address(),
-        sign_message_prefix: Some(String::from("Ethereum Signed Message:\n")),
-        priv_key_policy: key_pair.into(),
-        swap_contract_address: Address::from_str(ETH_DEV_SWAP_CONTRACT).unwrap(),
-        fallback_swap_contract: None,
-        contract_supports_watchers: false,
-        web3_instances: vec![Web3Instance {
-            web3: web3.clone(),
-            is_parity: false,
-        }],
-        web3,
-        decimals: 18,
-        gas_station_url: None,
-        gas_station_decimals: ETH_GAS_STATION_DECIMALS,
-        gas_station_policy: GasStationPricePolicy::MeanAverageFast,
-        history_sync_state: Mutex::new(HistorySyncState::NotStarted),
-        ctx: ctx.weak(),
-        required_confirmations: 1.into(),
-        chain_id: None,
-        logs_block_range: DEFAULT_LOGS_BLOCK_RANGE,
-        nonce_lock: new_nonce_lock(),
-        erc20_tokens_infos: Default::default(),
-        abortable_system: AbortableQueue::default(),
-    }));
-    let maker_payment_args = SendPaymentArgs {
-        time_lock_duration: 0,
-        time_lock: 1000,
-        other_pubkey: &DEX_FEE_ADDR_RAW_PUBKEY,
-        secret_hash: &[1; 20],
-        amount: "0.001".parse().unwrap(),
-        swap_contract_address: &coin.swap_contract_address(),
-        swap_unique_data: &[],
-        payment_instructions: &None,
-        watcher_reward: None,
-        wait_for_confirmation_until: 0,
-    };
-    let tx = coin.send_maker_payment(maker_payment_args).compat().await.unwrap();
-    console::log_1(&format!("{:?}", tx).into());
-
-    let block = coin.current_block().compat().await.unwrap();
-    console::log_1(&format!("{:?}", block).into());
-}
-
-#[wasm_bindgen_test]
-async fn test_init_eth_coin() {
+async fn init_eth_coin_helper() -> Result<(MmArc, MmCoinEnum), String> {
     let conf = json!({
         "coins": [{
             "coin": "ETH",
             "name": "ethereum",
             "fname": "Ethereum",
             "protocol":{
-                "type": "ETH"
+                "type": "ETH",
+                "protocol_data": {
+                    "chain_id": ETH_SEPOLIA_CHAIN_ID,
+                }
             },
             "rpcport": 80,
-            "mm2": 1
+            "mm2": 1,
+            "max_eth_tx_type": 2
         }]
     });
 
@@ -92,8 +40,60 @@ async fn test_init_eth_coin() {
     .unwrap();
 
     let req = json!({
-        "urls":[ETH_DEV_NODE],
-        "swap_contract_address":ETH_DEV_SWAP_CONTRACT
+        "urls":ETH_SEPOLIA_NODES,
+        "swap_contract_address":ETH_SEPOLIA_SWAP_CONTRACT,
     });
-    let _coin = lp_coininit(&ctx, "ETH", &req).await.unwrap();
+    Ok((ctx.clone(), lp_coininit(&ctx, "ETH", &req).await?))
+}
+
+#[wasm_bindgen_test]
+async fn test_init_eth_coin() {
+    let (_ctx, _coin) = init_eth_coin_helper().await.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn wasm_test_sign_eth_tx() {
+    // we need to hold ref to _ctx until the end of the test (because of the weak ref to MmCtx in EthCoinImpl)
+    let (_ctx, coin) = init_eth_coin_helper().await.unwrap();
+    let sign_req = json::from_value(json!({
+        "coin": "ETH",
+        "type": "ETH",
+        "tx": {
+            "to": "0x7Bc1bBDD6A0a722fC9bffC49c921B685ECB84b94".to_string(),
+            "value": "1.234",
+            "gas_limit": "21000"
+        }
+    }))
+    .unwrap();
+    let res = coin.sign_raw_tx(&sign_req).await;
+    console::log_1(&format!("res={res:?}").into());
+    assert!(res.is_ok());
+}
+
+#[wasm_bindgen_test]
+async fn wasm_test_sign_eth_tx_with_priority_fee() {
+    // we need to hold ref to _ctx until the end of the test (because of the weak ref to MmCtx in EthCoinImpl)
+    let (_ctx, coin) = init_eth_coin_helper().await.unwrap();
+    let sign_req = json::from_value(json!({
+        "coin": "ETH",
+        "type": "ETH",
+        "tx": {
+            "to": "0x7Bc1bBDD6A0a722fC9bffC49c921B685ECB84b94".to_string(),
+            "value": "1.234",
+            "gas_limit": "21000",
+            "pay_for_gas": {
+                "tx_type": "Eip1559",
+                "max_fee_per_gas": "1234.567",
+                "max_priority_fee_per_gas": "1.2",
+            }
+        }
+    }))
+    .unwrap();
+    let res = coin.sign_raw_tx(&sign_req).await;
+    console::log_1(&format!("res={res:?}").into());
+    assert!(res.is_ok());
+    let tx: UnverifiedTransactionWrapper = rlp::decode(&res.unwrap().tx_hex).expect("decoding signed tx okay");
+    if !matches!(tx, UnverifiedTransactionWrapper::Eip1559(..)) {
+        panic!("expected eip1559 tx");
+    }
 }

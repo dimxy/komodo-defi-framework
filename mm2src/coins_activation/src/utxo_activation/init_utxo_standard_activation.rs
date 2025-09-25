@@ -1,12 +1,15 @@
 use crate::context::CoinsActivationContext;
 use crate::prelude::TryFromCoinProtocol;
-use crate::standalone_coin::{InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandle,
-                             InitStandaloneCoinTaskManagerShared};
-use crate::utxo_activation::common_impl::{get_activation_result, priv_key_build_policy,
-                                          start_history_background_fetching};
+use crate::standalone_coin::{
+    InitStandaloneCoinActivationOps, InitStandaloneCoinTaskHandleShared, InitStandaloneCoinTaskManagerShared,
+};
+use crate::utxo_activation::common_impl::{
+    get_activation_result, priv_key_build_policy, start_history_background_fetching,
+};
 use crate::utxo_activation::init_utxo_standard_activation_error::InitUtxoStandardError;
-use crate::utxo_activation::init_utxo_standard_statuses::{UtxoStandardAwaitingStatus, UtxoStandardInProgressStatus,
-                                                          UtxoStandardUserAction};
+use crate::utxo_activation::init_utxo_standard_statuses::{
+    UtxoStandardAwaitingStatus, UtxoStandardInProgressStatus, UtxoStandardUserAction,
+};
 use crate::utxo_activation::utxo_standard_activation_result::UtxoStandardActivationResult;
 use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
@@ -17,13 +20,14 @@ use coins::CoinProtocol;
 use futures::StreamExt;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::StreamingManager;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use serde_json::Value as Json;
 use std::collections::HashMap;
 
 pub type UtxoStandardTaskManagerShared = InitStandaloneCoinTaskManagerShared<UtxoStandardCoin>;
-pub type UtxoStandardRpcTaskHandle = InitStandaloneCoinTaskHandle<UtxoStandardCoin>;
+pub type UtxoStandardRpcTaskHandleShared = InitStandaloneCoinTaskHandleShared<UtxoStandardCoin>;
 
 #[derive(Clone)]
 pub struct UtxoStandardProtocolInfo;
@@ -34,7 +38,7 @@ impl TryFromCoinProtocol for UtxoStandardProtocolInfo {
         Self: Sized,
     {
         match proto {
-            CoinProtocol::UTXO => Ok(UtxoStandardProtocolInfo),
+            CoinProtocol::UTXO { .. } => Ok(UtxoStandardProtocolInfo),
             protocol => MmError::err(protocol),
         }
     }
@@ -60,9 +64,9 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
         coin_conf: Json,
         activation_request: &Self::ActivationRequest,
         _protocol_info: Self::StandaloneProtocol,
-        task_handle: &UtxoStandardRpcTaskHandle,
+        task_handle: UtxoStandardRpcTaskHandleShared,
     ) -> MmResult<Self, InitUtxoStandardError> {
-        let priv_key_policy = priv_key_build_policy(&ctx, activation_request.priv_key_policy)?;
+        let priv_key_policy = priv_key_build_policy(&ctx, &activation_request.priv_key_policy).map_mm_err()?;
 
         let coin = UtxoArcBuilder::new(
             &ctx,
@@ -104,7 +108,7 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
                         },
                         UtxoSyncStatus::Finished { .. } => break,
                     };
-                task_handle.update_in_progress_status(in_progress_status)?;
+                task_handle.update_in_progress_status(in_progress_status).map_mm_err()?;
             }
         }
 
@@ -114,7 +118,7 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
     async fn get_activation_result(
         &self,
         ctx: MmArc,
-        task_handle: &UtxoStandardRpcTaskHandle,
+        task_handle: UtxoStandardRpcTaskHandleShared,
         activation_request: &Self::ActivationRequest,
     ) -> MmResult<Self::ActivationResult, InitUtxoStandardError> {
         get_activation_result(&ctx, self, task_handle, activation_request).await
@@ -124,8 +128,9 @@ impl InitStandaloneCoinActivationOps for UtxoStandardCoin {
         &self,
         metrics: MetricsArc,
         storage: impl TxHistoryStorage,
+        streaming_manager: StreamingManager,
         current_balances: HashMap<String, BigDecimal>,
     ) {
-        start_history_background_fetching(self.clone(), metrics, storage, current_balances)
+        start_history_background_fetching(self.clone(), metrics, storage, streaming_manager, current_balances)
     }
 }

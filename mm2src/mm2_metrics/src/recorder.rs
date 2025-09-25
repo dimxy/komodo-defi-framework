@@ -161,21 +161,25 @@ fn key_value_to_snapshot_entry<V>(metrics: &mut HashMap<String, HashMap<Vec<Stri
 }
 
 impl Recorder for MmRecorder {
-    fn describe_counter(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
+    fn describe_counter(&self, _key: KeyName, _unit: Option<Unit>, _description: metrics::SharedString) {
         // mm2_metrics doesn't use this method
     }
 
-    fn describe_gauge(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
+    fn describe_gauge(&self, _key: KeyName, _unit: Option<Unit>, _description: metrics::SharedString) {
         // mm2_metrics doesn't use this method
     }
 
-    fn describe_histogram(&self, _key_name: KeyName, _unit: Option<Unit>, _description: &'static str) {
+    fn describe_histogram(&self, _key: KeyName, _unit: Option<Unit>, _description: metrics::SharedString) {
         // mm2_metrics doesn't use this method
     }
 
-    fn register_counter(&self, key: &Key) -> Counter { self.registry.get_or_create_counter(key, |e| e.clone().into()) }
+    fn register_counter(&self, key: &Key) -> Counter {
+        self.registry.get_or_create_counter(key, |e| e.clone().into())
+    }
 
-    fn register_gauge(&self, key: &Key) -> Gauge { self.registry.get_or_create_gauge(key, |e| e.clone().into()) }
+    fn register_gauge(&self, key: &Key) -> Gauge {
+        self.registry.get_or_create_gauge(key, |e| e.clone().into())
+    }
 
     fn register_histogram(&self, key: &Key) -> Histogram {
         self.registry.get_or_create_histogram(key, |e| e.clone().into())

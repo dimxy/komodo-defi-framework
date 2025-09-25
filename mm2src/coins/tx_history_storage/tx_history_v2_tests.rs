@@ -18,7 +18,9 @@ lazy_static! {
     static ref BCH_TX_HISTORY_MAP: HashMap<String, TransactionDetails> = parse_tx_history_map();
 }
 
-fn parse_tx_history() -> Vec<TransactionDetails> { json::from_str(BCH_TX_HISTORY_STR).unwrap() }
+fn parse_tx_history() -> Vec<TransactionDetails> {
+    json::from_str(BCH_TX_HISTORY_STR).unwrap()
+}
 
 fn parse_tx_history_map() -> HashMap<String, TransactionDetails> {
     parse_tx_history()
@@ -27,9 +29,13 @@ fn parse_tx_history_map() -> HashMap<String, TransactionDetails> {
         .collect()
 }
 
-fn get_bch_tx_details(internal_id: &str) -> TransactionDetails { BCH_TX_HISTORY_MAP.get(internal_id).unwrap().clone() }
+fn get_bch_tx_details(internal_id: &str) -> TransactionDetails {
+    BCH_TX_HISTORY_MAP.get(internal_id).unwrap().clone()
+}
 
-fn wallet_id_for_test(test_name: &str) -> WalletId { WalletId::new(test_name.to_owned()) }
+fn wallet_id_for_test(test_name: &str) -> WalletId {
+    WalletId::new(test_name.to_owned())
+}
 
 #[track_caller]
 fn assert_get_history_result(actual: GetHistoryResult, expected_ids: Vec<BytesJson>, skipped: usize, total: usize) {
@@ -134,7 +140,7 @@ async fn test_get_transaction_impl() {
         .await
         .unwrap()
         .unwrap();
-    println!("{:?}", tx);
+    log!("{:?}", tx);
 
     storage
         .remove_tx_from_history(
@@ -363,24 +369,24 @@ async fn test_add_and_get_tx_from_cache_impl() {
     let tx = get_bch_tx_details("6686ee013620d31ba645b27d581fed85437ce00f46b595a576718afac4dd5b69");
 
     storage
-        .add_tx_to_cache(&wallet_id_1, &tx.tx_hash, &tx.tx_hex)
+        .add_tx_to_cache(&wallet_id_1, tx.tx.tx_hash().unwrap(), tx.tx.tx_hex().unwrap())
         .await
         .unwrap();
 
     let tx_hex_from_1 = storage
-        .tx_bytes_from_cache(&wallet_id_1, &tx.tx_hash)
+        .tx_bytes_from_cache(&wallet_id_1, tx.tx.tx_hash().unwrap())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(tx_hex_from_1, tx.tx_hex);
+    assert_eq!(&tx_hex_from_1, tx.tx.tx_hex().unwrap());
 
     // Since `wallet_id_1` and `wallet_id_2` wallets have the same `ticker`, the wallets must have one transaction cache.
     let tx_hex_from_2 = storage
-        .tx_bytes_from_cache(&wallet_id_2, &tx.tx_hash)
+        .tx_bytes_from_cache(&wallet_id_2, tx.tx.tx_hash().unwrap())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(tx_hex_from_2, tx.tx_hex);
+    assert_eq!(&tx_hex_from_2, tx.tx.tx_hex().unwrap());
 }
 
 async fn test_get_raw_tx_bytes_on_add_transactions_impl() {
@@ -401,7 +407,7 @@ async fn test_get_raw_tx_bytes_on_add_transactions_impl() {
     let mut tx2 = tx1.clone();
     tx2.internal_id = BytesJson(vec![1; 32]);
 
-    let expected_tx_hex = tx1.tx_hex.clone();
+    let expected_tx_hex = tx1.tx.tx_hex().unwrap().clone();
 
     let transactions = [tx1, tx2];
     storage
@@ -605,16 +611,24 @@ mod native_tests {
     }
 
     #[test]
-    fn test_add_transactions() { block_on(super::test_add_transactions_impl()); }
+    fn test_add_transactions() {
+        block_on(super::test_add_transactions_impl());
+    }
 
     #[test]
-    fn test_remove_transaction() { block_on(super::test_remove_transaction_impl()); }
+    fn test_remove_transaction() {
+        block_on(super::test_remove_transaction_impl());
+    }
 
     #[test]
-    fn test_get_transaction() { block_on(super::test_get_transaction_impl()); }
+    fn test_get_transaction() {
+        block_on(super::test_get_transaction_impl());
+    }
 
     #[test]
-    fn test_update_transaction() { block_on(super::test_update_transaction_impl()); }
+    fn test_update_transaction() {
+        block_on(super::test_update_transaction_impl());
+    }
 
     #[test]
     fn test_contains_and_get_unconfirmed_transaction() {
@@ -622,13 +636,19 @@ mod native_tests {
     }
 
     #[test]
-    fn test_has_transactions_with_hash() { block_on(super::test_has_transactions_with_hash_impl()); }
+    fn test_has_transactions_with_hash() {
+        block_on(super::test_has_transactions_with_hash_impl());
+    }
 
     #[test]
-    fn test_unique_tx_hashes_num() { block_on(super::test_unique_tx_hashes_num_impl()); }
+    fn test_unique_tx_hashes_num() {
+        block_on(super::test_unique_tx_hashes_num_impl());
+    }
 
     #[test]
-    fn test_add_and_get_tx_from_cache() { block_on(super::test_add_and_get_tx_from_cache_impl()); }
+    fn test_add_and_get_tx_from_cache() {
+        block_on(super::test_add_and_get_tx_from_cache_impl());
+    }
 
     #[test]
     fn test_get_raw_tx_bytes_on_add_transactions() {
@@ -636,13 +656,19 @@ mod native_tests {
     }
 
     #[test]
-    fn test_get_history_page_number() { block_on(super::test_get_history_page_number_impl()); }
+    fn test_get_history_page_number() {
+        block_on(super::test_get_history_page_number_impl());
+    }
 
     #[test]
-    fn test_get_history_from_id() { block_on(super::test_get_history_from_id_impl()); }
+    fn test_get_history_from_id() {
+        block_on(super::test_get_history_from_id_impl());
+    }
 
     #[test]
-    fn test_get_history_for_addresses() { block_on(super::test_get_history_for_addresses_impl()); }
+    fn test_get_history_for_addresses() {
+        block_on(super::test_get_history_for_addresses_impl());
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -675,16 +701,24 @@ mod wasm_tests {
     }
 
     #[wasm_bindgen_test]
-    async fn test_add_transactions() { super::test_add_transactions_impl().await; }
+    async fn test_add_transactions() {
+        super::test_add_transactions_impl().await;
+    }
 
     #[wasm_bindgen_test]
-    async fn test_remove_transaction() { super::test_remove_transaction_impl().await; }
+    async fn test_remove_transaction() {
+        super::test_remove_transaction_impl().await;
+    }
 
     #[wasm_bindgen_test]
-    async fn test_get_transaction() { super::test_get_transaction_impl().await; }
+    async fn test_get_transaction() {
+        super::test_get_transaction_impl().await;
+    }
 
     #[wasm_bindgen_test]
-    async fn test_update_transaction() { super::test_update_transaction_impl().await; }
+    async fn test_update_transaction() {
+        super::test_update_transaction_impl().await;
+    }
 
     #[wasm_bindgen_test]
     async fn test_contains_and_get_unconfirmed_transaction() {
@@ -692,13 +726,19 @@ mod wasm_tests {
     }
 
     #[wasm_bindgen_test]
-    async fn test_has_transactions_with_hash() { super::test_has_transactions_with_hash_impl().await; }
+    async fn test_has_transactions_with_hash() {
+        super::test_has_transactions_with_hash_impl().await;
+    }
 
     #[wasm_bindgen_test]
-    async fn test_unique_tx_hashes_num() { super::test_unique_tx_hashes_num_impl().await; }
+    async fn test_unique_tx_hashes_num() {
+        super::test_unique_tx_hashes_num_impl().await;
+    }
 
     #[wasm_bindgen_test]
-    async fn test_add_and_get_tx_from_cache() { super::test_add_and_get_tx_from_cache_impl().await; }
+    async fn test_add_and_get_tx_from_cache() {
+        super::test_add_and_get_tx_from_cache_impl().await;
+    }
 
     #[wasm_bindgen_test]
     async fn test_get_raw_tx_bytes_on_add_transactions() {
@@ -706,11 +746,17 @@ mod wasm_tests {
     }
 
     #[wasm_bindgen_test]
-    async fn test_get_history_page_number() { super::test_get_history_page_number_impl().await; }
+    async fn test_get_history_page_number() {
+        super::test_get_history_page_number_impl().await;
+    }
 
     #[wasm_bindgen_test]
-    async fn test_get_history_from_id() { super::test_get_history_from_id_impl().await; }
+    async fn test_get_history_from_id() {
+        super::test_get_history_from_id_impl().await;
+    }
 
     #[wasm_bindgen_test]
-    async fn test_get_history_for_addresses() { super::test_get_history_for_addresses_impl().await; }
+    async fn test_get_history_for_addresses() {
+        super::test_get_history_for_addresses_impl().await;
+    }
 }

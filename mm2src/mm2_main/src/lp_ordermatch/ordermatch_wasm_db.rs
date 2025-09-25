@@ -1,15 +1,17 @@
 use async_trait::async_trait;
-use mm2_db::indexed_db::{DbIdentifier, DbInstance, DbUpgrader, IndexedDb, IndexedDbBuilder, OnUpgradeResult,
-                         TableSignature};
+use mm2_db::indexed_db::{
+    DbIdentifier, DbInstance, DbUpgrader, IndexedDb, IndexedDbBuilder, OnUpgradeResult, TableSignature,
+};
 use std::ops::Deref;
 use uuid::Uuid;
 
-pub use mm2_db::indexed_db::{cursor_prelude, DbTransactionError, DbTransactionResult, InitDbError, InitDbResult,
-                             ItemId};
-pub use tables::{MyActiveMakerOrdersTable, MyActiveTakerOrdersTable, MyFilteringHistoryOrdersTable,
-                 MyHistoryOrdersTable};
+pub use mm2_db::indexed_db::{
+    cursor_prelude, DbTransactionError, DbTransactionResult, InitDbError, InitDbResult, ItemId,
+};
+pub use tables::{
+    MyActiveMakerOrdersTable, MyActiveTakerOrdersTable, MyFilteringHistoryOrdersTable, MyHistoryOrdersTable,
+};
 
-const DB_NAME: &str = "ordermatch";
 const DB_VERSION: u32 = 1;
 
 pub struct OrdermatchDb {
@@ -18,7 +20,7 @@ pub struct OrdermatchDb {
 
 #[async_trait]
 impl DbInstance for OrdermatchDb {
-    fn db_name() -> &'static str { DB_NAME }
+    const DB_NAME: &'static str = "ordermatch";
 
     async fn init(db_id: DbIdentifier) -> InitDbResult<Self> {
         let inner = IndexedDbBuilder::new(db_id)
@@ -36,12 +38,14 @@ impl DbInstance for OrdermatchDb {
 impl Deref for OrdermatchDb {
     type Target = IndexedDb;
 
-    fn deref(&self) -> &Self::Target { &self.inner }
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 pub mod tables {
     use super::*;
-    use crate::mm2::lp_ordermatch::{MakerOrder, Order, TakerOrder};
+    use crate::lp_ordermatch::{MakerOrder, Order, TakerOrder};
     use serde_json::Value as Json;
 
     #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -51,10 +55,10 @@ pub mod tables {
     }
 
     impl TableSignature for MyActiveMakerOrdersTable {
-        fn table_name() -> &'static str { "my_active_maker_orders" }
+        const TABLE_NAME: &'static str = "my_active_maker_orders";
 
         fn on_upgrade_needed(upgrader: &DbUpgrader, old_version: u32, new_version: u32) -> OnUpgradeResult<()> {
-            on_upgrade_swap_table_by_uuid_v1(upgrader, old_version, new_version, Self::table_name())
+            on_upgrade_swap_table_by_uuid_v1(upgrader, old_version, new_version, Self::TABLE_NAME)
         }
     }
 
@@ -65,10 +69,10 @@ pub mod tables {
     }
 
     impl TableSignature for MyActiveTakerOrdersTable {
-        fn table_name() -> &'static str { "my_active_taker_orders" }
+        const TABLE_NAME: &'static str = "my_active_taker_orders";
 
         fn on_upgrade_needed(upgrader: &DbUpgrader, old_version: u32, new_version: u32) -> OnUpgradeResult<()> {
-            on_upgrade_swap_table_by_uuid_v1(upgrader, old_version, new_version, Self::table_name())
+            on_upgrade_swap_table_by_uuid_v1(upgrader, old_version, new_version, Self::TABLE_NAME)
         }
     }
 
@@ -79,10 +83,10 @@ pub mod tables {
     }
 
     impl TableSignature for MyHistoryOrdersTable {
-        fn table_name() -> &'static str { "my_history_orders" }
+        const TABLE_NAME: &'static str = "my_history_orders";
 
         fn on_upgrade_needed(upgrader: &DbUpgrader, old_version: u32, new_version: u32) -> OnUpgradeResult<()> {
-            on_upgrade_swap_table_by_uuid_v1(upgrader, old_version, new_version, Self::table_name())
+            on_upgrade_swap_table_by_uuid_v1(upgrader, old_version, new_version, Self::TABLE_NAME)
         }
     }
 
@@ -102,11 +106,11 @@ pub mod tables {
     }
 
     impl TableSignature for MyFilteringHistoryOrdersTable {
-        fn table_name() -> &'static str { "my_filtering_history_orders" }
+        const TABLE_NAME: &'static str = "my_filtering_history_orders";
 
         fn on_upgrade_needed(upgrader: &DbUpgrader, old_version: u32, new_version: u32) -> OnUpgradeResult<()> {
             if let (0, 1) = (old_version, new_version) {
-                let table = upgrader.create_table(Self::table_name())?;
+                let table = upgrader.create_table(Self::TABLE_NAME)?;
                 table.create_index("uuid", true)?;
                 // TODO add other indexes during [`MyOrdersStorage::select_orders_by_filter`] implementation.
             }

@@ -34,15 +34,17 @@ impl AbortableQueue {
 }
 
 impl From<InnerShared<QueueInnerState>> for AbortableQueue {
-    fn from(inner: InnerShared<QueueInnerState>) -> Self { AbortableQueue { inner } }
+    fn from(inner: InnerShared<QueueInnerState>) -> Self {
+        AbortableQueue { inner }
+    }
 }
 
 impl AbortableSystem for AbortableQueue {
     type Inner = QueueInnerState;
 
-    /// Aborts all spawned futures and initiates aborting of critical futures
-    /// after the specified [`AbortSettings::critical_timeout_s`].
-    fn abort_all(&self) -> Result<(), AbortedError> { self.inner.lock().abort_all() }
+    fn __inner(&self) -> InnerShared<Self::Inner> {
+        self.inner.clone()
+    }
 
     fn __push_subsystem_abort_tx(&self, subsystem_abort_tx: oneshot::Sender<()>) -> Result<(), AbortedError> {
         self.inner.lock().insert_handle(subsystem_abort_tx).map(|_| ())
@@ -98,12 +100,15 @@ impl WeakSpawner {
 
             match select(abortable_fut.boxed(), wait_till_abort.boxed()).await {
                 // The future has finished normally.
-                Either::Left(_) => {
+                Either::Left((_, wait_till_abort_fut)) => {
                     if let Some(on_finish) = settings.on_finish {
                         log::log!(on_finish.level, "{}", on_finish.msg);
                     }
 
                     if let Some(queue_inner) = inner_weak.upgrade() {
+                        // Drop the `wait_till_abort_fut` so to render the corresponding `abort_tx` sender canceled.
+                        // This way we can query the `abort_tx` sender to check if it's canceled, thus safe to mark as finished.
+                        drop(wait_till_abort_fut);
                         queue_inner.lock().on_future_finished(future_id);
                     }
                 },
@@ -203,8 +208,18 @@ impl QueueInnerState {
 
     /// Releases the `finished_future_id` so it can be reused later on [`QueueInnerState::insert_handle`].
     fn on_future_finished(&mut self, finished_future_id: FutureId) {
-        if let QueueInnerState::Ready { finished_futures, .. } = self {
-            finished_futures.push(finished_future_id);
+        if let QueueInnerState::Ready {
+            finished_futures,
+            abort_handlers,
+        } = self
+        {
+            // Only mark this ID as finished if a future existed for it and is canceled. We can get false
+            // `on_future_finished` signals from futures that aren't in the `abort_handlers` anymore (abortable queue was reset).
+            if let Some(handle) = abort_handlers.get(finished_future_id) {
+                if handle.is_canceled() {
+                    finished_futures.push(finished_future_id);
+                }
+            }
         }
     }
 
@@ -234,10 +249,16 @@ impl SystemInner for QueueInnerState {
         *self = QueueInnerState::Aborted;
         Ok(())
     }
+
+    fn is_aborted(&self) -> bool {
+        matches!(self, QueueInnerState::Aborted)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use super::*;
     use crate::block_on;
 
@@ -300,8 +321,8 @@ mod tests {
 
     #[test]
     fn test_spawn_critical() {
-        static mut F1_FINISHED: bool = false;
-        static mut F2_FINISHED: bool = false;
+        static F1_FINISHED: AtomicBool = AtomicBool::new(false);
+        static F2_FINISHED: AtomicBool = AtomicBool::new(false);
 
         let abortable_system = AbortableQueue::default();
         let spawner = abortable_system.weak_spawner();
@@ -310,13 +331,13 @@ mod tests {
 
         let fut1 = async move {
             Timer::sleep(0.6).await;
-            unsafe { F1_FINISHED = true };
+            F1_FINISHED.store(true, Ordering::Relaxed);
         };
         spawner.spawn_with_settings(fut1, settings.clone());
 
         let fut2 = async move {
             Timer::sleep(0.2).await;
-            unsafe { F2_FINISHED = true };
+            F2_FINISHED.store(true, Ordering::Relaxed);
         };
         spawner.spawn_with_settings(fut2, settings);
 
@@ -324,14 +345,14 @@ mod tests {
 
         block_on(Timer::sleep(1.2));
         // `fut1` must not complete.
-        assert!(unsafe { !F1_FINISHED });
+        assert!(!F1_FINISHED.load(Ordering::Relaxed));
         // `fut` must complete.
-        assert!(unsafe { F2_FINISHED });
+        assert!(F2_FINISHED.load(Ordering::Relaxed));
     }
 
     #[test]
     fn test_spawn_after_abort() {
-        static mut F1_FINISHED: bool = false;
+        static F1_FINISHED: AtomicBool = AtomicBool::new(false);
 
         for _ in 0..50 {
             let abortable_system = AbortableQueue::default();
@@ -344,11 +365,11 @@ mod tests {
             block_on(Timer::sleep(0.01));
 
             spawner.spawn(async move {
-                unsafe { F1_FINISHED = true };
+                F1_FINISHED.store(true, Ordering::Relaxed);
             });
         }
 
         // Futures spawned after `AbortableQueue::abort_all` must not complete.
-        assert!(unsafe { !F1_FINISHED });
+        assert!(!F1_FINISHED.load(Ordering::Relaxed));
     }
 }

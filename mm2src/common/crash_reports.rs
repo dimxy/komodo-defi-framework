@@ -49,7 +49,9 @@ fn access_violation() {
 #[cfg(test)]
 #[inline(never)]
 #[allow(dead_code)]
-extern "C" fn call_access_violation() { access_violation() }
+extern "C" fn call_access_violation() {
+    access_violation()
+}
 
 #[cfg(unix)]
 extern "C" fn signal_handler(sig: c_int) {
@@ -107,15 +109,19 @@ pub fn init_crash_reports() {
         set_panic_hook();
 
         // Try to invoke the `rust_seh_handler` whenever the C code crashes.
-        if cfg!(windows) {
+        #[cfg(windows)]
+        {
             extern "C" {
                 fn init_veh();
             }
             unsafe {
                 init_veh();
             }
-        } else if cfg!(unix) {
-            init_signal_handling()
+        }
+
+        #[cfg(unix)]
+        {
+            init_signal_handling();
         }
 
         // Log Rust panics.
@@ -125,7 +131,9 @@ pub fn init_crash_reports() {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn init_crash_reports() { unimplemented!() }
+pub fn init_crash_reports() {
+    unimplemented!()
+}
 
 // Make sure Rust panics still work in the presence of the VEH handler.
 #[test]

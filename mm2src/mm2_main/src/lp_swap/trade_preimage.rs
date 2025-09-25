@@ -1,6 +1,6 @@
 use super::check_balance::CheckBalanceError;
 use super::{maker_swap_trade_preimage, taker_swap_trade_preimage, MakerTradePreimage, TakerTradePreimage};
-use crate::mm2::lp_ordermatch::{MakerOrderBuildError, TakerAction, TakerOrderBuildError};
+use crate::lp_ordermatch::{MakerOrderBuildError, TakerOrderBuildError};
 use coins::{is_wallet_only_ticker, lp_coinfind_or_err, BalanceError, CoinFindError, TradeFee, TradePreimageError};
 use common::HttpStatusCode;
 use crypto::CryptoCtxError;
@@ -9,6 +9,7 @@ use http::StatusCode;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::{construct_detailed, BigDecimal, MmNumber};
+use mm2_rpc::data::legacy::TakerAction;
 use std::collections::HashMap;
 
 construct_detailed!(DetailedAmount, amount);
@@ -17,6 +18,7 @@ construct_detailed!(DetailedRequiredBalance, required_balance);
 
 pub type TradePreimageRpcResult<T> = Result<T, MmError<TradePreimageRpcError>>;
 
+/// Calculate all fees for the swap and max volume (for maker)
 pub async fn trade_preimage_rpc(
     ctx: MmArc,
     req: TradePreimageRequest,
@@ -28,8 +30,8 @@ pub async fn trade_preimage_rpc(
         return MmError::err(TradePreimageRpcError::CoinIsWalletOnly { coin: req.rel });
     }
 
-    let base_coin = lp_coinfind_or_err(&ctx, &req.base).await?;
-    let rel_coin = lp_coinfind_or_err(&ctx, &req.rel).await?;
+    let base_coin = lp_coinfind_or_err(&ctx, &req.base).await.map_mm_err()?;
+    let rel_coin = lp_coinfind_or_err(&ctx, &req.rel).await.map_mm_err()?;
 
     match req.swap_method {
         TradePreimageMethod::SetPrice => maker_swap_trade_preimage(&ctx, req, base_coin, rel_coin)
@@ -182,11 +184,7 @@ impl TradePreimageResponse {
 #[serde(tag = "error_type", content = "error_data")]
 pub enum TradePreimageRpcError {
     #[display(
-        fmt = "Not enough {} for swap: available {}, required at least {}, locked by swaps {:?}",
-        coin,
-        available,
-        required,
-        locked_by_swaps
+        fmt = "Not enough {coin} for swap: available {available}, required at least {required}, locked by swaps {locked_by_swaps:?}"
     )]
     NotSufficientBalance {
         coin: String,
@@ -196,11 +194,7 @@ pub enum TradePreimageRpcError {
         locked_by_swaps: Option<BigDecimal>,
     },
     #[display(
-        fmt = "Not enough base coin {} balance for swap: available {}, required at least {}, locked by swaps {:?}",
-        coin,
-        available,
-        required,
-        locked_by_swaps
+        fmt = "Not enough platform coin {coin} balance for swap: available {available}, required at least {required}, locked by swaps {locked_by_swaps:?}"
     )]
     NotSufficientBaseCoinBalance {
         coin: String,
@@ -209,30 +203,25 @@ pub enum TradePreimageRpcError {
         #[serde(skip_serializing_if = "Option::is_none")]
         locked_by_swaps: Option<BigDecimal>,
     },
-    #[display(
-        fmt = "The volume {} of the {} coin less than minimum transaction amount {}",
-        volume,
-        coin,
-        threshold
-    )]
+    #[display(fmt = "The volume {volume} of the {coin} coin less than minimum transaction amount {threshold}")]
     VolumeTooLow {
         coin: String,
         volume: BigDecimal,
         threshold: BigDecimal,
     },
-    #[display(fmt = "No such coin {}", coin)]
+    #[display(fmt = "No such coin {coin}")]
     NoSuchCoin { coin: String },
-    #[display(fmt = "Coin {} is wallet only", coin)]
+    #[display(fmt = "Coin {coin} is wallet only")]
     CoinIsWalletOnly { coin: String },
     #[display(fmt = "Rel coin can not be same as base")]
     BaseEqualRel,
-    #[display(fmt = "Incorrect use of the '{}' parameter: {}", param, reason)]
+    #[display(fmt = "Incorrect use of the '{param}' parameter: {reason}")]
     InvalidParam { param: String, reason: String },
-    #[display(fmt = "Price {} is too low, required at least {}", price, threshold)]
+    #[display(fmt = "Price {price} is too low, required at least {threshold}")]
     PriceTooLow { price: BigDecimal, threshold: BigDecimal },
-    #[display(fmt = "Transport error: {}", _0)]
+    #[display(fmt = "Transport error: {_0}")]
     Transport(String),
-    #[display(fmt = "Internal error: {}", _0)]
+    #[display(fmt = "Internal error: {_0}")]
     InternalError(String),
 }
 
@@ -263,6 +252,7 @@ impl From<BalanceError> for TradePreimageRpcError {
             BalanceError::UnexpectedDerivationMethod(_) => TradePreimageRpcError::InternalError(e.to_string()),
             BalanceError::WalletStorageError(_) => TradePreimageRpcError::InternalError(e.to_string()),
             BalanceError::Internal(internal) => TradePreimageRpcError::InternalError(internal),
+            BalanceError::NoSuchCoin { coin } => TradePreimageRpcError::NoSuchCoin { coin },
         }
     }
 }
@@ -316,7 +306,9 @@ impl From<CoinFindError> for TradePreimageRpcError {
 }
 
 impl From<CryptoCtxError> for TradePreimageRpcError {
-    fn from(e: CryptoCtxError) -> Self { TradePreimageRpcError::InternalError(e.to_string()) }
+    fn from(e: CryptoCtxError) -> Self {
+        TradePreimageRpcError::InternalError(e.to_string())
+    }
 }
 
 impl TradePreimageRpcError {
@@ -335,15 +327,21 @@ impl TradePreimageRpcError {
     ) -> TradePreimageRpcError {
         match maker_order_err {
             MakerOrderBuildError::BaseEqualRel => TradePreimageRpcError::BaseEqualRel,
+            // TODO: this error is displayed as 'The volume .. of the .. coin less than minimum transaction amount <threshold>'
+            // what may be thought as 'dust' but this is 'min order amount'
+            // better fix display as 'minimum order amount'
             MakerOrderBuildError::MaxBaseVolTooLow { actual, threshold } => TradePreimageRpcError::VolumeTooLow {
                 coin: base.to_owned(),
                 volume: actual.to_decimal(),
-                threshold: threshold.to_decimal(),
+                threshold: threshold.to_decimal(), // TODO: this is reported as 'The volume .. of the .. coin less than minimum transaction amount' what may be thought as dust ut this is 'min volume'
             },
             MakerOrderBuildError::PriceTooLow { actual, threshold } => TradePreimageRpcError::PriceTooLow {
                 price: actual.to_decimal(),
                 threshold: threshold.to_decimal(),
             },
+            // TODO: this error is displayed as 'The volume .. of the .. coin less than minimum transaction amount <threshold>'
+            // what may be thought as 'dust' but this is 'min order amount'
+            // better fix display as 'minimum order amount'
             MakerOrderBuildError::RelVolTooLow { actual, threshold } => TradePreimageRpcError::VolumeTooLow {
                 coin: rel.to_owned(),
                 volume: actual.to_decimal(),
@@ -353,7 +351,7 @@ impl TradePreimageRpcError {
             error @ MakerOrderBuildError::MinBaseVolTooLow { .. }
             | error @ MakerOrderBuildError::ConfSettingsNotSet
             | error @ MakerOrderBuildError::MaxBaseVolBelowMinBaseVol { .. } => {
-                TradePreimageRpcError::InternalError(format!("Unexpected MakerOrderBuildError: {}", error))
+                TradePreimageRpcError::InternalError(format!("Unexpected MakerOrderBuildError: {error}"))
             },
         }
     }
@@ -380,7 +378,7 @@ impl TradePreimageRpcError {
             | error @ TakerOrderBuildError::MaxBaseVolBelowMinBaseVol { .. }
             | error @ TakerOrderBuildError::SenderPubkeyIsZero
             | error @ TakerOrderBuildError::ConfsSettingsNotSet => {
-                TradePreimageRpcError::InternalError(format!("Unexpected TakerOrderBuildError: {}", error))
+                TradePreimageRpcError::InternalError(format!("Unexpected TakerOrderBuildError: {error}"))
             },
         }
     }

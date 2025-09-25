@@ -6,6 +6,7 @@
 
 use http::{HeaderMap, StatusCode};
 use mm2_number::{BigDecimal, BigRational, Fraction, MmNumber};
+use mm2_rpc::data::legacy::{MatchBy, OrderConfirmationsSettings, OrderType, RpcOrderbookEntry, TakerAction};
 use rpc::v1::types::H256 as H256Json;
 use serde::de::DeserializeOwned;
 use serde_json::Value as Json;
@@ -77,23 +78,6 @@ impl RpcResponse {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(tag = "type", content = "data")]
-pub enum OrderType {
-    FillOrKill,
-    GoodTillCancelled,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OrderConfirmationsSettings {
-    pub base_confs: u64,
-    pub base_nota: bool,
-    pub rel_confs: u64,
-    pub rel_nota: bool,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HistoricalOrder {
@@ -102,22 +86,6 @@ struct HistoricalOrder {
     price: Option<MmNumber>,
     updated_at: Option<u64>,
     conf_settings: Option<OrderConfirmationsSettings>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub enum TakerAction {
-    Buy,
-    Sell,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(tag = "type", content = "data")]
-pub enum MatchBy {
-    Any,
-    Orders(HashSet<Uuid>),
-    Pubkeys(HashSet<H256Json>),
 }
 
 #[derive(Deserialize)]
@@ -300,124 +268,11 @@ pub struct MyOrdersRpcResult {
     pub result: MyOrdersRpc,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OrderbookEntry {
-    pub coin: String,
-    pub address: String,
-    pub price: BigDecimal,
-    pub price_rat: BigRational,
-    pub price_fraction: Fraction,
-    #[serde(rename = "maxvolume")]
-    pub max_volume: BigDecimal,
-    pub max_volume_rat: BigRational,
-    pub max_volume_fraction: Fraction,
-    pub base_max_volume: BigDecimal,
-    pub base_max_volume_rat: BigRational,
-    pub base_max_volume_fraction: Fraction,
-    pub base_min_volume: BigDecimal,
-    pub base_min_volume_rat: BigRational,
-    pub base_min_volume_fraction: Fraction,
-    pub rel_max_volume: BigDecimal,
-    pub rel_max_volume_rat: BigRational,
-    pub rel_max_volume_fraction: Fraction,
-    pub rel_min_volume: BigDecimal,
-    pub rel_min_volume_rat: BigRational,
-    pub rel_min_volume_fraction: Fraction,
-    pub min_volume: BigDecimal,
-    pub min_volume_rat: BigRational,
-    pub min_volume_fraction: Fraction,
-    pub pubkey: String,
-    pub age: i64,
-    pub zcredits: u64,
-    pub uuid: Uuid,
-    pub is_mine: bool,
-    pub base_confs: u64,
-    pub base_nota: bool,
-    pub rel_confs: u64,
-    pub rel_nota: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OrderbookEntryAggregate {
-    pub coin: String,
-    pub address: String,
-    pub price: BigDecimal,
-    pub price_rat: BigRational,
-    pub price_fraction: Fraction,
-    #[serde(rename = "maxvolume")]
-    pub max_volume: BigDecimal,
-    pub max_volume_rat: BigRational,
-    pub max_volume_fraction: Fraction,
-    pub base_max_volume: BigDecimal,
-    pub base_max_volume_rat: BigRational,
-    pub base_max_volume_fraction: Fraction,
-    pub base_min_volume: BigDecimal,
-    pub base_min_volume_rat: BigRational,
-    pub base_min_volume_fraction: Fraction,
-    pub rel_max_volume: BigDecimal,
-    pub rel_max_volume_rat: BigRational,
-    pub rel_max_volume_fraction: Fraction,
-    pub rel_min_volume: BigDecimal,
-    pub rel_min_volume_rat: BigRational,
-    pub rel_min_volume_fraction: Fraction,
-    pub min_volume: BigDecimal,
-    pub min_volume_rat: BigRational,
-    pub min_volume_fraction: Fraction,
-    pub pubkey: String,
-    pub age: i64,
-    pub zcredits: u64,
-    pub uuid: Uuid,
-    pub is_mine: bool,
-    pub base_max_volume_aggr: BigDecimal,
-    pub base_max_volume_aggr_rat: BigRational,
-    pub base_max_volume_aggr_fraction: Fraction,
-    pub rel_max_volume_aggr: BigDecimal,
-    pub rel_max_volume_aggr_rat: BigRational,
-    pub rel_max_volume_aggr_fraction: Fraction,
-    pub base_confs: u64,
-    pub base_nota: bool,
-    pub rel_confs: u64,
-    pub rel_nota: bool,
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BestOrdersResponse {
-    pub result: HashMap<String, Vec<OrderbookEntry>>,
+    pub result: HashMap<String, Vec<RpcOrderbookEntry>>,
     pub original_tickers: HashMap<String, HashSet<String>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OrderbookResponse {
-    pub base: String,
-    pub rel: String,
-    #[serde(rename = "askdepth")]
-    pub ask_depth: usize,
-    #[serde(rename = "biddepth")]
-    pub bid_depth: usize,
-    #[serde(rename = "numasks")]
-    num_asks: usize,
-    #[serde(rename = "numbids")]
-    num_bids: usize,
-    pub netid: u16,
-    timestamp: u64,
-    pub total_asks_base_vol: BigDecimal,
-    pub total_asks_base_vol_rat: BigRational,
-    pub total_asks_base_vol_fraction: Fraction,
-    pub total_asks_rel_vol: BigDecimal,
-    pub total_asks_rel_vol_rat: BigRational,
-    pub total_asks_rel_vol_fraction: Fraction,
-    pub total_bids_base_vol: BigDecimal,
-    pub total_bids_base_vol_rat: BigRational,
-    pub total_bids_base_vol_fraction: Fraction,
-    pub total_bids_rel_vol: BigDecimal,
-    pub total_bids_rel_vol_rat: BigRational,
-    pub total_bids_rel_vol_fraction: Fraction,
-    pub asks: Vec<OrderbookEntryAggregate>,
-    pub bids: Vec<OrderbookEntryAggregate>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -438,19 +293,6 @@ pub struct PairWithDepth {
 #[serde(deny_unknown_fields)]
 pub struct OrderbookDepthResponse {
     pub result: Vec<PairWithDepth>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EnableElectrumResponse {
-    pub coin: String,
-    pub address: String,
-    pub balance: BigDecimal,
-    pub unspendable_balance: BigDecimal,
-    pub required_confirmations: u64,
-    pub mature_confirmations: Option<u64>,
-    pub requires_notarization: bool,
-    pub result: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -621,6 +463,9 @@ pub enum TransactionType {
         msg_type: CustomTendermintMsgType,
         token_id: Option<String>,
     },
+    TendermintIBCTransfer {
+        token_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
@@ -645,18 +490,16 @@ pub struct TransactionDetails {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct MyBalanceResponse {
+pub struct IguanaWalletBalance {
     pub address: String,
-    pub balance: BigDecimal,
-    pub unspendable_balance: BigDecimal,
-    pub coin: String,
+    pub balance: CoinBalance,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct IguanaWalletBalance {
+pub struct IguanaWalletBalanceMap {
     pub address: String,
-    pub balance: CoinBalance,
+    pub balance: HashMap<String, CoinBalance>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -673,11 +516,26 @@ pub struct HDWalletBalance {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct HDWalletBalanceMap {
+    pub accounts: Vec<HDAccountBalanceMap>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HDAccountBalance {
     pub account_index: u32,
     pub derivation_path: String,
     pub total_balance: CoinBalance,
     pub addresses: Vec<HDAddressBalance>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HDAccountBalanceMap {
+    pub account_index: u32,
+    pub derivation_path: String,
+    pub total_balance: HashMap<String, CoinBalance>,
+    pub addresses: Vec<HDAddressBalanceMap>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -689,6 +547,15 @@ pub struct HDAddressBalance {
     pub balance: CoinBalance,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HDAddressBalanceMap {
+    pub address: String,
+    pub derivation_path: String,
+    pub chain: Bip44Chain,
+    pub balance: HashMap<String, CoinBalance>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct HDAccountAddressId {
     pub account_id: u32,
@@ -696,11 +563,81 @@ pub struct HDAccountAddressId {
     pub address_id: u32,
 }
 
+impl Default for HDAccountAddressId {
+    fn default() -> Self {
+        HDAccountAddressId {
+            account_id: 0,
+            chain: Bip44Chain::External,
+            address_id: 0,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, tag = "wallet_type")]
 pub enum EnableCoinBalance {
     Iguana(IguanaWalletBalance),
     HD(HDWalletBalance),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, tag = "wallet_type")]
+pub enum EnableCoinBalanceMap {
+    Iguana(IguanaWalletBalanceMap),
+    HD(HDWalletBalanceMap),
+}
+
+/// The `FirstSyncBlock` struct contains details about the block block that is used to start the synchronization
+/// process.
+/// It includes information about the requested block height, whether it predates the Sapling activation, and the
+/// actual starting block height used during synchronization.
+///
+/// - `requested`: The requested block height during synchronization.
+/// - `is_pre_sapling`: Indicates whether the block predates the Sapling activation.
+/// - `actual`: The actual block height used for synchronization(may be altered).
+#[derive(Debug, Deserialize)]
+pub struct FirstSyncBlock {
+    pub requested: u64,
+    pub is_pre_sapling: bool,
+    pub actual: u64,
+}
+
+/// `ZCoinActivationResult` provides information/data for Zcoin activation. It includes
+/// details such as the ticker, the current block height, the wallet balance, and the result
+/// of the first synchronization block (if applicable).
+///
+/// - `ticker`: A string representing the ticker of the Zcoin.
+/// - `current_block`: The current block height at the time of this activation result.
+/// - `wallet_balance`: Information about the wallet's coin balance and status.
+/// - `first_sync_block`: An optional field containing details about the first synchronization block
+///   during the activation process. It may be `None` if no first synchronization block is available.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ZCoinActivationResult {
+    pub ticker: String,
+    pub current_block: u64,
+    pub wallet_balance: EnableCoinBalance,
+    pub first_sync_block: Option<FirstSyncBlock>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GetNewAddressResponse {
+    pub new_address: HDAddressBalanceMap,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HDAccountBalanceResponse {
+    pub account_index: u32,
+    pub derivation_path: String,
+    pub addresses: Vec<HDAddressBalanceMap>,
+    pub page_balance: HashMap<String, CoinBalance>,
+    pub limit: usize,
+    pub skipped: u32,
+    pub total: u32,
+    pub total_pages: usize,
+    pub paging_options: PagingOptionsEnum<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -716,7 +653,7 @@ pub struct CoinActivationResult {
 pub struct UtxoStandardActivationResult {
     pub ticker: String,
     pub current_block: u64,
-    pub wallet_balance: EnableCoinBalance,
+    pub wallet_balance: EnableCoinBalanceMap,
 }
 
 #[derive(Debug, Deserialize)]
@@ -740,10 +677,22 @@ pub enum MmRpcResult<T> {
     Err(Json),
 }
 
+/// `InitZcoinStatus` encapsulates different states that may occur during the initialization of Zcoin,
+/// These states include successful initialization, error conditions, ongoing
+/// progress, and situations where user action is required.
+///
+/// - `Ok(ZCoinActivationResult)`: Indicates that Zcoin initialization was successful, with an associated
+///   `ZCoinActivationResult` containing activation and status information.
+/// - `Error(Json)`: Represents an error state during initialization, with an associated JSON object (`Json`)
+///   providing details about the error.
+/// - `InProgress(Json)`: Indicates that initialization is in progress, with an associated JSON object (`Json`)
+///   containing information about the ongoing process.
+/// - `UserActionRequired(Json)`: Denotes a state where user action is required for initialization to proceed,
+///   with an associated JSON object (`Json`) providing instructions or requirements.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum InitZcoinStatus {
-    Ok(CoinActivationResult),
+    Ok(ZCoinActivationResult),
     Error(Json),
     InProgress(Json),
     UserActionRequired(Json),
@@ -760,11 +709,46 @@ pub enum InitUtxoStatus {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, tag = "status", content = "details")]
+pub enum InitEthWithTokensStatus {
+    Ok(EthWithTokensActivationResult),
+    Error(Json),
+    InProgress(Json),
+    UserActionRequired(Json),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, tag = "status", content = "details")]
+pub enum InitErc20TokenStatus {
+    Ok(InitTokenActivationResult),
+    Error(Json),
+    InProgress(Json),
+    UserActionRequired(Json),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, tag = "status", content = "details")]
 pub enum InitLightningStatus {
     Ok(LightningActivationResult),
     Error(Json),
     InProgress(Json),
     UserActionRequired(Json),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, tag = "status", content = "details")]
+pub enum CreateNewAccountStatus {
+    Ok(HDAccountBalanceMap),
+    Error(Json),
+    InProgress(Json),
+    UserActionRequired(Json),
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+#[serde(untagged)]
+pub enum HDAddressSelector {
+    AddressId(HDAccountAddressId),
+    DerivationPath { derivation_path: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -854,6 +838,13 @@ pub struct GetSharedDbIdResult {
     pub shared_db_id: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GetWalletNamesResult {
+    pub wallet_names: Vec<String>,
+    pub activated_wallet: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RpcV2Response<T> {
@@ -907,10 +898,39 @@ pub type TokenBalances = HashMap<String, CoinBalance>;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct EnableEthWithTokensResponse {
+pub struct IguanaEthWithTokensActivationResult {
     pub current_block: u64,
     pub eth_addresses_infos: HashMap<String, CoinAddressInfo<CoinBalance>>,
     pub erc20_addresses_infos: HashMap<String, CoinAddressInfo<TokenBalances>>,
+    pub nfts_infos: Json,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HDEthWithTokensActivationResult {
+    pub current_block: u64,
+    pub ticker: String,
+    pub wallet_balance: EnableCoinBalanceMap,
+    pub nfts_infos: Json,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(untagged)]
+pub enum EthWithTokensActivationResult {
+    Iguana(IguanaEthWithTokensActivationResult),
+    HD(HDEthWithTokensActivationResult),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitTokenActivationResult {
+    pub ticker: String,
+    pub platform_coin: String,
+    pub token_contract_address: String,
+    pub current_block: u64,
+    pub required_confirmations: u64,
+    pub wallet_balance: EnableCoinBalanceMap,
 }
 
 #[derive(Debug, Deserialize)]
@@ -919,14 +939,6 @@ pub struct EnableBchWithTokensResponse {
     pub current_block: u64,
     pub bch_addresses_infos: HashMap<String, CoinAddressInfo<CoinBalance>>,
     pub slp_addresses_infos: HashMap<String, CoinAddressInfo<TokenBalances>>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EnableSolanaWithTokensResponse {
-    pub current_block: u64,
-    pub solana_addresses_infos: HashMap<String, CoinAddressInfo<CoinBalance>>,
-    pub spl_addresses_infos: HashMap<String, CoinAddressInfo<TokenBalances>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -985,7 +997,6 @@ pub enum MyTxHistoryTarget {
     Iguana,
     AccountId { account_id: u32 },
     AddressId(HDAccountAddressId),
-    AddressDerivationPath(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -994,13 +1005,6 @@ pub struct UtxoFeeDetails {
     pub r#type: String,
     pub coin: Option<String>,
     pub amount: BigDecimal,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MmVersion {
-    pub result: String,
-    pub datetime: String,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
@@ -1074,7 +1078,7 @@ pub struct OrderbookV2Response {
     pub total_bids_rel_vol: MmNumberMultiRepr,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct BestOrdersV2Response {
     pub orders: HashMap<String, Vec<RpcOrderbookEntryV2>>,
@@ -1189,4 +1193,66 @@ pub struct DisableCoinError {
 pub struct DisableCoinOrders {
     matching: Vec<Uuid>,
     cancelled: Vec<Uuid>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct CoinsNeededForKickstartResponse {
+    pub result: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct ActiveSwapsResponse {
+    pub uuids: Vec<Uuid>,
+    pub statuses: Option<HashMap<Uuid, Json>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Erc20TokenInfo {
+    pub symbol: String,
+    pub decimals: u8,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(tag = "type", content = "info")]
+pub enum TokenInfo {
+    ERC20(Erc20TokenInfo),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TokenInfoResponse {
+    pub config_ticker: Option<String>,
+    #[serde(flatten)]
+    pub info: TokenInfo,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SpentUtxo {
+    pub txid: String,
+    pub vout: u32,
+    pub value: BigDecimal,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConsolidateUtxoResponse {
+    pub tx: TransactionDetails,
+    pub consolidated_utxos: Vec<SpentUtxo>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddressUtxos {
+    pub address: String,
+    pub count: usize,
+    pub utxos: Vec<SpentUtxo>,
+    pub derivation_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FetchUtxosResponse {
+    pub total_count: usize,
+    pub addresses: Vec<AddressUtxos>,
 }

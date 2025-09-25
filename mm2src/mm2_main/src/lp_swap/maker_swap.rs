@@ -1,38 +1,49 @@
-use super::check_balance::{check_base_coin_balance_for_swap, check_my_coin_balance_for_swap, CheckBalanceError,
-                           CheckBalanceResult};
+use super::check_balance::{
+    check_my_coin_balance_for_swap, check_platform_coin_balance_for_swap, CheckBalanceError, CheckBalanceResult,
+};
 use super::pubkey_banning::ban_pubkey_on_failed_swap;
 use super::swap_lock::{SwapLock, SwapLockOps};
 use super::trade_preimage::{TradePreimageRequest, TradePreimageRpcError, TradePreimageRpcResult};
-use super::{broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_message_every,
-            check_other_coin_balance_for_swap, detect_secret_hash_algo, dex_fee_amount_from_taker_coin,
-            get_locked_amount, recv_swap_msg, swap_topic, taker_payment_spend_deadline, tx_helper_topic,
-            wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
-            NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo,
-            SavedTradeFee, SecretHashAlgo, SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg,
-            SwapsContext, TransactionIdentifier, WAIT_CONFIRM_INTERVAL};
-use crate::mm2::lp_dispatcher::{DispatcherContext, LpEvents};
-use crate::mm2::lp_network::subscribe_to_topic;
-use crate::mm2::lp_ordermatch::{MakerOrderBuilder, OrderConfirmationsSettings};
-use crate::mm2::lp_swap::{broadcast_swap_message, taker_payment_spend_duration};
+use super::{
+    broadcast_my_swap_status, broadcast_p2p_tx_msg, broadcast_swap_msg_every, check_other_coin_balance_for_swap,
+    detect_secret_hash_algo, get_locked_amount, recv_swap_msg, swap_topic, taker_payment_spend_deadline,
+    tx_helper_topic, wait_for_maker_payment_conf_until, AtomicSwap, LockedAmount, MySwapInfo, NegotiationDataMsg,
+    NegotiationDataV2, NegotiationDataV3, RecoveredSwap, RecoveredSwapAction, SavedSwap, SavedSwapIo, SavedTradeFee,
+    SwapConfirmationsSettings, SwapError, SwapMsg, SwapPubkeys, SwapTxDataMsg, SwapsContext, TransactionIdentifier,
+    TAKER_FEE_VALIDATION_ATTEMPTS, TAKER_FEE_VALIDATION_RETRY_DELAY_SECS, WAIT_CONFIRM_INTERVAL_SEC,
+};
+use crate::lp_dispatcher::{DispatcherContext, LpEvents};
+use crate::lp_network::subscribe_to_topic;
+use crate::lp_ordermatch::MakerOrderBuilder;
+use crate::lp_swap::swap_events::{SwapStatusEvent, SwapStatusStreamer};
+use crate::lp_swap::swap_v2_common::mark_swap_as_finished;
+use crate::lp_swap::{broadcast_swap_message, taker_payment_spend_duration, MAX_STARTED_AT_DIFF};
 use coins::lp_price::fetch_swap_coins_price;
-use coins::{CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, FeeApproxStage, FoundSwapTxSpend,
-            MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
-            SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, TradeFee, TradePreimageValue,
-            TransactionEnum, ValidateFeeArgs, ValidatePaymentInput};
+use coins::{
+    CanRefundHtlc, CheckIfMyPaymentSentArgs, ConfirmPaymentInput, DexFee, FeeApproxStage, FoundSwapTxSpend, MmCoin,
+    MmCoinEnum, PaymentInstructionArgs, PaymentInstructions, PaymentInstructionsErr, RefundPaymentArgs,
+    SearchForSwapTxSpendInput, SendPaymentArgs, SpendPaymentArgs, SwapTxTypeWithSecretHash, TradeFee,
+    TradePreimageValue, TransactionEnum, ValidateFeeArgs, ValidatePaymentInput, WatcherReward,
+};
 use common::log::{debug, error, info, warn};
-use common::{bits256, executor::Timer, now_ms, DEX_FEE_ADDR_RAW_PUBKEY};
+use common::{bits256, executor::Timer, now_ms};
 use common::{now_sec, wait_until_sec};
 use crypto::privkey::SerializableSecp256k1Keypair;
+use crypto::secret_hash_algo::SecretHashAlgo;
 use crypto::CryptoCtx;
 use futures::{compat::Future01CompatExt, select, FutureExt};
 use keys::KeyPair;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::DeriveStreamerId;
 use mm2_number::{BigDecimal, MmNumber};
+use mm2_rpc::data::legacy::OrderConfirmationsSettings;
 use parking_lot::Mutex as PaMutex;
 use primitives::hash::{H256, H264};
 use rpc::v1::types::{Bytes as BytesJson, H256 as H256Json, H264 as H264Json};
 use std::any::TypeId;
+use std::convert::TryInto;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -74,18 +85,24 @@ pub const MAKER_ERROR_EVENTS: [&str; 15] = [
 pub const MAKER_PAYMENT_SENT_LOG: &str = "Maker payment sent";
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn stats_maker_swap_dir(ctx: &MmArc) -> PathBuf { ctx.dbdir().join("SWAPS").join("STATS").join("MAKER") }
+pub fn stats_maker_swap_dir(ctx: &MmArc) -> PathBuf {
+    ctx.global_dir().join("SWAPS").join("STATS").join("MAKER")
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn stats_maker_swap_file_path(ctx: &MmArc, uuid: &Uuid) -> PathBuf {
-    stats_maker_swap_dir(ctx).join(format!("{}.json", uuid))
+    stats_maker_swap_dir(ctx).join(format!("{uuid}.json"))
 }
 
 async fn save_my_maker_swap_event(ctx: &MmArc, swap: &MakerSwap, event: MakerSavedEvent) -> Result<(), String> {
-    let swap = match SavedSwap::load_my_swap_from_db(ctx, swap.uuid).await {
+    let maker_coin_pub = swap.my_maker_coin_htlc_pub();
+    let maker_coin_address = try_s!(swap.maker_coin.address_from_pubkey(&maker_coin_pub));
+    let swap = match SavedSwap::load_my_swap_from_db(ctx, Some(&maker_coin_address), swap.uuid).await {
         Ok(Some(swap)) => swap,
         Ok(None) => SavedSwap::Maker(MakerSavedSwap {
             uuid: swap.uuid,
+            #[cfg(all(not(target_arch = "wasm32"), feature = "new-db-arch"))]
+            maker_address: maker_coin_address,
             my_order_uuid: swap.my_order_uuid,
             maker_amount: Some(swap.maker_amount.clone()),
             maker_coin: Some(swap.maker_coin.ticker().to_owned()),
@@ -127,17 +144,22 @@ pub struct TakerNegotiationData {
 
 impl TakerNegotiationData {
     #[inline]
-    fn other_maker_coin_htlc_pub(&self) -> H264 { self.maker_coin_htlc_pubkey.unwrap_or(self.taker_pubkey).into() }
+    fn other_maker_coin_htlc_pub(&self) -> H264 {
+        self.maker_coin_htlc_pubkey.unwrap_or(self.taker_pubkey).into()
+    }
 
     #[inline]
-    fn other_taker_coin_htlc_pub(&self) -> H264 { self.taker_coin_htlc_pubkey.unwrap_or(self.taker_pubkey).into() }
+    fn other_taker_coin_htlc_pub(&self) -> H264 {
+        self.taker_coin_htlc_pubkey.unwrap_or(self.taker_pubkey).into()
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
 pub struct MakerSwapData {
     pub taker_coin: String,
     pub maker_coin: String,
-    pub taker: H256Json,
+    #[serde(rename = "taker")]
+    pub taker_pubkey: H256Json,
     pub secret: H256Json,
     pub secret_hash: Option<BytesJson>,
     pub my_persistent_pub: H264Json,
@@ -165,8 +187,10 @@ pub struct MakerSwapData {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub taker_coin_swap_contract_address: Option<BytesJson>,
     /// Temporary pubkey used in HTLC redeem script when applicable for maker coin
+    /// Note: it's temporary for zcoin. For other coins it's currently obtained from iguana key or HD wallet activated key
     pub maker_coin_htlc_pubkey: Option<H264Json>,
     /// Temporary pubkey used in HTLC redeem script when applicable for taker coin
+    /// Note: it's temporary for zcoin. For other coins it's currently obtained from iguana key or HD wallet activated key
     pub taker_coin_htlc_pubkey: Option<H264Json>,
     /// Temporary privkey used to sign P2P messages when applicable
     pub p2p_privkey: Option<SerializableSecp256k1Keypair>,
@@ -212,7 +236,7 @@ pub struct MakerSwap {
     maker_amount: BigDecimal,
     taker_amount: BigDecimal,
     my_persistent_pub: H264,
-    taker: bits256,
+    taker_pubkey: bits256,
     uuid: Uuid,
     my_order_uuid: Option<Uuid>,
     taker_payment_lock: AtomicU64,
@@ -232,15 +256,13 @@ pub struct MakerSwap {
 
 impl MakerSwap {
     #[inline]
-    fn w(&self) -> RwLockWriteGuard<MakerSwapMut> { self.mutable.write().unwrap() }
+    fn w(&self) -> RwLockWriteGuard<'_, MakerSwapMut> {
+        self.mutable.write().unwrap()
+    }
 
     #[inline]
-    fn r(&self) -> RwLockReadGuard<MakerSwapMut> { self.mutable.read().unwrap() }
-
-    pub fn generate_secret() -> Result<[u8; 32], rand::Error> {
-        let mut sec = [0u8; 32];
-        common::os_rng(&mut sec)?;
-        Ok(sec)
+    fn r(&self) -> RwLockReadGuard<'_, MakerSwapMut> {
+        self.mutable.read().unwrap()
     }
 
     #[inline]
@@ -269,7 +291,9 @@ impl MakerSwap {
             .unwrap_or_else(|| self.my_persistent_pub.into())
     }
 
-    fn wait_refund_until(&self) -> u64 { self.r().data.maker_payment_lock + 3700 }
+    fn wait_refund_until(&self) -> u64 {
+        self.r().data.maker_payment_lock + 3700
+    }
 
     #[inline]
     fn watcher_reward_amount(&self) -> Option<BigDecimal> {
@@ -358,7 +382,7 @@ impl MakerSwap {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         ctx: MmArc,
-        taker: bits256,
+        taker_pubkey: bits256,
         maker_amount: BigDecimal,
         taker_amount: BigDecimal,
         my_persistent_pub: H264,
@@ -378,7 +402,7 @@ impl MakerSwap {
             maker_amount,
             taker_amount,
             my_persistent_pub,
-            taker,
+            taker_pubkey,
             uuid,
             my_order_uuid,
             taker_payment_lock: AtomicU64::new(0),
@@ -428,7 +452,7 @@ impl MakerSwap {
             NegotiationDataMsg::V2(NegotiationDataV2 {
                 started_at: r.data.started_at,
                 payment_locktime: r.data.maker_payment_lock,
-                persistent_pubkey: r.data.my_persistent_pub.0.to_vec(),
+                persistent_pubkey: r.data.my_persistent_pub,
                 secret_hash,
                 maker_coin_swap_contract,
                 taker_coin_swap_contract,
@@ -440,8 +464,8 @@ impl MakerSwap {
                 secret_hash,
                 maker_coin_swap_contract,
                 taker_coin_swap_contract,
-                maker_coin_htlc_pub: self.my_maker_coin_htlc_pub().into(),
-                taker_coin_htlc_pub: self.my_taker_coin_htlc_pub().into(),
+                maker_coin_htlc_pub: self.my_maker_coin_htlc_pub(),
+                taker_coin_htlc_pub: self.my_taker_coin_htlc_pub(),
             })
         }
     }
@@ -477,22 +501,28 @@ impl MakerSwap {
         // do not use self.r().data here as it is not initialized at this step yet
         let preimage_value = TradePreimageValue::Exact(self.maker_amount.clone());
         let stage = FeeApproxStage::StartSwap;
-        let get_sender_trade_fee_fut = self.maker_coin.get_sender_trade_fee(preimage_value, stage.clone());
+        let get_sender_trade_fee_fut = self.maker_coin.get_sender_trade_fee(preimage_value, stage);
         let maker_payment_trade_fee = match get_sender_trade_fee_fut.await {
             Ok(fee) => fee,
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::StartFailed(
-                    ERRL!("!maker_coin.get_sender_trade_fee {}", e).into(),
-                )]))
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::StartFailed(
+                        ERRL!("!maker_coin.get_sender_trade_fee {}", e).into(),
+                    )],
+                ))
             },
         };
-        let taker_payment_spend_trade_fee_fut = self.taker_coin.get_receiver_trade_fee(stage.clone());
+        let taker_payment_spend_trade_fee_fut = self.taker_coin.get_receiver_trade_fee(stage);
         let taker_payment_spend_trade_fee = match taker_payment_spend_trade_fee_fut.compat().await {
             Ok(fee) => fee,
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::StartFailed(
-                    ERRL!("!taker_coin.get_receiver_trade_fee {}", e).into(),
-                )]))
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::StartFailed(
+                        ERRL!("!taker_coin.get_receiver_trade_fee {}", e).into(),
+                    )],
+                ))
             },
         };
 
@@ -502,8 +532,8 @@ impl MakerSwap {
         };
         match check_balance_for_maker_swap(
             &self.ctx,
-            &self.maker_coin,
-            &self.taker_coin,
+            self.maker_coin.deref(),
+            self.taker_coin.deref(),
             self.maker_amount.clone().into(),
             Some(&self.uuid),
             Some(params),
@@ -513,9 +543,12 @@ impl MakerSwap {
         {
             Ok(_) => (),
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::StartFailed(
-                    ERRL!("!check_balance_for_maker_swap {}", e).into(),
-                )]))
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::StartFailed(
+                        ERRL!("!check_balance_for_maker_swap {}", e).into(),
+                    )],
+                ))
             },
         };
 
@@ -523,18 +556,24 @@ impl MakerSwap {
         let maker_coin_start_block = match self.maker_coin.current_block().compat().await {
             Ok(b) => b,
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::StartFailed(
-                    ERRL!("!maker_coin.current_block {}", e).into(),
-                )]))
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::StartFailed(
+                        ERRL!("!maker_coin.current_block {}", e).into(),
+                    )],
+                ))
             },
         };
 
         let taker_coin_start_block = match self.taker_coin.current_block().compat().await {
             Ok(b) => b,
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::StartFailed(
-                    ERRL!("!taker_coin.current_block {}", e).into(),
-                )]))
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::StartFailed(
+                        ERRL!("!taker_coin.current_block {}", e).into(),
+                    )],
+                ))
             },
         };
 
@@ -548,7 +587,7 @@ impl MakerSwap {
         let data = MakerSwapData {
             taker_coin: self.taker_coin.ticker().to_owned(),
             maker_coin: self.maker_coin.ticker().to_owned(),
-            taker: self.taker.bytes.into(),
+            taker_pubkey: self.taker_pubkey.bytes.into(),
             secret: self.secret.into(),
             secret_hash: Some(self.secret_hash().into()),
             started_at,
@@ -569,13 +608,13 @@ impl MakerSwap {
             taker_payment_spend_trade_fee: Some(SavedTradeFee::from(taker_payment_spend_trade_fee)),
             maker_coin_swap_contract_address,
             taker_coin_swap_contract_address,
-            maker_coin_htlc_pubkey: Some(maker_coin_htlc_pubkey.as_slice().into()),
-            taker_coin_htlc_pubkey: Some(taker_coin_htlc_pubkey.as_slice().into()),
+            maker_coin_htlc_pubkey: Some(maker_coin_htlc_pubkey.into()),
+            taker_coin_htlc_pubkey: Some(taker_coin_htlc_pubkey.into()),
             p2p_privkey: self.p2p_privkey.map(SerializableSecp256k1Keypair::from),
         };
 
         // This will be done during order match
-        self.w().watcher_reward = false;
+        self.w().watcher_reward = std::env::var("USE_WATCHER_REWARD").is_ok();
 
         Ok((Some(MakerSwapCommand::Negotiate), vec![MakerSwapEvent::Started(data)]))
     }
@@ -583,35 +622,38 @@ impl MakerSwap {
     async fn negotiate(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         let negotiation_data = self.get_my_negotiation_data();
 
-        let maker_negotiation_data = SwapMsg::Negotiation(negotiation_data);
-        const NEGOTIATION_TIMEOUT: u64 = 90;
+        let maker_negotiation_msg = SwapMsg::Negotiation(negotiation_data);
 
-        debug!("Sending maker negotiation data {:?}", maker_negotiation_data);
-        let send_abort_handle = broadcast_swap_message_every(
+        const NEGOTIATION_TIMEOUT_SEC: u64 = 90;
+
+        debug!("Sending maker negotiation data: {:?}", maker_negotiation_msg);
+        let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
-            maker_negotiation_data,
-            NEGOTIATION_TIMEOUT as f64 / 6.,
+            maker_negotiation_msg,
+            NEGOTIATION_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
         let recv_fut = recv_swap_msg(
             self.ctx.clone(),
             |store| store.negotiation_reply.take(),
             &self.uuid,
-            NEGOTIATION_TIMEOUT,
+            NEGOTIATION_TIMEOUT_SEC,
         );
         let taker_data = match recv_fut.await {
             Ok(d) => d,
             Err(e) => {
                 self.broadcast_negotiated_false();
-                return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
-                    ERRL!("{:?}", e).into(),
-                )]));
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::NegotiateFailed(ERRL!("{:?}", e).into())],
+                ));
             },
         };
         drop(send_abort_handle);
+
         let time_dif = self.r().data.started_at.abs_diff(taker_data.started_at());
-        if time_dif > 60 {
+        if time_dif > MAX_STARTED_AT_DIFF {
             self.broadcast_negotiated_false();
             return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
                 ERRL!("The time difference between you and the taker cannot be longer than 60 seconds. Current difference: {}. Please make sure that your system clock is synced to the correct time before starting another swap!", time_dif).into(),
@@ -621,14 +663,17 @@ impl MakerSwap {
         let expected_lock_time = taker_data.started_at().checked_add(self.r().data.lock_duration);
         if Some(taker_data.payment_locktime()) != expected_lock_time {
             self.broadcast_negotiated_false();
-            return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
-                ERRL!(
-                    "taker_data.payment_locktime {:?} not equal to expected {:?}",
-                    taker_data.payment_locktime(),
-                    expected_lock_time
-                )
-                .into(),
-            )]));
+            return Ok((
+                Some(MakerSwapCommand::Finish),
+                vec![MakerSwapEvent::NegotiateFailed(
+                    ERRL!(
+                        "taker_data.payment_locktime {:?} not equal to expected {:?}",
+                        taker_data.payment_locktime(),
+                        expected_lock_time
+                    )
+                    .into(),
+                )],
+            ));
         }
 
         let maker_coin_swap_contract_addr = match self
@@ -638,9 +683,12 @@ impl MakerSwap {
             Ok(addr) => addr,
             Err(e) => {
                 self.broadcast_negotiated_false();
-                return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
-                    ERRL!("!maker_coin.negotiate_swap_contract_addr {}", e).into(),
-                )]));
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::NegotiateFailed(
+                        ERRL!("!maker_coin.negotiate_swap_contract_addr {}", e).into(),
+                    )],
+                ));
             },
         };
 
@@ -651,50 +699,66 @@ impl MakerSwap {
             Ok(addr) => addr,
             Err(e) => {
                 self.broadcast_negotiated_false();
-                return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
-                    ERRL!("!taker_coin.negotiate_swap_contract_addr {}", e).into(),
-                )]));
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::NegotiateFailed(
+                        ERRL!("!taker_coin.negotiate_swap_contract_addr {}", e).into(),
+                    )],
+                ));
             },
         };
 
         // Validate maker_coin_htlc_pubkey realness
-        if let Err(err) = self.maker_coin.validate_other_pubkey(taker_data.maker_coin_htlc_pub()) {
+        if let Err(err) = self
+            .maker_coin
+            .validate_other_pubkey(&taker_data.maker_coin_htlc_pub().0)
+        {
             self.broadcast_negotiated_false();
-            return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
-                ERRL!("!taker_data.maker_coin_htlc_pub {}", err).into(),
-            )]));
+            return Ok((
+                Some(MakerSwapCommand::Finish),
+                vec![MakerSwapEvent::NegotiateFailed(
+                    ERRL!("!taker_data.maker_coin_htlc_pub {}", err).into(),
+                )],
+            ));
         };
 
         // Validate taker_coin_htlc_pubkey realness
-        if let Err(err) = self.taker_coin.validate_other_pubkey(taker_data.taker_coin_htlc_pub()) {
+        if let Err(err) = self
+            .taker_coin
+            .validate_other_pubkey(&taker_data.taker_coin_htlc_pub().0)
+        {
             self.broadcast_negotiated_false();
-            return Ok((Some(MakerSwapCommand::Finish), vec![MakerSwapEvent::NegotiateFailed(
-                ERRL!("!taker_data.taker_coin_htlc_pub {}", err).into(),
-            )]));
+            return Ok((
+                Some(MakerSwapCommand::Finish),
+                vec![MakerSwapEvent::NegotiateFailed(
+                    ERRL!("!taker_data.taker_coin_htlc_pub {}", err).into(),
+                )],
+            ));
         };
 
-        Ok((Some(MakerSwapCommand::WaitForTakerFee), vec![
-            MakerSwapEvent::Negotiated(TakerNegotiationData {
+        Ok((
+            Some(MakerSwapCommand::WaitForTakerFee),
+            vec![MakerSwapEvent::Negotiated(TakerNegotiationData {
                 taker_payment_locktime: taker_data.payment_locktime(),
                 // using default to avoid misuse of this field
                 // maker_coin_htlc_pubkey and taker_coin_htlc_pubkey must be used instead
                 taker_pubkey: H264Json::default(),
                 maker_coin_swap_contract_addr,
                 taker_coin_swap_contract_addr,
-                maker_coin_htlc_pubkey: Some(taker_data.maker_coin_htlc_pub().into()),
-                taker_coin_htlc_pubkey: Some(taker_data.taker_coin_htlc_pub().into()),
-            }),
-        ]))
+                maker_coin_htlc_pubkey: Some(*taker_data.maker_coin_htlc_pub()),
+                taker_coin_htlc_pubkey: Some(*taker_data.taker_coin_htlc_pub()),
+            })],
+        ))
     }
 
     async fn wait_taker_fee(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
-        const TAKER_FEE_RECV_TIMEOUT: u64 = 600;
+        const TAKER_FEE_RECV_TIMEOUT_SEC: u64 = 600;
         let negotiated = SwapMsg::Negotiated(true);
-        let send_abort_handle = broadcast_swap_message_every(
+        let send_abort_handle = broadcast_swap_msg_every(
             self.ctx.clone(),
             swap_topic(&self.uuid),
             negotiated,
-            TAKER_FEE_RECV_TIMEOUT as f64 / 6.,
+            TAKER_FEE_RECV_TIMEOUT_SEC as f64 / 6.,
             self.p2p_privkey,
         );
 
@@ -702,36 +766,39 @@ impl MakerSwap {
             self.ctx.clone(),
             |store| store.taker_fee.take(),
             &self.uuid,
-            TAKER_FEE_RECV_TIMEOUT,
+            TAKER_FEE_RECV_TIMEOUT_SEC,
         );
         let payload = match recv_fut.await {
             Ok(d) => d,
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::Finish), vec![
-                    MakerSwapEvent::TakerFeeValidateFailed(ERRL!("{}", e).into()),
-                ]))
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::TakerFeeValidateFailed(ERRL!("{}", e).into())],
+                ))
             },
         };
         drop(send_abort_handle);
 
-        let mut swap_events = vec![];
+        let mut swap_events = Vec::with_capacity(2);
         let instructions = match payload.instructions() {
             Some(instructions) => {
                 let maker_lock_duration =
                     (self.r().data.lock_duration as f64 * self.taker_coin.maker_locktime_multiplier()).ceil() as u64;
-                match self
-                    .maker_coin
-                    .validate_maker_payment_instructions(instructions, PaymentInstructionArgs {
+                match self.maker_coin.validate_maker_payment_instructions(
+                    instructions,
+                    PaymentInstructionArgs {
                         secret_hash: &self.secret_hash(),
                         amount: self.maker_amount.clone(),
                         maker_lock_duration,
                         ..Default::default()
-                    }) {
+                    },
+                ) {
                     Ok(instructions) => Some(instructions),
                     Err(e) => {
-                        return Ok((Some(MakerSwapCommand::Finish), vec![
-                            MakerSwapEvent::TakerFeeValidateFailed(e.to_string().into()),
-                        ]));
+                        return Ok((
+                            Some(MakerSwapCommand::Finish),
+                            vec![MakerSwapEvent::TakerFeeValidateFailed(e.to_string().into())],
+                        ));
                     },
                 }
             },
@@ -739,20 +806,42 @@ impl MakerSwap {
         };
         swap_events.push(MakerSwapEvent::MakerPaymentInstructionsReceived(instructions));
 
+        let taker_amount = MmNumber::from(self.taker_amount.clone());
+        let dex_fee = DexFee::new_with_taker_pubkey(
+            self.taker_coin.deref(),
+            &self.r().data.maker_coin,
+            &taker_amount,
+            self.r().other_taker_coin_htlc_pub.to_vec().as_ref(),
+        );
+        debug!(
+            "MakerSwap::wait_taker_fee dex_fee={:?} my_taker_coin_htlc_pub={}",
+            dex_fee,
+            hex::encode(self.my_taker_coin_htlc_pub().0)
+        );
+
+        if matches!(dex_fee, DexFee::NoFee) {
+            info!("Taker fee is not expected for dex taker");
+            let fee_ident = TransactionIdentifier {
+                tx_hex: BytesJson::from(vec![]),
+                tx_hash: BytesJson::from(vec![]),
+            };
+            swap_events.push(MakerSwapEvent::TakerFeeValidated(fee_ident));
+            return Ok((Some(MakerSwapCommand::SendPayment), swap_events));
+        }
+
         let taker_fee = match self.taker_coin.tx_enum_from_bytes(payload.data()) {
             Ok(tx) => tx,
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::Finish), vec![
-                    MakerSwapEvent::TakerFeeValidateFailed(ERRL!("{:?}", e).into()),
-                ]))
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::TakerFeeValidateFailed(ERRL!("{:?}", e).into())],
+                ))
             },
         };
 
-        let hash = taker_fee.tx_hash();
+        let hash = taker_fee.tx_hash_as_bytes();
         info!("Taker fee tx {:02x}", hash);
 
-        let taker_amount = MmNumber::from(self.taker_amount.clone());
-        let fee_amount = dex_fee_amount_from_taker_coin(&self.taker_coin, &self.r().data.maker_coin, &taker_amount);
         let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
         let taker_coin_start_block = self.r().data.taker_coin_start_block;
 
@@ -763,23 +852,22 @@ impl MakerSwap {
                 .validate_fee(ValidateFeeArgs {
                     fee_tx: &taker_fee,
                     expected_sender: &*other_taker_coin_htlc_pub,
-                    fee_addr: &DEX_FEE_ADDR_RAW_PUBKEY,
-                    amount: &fee_amount.clone().into(),
+                    dex_fee: &dex_fee,
                     min_block_number: taker_coin_start_block,
                     uuid: self.uuid.as_bytes(),
                 })
-                .compat()
                 .await
             {
                 Ok(_) => break,
                 Err(err) => {
-                    if attempts >= 6 {
-                        return Ok((Some(MakerSwapCommand::Finish), vec![
-                            MakerSwapEvent::TakerFeeValidateFailed(ERRL!("{}", err).into()),
-                        ]));
+                    if attempts >= TAKER_FEE_VALIDATION_ATTEMPTS {
+                        return Ok((
+                            Some(MakerSwapCommand::Finish),
+                            vec![MakerSwapEvent::TakerFeeValidateFailed(ERRL!("{}", err).into())],
+                        ));
                     } else {
                         attempts += 1;
-                        Timer::sleep(10.).await;
+                        Timer::sleep(TAKER_FEE_VALIDATION_RETRY_DELAY_SECS).await;
                     }
                 },
             };
@@ -794,87 +882,122 @@ impl MakerSwap {
         Ok((Some(MakerSwapCommand::SendPayment), swap_events))
     }
 
-    async fn maker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
-        let timeout = self.r().data.started_at + self.r().data.lock_duration / 3;
-        let now = now_sec();
-        if now > timeout {
-            return Ok((Some(MakerSwapCommand::Finish), vec![
-                MakerSwapEvent::MakerPaymentTransactionFailed(ERRL!("Timeout {} > {}", now, timeout).into()),
-            ]));
+    /// Sets up the watcher reward for the maker's payment in the swap.
+    ///
+    /// The reward mainly serves as compensation to watchers for the mining fees
+    /// paid to execute the transactions.
+    ///
+    /// The reward configuration depends on the specific requirements of the coins
+    /// involved in the swap.
+    /// Some coins may not support watcher rewards at all.
+    async fn setup_watcher_reward(&self, wait_maker_payment_until: u64) -> Result<Option<WatcherReward>, String> {
+        if !self.r().watcher_reward {
+            return Ok(None);
         }
 
+        self.maker_coin
+            .get_maker_watcher_reward(&self.taker_coin, self.watcher_reward_amount(), wait_maker_payment_until)
+            .await
+            .map_err(|err| err.into_inner().to_string())
+    }
+
+    async fn maker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
+        // Extract values from lock before async operations
+        let lock_duration = self.r().data.lock_duration;
+        let maker_payment_lock = self.r().data.maker_payment_lock;
+        let other_maker_coin_htlc_pub = self.r().other_maker_coin_htlc_pub;
         let secret_hash = self.secret_hash();
+        let maker_coin_swap_contract_address = self.r().data.maker_coin_swap_contract_address.clone();
         let unique_data = self.unique_swap_data();
-        let transaction_f = self
+        let payment_instructions = self.r().payment_instructions.clone();
+        let maker_coin_start_block = self.r().data.maker_coin_start_block;
+        let wait_maker_payment_until = wait_for_maker_payment_conf_until(self.r().data.started_at, lock_duration);
+
+        // Look for previously sent maker payment in case of restart
+        let maybe_existing_payment = match self
             .maker_coin
             .check_if_my_payment_sent(CheckIfMyPaymentSentArgs {
-                time_lock: self.r().data.maker_payment_lock as u32,
-                other_pub: &*self.r().other_maker_coin_htlc_pub,
+                time_lock: maker_payment_lock,
+                other_pub: &*other_maker_coin_htlc_pub,
                 secret_hash: secret_hash.as_slice(),
-                search_from_block: self.r().data.maker_coin_start_block,
-                swap_contract_address: &self.r().data.maker_coin_swap_contract_address,
+                search_from_block: maker_coin_start_block,
+                swap_contract_address: &maker_coin_swap_contract_address,
                 swap_unique_data: &unique_data,
                 amount: &self.maker_amount,
-                payment_instructions: &self.r().payment_instructions,
+                payment_instructions: &payment_instructions,
             })
-            .compat();
-
-        let wait_maker_payment_until =
-            wait_for_maker_payment_conf_until(self.r().data.started_at, self.r().data.lock_duration);
-        let watcher_reward = if self.r().watcher_reward {
-            match self
-                .maker_coin
-                .get_maker_watcher_reward(&self.taker_coin, self.watcher_reward_amount(), wait_maker_payment_until)
-                .await
-            {
-                Ok(reward) => reward,
-                Err(err) => {
-                    return Ok((Some(MakerSwapCommand::Finish), vec![
-                        MakerSwapEvent::MakerPaymentTransactionFailed(err.into_inner().to_string().into()),
-                    ]))
-                },
-            }
-        } else {
-            None
+            .await
+        {
+            Ok(Some(tx)) => Some(tx),
+            Ok(None) => None,
+            Err(e) => {
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::MakerPaymentTransactionFailed(ERRL!("{}", e).into())],
+                ))
+            },
         };
 
-        let transaction = match transaction_f.await {
-            Ok(res) => match res {
-                Some(tx) => tx,
-                None => {
-                    let payment_fut = self.maker_coin.send_maker_payment(SendPaymentArgs {
-                        time_lock_duration: self.r().data.lock_duration,
-                        time_lock: self.r().data.maker_payment_lock as u32,
-                        other_pubkey: &*self.r().other_maker_coin_htlc_pub,
+        // If the payment is not yet sent, make sure we didn't miss the deadline for sending it.
+        if maybe_existing_payment.is_none() {
+            let timeout = self.r().data.started_at + lock_duration / 3;
+            let now = now_sec();
+            if now > timeout {
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::MakerPaymentTransactionFailed(
+                        ERRL!("Timeout {} > {}", now, timeout).into(),
+                    )],
+                ));
+            }
+        }
+
+        // Set up watcher reward if enabled
+        let watcher_reward = match self.setup_watcher_reward(wait_maker_payment_until).await {
+            Ok(reward) => reward,
+            Err(err) => {
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::MakerPaymentTransactionFailed(err.into())],
+                ))
+            },
+        };
+
+        // Use existing payment or create new one
+        let transaction = match maybe_existing_payment {
+            Some(tx) => tx,
+            None => {
+                match self
+                    .maker_coin
+                    .send_maker_payment(SendPaymentArgs {
+                        time_lock_duration: lock_duration,
+                        time_lock: maker_payment_lock,
+                        other_pubkey: &*other_maker_coin_htlc_pub,
                         secret_hash: secret_hash.as_slice(),
                         amount: self.maker_amount.clone(),
-                        swap_contract_address: &self.r().data.maker_coin_swap_contract_address,
+                        swap_contract_address: &maker_coin_swap_contract_address,
                         swap_unique_data: &unique_data,
-                        payment_instructions: &self.r().payment_instructions,
+                        payment_instructions: &payment_instructions,
                         watcher_reward,
                         wait_for_confirmation_until: wait_maker_payment_until,
-                    });
-
-                    match payment_fut.compat().await {
-                        Ok(t) => t,
-                        Err(err) => {
-                            return Ok((Some(MakerSwapCommand::Finish), vec![
-                                MakerSwapEvent::MakerPaymentTransactionFailed(
-                                    ERRL!("{}", err.get_plain_text_format()).into(),
-                                ),
-                            ]));
-                        },
-                    }
-                },
-            },
-            Err(e) => {
-                return Ok((Some(MakerSwapCommand::Finish), vec![
-                    MakerSwapEvent::MakerPaymentTransactionFailed(ERRL!("{}", e).into()),
-                ]))
+                    })
+                    .await
+                {
+                    Ok(t) => t,
+                    Err(err) => {
+                        return Ok((
+                            Some(MakerSwapCommand::Finish),
+                            vec![MakerSwapEvent::MakerPaymentTransactionFailed(
+                                ERRL!("{}", err.get_plain_text_format()).into(),
+                            )],
+                        ));
+                    },
+                }
             },
         };
 
-        let tx_hash = transaction.tx_hash();
+        // Build transaction identifier and prepare events
+        let tx_hash = transaction.tx_hash_as_bytes();
         info!("{}: Maker payment tx {:02x}", MAKER_PAYMENT_SENT_LOG, tx_hash);
 
         let tx_ident = TransactionIdentifier {
@@ -882,26 +1005,36 @@ impl MakerSwap {
             tx_hash,
         };
 
-        Ok((Some(MakerSwapCommand::WaitForTakerPayment), vec![
-            MakerSwapEvent::MakerPaymentSent(tx_ident),
-        ]))
+        Ok((
+            Some(MakerSwapCommand::WaitForTakerPayment),
+            vec![MakerSwapEvent::MakerPaymentSent(tx_ident)],
+        ))
     }
 
     async fn wait_for_taker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
+        const PAYMENT_MSG_INTERVAL_SEC: f64 = 600.;
         let payment_data_msg = match self.get_my_payment_data().await {
             Ok(data) => data,
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                    MakerSwapEvent::MakerPaymentDataSendFailed(e.to_string().into()),
-                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                        wait_until: self.wait_refund_until(),
-                    },
-                ]));
+                return Ok((
+                    Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                    vec![
+                        MakerSwapEvent::MakerPaymentDataSendFailed(e.to_string().into()),
+                        MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                            wait_until: self.wait_refund_until(),
+                        },
+                    ],
+                ));
             },
         };
         let msg = SwapMsg::MakerPayment(payment_data_msg);
-        let abort_send_handle =
-            broadcast_swap_message_every(self.ctx.clone(), swap_topic(&self.uuid), msg, 600., self.p2p_privkey);
+        let abort_send_handle = broadcast_swap_msg_every(
+            self.ctx.clone(),
+            swap_topic(&self.uuid),
+            msg,
+            PAYMENT_MSG_INTERVAL_SEC,
+            self.p2p_privkey,
+        );
 
         let maker_payment_wait_confirm =
             wait_for_maker_payment_conf_until(self.r().data.started_at, self.r().data.lock_duration);
@@ -910,19 +1043,22 @@ impl MakerSwap {
             confirmations: self.r().data.maker_payment_confirmations,
             requires_nota: self.r().data.maker_payment_requires_nota.unwrap_or(false),
             wait_until: maker_payment_wait_confirm,
-            check_every: WAIT_CONFIRM_INTERVAL,
+            check_every: WAIT_CONFIRM_INTERVAL_SEC,
         };
 
         let f = self.maker_coin.wait_for_confirmations(confirm_maker_payment_input);
         if let Err(err) = f.compat().await {
-            return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                MakerSwapEvent::MakerPaymentWaitConfirmFailed(
-                    ERRL!("!wait for maker payment confirmations: {}", err).into(),
-                ),
-                MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                    wait_until: self.wait_refund_until(),
-                },
-            ]));
+            return Ok((
+                Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                vec![
+                    MakerSwapEvent::MakerPaymentWaitConfirmFailed(
+                        ERRL!("!wait for maker payment confirmations: {}", err).into(),
+                    ),
+                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                        wait_until: self.wait_refund_until(),
+                    },
+                ],
+            ));
         }
 
         // wait for 3/5, we need to leave some time space for transaction to be confirmed
@@ -937,12 +1073,15 @@ impl MakerSwap {
         let payload = match recv_fut.await {
             Ok(p) => p,
             Err(e) => {
-                return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                    MakerSwapEvent::TakerPaymentValidateFailed(e.into()),
-                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                        wait_until: self.wait_refund_until(),
-                    },
-                ]))
+                return Ok((
+                    Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                    vec![
+                        MakerSwapEvent::TakerPaymentValidateFailed(e.into()),
+                        MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                            wait_until: self.wait_refund_until(),
+                        },
+                    ],
+                ))
             },
         };
         drop(abort_send_handle);
@@ -950,28 +1089,34 @@ impl MakerSwap {
         let taker_payment = match self.taker_coin.tx_enum_from_bytes(&payload) {
             Ok(tx) => tx,
             Err(err) => {
-                return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                    MakerSwapEvent::TakerPaymentValidateFailed(
-                        ERRL!("!taker_coin.tx_enum_from_bytes: {:?}", err).into(),
-                    ),
-                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                        wait_until: self.wait_refund_until(),
-                    },
-                ]))
+                return Ok((
+                    Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                    vec![
+                        MakerSwapEvent::TakerPaymentValidateFailed(
+                            ERRL!("!taker_coin.tx_enum_from_bytes: {:?}", err).into(),
+                        ),
+                        MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                            wait_until: self.wait_refund_until(),
+                        },
+                    ],
+                ))
             },
         };
 
-        let tx_hash = taker_payment.tx_hash();
+        let tx_hash = taker_payment.tx_hash_as_bytes();
         info!("Taker payment tx {:02x}", tx_hash);
         let tx_ident = TransactionIdentifier {
             tx_hex: BytesJson::from(taker_payment.tx_hex()),
             tx_hash,
         };
 
-        Ok((Some(MakerSwapCommand::ValidateTakerPayment), vec![
-            MakerSwapEvent::TakerPaymentReceived(tx_ident),
-            MakerSwapEvent::TakerPaymentWaitConfirmStarted,
-        ]))
+        Ok((
+            Some(MakerSwapCommand::ValidateTakerPayment),
+            vec![
+                MakerSwapEvent::TakerPaymentReceived(tx_ident),
+                MakerSwapEvent::TakerPaymentWaitConfirmStarted,
+            ],
+        ))
     }
 
     async fn validate_taker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
@@ -984,21 +1129,24 @@ impl MakerSwap {
             confirmations,
             requires_nota: self.r().data.taker_payment_requires_nota.unwrap_or(false),
             wait_until: wait_taker_payment,
-            check_every: WAIT_CONFIRM_INTERVAL,
+            check_every: WAIT_CONFIRM_INTERVAL_SEC,
         };
         let wait_f = self
             .taker_coin
             .wait_for_confirmations(confirm_taker_payment_input)
             .compat();
         if let Err(err) = wait_f.await {
-            return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                MakerSwapEvent::TakerPaymentWaitConfirmFailed(
-                    ERRL!("!taker_coin.wait_for_confirmations: {}", err).into(),
-                ),
-                MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                    wait_until: self.wait_refund_until(),
-                },
-            ]));
+            return Ok((
+                Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                vec![
+                    MakerSwapEvent::TakerPaymentWaitConfirmFailed(
+                        ERRL!("!taker_coin.wait_for_confirmations: {}", err).into(),
+                    ),
+                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                        wait_until: self.wait_refund_until(),
+                    },
+                ],
+            ));
         }
 
         let watcher_reward = if self.r().watcher_reward {
@@ -1015,9 +1163,12 @@ impl MakerSwap {
             {
                 Ok(reward) => Some(reward),
                 Err(err) => {
-                    return Ok((Some(MakerSwapCommand::Finish), vec![
-                        MakerSwapEvent::MakerPaymentTransactionFailed(err.into_inner().to_string().into()),
-                    ]))
+                    return Ok((
+                        Some(MakerSwapCommand::Finish),
+                        vec![MakerSwapEvent::MakerPaymentTransactionFailed(
+                            err.into_inner().to_string().into(),
+                        )],
+                    ))
                 },
             }
         } else {
@@ -1026,7 +1177,7 @@ impl MakerSwap {
 
         let validate_input = ValidatePaymentInput {
             payment_tx: self.r().taker_payment.clone().unwrap().tx_hex.0,
-            time_lock: self.taker_payment_lock.load(Ordering::Relaxed) as u32,
+            time_lock: self.taker_payment_lock.load(Ordering::Relaxed),
             time_lock_duration: self.r().data.lock_duration,
             other_pub: self.r().other_taker_coin_htlc_pub.to_vec(),
             unique_swap_data: self.unique_swap_data(),
@@ -1038,53 +1189,67 @@ impl MakerSwap {
             watcher_reward,
         };
 
-        let validated_f = self.taker_coin.validate_taker_payment(validate_input).compat();
-
-        if let Err(e) = validated_f.await {
-            return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                MakerSwapEvent::TakerPaymentValidateFailed(ERRL!("!taker_coin.validate_taker_payment: {}", e).into()),
-                MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                    wait_until: self.wait_refund_until(),
-                },
-            ]));
+        if let Err(e) = self.taker_coin.validate_taker_payment(validate_input).await {
+            return Ok((
+                Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                vec![
+                    MakerSwapEvent::TakerPaymentValidateFailed(
+                        ERRL!("!taker_coin.validate_taker_payment: {}", e).into(),
+                    ),
+                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                        wait_until: self.wait_refund_until(),
+                    },
+                ],
+            ));
         }
 
-        Ok((Some(MakerSwapCommand::SpendTakerPayment), vec![
-            MakerSwapEvent::TakerPaymentValidatedAndConfirmed,
-        ]))
+        Ok((
+            Some(MakerSwapCommand::SpendTakerPayment),
+            vec![MakerSwapEvent::TakerPaymentValidatedAndConfirmed],
+        ))
     }
 
     async fn spend_taker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         #[cfg(test)]
         if self.fail_at == Some(FailAt::TakerPaymentSpend) {
-            return Ok((Some(MakerSwapCommand::Finish), vec![
-                MakerSwapEvent::TakerPaymentSpendFailed("explicit failure".into()),
-            ]));
+            return Ok((
+                Some(MakerSwapCommand::Finish),
+                vec![MakerSwapEvent::TakerPaymentSpendFailed("explicit failure".into())],
+            ));
         }
 
         let timeout = taker_payment_spend_deadline(self.r().data.started_at, self.r().data.lock_duration);
         let now = now_sec();
         if now > timeout {
-            return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                MakerSwapEvent::TakerPaymentSpendFailed(ERRL!("Timeout {} > {}", now, timeout).into()),
-                MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                    wait_until: self.wait_refund_until(),
-                },
-            ]));
+            return Ok((
+                Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                vec![
+                    MakerSwapEvent::TakerPaymentSpendFailed(ERRL!("Timeout {} > {}", now, timeout).into()),
+                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                        wait_until: self.wait_refund_until(),
+                    },
+                ],
+            ));
         }
 
-        let spend_fut = self.taker_coin.send_maker_spends_taker_payment(SpendPaymentArgs {
-            other_payment_tx: &self.r().taker_payment.clone().unwrap().tx_hex,
-            time_lock: self.taker_payment_lock.load(Ordering::Relaxed) as u32,
-            other_pubkey: &*self.r().other_taker_coin_htlc_pub,
-            secret: &self.r().data.secret.0,
+        let other_taker_coin_htlc_pub = self.r().other_taker_coin_htlc_pub;
+        let secret = self.r().data.secret;
+        let maker_spends_payment_args = SpendPaymentArgs {
+            other_payment_tx: &self.r().taker_payment.clone().unwrap().tx_hex.clone(),
+            time_lock: self.taker_payment_lock.load(Ordering::Relaxed),
+            other_pubkey: &*other_taker_coin_htlc_pub,
+            secret: &secret.0,
             secret_hash: &self.secret_hash(),
-            swap_contract_address: &self.r().data.taker_coin_swap_contract_address,
+            swap_contract_address: &self.r().data.taker_coin_swap_contract_address.clone(),
             swap_unique_data: &self.unique_swap_data(),
             watcher_reward: self.r().watcher_reward,
-        });
+        };
+        let maybe_spend_tx = self
+            .taker_coin
+            .send_maker_spends_taker_payment(maker_spends_payment_args)
+            .await;
 
-        let transaction = match spend_fut.compat().await {
+        let transaction = match maybe_spend_tx {
             Ok(t) => t,
             Err(err) => {
                 if let Some(tx) = err.get_tx() {
@@ -1096,18 +1261,21 @@ impl MakerSwap {
                     );
                 }
 
-                return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                    MakerSwapEvent::TakerPaymentSpendFailed(
-                        ERRL!(
-                            "!taker_coin.send_maker_spends_taker_payment: {}",
-                            err.get_plain_text_format()
-                        )
-                        .into(),
-                    ),
-                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                        wait_until: self.wait_refund_until(),
-                    },
-                ]));
+                return Ok((
+                    Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                    vec![
+                        MakerSwapEvent::TakerPaymentSpendFailed(
+                            ERRL!(
+                                "!taker_coin.send_maker_spends_taker_payment: {}",
+                                err.get_plain_text_format()
+                            )
+                            .into(),
+                        ),
+                        MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                            wait_until: self.wait_refund_until(),
+                        },
+                    ],
+                ));
             },
         };
 
@@ -1118,46 +1286,53 @@ impl MakerSwap {
             &self.p2p_privkey,
         );
 
-        let tx_hash = transaction.tx_hash();
+        let tx_hash = transaction.tx_hash_as_bytes();
         info!("Taker payment spend tx {:02x}", tx_hash);
         let tx_ident = TransactionIdentifier {
             tx_hex: BytesJson::from(transaction.tx_hex()),
             tx_hash,
         };
 
-        Ok((Some(MakerSwapCommand::ConfirmTakerPaymentSpend), vec![
-            MakerSwapEvent::TakerPaymentSpent(tx_ident),
-            MakerSwapEvent::TakerPaymentSpendConfirmStarted,
-        ]))
+        Ok((
+            Some(MakerSwapCommand::ConfirmTakerPaymentSpend),
+            vec![
+                MakerSwapEvent::TakerPaymentSpent(tx_ident),
+                MakerSwapEvent::TakerPaymentSpendConfirmStarted,
+            ],
+        ))
     }
 
     async fn confirm_taker_payment_spend(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
-        // we should wait for only one confirmation to make sure our spend transaction is not failed
-        let confirmations = std::cmp::min(1, self.r().data.taker_payment_confirmations);
         let requires_nota = false;
-        let confirm_taker_payment_input = ConfirmPaymentInput {
-            payment_tx: self.r().taker_payment.clone().unwrap().tx_hex.0,
-            confirmations,
+        let confirm_taker_payment_spend_input = ConfirmPaymentInput {
+            payment_tx: self.r().taker_payment_spend.clone().unwrap().tx_hex.0,
+            confirmations: self.r().data.taker_payment_confirmations,
             requires_nota,
             wait_until: self.wait_refund_until(),
-            check_every: WAIT_CONFIRM_INTERVAL,
+            check_every: WAIT_CONFIRM_INTERVAL_SEC,
         };
-        let wait_fut = self.taker_coin.wait_for_confirmations(confirm_taker_payment_input);
+        let wait_fut = self
+            .taker_coin
+            .wait_for_confirmations(confirm_taker_payment_spend_input);
         if let Err(err) = wait_fut.compat().await {
-            return Ok((Some(MakerSwapCommand::PrepareForMakerPaymentRefund), vec![
-                MakerSwapEvent::TakerPaymentSpendConfirmFailed(
-                    ERRL!("!wait for taker payment spend confirmations: {}", err).into(),
-                ),
-                MakerSwapEvent::MakerPaymentWaitRefundStarted {
-                    wait_until: self.wait_refund_until(),
-                },
-            ]));
+            return Ok((
+                Some(MakerSwapCommand::PrepareForMakerPaymentRefund),
+                vec![
+                    MakerSwapEvent::TakerPaymentSpendConfirmFailed(
+                        ERRL!("!wait for taker payment spend confirmations: {}", err).into(),
+                    ),
+                    MakerSwapEvent::MakerPaymentWaitRefundStarted {
+                        wait_until: self.wait_refund_until(),
+                    },
+                ],
+            ));
         }
 
         info!("Taker payment spend confirmed");
-        Ok((Some(MakerSwapCommand::Finish), vec![
-            MakerSwapEvent::TakerPaymentSpendConfirmed,
-        ]))
+        Ok((
+            Some(MakerSwapCommand::Finish),
+            vec![MakerSwapEvent::TakerPaymentSpendConfirmed],
+        ))
     }
 
     async fn prepare_for_maker_payment_refund(
@@ -1170,36 +1345,40 @@ impl MakerSwap {
             }
         }
 
-        Ok((Some(MakerSwapCommand::RefundMakerPayment), vec![
-            MakerSwapEvent::MakerPaymentRefundStarted,
-        ]))
+        Ok((
+            Some(MakerSwapCommand::RefundMakerPayment),
+            vec![MakerSwapEvent::MakerPaymentRefundStarted],
+        ))
     }
 
     async fn refund_maker_payment(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
         #[cfg(test)]
         if self.fail_at == Some(FailAt::MakerPaymentRefund) {
-            return Ok((Some(MakerSwapCommand::Finish), vec![
-                MakerSwapEvent::MakerPaymentRefundFailed("explicit failure".into()),
-            ]));
+            return Ok((
+                Some(MakerSwapCommand::Finish),
+                vec![MakerSwapEvent::MakerPaymentRefundFailed("explicit failure".into())],
+            ));
         }
 
         let maker_payment = self.r().maker_payment.clone().unwrap().tx_hex;
         let locktime = self.r().data.maker_payment_lock;
         if self.maker_coin.is_auto_refundable() {
             return match self.maker_coin.wait_for_htlc_refund(&maker_payment, locktime).await {
-                Ok(()) => Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
-                    MakerSwapEvent::MakerPaymentRefunded(None),
-                ])),
-                Err(err) => Ok((Some(MakerSwapCommand::Finish), vec![
-                    MakerSwapEvent::MakerPaymentRefundFailed(
+                Ok(()) => Ok((
+                    Some(MakerSwapCommand::FinalizeMakerPaymentRefund),
+                    vec![MakerSwapEvent::MakerPaymentRefunded(None)],
+                )),
+                Err(err) => Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::MakerPaymentRefundFailed(
                         ERRL!("!maker_coin.wait_for_htlc_refund: {}", err.to_string()).into(),
-                    ),
-                ])),
+                    )],
+                )),
             };
         }
 
         loop {
-            match self.maker_coin.can_refund_htlc(locktime).compat().await {
+            match self.maker_coin.can_refund_htlc(locktime).await {
                 Ok(CanRefundHtlc::CanRefundNow) => break,
                 Ok(CanRefundHtlc::HaveToWait(to_sleep)) => Timer::sleep(to_sleep as f64).await,
                 Err(e) => {
@@ -1209,17 +1388,25 @@ impl MakerSwap {
             }
         }
 
-        let spend_fut = self.maker_coin.send_maker_refunds_payment(RefundPaymentArgs {
-            payment_tx: &maker_payment,
-            time_lock: locktime as u32,
-            other_pubkey: &*self.r().other_maker_coin_htlc_pub,
-            secret_hash: self.secret_hash().as_slice(),
-            swap_contract_address: &self.r().data.maker_coin_swap_contract_address,
-            swap_unique_data: &self.unique_swap_data(),
-            watcher_reward: self.r().watcher_reward,
-        });
+        let other_maker_coin_htlc_pub = self.r().other_maker_coin_htlc_pub;
+        let maker_coin_swap_contract_address = self.r().data.maker_coin_swap_contract_address.clone();
+        let watcher_reward = self.r().watcher_reward;
+        let spend_result = self
+            .maker_coin
+            .send_maker_refunds_payment(RefundPaymentArgs {
+                payment_tx: &maker_payment,
+                time_lock: locktime,
+                other_pubkey: other_maker_coin_htlc_pub.as_slice(),
+                tx_type_with_secret_hash: SwapTxTypeWithSecretHash::TakerOrMakerPayment {
+                    maker_secret_hash: self.secret_hash().as_slice(),
+                },
+                swap_contract_address: &maker_coin_swap_contract_address,
+                swap_unique_data: &self.unique_swap_data(),
+                watcher_reward,
+            })
+            .await;
 
-        let transaction = match spend_fut.compat().await {
+        let transaction = match spend_result {
             Ok(t) => t,
             Err(err) => {
                 if let Some(tx) = err.get_tx() {
@@ -1231,15 +1418,16 @@ impl MakerSwap {
                     );
                 }
 
-                return Ok((Some(MakerSwapCommand::Finish), vec![
-                    MakerSwapEvent::MakerPaymentRefundFailed(
+                return Ok((
+                    Some(MakerSwapCommand::Finish),
+                    vec![MakerSwapEvent::MakerPaymentRefundFailed(
                         ERRL!(
                             "!maker_coin.send_maker_refunds_payment: {}",
                             err.get_plain_text_format()
                         )
                         .into(),
-                    ),
-                ]));
+                    )],
+                ));
             },
         };
 
@@ -1250,16 +1438,17 @@ impl MakerSwap {
             &self.p2p_privkey,
         );
 
-        let tx_hash = transaction.tx_hash();
+        let tx_hash = transaction.tx_hash_as_bytes();
         info!("Maker payment refund tx {:02x}", tx_hash);
         let tx_ident = TransactionIdentifier {
             tx_hex: BytesJson::from(transaction.tx_hex()),
             tx_hash,
         };
 
-        Ok((Some(MakerSwapCommand::FinalizeMakerPaymentRefund), vec![
-            MakerSwapEvent::MakerPaymentRefunded(Some(tx_ident)),
-        ]))
+        Ok((
+            Some(MakerSwapCommand::FinalizeMakerPaymentRefund),
+            vec![MakerSwapEvent::MakerPaymentRefunded(Some(tx_ident))],
+        ))
     }
 
     async fn finalize_maker_payment_refund(&self) -> Result<(Option<MakerSwapCommand>, Vec<MakerSwapEvent>), String> {
@@ -1270,9 +1459,10 @@ impl MakerSwap {
             }
         }
 
-        Ok((Some(MakerSwapCommand::Finish), vec![
-            MakerSwapEvent::MakerPaymentRefundFinished,
-        ]))
+        Ok((
+            Some(MakerSwapCommand::Finish),
+            vec![MakerSwapEvent::MakerPaymentRefundFinished],
+        ))
     }
 
     pub async fn load_from_db_by_uuid(
@@ -1281,7 +1471,7 @@ impl MakerSwap {
         taker_coin: MmCoinEnum,
         swap_uuid: &Uuid,
     ) -> Result<(Self, Option<MakerSwapCommand>), String> {
-        let saved = match SavedSwap::load_my_swap_from_db(&ctx, *swap_uuid).await {
+        let saved = match SavedSwap::load_my_swap_from_db(&ctx, None, *swap_uuid).await {
             Ok(Some(saved)) => saved,
             Ok(None) => return ERR!("Couldn't find a swap with the uuid '{}'", swap_uuid),
             Err(e) => return ERR!("{}", e),
@@ -1317,10 +1507,12 @@ impl MakerSwap {
         }
 
         let mut taker = bits256::from([0; 32]);
-        taker.bytes = data.taker.0;
+        taker.bytes = data.taker_pubkey.0;
 
         let crypto_ctx = try_s!(CryptoCtx::from_ctx(&ctx));
-        let my_persistent_pub = H264::from(&**crypto_ctx.mm2_internal_key_pair().public());
+        let my_persistent_pub = H264::from(try_s!(TryInto::<[u8; 33]>::try_into(
+            crypto_ctx.mm2_internal_key_pair().public_slice()
+        )));
 
         let conf_settings = SwapConfirmationsSettings {
             maker_coin_confs: data.maker_payment_confirmations,
@@ -1365,7 +1557,7 @@ impl MakerSwap {
 
             // have to do this because std::sync::RwLockReadGuard returned by r() is not Send,
             // so it can't be used across await
-            let timelock = selfi.taker_payment_lock.load(Ordering::Relaxed) as u32;
+            let timelock = selfi.taker_payment_lock.load(Ordering::Relaxed);
             let other_taker_coin_htlc_pub = selfi.r().other_taker_coin_htlc_pub;
 
             let taker_coin_start_block = selfi.r().data.taker_coin_start_block;
@@ -1391,14 +1583,14 @@ impl MakerSwap {
                     return ERR!(
                         "Taker payment was already spent by {} tx {:02x}",
                         selfi.taker_coin.ticker(),
-                        tx.tx_hash()
+                        tx.tx_hash_as_bytes()
                     )
                 },
                 Ok(Some(FoundSwapTxSpend::Refunded(tx))) => {
                     return ERR!(
                         "Taker payment was already refunded by {} tx {:02x}",
                         selfi.taker_coin.ticker(),
-                        tx.tx_hash()
+                        tx.tx_hash_as_bytes()
                     )
                 },
                 Err(e) => return ERR!("Error {} when trying to find taker payment spend", e),
@@ -1417,7 +1609,6 @@ impl MakerSwap {
                     swap_unique_data: &selfi.unique_swap_data(),
                     watcher_reward,
                 })
-                .compat()
                 .await
                 .map_err(|e| ERRL!("{:?}", e))
         }
@@ -1439,7 +1630,7 @@ impl MakerSwap {
 
         // have to do this because std::sync::RwLockReadGuard returned by r() is not Send,
         // so it can't be used across await
-        let maker_payment_lock = self.r().data.maker_payment_lock as u32;
+        let maker_payment_lock = self.r().data.maker_payment_lock;
         let other_maker_coin_htlc_pub = self.r().other_maker_coin_htlc_pub;
         let maker_coin_start_block = self.r().data.maker_coin_start_block;
         let maker_coin_swap_contract_address = self.r().data.maker_coin_swap_contract_address.clone();
@@ -1462,7 +1653,6 @@ impl MakerSwap {
                             amount: &self.maker_amount,
                             payment_instructions: &payment_instructions,
                         })
-                        .compat()
                         .await
                 );
                 match maybe_maker_payment {
@@ -1497,7 +1687,7 @@ impl MakerSwap {
             Ok(Some(FoundSwapTxSpend::Refunded(tx))) => ERR!(
                 "Maker payment was already refunded by {} tx {:02x}",
                 self.maker_coin.ticker(),
-                tx.tx_hash()
+                tx.tx_hash_as_bytes()
             ),
             Err(e) => ERR!("Error {} when trying to find maker payment spend", e),
             Ok(None) => {
@@ -1505,12 +1695,7 @@ impl MakerSwap {
                     return ERR!("Maker payment will be refunded automatically!");
                 }
 
-                let can_refund_htlc = try_s!(
-                    self.maker_coin
-                        .can_refund_htlc(maker_payment_lock as u64)
-                        .compat()
-                        .await
-                );
+                let can_refund_htlc = try_s!(self.maker_coin.can_refund_htlc(maker_payment_lock).await);
                 if let CanRefundHtlc::HaveToWait(seconds_to_wait) = can_refund_htlc {
                     return ERR!("Too early to refund, wait until {}", wait_until_sec(seconds_to_wait));
                 }
@@ -1518,13 +1703,15 @@ impl MakerSwap {
                     payment_tx: &maker_payment,
                     time_lock: maker_payment_lock,
                     other_pubkey: other_maker_coin_htlc_pub.as_slice(),
-                    secret_hash: secret_hash.as_slice(),
+                    tx_type_with_secret_hash: SwapTxTypeWithSecretHash::TakerOrMakerPayment {
+                        maker_secret_hash: secret_hash.as_slice(),
+                    },
                     swap_contract_address: &maker_coin_swap_contract_address,
                     swap_unique_data: &unique_data,
                     watcher_reward,
                 });
 
-                let transaction = match fut.compat().await {
+                let transaction = match fut.await {
                     Ok(t) => t,
                     Err(err) => {
                         if let Some(tx) = err.get_tx() {
@@ -1578,16 +1765,24 @@ impl AtomicSwap for MakerSwap {
     }
 
     #[inline]
-    fn uuid(&self) -> &Uuid { &self.uuid }
+    fn uuid(&self) -> &Uuid {
+        &self.uuid
+    }
 
     #[inline]
-    fn maker_coin(&self) -> &str { self.maker_coin.ticker() }
+    fn maker_coin(&self) -> &str {
+        self.maker_coin.ticker()
+    }
 
     #[inline]
-    fn taker_coin(&self) -> &str { self.taker_coin.ticker() }
+    fn taker_coin(&self) -> &str {
+        self.taker_coin.ticker()
+    }
 
     #[inline]
-    fn unique_swap_data(&self) -> Vec<u8> { self.secret_hash() }
+    fn unique_swap_data(&self) -> Vec<u8> {
+        self.secret_hash()
+    }
 }
 
 #[derive(Debug)]
@@ -1664,11 +1859,11 @@ impl MakerSwapEvent {
             },
             MakerSwapEvent::TakerPaymentSpent(_) => "Taker payment spent...".to_owned(),
             MakerSwapEvent::TakerPaymentSpendFailed(_) => "Taker payment spend failed...".to_owned(),
-            MakerSwapEvent::TakerPaymentSpendConfirmStarted => "Taker payment send wait confirm started...".to_owned(),
+            MakerSwapEvent::TakerPaymentSpendConfirmStarted => "Taker payment spend confirm started...".to_owned(),
             MakerSwapEvent::TakerPaymentSpendConfirmed => "Taker payment spend confirmed...".to_owned(),
             MakerSwapEvent::TakerPaymentSpendConfirmFailed(_) => "Taker payment spend confirm failed...".to_owned(),
             MakerSwapEvent::MakerPaymentWaitRefundStarted { wait_until } => {
-                format!("Maker payment wait refund till {} started...", wait_until)
+                format!("Maker payment wait refund till {wait_until} started...")
             },
             MakerSwapEvent::MakerPaymentRefundStarted => "Maker payment refund started...".to_owned(),
             MakerSwapEvent::MakerPaymentRefunded(_) => "Maker payment refunded...".to_owned(),
@@ -1703,7 +1898,9 @@ impl MakerSwapEvent {
         )
     }
 
-    fn is_error(&self) -> bool { !self.is_success() }
+    fn is_error(&self) -> bool {
+        !self.is_success()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1760,7 +1957,9 @@ pub struct MakerSwapStatusChanged {
 }
 
 impl MakerSwapStatusChanged {
-    pub fn event_id() -> TypeId { TypeId::of::<MakerSwapStatusChanged>() }
+    pub fn event_id() -> TypeId {
+        TypeId::of::<MakerSwapStatusChanged>()
+    }
 }
 
 impl MakerSwapStatusChanged {
@@ -1779,6 +1978,8 @@ impl MakerSwapStatusChanged {
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MakerSavedSwap {
     pub uuid: Uuid,
+    #[cfg(all(not(target_arch = "wasm32"), feature = "new-db-arch"))]
+    pub maker_address: String,
     pub my_order_uuid: Option<Uuid>,
     pub events: Vec<MakerSavedEvent>,
     pub maker_amount: Option<BigDecimal>,
@@ -1802,7 +2003,7 @@ impl MakerSavedSwap {
                 event: MakerSwapEvent::Started(MakerSwapData {
                     taker_coin: "".to_string(),
                     maker_coin: "".to_string(),
-                    taker: Default::default(),
+                    taker_pubkey: Default::default(),
                     secret: Default::default(),
                     secret_hash: None,
                     my_persistent_pub: Default::default(),
@@ -1835,6 +2036,8 @@ impl MakerSavedSwap {
 
         MakerSavedSwap {
             uuid: Default::default(),
+            #[cfg(all(not(target_arch = "wasm32"), feature = "new-db-arch"))]
+            maker_address: "".to_string(),
             my_order_uuid: None,
             events,
             maker_amount: Some(maker_amount.to_decimal()),
@@ -2079,17 +2282,19 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
         };
     }
     let running_swap = Arc::new(swap);
-    let weak_ref = Arc::downgrade(&running_swap);
     let swap_ctx = SwapsContext::from_ctx(&ctx).unwrap();
-    swap_ctx.init_msg_store(running_swap.uuid, running_swap.taker);
-    swap_ctx.running_swaps.lock().unwrap().push(weak_ref);
+    swap_ctx.init_msg_store(running_swap.uuid, running_swap.taker_pubkey);
+    // Register the swap in the running swaps map.
+    swap_ctx
+        .running_swaps
+        .lock()
+        .unwrap()
+        .insert(uuid, running_swap.clone());
     let mut swap_fut = Box::pin(
         async move {
-            let mut events;
             loop {
                 let res = running_swap.handle_command(command).await.expect("!handle_command");
-                events = res.1;
-                for event in events {
+                for event in res.1 {
                     let to_save = MakerSavedEvent {
                         timestamp: now_ms(),
                         event: event.clone(),
@@ -2102,19 +2307,27 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                         .dispatch_async(ctx.clone(), LpEvents::MakerSwapStatusChanged(event_to_send))
                         .await;
                     drop(dispatcher);
+                    // Send a notification to the swap status streamer about a new event.
+                    ctx.event_stream_manager
+                        .send_fn(&SwapStatusStreamer::derive_streamer_id(()), || {
+                            SwapStatusEvent::MakerV1 {
+                                uuid: running_swap.uuid,
+                                event: to_save.clone(),
+                            }
+                        })
+                        .ok();
                     save_my_maker_swap_event(&ctx, &running_swap, to_save)
                         .await
                         .expect("!save_my_maker_swap_event");
                     if event.should_ban_taker() {
                         ban_pubkey_on_failed_swap(
                             &ctx,
-                            running_swap.taker.bytes.into(),
+                            running_swap.taker_pubkey.bytes.into(),
                             &running_swap.uuid,
                             event.clone().into(),
                         )
                     }
 
-                    #[cfg(target_arch = "wasm32")]
                     if event.is_error() {
                         error!("[swap uuid={uuid_str}] {event:?}");
                     }
@@ -2127,6 +2340,10 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
                         command = c;
                     },
                     None => {
+                        if let Err(e) = mark_swap_as_finished(ctx.clone(), running_swap.uuid).await {
+                            error!("!mark_swap_finished({}): {}", uuid, e);
+                        }
+
                         if to_broadcast {
                             if let Err(e) = broadcast_my_swap_status(&ctx, uuid).await {
                                 error!("!broadcast_my_swap_status({}): {}", uuid, e);
@@ -2143,17 +2360,19 @@ pub async fn run_maker_swap(swap: RunMakerSwapInput, ctx: MmArc) {
         _swap = swap_fut => (), // swap finished normally
         _touch = touch_loop => unreachable!("Touch loop can not stop!"),
     };
+    // Remove the swap from the running swaps map.
+    swap_ctx.running_swaps.lock().unwrap().remove(&uuid);
 }
 
 pub struct MakerSwapPreparedParams {
-    maker_payment_trade_fee: TradeFee,
-    taker_payment_spend_trade_fee: TradeFee,
+    pub(super) maker_payment_trade_fee: TradeFee,
+    pub(super) taker_payment_spend_trade_fee: TradeFee,
 }
 
 pub async fn check_balance_for_maker_swap(
     ctx: &MmArc,
-    my_coin: &MmCoinEnum,
-    other_coin: &MmCoinEnum,
+    my_coin: &dyn MmCoin,
+    other_coin: &dyn MmCoin,
     volume: MmNumber,
     swap_uuid: Option<&Uuid>,
     prepared_params: Option<MakerSwapPreparedParams>,
@@ -2167,7 +2386,7 @@ pub async fn check_balance_for_maker_swap(
         None => {
             let preimage_value = TradePreimageValue::Exact(volume.to_decimal());
             let maker_payment_trade_fee = my_coin
-                .get_sender_trade_fee(preimage_value, stage.clone())
+                .get_sender_trade_fee(preimage_value, stage)
                 .await
                 .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, my_coin.ticker()))?;
             let taker_payment_spend_trade_fee = other_coin
@@ -2203,9 +2422,10 @@ pub async fn maker_swap_trade_preimage(
     let base_coin_ticker = base_coin.ticker();
     let rel_coin_ticker = rel_coin.ticker();
     let volume = if req.max {
-        let balance = base_coin.my_spendable_balance().compat().await?;
-        calc_max_maker_vol(ctx, &base_coin, &balance, FeeApproxStage::TradePreimage)
-            .await?
+        let balance = base_coin.my_spendable_balance().compat().await.map_mm_err()?;
+        calc_max_maker_vol(ctx, &base_coin, &balance, FeeApproxStage::TradePreimageMax)
+            .await
+            .map_mm_err()?
             .volume
     } else {
         let threshold = base_coin.min_trading_vol().to_decimal();
@@ -2233,7 +2453,9 @@ pub async fn maker_swap_trade_preimage(
     if req.max {
         // Note the `calc_max_maker_vol` returns [`CheckBalanceError::NotSufficientBalance`] error if the balance of `base_coin` is not sufficient.
         // So we have to check the balance of the other coin only.
-        check_other_coin_balance_for_swap(ctx, &rel_coin, None, rel_coin_fee.clone()).await?
+        check_other_coin_balance_for_swap(ctx, rel_coin.deref(), None, rel_coin_fee.clone())
+            .await
+            .map_mm_err()?
     } else {
         let prepared_params = MakerSwapPreparedParams {
             maker_payment_trade_fee: base_coin_fee.clone(),
@@ -2241,14 +2463,15 @@ pub async fn maker_swap_trade_preimage(
         };
         check_balance_for_maker_swap(
             ctx,
-            &base_coin,
-            &rel_coin,
+            base_coin.deref(),
+            rel_coin.deref(),
             volume.clone(),
             None,
             Some(prepared_params),
             FeeApproxStage::TradePreimage,
         )
-        .await?;
+        .await
+        .map_mm_err()?;
     }
 
     let conf_settings = OrderConfirmationsSettings {
@@ -2257,6 +2480,7 @@ pub async fn maker_swap_trade_preimage(
         rel_confs: rel_coin.required_confirmations(),
         rel_nota: rel_coin.requires_notarization(),
     };
+
     let builder = MakerOrderBuilder::new(&base_coin, &rel_coin)
         .with_max_base_vol(volume.clone())
         .with_price(req.price)
@@ -2283,8 +2507,8 @@ pub struct CoinVolumeInfo {
 /// Requests the `coin` balance and calculates max Maker volume.
 /// Returns [`CheckBalanceError::NotSufficientBalance`] if the balance is insufficient.
 pub async fn get_max_maker_vol(ctx: &MmArc, my_coin: &MmCoinEnum) -> CheckBalanceResult<CoinVolumeInfo> {
-    let my_balance = my_coin.my_spendable_balance().compat().await?;
-    calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssue).await
+    let my_balance = my_coin.my_spendable_balance().compat().await.map_mm_err()?;
+    calc_max_maker_vol(ctx, my_coin, &my_balance, FeeApproxStage::OrderIssueMax).await
 }
 
 /// Calculates max Maker volume.
@@ -2298,7 +2522,7 @@ pub async fn calc_max_maker_vol(
 ) -> CheckBalanceResult<CoinVolumeInfo> {
     let ticker = coin.ticker();
     let locked_by_swaps = get_locked_amount(ctx, ticker);
-    let available = &MmNumber::from(balance.clone()) - &locked_by_swaps;
+    let available = &MmNumber::from(balance) - &locked_by_swaps;
     let mut volume = available.clone();
 
     let preimage_value = TradePreimageValue::UpperBound(volume.to_decimal());
@@ -2313,8 +2537,10 @@ pub async fn calc_max_maker_vol(
         volume = &volume - &trade_fee.amount;
         required_to_pay_fee = trade_fee.amount;
     } else {
-        let base_coin_balance = coin.base_coin_balance().compat().await?;
-        check_base_coin_balance_for_swap(ctx, &MmNumber::from(base_coin_balance), trade_fee.clone(), None).await?;
+        let platform_coin_balance = coin.platform_coin_balance().compat().await.map_mm_err()?;
+        check_platform_coin_balance_for_swap(ctx, &MmNumber::from(platform_coin_balance), trade_fee.clone(), None)
+            .await
+            .map_mm_err()?;
     }
     let min_tx_amount = MmNumber::from(coin.min_tx_amount());
     if volume < min_tx_amount {
@@ -2328,18 +2554,20 @@ pub async fn calc_max_maker_vol(
     }
     Ok(CoinVolumeInfo {
         volume,
-        balance: MmNumber::from(balance.clone()),
+        balance: MmNumber::from(balance),
         locked_by_swaps,
     })
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod maker_swap_tests {
+    use std::sync::atomic::AtomicUsize;
+
     use super::*;
     use coins::eth::{addr_from_str, signed_eth_tx_from_bytes, SignedEthTx};
     use coins::{MarketCoinOps, MmCoin, SwapOps, TestCoin};
     use common::block_on;
-    use mm2_test_helpers::for_tests::{mm_ctx_with_iguana, ETH_DEV_SWAP_CONTRACT};
+    use mm2_test_helpers::for_tests::{mm_ctx_with_iguana, ETH_SEPOLIA_SWAP_CONTRACT};
     use mocktopus::mocking::*;
     use serde_json as json;
 
@@ -2376,18 +2604,18 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
         TestCoin::can_refund_htlc
-            .mock_safe(|_, _| MockResult::Return(Box::new(futures01::future::ok(CanRefundHtlc::CanRefundNow))));
+            .mock_safe(|_, _| MockResult::Return(Box::pin(futures::future::ok(CanRefundHtlc::CanRefundNow))));
 
-        static mut MY_PAYMENT_SENT_CALLED: bool = false;
+        static MY_PAYMENT_SENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::check_if_my_payment_sent.mock_safe(|_, _| {
-            unsafe { MY_PAYMENT_SENT_CALLED = true };
-            MockResult::Return(Box::new(futures01::future::ok(Some(eth_tx_for_test().into()))))
+            MY_PAYMENT_SENT_CALLED.store(true, Ordering::Relaxed);
+            MockResult::Return(Box::pin(futures::future::ok(Some(eth_tx_for_test().into()))))
         });
 
-        static mut MAKER_REFUND_CALLED: bool = false;
+        static MAKER_REFUND_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::send_maker_refunds_payment.mock_safe(|_, _| {
-            unsafe { MAKER_REFUND_CALLED = true };
-            MockResult::Return(Box::new(futures01::future::ok(eth_tx_for_test().into())))
+            MAKER_REFUND_CALLED.store(true, Ordering::Relaxed);
+            MockResult::Return(Box::pin(futures::future::ok(eth_tx_for_test().into())))
         });
         TestCoin::search_for_swap_tx_spend_my
             .mock_safe(|_, _| MockResult::Return(Box::pin(futures::future::ready(Ok(None)))));
@@ -2401,8 +2629,9 @@ mod maker_swap_tests {
             transaction: eth_tx_for_test().into(),
         };
         assert_eq!(expected, actual);
-        assert!(unsafe { MY_PAYMENT_SENT_CALLED });
-        assert!(unsafe { MAKER_REFUND_CALLED });
+
+        assert!(MY_PAYMENT_SENT_CALLED.load(Ordering::Relaxed));
+        assert!(MAKER_REFUND_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2416,12 +2645,13 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
         TestCoin::can_refund_htlc
-            .mock_safe(|_, _| MockResult::Return(Box::new(futures01::future::ok(CanRefundHtlc::CanRefundNow))));
+            .mock_safe(|_, _| MockResult::Return(Box::pin(futures::future::ok(CanRefundHtlc::CanRefundNow))));
 
-        static mut MAKER_REFUND_CALLED: bool = false;
+        static MAKER_REFUND_CALLED: AtomicBool = AtomicBool::new(false);
+
         TestCoin::send_maker_refunds_payment.mock_safe(|_, _| {
-            unsafe { MAKER_REFUND_CALLED = true };
-            MockResult::Return(Box::new(futures01::future::ok(eth_tx_for_test().into())))
+            MAKER_REFUND_CALLED.store(true, Ordering::Relaxed);
+            MockResult::Return(Box::pin(futures::future::ok(eth_tx_for_test().into())))
         });
 
         TestCoin::search_for_swap_tx_spend_my
@@ -2436,7 +2666,7 @@ mod maker_swap_tests {
             transaction: eth_tx_for_test().into(),
         };
         assert_eq!(expected, actual);
-        assert!(unsafe { MAKER_REFUND_CALLED });
+        assert!(MAKER_REFUND_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2472,17 +2702,17 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: bool = true;
+        static SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
         });
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: bool = true;
+        static SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_other.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Refunded(
                 eth_tx_for_test().into(),
             ))))))
@@ -2492,8 +2722,8 @@ mod maker_swap_tests {
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let err = block_on(maker_swap.recover_funds()).expect_err("Expected an error");
         assert!(err.contains("Taker payment was already refunded"));
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.load(Ordering::Relaxed));
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2508,13 +2738,13 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut MY_PAYMENT_SENT_CALLED: bool = false;
+        static MY_PAYMENT_SENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::check_if_my_payment_sent.mock_safe(|_, _| {
-            unsafe { MY_PAYMENT_SENT_CALLED = true };
-            MockResult::Return(Box::new(futures01::future::ok(Some(eth_tx_for_test().into()))))
+            MY_PAYMENT_SENT_CALLED.store(true, Ordering::Relaxed);
+            MockResult::Return(Box::pin(futures::future::ok(Some(eth_tx_for_test().into()))))
         });
         TestCoin::can_refund_htlc
-            .mock_safe(|_, _| MockResult::Return(Box::new(futures01::future::ok(CanRefundHtlc::HaveToWait(1000)))));
+            .mock_safe(|_, _| MockResult::Return(Box::pin(futures::future::ok(CanRefundHtlc::HaveToWait(1000)))));
         TestCoin::search_for_swap_tx_spend_my
             .mock_safe(|_, _| MockResult::Return(Box::pin(futures::future::ready(Ok(None)))));
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
@@ -2522,7 +2752,7 @@ mod maker_swap_tests {
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let error = block_on(maker_swap.recover_funds()).unwrap_err();
         assert!(error.contains("Too early to refund"));
-        assert!(unsafe { MY_PAYMENT_SENT_CALLED });
+        assert!(MY_PAYMENT_SENT_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2537,16 +2767,16 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut MY_PAYMENT_SENT_CALLED: bool = false;
+        static MY_PAYMENT_SENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::check_if_my_payment_sent.mock_safe(|_, _| {
-            unsafe { MY_PAYMENT_SENT_CALLED = true };
-            MockResult::Return(Box::new(futures01::future::ok(None)))
+            MY_PAYMENT_SENT_CALLED.store(true, Ordering::Relaxed);
+            MockResult::Return(Box::pin(futures::future::ok(None)))
         });
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         assert!(block_on(maker_swap.recover_funds()).is_err());
-        assert!(unsafe { MY_PAYMENT_SENT_CALLED });
+        assert!(MY_PAYMENT_SENT_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2576,17 +2806,17 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: bool = true;
+        static SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
         });
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: bool = true;
+        static SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_other.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
@@ -2597,8 +2827,8 @@ mod maker_swap_tests {
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let err = block_on(maker_swap.recover_funds()).expect_err("Expected an error");
         assert!(err.contains("Taker payment was already spent"));
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.load(Ordering::Relaxed));
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2630,24 +2860,24 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: bool = false;
+        static SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
         });
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: bool = false;
+        static SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_other.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(None))))
         });
 
-        static mut SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED: bool = false;
+        static SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::send_maker_spends_taker_payment.mock_safe(|_, _| {
-            unsafe { SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED = true }
-            MockResult::Return(Box::new(futures01::future::ok(eth_tx_for_test().into())))
+            SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED.store(true, Ordering::Relaxed);
+            MockResult::Return(Box::pin(futures::future::ready(Ok(eth_tx_for_test().into()))))
         });
 
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
@@ -2659,9 +2889,9 @@ mod maker_swap_tests {
             transaction: eth_tx_for_test().into(),
         });
         assert_eq!(block_on(maker_swap.recover_funds()), expected);
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
-        assert!(unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
-        assert!(unsafe { SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED });
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.load(Ordering::Relaxed));
+        assert!(SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.load(Ordering::Relaxed));
+        assert!(SEND_MAKER_SPENDS_TAKER_PAYMENT_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -2674,24 +2904,24 @@ mod maker_swap_tests {
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
         TestCoin::swap_contract_address.mock_safe(|_| MockResult::Return(None));
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: bool = false;
+        static SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_my.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(Some(FoundSwapTxSpend::Spent(
                 eth_tx_for_test().into(),
             ))))))
         });
 
-        static mut SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: bool = false;
+        static SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::search_for_swap_tx_spend_other.mock_safe(|_, _| {
-            unsafe { SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED = true }
+            SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.store(true, Ordering::Relaxed);
             MockResult::Return(Box::pin(futures::future::ready(Ok(None))))
         });
 
-        static mut SEND_MAKER_REFUNDS_PAYMENT_CALLED: bool = false;
+        static SEND_MAKER_REFUNDS_PAYMENT_CALLED: AtomicBool = AtomicBool::new(false);
         TestCoin::send_maker_refunds_payment.mock_safe(|_, _| {
-            unsafe { SEND_MAKER_REFUNDS_PAYMENT_CALLED = true }
-            MockResult::Return(Box::new(futures01::future::ok(eth_tx_for_test().into())))
+            SEND_MAKER_REFUNDS_PAYMENT_CALLED.store(true, Ordering::Relaxed);
+            MockResult::Return(Box::pin(futures::future::ok(eth_tx_for_test().into())))
         });
 
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
@@ -2699,14 +2929,14 @@ mod maker_swap_tests {
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
         let err = block_on(maker_swap.recover_funds()).unwrap_err();
         assert!(err.contains("Taker payment spend transaction has been sent and confirmed"));
-        assert!(unsafe { !SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED });
-        assert!(unsafe { !SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED });
-        assert!(unsafe { !SEND_MAKER_REFUNDS_PAYMENT_CALLED });
+        assert!(!SEARCH_FOR_SWAP_TX_SPEND_MY_CALLED.load(Ordering::Relaxed));
+        assert!(!SEARCH_FOR_SWAP_TX_SPEND_OTHER_CALLED.load(Ordering::Relaxed));
+        assert!(!SEND_MAKER_REFUNDS_PAYMENT_CALLED.load(Ordering::Relaxed));
     }
 
     #[test]
     fn swap_must_not_lock_funds_by_default() {
-        use crate::mm2::lp_swap::get_locked_amount;
+        use crate::lp_swap::get_locked_amount;
 
         let ctx = mm_ctx_with_iguana(PASSPHRASE);
 
@@ -2733,16 +2963,16 @@ mod maker_swap_tests {
         let maker_saved_swap: MakerSavedSwap = json::from_str(maker_saved_json).unwrap();
 
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
-        static mut SWAP_CONTRACT_ADDRESS_CALLED: usize = 0;
+        static SWAP_CONTRACT_ADDRESS_CALLED: AtomicUsize = AtomicUsize::new(0);
         TestCoin::swap_contract_address.mock_safe(|_| {
-            unsafe { SWAP_CONTRACT_ADDRESS_CALLED += 1 };
+            SWAP_CONTRACT_ADDRESS_CALLED.fetch_add(1, Ordering::Relaxed);
             MockResult::Return(Some(BytesJson::default()))
         });
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
 
-        assert_eq!(unsafe { SWAP_CONTRACT_ADDRESS_CALLED }, 2);
+        assert_eq!(SWAP_CONTRACT_ADDRESS_CALLED.load(Ordering::Relaxed), 2);
         assert_eq!(
             maker_swap.r().data.maker_coin_swap_contract_address,
             Some(BytesJson::default())
@@ -2758,21 +2988,21 @@ mod maker_swap_tests {
         let ctx = mm_ctx_with_iguana(PASSPHRASE);
 
         // swap file contains only maker_coin_swap_contract_address
-        let maker_saved_json = r#"{"type":"Maker","uuid":"c52659d7-4e13-41f5-9c1a-30cc2f646033","events":[{"timestamp":1608541830095,"event":{"type":"Started","data":{"taker_coin":"JST","maker_coin":"ETH","taker":"031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3","secret":"dc45c1d22028970d8d30d1ddacbfc50eb92403b0d6076c94f2216c4c44512b41","secret_hash":"943e11f7c74e2d6493ef8ad01a06ef2ce9bd1fb3","my_persistent_pub":"03c6a78589e18b482aea046975e6d0acbdea7bf7dbf04d9d5bd67fda917815e3ed","lock_duration":7800,"maker_amount":"0.1","taker_amount":"0.1","maker_payment_confirmations":1,"maker_payment_requires_nota":false,"taker_payment_confirmations":1,"taker_payment_requires_nota":false,"maker_payment_lock":1608557429,"uuid":"c52659d7-4e13-41f5-9c1a-30cc2f646033","started_at":1608541829,"maker_coin_start_block":14353,"taker_coin_start_block":14353,"maker_coin_swap_contract_address":"83965c539899cc0f918552e5a26915de40ee8852"}}},{"timestamp":1608541830399,"event":{"type":"Negotiated","data":{"taker_payment_locktime":1608549629,"taker_pubkey":"02031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3"}}},{"timestamp":1608541831810,"event":{"type":"TakerFeeValidated","data":{"tx_hex":"f8a7821fb58083033450942b294f029fde858b2c62184e8390591755521d8e80b844a9059cbb000000000000000000000000d8997941dd1346e9231118d5685d866294f59e5b0000000000000000000000000000000000000000000000000000750d557426e01ba06ddad2dfe6933b8d70d5739beb3005c8f367bc72eac4e5609b81c2f8e5843cd9a07fa695cc42f8c6b6a7b10f6ae9e4dca3e750e37f64a85b54dec736236790f05e","tx_hash":"b13c3428f70b46d8c1d7f5863af020a27c380a8ede0927554beabf234998bcc8"}}},{"timestamp":1608541832884,"event":{"type":"MakerPaymentSent","data":{"tx_hex":"f8ef82021980830249f094a09ad3cd7e96586ebd05a2607ee56b56fb2db8fd88016345785d8a0000b884152cf3af7c7ce37fac65bd995eae3d58ccdc367d79f3a10e6ca55f609e6dcefac960982b000000000000000000000000bab36286672fbdc7b250804bf6d14be0df69fa29943e11f7c74e2d6493ef8ad01a06ef2ce9bd1fb3000000000000000000000000000000000000000000000000000000000000000000000000000000005fe0a3751ca03ab6306b8b8875c7d2cbaa71a3991eb8e7ae44e192dc9974cecc1f9dcfe5e4d6a04ec2808db06fe7b246134997fcce81ca201ced1257f1f8e93cacadd6554ca653","tx_hash":"ceba36dff0b2c7aec69cb2d5be7055858e09889959ba63f7957b45a15dceade4"}}},{"timestamp":1608541835207,"event":{"type":"TakerPaymentReceived","data":{"tx_hex":"f90127821fb680830249f094a09ad3cd7e96586ebd05a2607ee56b56fb2db8fd80b8c49b415b2a64bdf61f195a1767f547bb0886ed697f3c1a063ce928ff9a47222c0b5d099200000000000000000000000000000000000000000000000000016345785d8a00000000000000000000000000002b294f029fde858b2c62184e8390591755521d8e0000000000000000000000004b2d0d6c2c785217457b69b922a2a9cea98f71e9943e11f7c74e2d6493ef8ad01a06ef2ce9bd1fb3000000000000000000000000000000000000000000000000000000000000000000000000000000005fe084fd1ba0a5b6ef54217c5a03a588d01410ef1187ce6107bdb075306ced06a06e25a50984a03f541f1f392079ae2590d0f48f2065f8721a8b46c44a060ae53f00bfb5160118","tx_hash":"1247a1be3da89f3612ca33d83d493808388775e2897036f640c0efe69c3b162f"}}},{"timestamp":1608541835208,"event":{"type":"TakerPaymentWaitConfirmStarted"}},{"timestamp":1608541836196,"event":{"type":"TakerPaymentValidatedAndConfirmed"}},{"timestamp":1608541837173,"event":{"type":"TakerPaymentSpent","data":{"tx_hex":"f9010782021a80830249f094a09ad3cd7e96586ebd05a2607ee56b56fb2db8fd80b8a402ed292b64bdf61f195a1767f547bb0886ed697f3c1a063ce928ff9a47222c0b5d099200000000000000000000000000000000000000000000000000016345785d8a0000dc45c1d22028970d8d30d1ddacbfc50eb92403b0d6076c94f2216c4c44512b410000000000000000000000002b294f029fde858b2c62184e8390591755521d8e000000000000000000000000bab36286672fbdc7b250804bf6d14be0df69fa291ba053af89feb4ab066b26e76de9788c85ec1bf14ae6dcbdd7ff53e561e48e1b822ca043796d45bd4233500a120a1571b3fee95a34e8cc6b616c69552da4352c0d8e39","tx_hash":"d9a839c6eead3fbf538eca0a4ec39e28647104920a5c8b9c107524287dd90165"}}},{"timestamp":1608541837175,"event":{"type":"TakerPaymentSpendConfirmStarted"}},{"timestamp":1608541837612,"event":{"type":"TakerPaymentSpendConfirmed"}},{"timestamp":1608541837614,"event":{"type":"Finished"}}],"maker_amount":"0.1","maker_coin":"ETH","taker_amount":"0.1","taker_coin":"JST","gui":"nogui","mm_version":"1a6082121","success_events":["Started","Negotiated","TakerFeeValidated","MakerPaymentSent","TakerPaymentReceived","TakerPaymentWaitConfirmStarted","TakerPaymentValidatedAndConfirmed","TakerPaymentSpent","TakerPaymentSpendConfirmStarted","TakerPaymentSpendConfirmed","Finished"],"error_events":["StartFailed","NegotiateFailed","TakerFeeValidateFailed","MakerPaymentTransactionFailed","MakerPaymentDataSendFailed","MakerPaymentWaitConfirmFailed","TakerPaymentValidateFailed","TakerPaymentWaitConfirmFailed","TakerPaymentSpendFailed","TakerPaymentSpendConfirmFailed","MakerPaymentWaitRefundStarted","MakerPaymentRefunded","MakerPaymentRefundFailed"]}"#;
+        let maker_saved_json = r#"{"type":"Maker","uuid":"c52659d7-4e13-41f5-9c1a-30cc2f646033","events":[{"timestamp":1608541830095,"event":{"type":"Started","data":{"taker_coin":"JST","maker_coin":"ETH","taker":"031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3","secret":"dc45c1d22028970d8d30d1ddacbfc50eb92403b0d6076c94f2216c4c44512b41","secret_hash":"943e11f7c74e2d6493ef8ad01a06ef2ce9bd1fb3","my_persistent_pub":"03c6a78589e18b482aea046975e6d0acbdea7bf7dbf04d9d5bd67fda917815e3ed","lock_duration":7800,"maker_amount":"0.1","taker_amount":"0.1","maker_payment_confirmations":1,"maker_payment_requires_nota":false,"taker_payment_confirmations":1,"taker_payment_requires_nota":false,"maker_payment_lock":1608557429,"uuid":"c52659d7-4e13-41f5-9c1a-30cc2f646033","started_at":1608541829,"maker_coin_start_block":14353,"taker_coin_start_block":14353,"maker_coin_swap_contract_address":"eA6D65434A15377081495a9E7C5893543E7c32cB"}}},{"timestamp":1608541830399,"event":{"type":"Negotiated","data":{"taker_payment_locktime":1608549629,"taker_pubkey":"02031d4256c4bc9f99ac88bf3dba21773132281f65f9bf23a59928bce08961e2f3"}}},{"timestamp":1608541831810,"event":{"type":"TakerFeeValidated","data":{"tx_hex":"f8a7821fb58083033450942b294f029fde858b2c62184e8390591755521d8e80b844a9059cbb000000000000000000000000d8997941dd1346e9231118d5685d866294f59e5b0000000000000000000000000000000000000000000000000000750d557426e01ba06ddad2dfe6933b8d70d5739beb3005c8f367bc72eac4e5609b81c2f8e5843cd9a07fa695cc42f8c6b6a7b10f6ae9e4dca3e750e37f64a85b54dec736236790f05e","tx_hash":"b13c3428f70b46d8c1d7f5863af020a27c380a8ede0927554beabf234998bcc8"}}},{"timestamp":1608541832884,"event":{"type":"MakerPaymentSent","data":{"tx_hex":"f8ef82021980830249f094a09ad3cd7e96586ebd05a2607ee56b56fb2db8fd88016345785d8a0000b884152cf3af7c7ce37fac65bd995eae3d58ccdc367d79f3a10e6ca55f609e6dcefac960982b000000000000000000000000bab36286672fbdc7b250804bf6d14be0df69fa29943e11f7c74e2d6493ef8ad01a06ef2ce9bd1fb3000000000000000000000000000000000000000000000000000000000000000000000000000000005fe0a3751ca03ab6306b8b8875c7d2cbaa71a3991eb8e7ae44e192dc9974cecc1f9dcfe5e4d6a04ec2808db06fe7b246134997fcce81ca201ced1257f1f8e93cacadd6554ca653","tx_hash":"ceba36dff0b2c7aec69cb2d5be7055858e09889959ba63f7957b45a15dceade4"}}},{"timestamp":1608541835207,"event":{"type":"TakerPaymentReceived","data":{"tx_hex":"f90127821fb680830249f094a09ad3cd7e96586ebd05a2607ee56b56fb2db8fd80b8c49b415b2a64bdf61f195a1767f547bb0886ed697f3c1a063ce928ff9a47222c0b5d099200000000000000000000000000000000000000000000000000016345785d8a00000000000000000000000000002b294f029fde858b2c62184e8390591755521d8e0000000000000000000000004b2d0d6c2c785217457b69b922a2a9cea98f71e9943e11f7c74e2d6493ef8ad01a06ef2ce9bd1fb3000000000000000000000000000000000000000000000000000000000000000000000000000000005fe084fd1ba0a5b6ef54217c5a03a588d01410ef1187ce6107bdb075306ced06a06e25a50984a03f541f1f392079ae2590d0f48f2065f8721a8b46c44a060ae53f00bfb5160118","tx_hash":"1247a1be3da89f3612ca33d83d493808388775e2897036f640c0efe69c3b162f"}}},{"timestamp":1608541835208,"event":{"type":"TakerPaymentWaitConfirmStarted"}},{"timestamp":1608541836196,"event":{"type":"TakerPaymentValidatedAndConfirmed"}},{"timestamp":1608541837173,"event":{"type":"TakerPaymentSpent","data":{"tx_hex":"f9010782021a80830249f094a09ad3cd7e96586ebd05a2607ee56b56fb2db8fd80b8a402ed292b64bdf61f195a1767f547bb0886ed697f3c1a063ce928ff9a47222c0b5d099200000000000000000000000000000000000000000000000000016345785d8a0000dc45c1d22028970d8d30d1ddacbfc50eb92403b0d6076c94f2216c4c44512b410000000000000000000000002b294f029fde858b2c62184e8390591755521d8e000000000000000000000000bab36286672fbdc7b250804bf6d14be0df69fa291ba053af89feb4ab066b26e76de9788c85ec1bf14ae6dcbdd7ff53e561e48e1b822ca043796d45bd4233500a120a1571b3fee95a34e8cc6b616c69552da4352c0d8e39","tx_hash":"d9a839c6eead3fbf538eca0a4ec39e28647104920a5c8b9c107524287dd90165"}}},{"timestamp":1608541837175,"event":{"type":"TakerPaymentSpendConfirmStarted"}},{"timestamp":1608541837612,"event":{"type":"TakerPaymentSpendConfirmed"}},{"timestamp":1608541837614,"event":{"type":"Finished"}}],"maker_amount":"0.1","maker_coin":"ETH","taker_amount":"0.1","taker_coin":"JST","gui":"nogui","mm_version":"1a6082121","success_events":["Started","Negotiated","TakerFeeValidated","MakerPaymentSent","TakerPaymentReceived","TakerPaymentWaitConfirmStarted","TakerPaymentValidatedAndConfirmed","TakerPaymentSpent","TakerPaymentSpendConfirmStarted","TakerPaymentSpendConfirmed","Finished"],"error_events":["StartFailed","NegotiateFailed","TakerFeeValidateFailed","MakerPaymentTransactionFailed","MakerPaymentDataSendFailed","MakerPaymentWaitConfirmFailed","TakerPaymentValidateFailed","TakerPaymentWaitConfirmFailed","TakerPaymentSpendFailed","TakerPaymentSpendConfirmFailed","MakerPaymentWaitRefundStarted","MakerPaymentRefunded","MakerPaymentRefundFailed"]}"#;
         let maker_saved_swap: MakerSavedSwap = json::from_str(maker_saved_json).unwrap();
 
         TestCoin::ticker.mock_safe(|_| MockResult::Return("ticker"));
-        static mut SWAP_CONTRACT_ADDRESS_CALLED: usize = 0;
+        static SWAP_CONTRACT_ADDRESS_CALLED: AtomicUsize = AtomicUsize::new(0);
         TestCoin::swap_contract_address.mock_safe(|_| {
-            unsafe { SWAP_CONTRACT_ADDRESS_CALLED += 1 };
+            SWAP_CONTRACT_ADDRESS_CALLED.fetch_add(1, Ordering::Relaxed);
             MockResult::Return(Some(BytesJson::default()))
         });
         let maker_coin = MmCoinEnum::Test(TestCoin::default());
         let taker_coin = MmCoinEnum::Test(TestCoin::default());
         let (maker_swap, _) = MakerSwap::load_from_saved(ctx, maker_coin, taker_coin, maker_saved_swap).unwrap();
 
-        assert_eq!(unsafe { SWAP_CONTRACT_ADDRESS_CALLED }, 1);
-        let expected_addr = addr_from_str(ETH_DEV_SWAP_CONTRACT).unwrap();
+        assert_eq!(SWAP_CONTRACT_ADDRESS_CALLED.load(Ordering::Relaxed), 1);
+        let expected_addr = addr_from_str(ETH_SEPOLIA_SWAP_CONTRACT).unwrap();
         let expected = BytesJson::from(expected_addr.0.as_ref());
         assert_eq!(maker_swap.r().data.maker_coin_swap_contract_address, Some(expected));
         assert_eq!(

@@ -1,4 +1,4 @@
-use crate::mm2::lp_swap::{get_max_maker_vol, CheckBalanceError, CoinVolumeInfo};
+use crate::lp_swap::{get_max_maker_vol, CheckBalanceError, CoinVolumeInfo};
 use coins::{lp_coinfind_or_err, CoinFindError};
 use common::HttpStatusCode;
 use derive_more::Display;
@@ -12,11 +12,7 @@ use ser_error_derive::SerializeErrorType;
 #[serde(tag = "error_type", content = "error_data")]
 pub enum MaxMakerVolRpcError {
     #[display(
-        fmt = "Not enough {} for swap: available {}, required at least {}, locked by swaps {:?}",
-        coin,
-        available,
-        required,
-        locked_by_swaps
+        fmt = "Not enough {coin} for swap: available {available}, required at least {required}, locked by swaps {locked_by_swaps:?}"
     )]
     NotSufficientBalance {
         coin: String,
@@ -26,11 +22,7 @@ pub enum MaxMakerVolRpcError {
         locked_by_swaps: Option<BigDecimal>,
     },
     #[display(
-        fmt = "Not enough base coin {} balance for swap: available {}, required at least {}, locked by swaps {:?}",
-        coin,
-        available,
-        required,
-        locked_by_swaps
+        fmt = "Not enough platform coin {coin} balance for swap: available {available}, required at least {required}, locked by swaps {locked_by_swaps:?}"
     )]
     NotSufficientBaseCoinBalance {
         coin: String,
@@ -39,24 +31,17 @@ pub enum MaxMakerVolRpcError {
         #[serde(skip_serializing_if = "Option::is_none")]
         locked_by_swaps: Option<BigDecimal>,
     },
-    #[display(
-        fmt = "The volume {} of the {} coin less than minimum transaction amount {}",
-        volume,
-        coin,
-        threshold
-    )]
+    #[display(fmt = "The volume {volume} of the {coin} coin less than minimum transaction amount {threshold}")]
     VolumeTooLow {
         coin: String,
         volume: BigDecimal,
         threshold: BigDecimal,
     },
-    #[display(fmt = "No such coin {}", coin)]
+    #[display(fmt = "No such coin {coin}")]
     NoSuchCoin { coin: String },
-    #[display(fmt = "Coin {} is wallet only", coin)]
-    CoinIsWalletOnly { coin: String },
-    #[display(fmt = "Transport error: {}", _0)]
+    #[display(fmt = "Transport error: {_0}")]
     Transport(String),
-    #[display(fmt = "Internal error: {}", _0)]
+    #[display(fmt = "Internal error: {_0}")]
     InternalError(String),
 }
 
@@ -111,11 +96,10 @@ impl From<CheckBalanceError> for MaxMakerVolRpcError {
 impl HttpStatusCode for MaxMakerVolRpcError {
     fn status_code(&self) -> StatusCode {
         match self {
+            MaxMakerVolRpcError::NoSuchCoin { .. } => StatusCode::NOT_FOUND,
             MaxMakerVolRpcError::NotSufficientBalance { .. }
             | MaxMakerVolRpcError::NotSufficientBaseCoinBalance { .. }
-            | MaxMakerVolRpcError::VolumeTooLow { .. }
-            | MaxMakerVolRpcError::NoSuchCoin { .. }
-            | MaxMakerVolRpcError::CoinIsWalletOnly { .. } => StatusCode::BAD_REQUEST,
+            | MaxMakerVolRpcError::VolumeTooLow { .. } => StatusCode::BAD_REQUEST,
             MaxMakerVolRpcError::Transport(_) | MaxMakerVolRpcError::InternalError(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             },
@@ -137,15 +121,13 @@ pub struct MaxMakerVolResponse {
 }
 
 pub async fn max_maker_vol(ctx: MmArc, req: MaxMakerVolRequest) -> MmResult<MaxMakerVolResponse, MaxMakerVolRpcError> {
-    let coin = lp_coinfind_or_err(&ctx, &req.coin).await?;
-    if coin.wallet_only(&ctx) {
-        return MmError::err(MaxMakerVolRpcError::CoinIsWalletOnly { coin: req.coin });
-    }
+    let coin = lp_coinfind_or_err(&ctx, &req.coin).await.map_mm_err()?;
     let CoinVolumeInfo {
         volume,
         balance,
         locked_by_swaps,
-    } = get_max_maker_vol(&ctx, &coin).await?;
+    } = get_max_maker_vol(&ctx, &coin).await.map_mm_err()?;
+
     Ok(MaxMakerVolResponse {
         coin: req.coin,
         volume: MmNumberMultiRepr::from(volume),

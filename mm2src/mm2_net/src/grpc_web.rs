@@ -4,6 +4,7 @@
 use crate::transport::SlurpError;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use common::{cfg_native, cfg_wasm32};
+use derive_more::Display;
 use http::header::{ACCEPT, CONTENT_TYPE};
 use mm2_err_handle::prelude::*;
 use prost::DecodeError;
@@ -15,7 +16,7 @@ cfg_native! {
 
 cfg_wasm32! {
     use common::{X_GRPC_WEB, APPLICATION_GRPC_WEB_PROTO};
-    use crate::wasm_http::FetchRequest;
+    use crate::wasm::http::FetchRequest;
 }
 
 // one byte for the compression flag plus four bytes for the length
@@ -28,7 +29,9 @@ pub enum EncodeBodyError {
 }
 
 impl From<prost::EncodeError> for EncodeBodyError {
-    fn from(err: prost::EncodeError) -> Self { EncodeBodyError::Encode(err) }
+    fn from(err: prost::EncodeError) -> Self {
+        EncodeBodyError::Encode(err)
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -68,7 +71,9 @@ pub enum DecodeBodyError {
 }
 
 impl From<prost::DecodeError> for DecodeBodyError {
-    fn from(err: DecodeError) -> Self { DecodeBodyError::DecodeError(err) }
+    fn from(err: DecodeError) -> Self {
+        DecodeBodyError::DecodeError(err)
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -92,32 +97,42 @@ where
     Ok(msg)
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, Display)]
 pub enum PostGrpcWebErr {
     DecodeBody(String),
     EncodeBody(String),
     InvalidRequest(String),
+    BadResponse(String),
     Internal(String),
     PayloadTooShort(String),
-    Transport { uri: String, error: String },
+    Status(String),
+    #[display(fmt = "Transport Error — uri: {uri} — error: {error}")]
+    Transport {
+        uri: String,
+        error: String,
+    },
 }
 
 impl From<EncodeBodyError> for PostGrpcWebErr {
-    fn from(err: EncodeBodyError) -> Self { PostGrpcWebErr::EncodeBody(format!("{:?}", err)) }
+    fn from(err: EncodeBodyError) -> Self {
+        PostGrpcWebErr::EncodeBody(format!("{err:?}"))
+    }
 }
 
 impl From<DecodeBodyError> for PostGrpcWebErr {
     fn from(err: DecodeBodyError) -> Self {
         match err {
-            DecodeBodyError::PayloadTooShort => PostGrpcWebErr::PayloadTooShort(format!("{:?}", err)),
-            DecodeBodyError::DecodeError(_) => PostGrpcWebErr::DecodeBody(format!("{:?}", err)),
+            DecodeBodyError::PayloadTooShort => PostGrpcWebErr::PayloadTooShort(format!("{err:?}")),
+            DecodeBodyError::DecodeError(_) => PostGrpcWebErr::DecodeBody(format!("{err:?}")),
         }
     }
 }
 
 /// `http::Error` can appear on an HTTP request [`http::Builder::build`] building.
 impl From<http::Error> for PostGrpcWebErr {
-    fn from(err: http::Error) -> Self { PostGrpcWebErr::InvalidRequest(err.to_string()) }
+    fn from(err: http::Error) -> Self {
+        PostGrpcWebErr::InvalidRequest(err.to_string())
+    }
 }
 
 impl From<SlurpError> for PostGrpcWebErr {
@@ -146,11 +161,11 @@ where
         .uri(url)
         .header(CONTENT_TYPE, APPLICATION_GRPC_WEB)
         .header(ACCEPT, APPLICATION_GRPC_WEB)
-        .body(encode_body(req)?)?;
+        .body(encode_body(req).map_mm_err()?)?;
 
-    let response = slurp_req(request).await?;
+    let response = slurp_req(request).await.map_mm_err()?;
 
-    let reply = decode_body(response.2.into())?;
+    let reply = decode_body(response.2.into()).map_mm_err()?;
 
     Ok(reply)
 }
@@ -161,7 +176,7 @@ where
     Req: prost::Message + Send + 'static,
     Res: prost::Message + Default + Send + 'static,
 {
-    let body = encode_body(req)?;
+    let body = encode_body(req).map_mm_err()?;
     let request = FetchRequest::post(url)
         .body_bytes(body)
         .header(CONTENT_TYPE.as_str(), APPLICATION_GRPC_WEB_PROTO)
@@ -169,9 +184,9 @@ where
         // https://github.com/grpc/grpc-web/issues/85#issue-217223001
         .header(X_GRPC_WEB, "1");
 
-    let response = request.request_array().await?;
+    let response = request.request_array().await.map_mm_err()?;
 
-    let reply = decode_body(response.1.into())?;
+    let reply = decode_body(response.1.into()).map_mm_err()?;
 
     Ok(reply)
 }

@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use crate::user_interaction::TrezorPassphraseResponse;
 use crate::{TrezorError, TrezorPinMatrix3x3Response};
 use async_trait::async_trait;
 use derive_more::Display;
 use mm2_err_handle::prelude::*;
+use rpc_task::RpcTaskError;
 
 #[derive(Display)]
 pub enum TrezorProcessingError<E> {
@@ -11,14 +14,16 @@ pub enum TrezorProcessingError<E> {
 }
 
 impl<E> From<TrezorError> for TrezorProcessingError<E> {
-    fn from(e: TrezorError) -> Self { TrezorProcessingError::TrezorError(e) }
+    fn from(e: TrezorError) -> Self {
+        TrezorProcessingError::TrezorError(e)
+    }
 }
 
-/// This is required for implementing `MmError<TrezorProcessingError<E>>: From<MmError<TrezorError>>`.
-impl<E> NotEqual for TrezorProcessingError<E> {}
-
 #[async_trait]
-pub trait TrezorRequestProcessor {
+pub trait TrezorRequestProcessor
+where
+    Self: Send + Sync,
+{
     type Error: NotMmError + Send;
 
     async fn on_button_request(&self) -> MmResult<(), TrezorProcessingError<Self::Error>>;
@@ -35,8 +40,8 @@ pub trait ProcessTrezorResponse<T>
 where
     T: Send + Sync + 'static,
 {
-    async fn process<Processor>(self, processor: &Processor) -> MmResult<T, TrezorProcessingError<Processor::Error>>
-    where
-        Self: Sized,
-        Processor: TrezorRequestProcessor + Sync;
+    async fn process(
+        self,
+        processor: Arc<dyn TrezorRequestProcessor<Error = RpcTaskError>>,
+    ) -> MmResult<T, TrezorProcessingError<RpcTaskError>>;
 }

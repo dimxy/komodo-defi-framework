@@ -1,8 +1,10 @@
+use std::convert::TryFrom;
+
 use crate::proto::messages_bitcoin as proto_bitcoin;
 use crate::result_handler::ResultHandler;
 use crate::utxo::unsigned_tx::UnsignedUtxoTx;
 use crate::utxo::Signature;
-use crate::{TrezorError, TrezorResponse, TrezorResult, TrezorSession};
+use crate::{ProcessTrezorResponse, TrezorError, TrezorResponse, TrezorResult, TrezorSession};
 use common::log::{debug, info};
 use mm2_err_handle::prelude::*;
 
@@ -33,12 +35,22 @@ impl<'a> TrezorSession<'a> {
     /// # Fail
     ///
     /// Currently, this method fails if a device requests a PIN.
-    pub async fn sign_utxo_tx<'b>(&'b mut self, unsigned: UnsignedUtxoTx) -> TrezorResult<TxSignResult> {
+    pub async fn sign_utxo_tx(&mut self, unsigned: UnsignedUtxoTx) -> TrezorResult<TxSignResult> {
         use proto_bitcoin::tx_request::RequestType as ProtoTxRequestType;
 
         let mut result = TxSignResult::new_with_inputs_count(unsigned.inputs.len());
+        let processor = self
+            .processor
+            .as_ref()
+            .or_mm_err(|| TrezorError::InternalNoProcessor)?
+            .clone();
         // Please note `tx_request` is changed within the following loop.
-        let mut tx_request = self.sign_tx(unsigned.sign_tx_message()).await?.ack_all().await?;
+        let mut tx_request = self
+            .sign_tx(unsigned.sign_tx_message())
+            .await?
+            .process(processor)
+            .await
+            .mm_err(|e| TrezorError::Internal(e.to_string()))?;
 
         info!(
             "Start transaction signing: COIN={} INPUTS_COUNT={} OUTPUTS_COUNT={} OVERWINTERED={}",
@@ -51,7 +63,9 @@ impl<'a> TrezorSession<'a> {
         loop {
             extract_serialized_data(&tx_request, &mut result)?;
 
-            let request_type = tx_request.request_type.and_then(ProtoTxRequestType::from_i32);
+            let request_type = tx_request
+                .request_type
+                .and_then(|t| ProtoTxRequestType::try_from(t).ok());
             let request_type = match request_type {
                 Some(ProtoTxRequestType::Txfinished) => return Ok(result),
                 Some(req_type) => req_type,
@@ -86,15 +100,15 @@ impl<'a> TrezorSession<'a> {
                     self.send_extra_data(&unsigned, tx_request_details, prev_hash).await?
                 },
                 _ => {
-                    let error = format!("Unexpected tx request: {:?}, is_prev: {}", request_type, is_prev);
+                    let error = format!("Unexpected tx request: {request_type:?}, is_prev: {is_prev}");
                     return MmError::err(TrezorError::ProtocolError(error));
                 },
             };
         }
     }
 
-    async fn send_prev_tx_meta<'b>(
-        &'b mut self,
+    async fn send_prev_tx_meta(
+        &mut self,
         unsigned: &UnsignedUtxoTx,
         prev_tx_hash: &[u8],
     ) -> TrezorResult<proto_bitcoin::TxRequest> {
@@ -102,11 +116,20 @@ impl<'a> TrezorSession<'a> {
         let req = prev_tx.meta_message();
 
         let result_handler = ResultHandler::<proto_bitcoin::TxRequest>::new(Ok);
-        self.call(req, result_handler).await?.ack_all().await
+        let processor = self
+            .processor
+            .as_ref()
+            .or_mm_err(|| TrezorError::InternalNoProcessor)?
+            .clone();
+        self.call(req, result_handler)
+            .await?
+            .process(processor)
+            .await
+            .mm_err(|e| TrezorError::Internal(e.to_string()))
     }
 
-    async fn send_prev_input<'b>(
-        &'b mut self,
+    async fn send_prev_input(
+        &mut self,
         unsigned: &UnsignedUtxoTx,
         request_details: &proto_bitcoin::tx_request::TxRequestDetailsType,
         prev_tx_hash: &[u8],
@@ -120,11 +143,20 @@ impl<'a> TrezorSession<'a> {
         let req = prev_tx.input_message(prev_input_index)?;
 
         let result_handler = ResultHandler::<proto_bitcoin::TxRequest>::new(Ok);
-        self.call(req, result_handler).await?.ack_all().await
+        let processor = self
+            .processor
+            .as_ref()
+            .or_mm_err(|| TrezorError::InternalNoProcessor)?
+            .clone();
+        self.call(req, result_handler)
+            .await?
+            .process(processor)
+            .await
+            .mm_err(|e| TrezorError::Internal(e.to_string()))
     }
 
-    async fn send_prev_output<'b>(
-        &'b mut self,
+    async fn send_prev_output(
+        &mut self,
         unsigned: &UnsignedUtxoTx,
         request_details: &proto_bitcoin::tx_request::TxRequestDetailsType,
         prev_tx_hash: &[u8],
@@ -138,11 +170,20 @@ impl<'a> TrezorSession<'a> {
         let req = prev_tx.output_message(prev_output_index)?;
 
         let result_handler = ResultHandler::<proto_bitcoin::TxRequest>::new(Ok);
-        self.call(req, result_handler).await?.ack_all().await
+        let processor = self
+            .processor
+            .as_ref()
+            .or_mm_err(|| TrezorError::InternalNoProcessor)?
+            .clone();
+        self.call(req, result_handler)
+            .await?
+            .process(processor)
+            .await
+            .mm_err(|e| TrezorError::Internal(e.to_string()))
     }
 
-    async fn send_input<'b>(
-        &'b mut self,
+    async fn send_input(
+        &mut self,
         unsigned: &UnsignedUtxoTx,
         request_details: &proto_bitcoin::tx_request::TxRequestDetailsType,
     ) -> TrezorResult<proto_bitcoin::TxRequest> {
@@ -153,11 +194,20 @@ impl<'a> TrezorSession<'a> {
         let req = unsigned.input_message(input_index)?;
 
         let result_handler = ResultHandler::<proto_bitcoin::TxRequest>::new(Ok);
-        self.call(req, result_handler).await?.ack_all().await
+        let processor = self
+            .processor
+            .as_ref()
+            .or_mm_err(|| TrezorError::InternalNoProcessor)?
+            .clone();
+        self.call(req, result_handler)
+            .await?
+            .process(processor)
+            .await
+            .mm_err(|e| TrezorError::Internal(e.to_string()))
     }
 
-    async fn send_output<'b>(
-        &'b mut self,
+    async fn send_output(
+        &mut self,
         unsigned: &UnsignedUtxoTx,
         request_details: &proto_bitcoin::tx_request::TxRequestDetailsType,
     ) -> TrezorResult<proto_bitcoin::TxRequest> {
@@ -168,11 +218,20 @@ impl<'a> TrezorSession<'a> {
         let req = unsigned.output_message(output_index)?;
 
         let result_handler = ResultHandler::<proto_bitcoin::TxRequest>::new(Ok);
-        self.call(req, result_handler).await?.ack_all().await
+        let processor = self
+            .processor
+            .as_ref()
+            .or_mm_err(|| TrezorError::InternalNoProcessor)?
+            .clone();
+        self.call(req, result_handler)
+            .await?
+            .process(processor)
+            .await
+            .mm_err(|e| TrezorError::Internal(e.to_string()))
     }
 
-    async fn send_extra_data<'b>(
-        &'b mut self,
+    async fn send_extra_data(
+        &mut self,
         unsigned: &UnsignedUtxoTx,
         request_details: &proto_bitcoin::tx_request::TxRequestDetailsType,
         prev_tx_hash: &[u8],
@@ -189,13 +248,22 @@ impl<'a> TrezorSession<'a> {
         let req = prev_tx.extra_data_message(offset, len)?;
 
         let result_handler = ResultHandler::<proto_bitcoin::TxRequest>::new(Ok);
-        self.call(req, result_handler).await?.ack_all().await
+        let processor = self
+            .processor
+            .as_ref()
+            .or_mm_err(|| TrezorError::InternalNoProcessor)?
+            .clone();
+        self.call(req, result_handler)
+            .await?
+            .process(processor)
+            .await
+            .mm_err(|e| TrezorError::Internal(e.to_string()))
     }
 
-    async fn sign_tx<'b>(
-        &'b mut self,
+    async fn sign_tx(
+        &mut self,
         req: proto_bitcoin::SignTx,
-    ) -> TrezorResult<TrezorResponse<'a, 'b, proto_bitcoin::TxRequest>> {
+    ) -> TrezorResult<TrezorResponse<'a, '_, proto_bitcoin::TxRequest>> {
         let result_handler = ResultHandler::<proto_bitcoin::TxRequest>::new(Ok);
         self.call(req, result_handler).await
     }

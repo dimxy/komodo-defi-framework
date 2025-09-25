@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use crate::proto::messages::MessageType;
 use crate::proto::messages_common::{failure::FailureType, Failure};
 use crate::user_interaction::TrezorUserInteraction;
@@ -14,7 +16,7 @@ use hw_common::transport::WebUsbError;
 
 #[derive(Debug, Display)]
 pub enum TrezorError {
-    #[display(fmt = "'{}' transport is not available on this platform", transport)]
+    #[display(fmt = "'{transport}' transport is not available on this platform")]
     TransportNotSupported {
         transport: String,
     },
@@ -26,13 +28,15 @@ pub enum TrezorError {
     /// The error depends on transport implementation.
     UnderlyingError(String),
     ProtocolError(String),
-    #[display(fmt = "Received unexpected message type: {:?}", _0)]
+    #[display(fmt = "Received unexpected message type: {_0:?}")]
     UnexpectedMessageType(MessageType),
     Failure(OperationFailure),
-    #[display(fmt = "Unexpected interaction request: {:?}", _0)]
+    #[display(fmt = "Unexpected interaction request: {_0:?}")]
     UnexpectedInteractionRequest(TrezorUserInteraction),
     Internal(String),
     PongMessageMismatch,
+    #[display(fmt = "no processor for trezor response")]
+    InternalNoProcessor,
 }
 
 #[derive(Clone, Debug, Display)]
@@ -55,7 +59,7 @@ pub enum OperationFailure {
 
 impl From<Failure> for OperationFailure {
     fn from(failure: Failure) -> Self {
-        match failure.code.and_then(FailureType::from_i32) {
+        match failure.code.and_then(|t| FailureType::try_from(t).ok()) {
             Some(FailureType::FailurePinInvalid) | Some(FailureType::FailurePinMismatch) => {
                 OperationFailure::InvalidPin
             },
@@ -79,11 +83,15 @@ impl From<Failure> for OperationFailure {
 }
 
 impl From<DecodeError> for TrezorError {
-    fn from(e: DecodeError) -> Self { TrezorError::ProtocolError(e.to_string()) }
+    fn from(e: DecodeError) -> Self {
+        TrezorError::ProtocolError(e.to_string())
+    }
 }
 
 impl From<EncodeError> for TrezorError {
-    fn from(e: EncodeError) -> Self { TrezorError::Internal(e.to_string()) }
+    fn from(e: EncodeError) -> Self {
+        TrezorError::Internal(e.to_string())
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -108,5 +116,12 @@ impl From<UsbError> for TrezorError {
             UsbError::Internal(e) => TrezorError::Internal(e),
             e => TrezorError::UnderlyingError(e.to_string()),
         }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+impl From<std::io::Error> for TrezorError {
+    fn from(e: std::io::Error) -> Self {
+        TrezorError::UnderlyingError(e.to_string())
     }
 }

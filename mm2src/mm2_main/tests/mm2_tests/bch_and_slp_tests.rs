@@ -2,39 +2,26 @@ use common::custom_futures::repeatable::{Ready, Retry};
 use common::{block_on, log, repeatable};
 use http::StatusCode;
 use itertools::Itertools;
-use mm2_test_helpers::for_tests::{disable_coin, enable_bch_with_tokens, enable_slp, my_tx_history_v2, sign_message,
-                                  tbch_for_slp_conf, tbch_usdf_conf, verify_message, MarketMakerIt, Mm2TestConf,
-                                  UtxoRpcMode};
-use mm2_test_helpers::structs::{EnableBchWithTokensResponse, RpcV2Response, SignatureResponse, StandardHistoryV2Res,
-                                UtxoFeeDetails, VerificationResponse};
+use mm2_test_helpers::for_tests::{
+    electrum_servers_rpc, enable_bch_with_tokens, enable_slp, my_tx_history_v2, sign_message, tbch_for_slp_conf,
+    tbch_usdf_conf, verify_message, MarketMakerIt, Mm2TestConf, UtxoRpcMode, T_BCH_ELECTRUMS,
+};
+use mm2_test_helpers::structs::{
+    Bip44Chain, EnableBchWithTokensResponse, HDAccountAddressId, RpcV2Response, SignatureResponse,
+    StandardHistoryV2Res, UtxoFeeDetails, VerificationResponse,
+};
 use serde_json::{self as json, json, Value as Json};
 use std::env;
-use std::thread;
-use std::time::Duration;
-
-#[cfg(not(target_arch = "wasm32"))]
-const T_BCH_ELECTRUMS: &[&str] = &[
-    "electroncash.de:50003",
-    "tbch.loping.net:60001",
-    "blackie.c3-soft.com:60001",
-    "bch0.kister.net:51001",
-    "testnet.imaginary.cash:50001",
-];
-
-#[cfg(target_arch = "wasm32")]
-const T_BCH_ELECTRUMS: &[&str] = &[
-    "electroncash.de:60003",
-    "electroncash.de:60004",
-    "blackie.c3-soft.com:60004",
-];
 
 const BIP39_PASSPHRASE: &str = "tank abandon bind salon remove wisdom net size aspect direct source fossil";
 
-fn t_bch_electrums_legacy_json() -> Vec<Json> { T_BCH_ELECTRUMS.iter().map(|url| json!({ "url": url })).collect() }
-
 #[test]
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "macos")))] // https://github.com/KomodoPlatform/komodo-defi-framework/issues/1712#issuecomment-2669920708
 fn test_withdraw_cashaddresses() {
+    use mm2_test_helpers::for_tests::disable_coin;
+    use std::thread;
+    use std::time::Duration;
+
     let coins = json!([
         {"coin":"BCH","pubtype":0,"p2shtype":5,"mm2":1,"fork_id": "0x40","protocol":{"type":"UTXO"},
          "address_format":{"format":"cashaddress","network":"bchtest"}},
@@ -50,6 +37,7 @@ fn test_withdraw_cashaddresses() {
             "coins": coins,
             "i_am_seed": true,
             "rpc_password": "pass",
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -62,7 +50,7 @@ fn test_withdraw_cashaddresses() {
         "userpass": mm.userpass,
         "method": "electrum",
         "coin": "BCH",
-        "servers": t_bch_electrums_legacy_json(),
+        "servers": electrum_servers_rpc(T_BCH_ELECTRUMS),
         "mm2": 1,
     })))
     .unwrap();
@@ -176,7 +164,7 @@ fn test_withdraw_cashaddresses() {
         "userpass": mm.userpass,
         "method": "electrum",
         "coin": "BCH",
-        "servers": t_bch_electrums_legacy_json(),
+        "servers": electrum_servers_rpc(T_BCH_ELECTRUMS),
         "address_format":{"format":"standard"},
         "mm2": 1,
     })))
@@ -254,6 +242,7 @@ fn test_withdraw_to_different_cashaddress_network_should_fail() {
             "coins": coins,
             "i_am_seed": true,
             "rpc_password": "pass",
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -266,7 +255,7 @@ fn test_withdraw_to_different_cashaddress_network_should_fail() {
         "userpass": mm.userpass,
         "method": "electrum",
         "coin": "BCH",
-        "servers": t_bch_electrums_legacy_json(),
+        "servers": electrum_servers_rpc(T_BCH_ELECTRUMS),
         "mm2": 1,
     })))
     .unwrap();
@@ -315,6 +304,7 @@ fn test_common_cashaddresses() {
             "coins": coins,
             "i_am_seed": true,
             "rpc_password": "pass",
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -329,7 +319,7 @@ fn test_common_cashaddresses() {
         "userpass": mm.userpass,
         "method": "electrum",
         "coin": "BCH",
-        "servers": t_bch_electrums_legacy_json(),
+        "servers": electrum_servers_rpc(T_BCH_ELECTRUMS),
         "mm2": 1,
     })))
     .unwrap();
@@ -427,7 +417,7 @@ async fn test_bch_and_slp_testnet_history_impl() {
 
     let rpc_mode = UtxoRpcMode::electrum(T_BCH_ELECTRUMS);
     let tx_history = true;
-    let enable_bch = enable_bch_with_tokens(&mm, "tBCH", &[], rpc_mode, tx_history).await;
+    let enable_bch = enable_bch_with_tokens(&mm, "tBCH", &[], rpc_mode, tx_history, None).await;
     log!("enable_bch: {:?}", enable_bch);
     let history = wait_till_history_has_records(&mm, 4, "tBCH", None, TIMEOUT_S).await;
     log!("bch history: {:?}", history);
@@ -489,7 +479,9 @@ async fn test_bch_and_slp_testnet_history_impl() {
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
-fn test_bch_and_slp_testnet_history() { block_on(test_bch_and_slp_testnet_history_impl()); }
+fn test_bch_and_slp_testnet_history() {
+    block_on(test_bch_and_slp_testnet_history_impl());
+}
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen_test]
@@ -518,6 +510,7 @@ fn test_sign_verify_message_bch() {
             "coins": coins,
             "i_am_seed": true,
             "rpc_password": "pass",
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -530,7 +523,7 @@ fn test_sign_verify_message_bch() {
         "userpass": mm.userpass,
         "method": "electrum",
         "coin": "BCH",
-        "servers": t_bch_electrums_legacy_json(),
+        "servers": electrum_servers_rpc(T_BCH_ELECTRUMS),
         "mm2": 1,
     })))
     .unwrap();
@@ -545,7 +538,7 @@ fn test_sign_verify_message_bch() {
     let electrum: Json = json::from_str(&electrum.1).unwrap();
     log!("{:?}", electrum);
 
-    let response = block_on(sign_message(&mm, "BCH"));
+    let response = block_on(sign_message(&mm, "BCH", None));
     let response: RpcV2Response<SignatureResponse> = json::from_value(response).unwrap();
     let response = response.result;
 
@@ -587,6 +580,7 @@ fn test_sign_verify_message_slp() {
             "coins": coins,
             "i_am_seed": true,
             "rpc_password": "pass",
+            "is_bootstrap_node": true
         }),
         "pass".into(),
         None,
@@ -596,13 +590,13 @@ fn test_sign_verify_message_slp() {
     log!("log path: {}", mm.log_path.display());
 
     let rpc_mode = UtxoRpcMode::electrum(T_BCH_ELECTRUMS);
-    let enable_bch = block_on(enable_bch_with_tokens(&mm, "tBCH", &[], rpc_mode, false));
+    let enable_bch = block_on(enable_bch_with_tokens(&mm, "tBCH", &[], rpc_mode, false, None));
     log!("enable_bch: {:?}", enable_bch);
 
     let enable_usdf = block_on(enable_slp(&mm, "USDF"));
     log!("enable_usdf: {:?}", enable_usdf);
 
-    let response = block_on(sign_message(&mm, "USDF"));
+    let response = block_on(sign_message(&mm, "USDF", None));
     let response: RpcV2Response<SignatureResponse> = json::from_value(response).unwrap();
     let response = response.result;
 
@@ -624,17 +618,18 @@ fn test_sign_verify_message_slp() {
 }
 
 /// Tested via [Electron-Cash-SLP](https://github.com/simpleledger/Electron-Cash-SLP).
+// Todo: Ignored until enable_bch_with_tokens is implemented for HD wallet using task manager.
 #[test]
+#[ignore]
 #[cfg(not(target_arch = "wasm32"))]
-fn test_bch_and_slp_with_hd_account_id() {
+fn test_bch_and_slp_with_enable_hd() {
     const TX_HISTORY: bool = false;
 
     let coins = json!([tbch_for_slp_conf(), tbch_usdf_conf()]);
 
-    // HD account 0
-
-    let hd_account_id = 0;
-    let conf_0 = Mm2TestConf::seednode_with_hd_account(BIP39_PASSPHRASE, hd_account_id, &coins);
+    // HD account 0 and change 0 and address_index 0
+    let path_to_address = HDAccountAddressId::default();
+    let conf_0 = Mm2TestConf::seednode_with_hd_account(BIP39_PASSPHRASE, &coins);
     let mm_hd_0 = MarketMakerIt::start(conf_0.conf, conf_0.rpc_password, None).unwrap();
 
     let rpc_mode = UtxoRpcMode::electrum(T_BCH_ELECTRUMS);
@@ -644,6 +639,7 @@ fn test_bch_and_slp_with_hd_account_id() {
         &["USDF"],
         rpc_mode,
         TX_HISTORY,
+        Some(path_to_address),
     ));
 
     let activation_result: RpcV2Response<EnableBchWithTokensResponse> = json::from_value(activation_result).unwrap();
@@ -663,10 +659,13 @@ fn test_bch_and_slp_with_hd_account_id() {
         .unwrap();
     assert_eq!(slp_addr, "slptest:qpylzql7gzh6yctm7uslsz5qufl44gk2tsfnl7m9uj");
 
-    // HD account 1
-
-    let hd_account_id = 1;
-    let conf_1 = Mm2TestConf::seednode_with_hd_account(BIP39_PASSPHRASE, hd_account_id, &coins);
+    // HD account 0 and change 0 and address_index 1
+    let path_to_address = HDAccountAddressId {
+        account_id: 0,
+        chain: Bip44Chain::External,
+        address_id: 1,
+    };
+    let conf_1 = Mm2TestConf::seednode_with_hd_account(BIP39_PASSPHRASE, &coins);
     let mm_hd_1 = MarketMakerIt::start(conf_1.conf, conf_1.rpc_password, None).unwrap();
 
     let rpc_mode = UtxoRpcMode::electrum(T_BCH_ELECTRUMS);
@@ -676,6 +675,7 @@ fn test_bch_and_slp_with_hd_account_id() {
         &["USDF"],
         rpc_mode,
         TX_HISTORY,
+        Some(path_to_address),
     ));
 
     let activation_result: RpcV2Response<EnableBchWithTokensResponse> = json::from_value(activation_result).unwrap();
@@ -694,4 +694,40 @@ fn test_bch_and_slp_with_hd_account_id() {
         .exactly_one()
         .unwrap();
     assert_eq!(slp_addr, "slptest:qpyhwc7shd5hlul8zg0snmaptaa9q9yc4q9uzddky0");
+
+    // HD account 7 and change 1 and address_index 77
+    let path_to_address = HDAccountAddressId {
+        account_id: 7,
+        chain: Bip44Chain::Internal,
+        address_id: 77,
+    };
+    let conf_1 = Mm2TestConf::seednode_with_hd_account(BIP39_PASSPHRASE, &coins);
+    let mm_hd_1 = MarketMakerIt::start(conf_1.conf, conf_1.rpc_password, None).unwrap();
+
+    let rpc_mode = UtxoRpcMode::electrum(T_BCH_ELECTRUMS);
+    let activation_result = block_on(enable_bch_with_tokens(
+        &mm_hd_1,
+        "tBCH",
+        &["USDF"],
+        rpc_mode,
+        TX_HISTORY,
+        Some(path_to_address),
+    ));
+
+    let activation_result: RpcV2Response<EnableBchWithTokensResponse> = json::from_value(activation_result).unwrap();
+    let (bch_addr, _) = activation_result
+        .result
+        .bch_addresses_infos
+        .into_iter()
+        .exactly_one()
+        .unwrap();
+    assert_eq!(bch_addr, "bchtest:qzghm7m4v2jyn3dz4qcfdmzg9xnhqvlgeqlx6ru72p");
+
+    let (slp_addr, _) = activation_result
+        .result
+        .slp_addresses_infos
+        .into_iter()
+        .exactly_one()
+        .unwrap();
+    assert_eq!(slp_addr, "slptest:qzghm7m4v2jyn3dz4qcfdmzg9xnhqvlgeqyjacxfcu");
 }

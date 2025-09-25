@@ -1,17 +1,22 @@
-use crate::hd_wallet::{AddressDerivingError, InvalidBip44ChainError};
-use crate::tendermint::{TENDERMINT_ASSET_PROTOCOL_TYPE, TENDERMINT_COIN_PROTOCOL_TYPE};
-use crate::tx_history_storage::{CreateTxHistoryStorageError, FilteringAddresses, GetTxHistoryFilters,
-                                TxHistoryStorageBuilder, WalletId};
+use crate::hd_wallet::{AddressDerivingError, DisplayAddress, InvalidBip44ChainError};
+use crate::tendermint::{
+    BCH_COIN_PROTOCOL_TYPE, BCH_TOKEN_PROTOCOL_TYPE, TENDERMINT_ASSET_PROTOCOL_TYPE, TENDERMINT_COIN_PROTOCOL_TYPE,
+};
+use crate::tx_history_storage::{
+    CreateTxHistoryStorageError, FilteringAddresses, GetTxHistoryFilters, TxHistoryStorageBuilder, WalletId,
+};
 use crate::utxo::utxo_common::big_decimal_from_sat_unsigned;
-use crate::{coin_conf, lp_coinfind_or_err, BlockHeightAndTime, CoinFindError, HDAccountAddressId, HistorySyncState,
-            MmCoin, MmCoinEnum, Transaction, TransactionDetails, TransactionType, TxFeeDetails, UtxoRpcError};
+use crate::{
+    coin_conf, lp_coinfind_or_err, BlockHeightAndTime, CoinFindError, HDPathAccountToAddressId, HistorySyncState,
+    MmCoin, MmCoinEnum, MyAddressError, Transaction, TransactionData, TransactionDetails, TransactionType,
+    TxFeeDetails, UtxoRpcError,
+};
 use async_trait::async_trait;
 use bitcrypto::sha256;
 use common::{calc_total_pages, ten, HttpStatusCode, PagingOptionsEnum, StatusCode};
-use crypto::StandardHDPath;
 use derive_more::Display;
+use enum_derives::EnumFromStringify;
 use futures::compat::Future01CompatExt;
-use keys::{Address, CashAddress};
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use mm2_number::BigDecimal;
@@ -26,7 +31,9 @@ pub enum RemoveTxResult {
 }
 
 impl RemoveTxResult {
-    pub fn tx_existed(&self) -> bool { matches!(self, RemoveTxResult::TxRemoved) }
+    pub fn tx_existed(&self) -> bool {
+        matches!(self, RemoveTxResult::TxRemoved)
+    }
 }
 
 pub struct GetHistoryResult {
@@ -35,7 +42,7 @@ pub struct GetHistoryResult {
     pub total: usize,
 }
 
-pub trait TxHistoryStorageError: std::fmt::Debug + NotMmError + NotEqual + Send {}
+pub trait TxHistoryStorageError: std::fmt::Debug + NotMmError + Send {}
 
 #[async_trait]
 pub trait TxHistoryStorage: Send + Sync + 'static {
@@ -131,18 +138,6 @@ pub trait TxHistoryStorage: Send + Sync + 'static {
     ) -> Result<GetHistoryResult, MmError<Self::Error>>;
 }
 
-pub trait DisplayAddress {
-    fn display_address(&self) -> String;
-}
-
-impl DisplayAddress for Address {
-    fn display_address(&self) -> String { self.to_string() }
-}
-
-impl DisplayAddress for CashAddress {
-    fn display_address(&self) -> String { self.encode().expect("A valid cash address") }
-}
-
 pub struct TxDetailsBuilder<'a, Addr: DisplayAddress, Tx: Transaction> {
     coin: String,
     tx: &'a Tx,
@@ -179,9 +174,13 @@ impl<'a, Addr: Clone + DisplayAddress + Eq + std::hash::Hash, Tx: Transaction> T
         }
     }
 
-    pub fn set_tx_fee(&mut self, tx_fee: Option<TxFeeDetails>) { self.tx_fee = tx_fee; }
+    pub fn set_tx_fee(&mut self, tx_fee: Option<TxFeeDetails>) {
+        self.tx_fee = tx_fee;
+    }
 
-    pub fn set_transaction_type(&mut self, tx_type: TransactionType) { self.transaction_type = tx_type; }
+    pub fn set_transaction_type(&mut self, tx_type: TransactionType) {
+        self.transaction_type = tx_type;
+    }
 
     pub fn transferred_to(&mut self, address: Addr, amount: &BigDecimal) {
         if self.my_addresses.contains(&address) {
@@ -198,6 +197,9 @@ impl<'a, Addr: Clone + DisplayAddress + Eq + std::hash::Hash, Tx: Transaction> T
         self.from_addresses.insert(address);
     }
 
+    /// TODO: This implementation is messy. We should do all the calculations before storing them
+    /// to the database. We shouldn’t need these on-demand calculations in this module; it's better
+    /// to remove this function entirely but some coins like UTXOs still depend on it.
     pub fn build(self) -> TransactionDetails {
         let (block_height, timestamp) = match self.block_height_and_time {
             Some(height_with_time) => (height_with_time.height, height_with_time.timestamp),
@@ -214,24 +216,19 @@ impl<'a, Addr: Clone + DisplayAddress + Eq + std::hash::Hash, Tx: Transaction> T
         let mut to: Vec<_> = self.to_addresses.iter().map(DisplayAddress::display_address).collect();
         to.sort();
 
-        let tx_hash = self.tx.tx_hash();
+        let tx_hash = self.tx.tx_hash_as_bytes();
         let internal_id = match &self.transaction_type {
             TransactionType::TokenTransfer(token_id) => {
                 let mut bytes_for_hash = tx_hash.0.clone();
                 bytes_for_hash.extend_from_slice(&token_id.0);
                 sha256(&bytes_for_hash).to_vec().into()
             },
-            TransactionType::CustomTendermintMsg { token_id, .. } => {
-                if let Some(token_id) = token_id {
-                    let mut bytes_for_hash = tx_hash.0.clone();
-                    bytes_for_hash.extend_from_slice(&token_id.0);
-                    sha256(&bytes_for_hash).to_vec().into()
-                } else {
-                    tx_hash.clone()
-                }
+            TransactionType::TendermintIBCTransfer { .. } | TransactionType::CustomTendermintMsg { .. } => {
+                unreachable!("Tendermint never invokes this function.")
             },
             TransactionType::StakingDelegation
             | TransactionType::RemoveDelegation
+            | TransactionType::ClaimDelegationRewards
             | TransactionType::FeeForTokenTx
             | TransactionType::StandardTransfer
             | TransactionType::NftTransfer => tx_hash.clone(),
@@ -239,8 +236,7 @@ impl<'a, Addr: Clone + DisplayAddress + Eq + std::hash::Hash, Tx: Transaction> T
 
         TransactionDetails {
             coin: self.coin,
-            tx_hex: self.tx.tx_hex().into(),
-            tx_hash: tx_hash.to_tx_hash(),
+            tx: TransactionData::new_signed(self.tx.tx_hex().into(), tx_hash.to_tx_hash()),
             from,
             to,
             total_amount: self.total_amount,
@@ -261,15 +257,14 @@ impl<'a, Addr: Clone + DisplayAddress + Eq + std::hash::Hash, Tx: Transaction> T
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum MyTxHistoryTarget {
+    #[default]
     Iguana,
-    AccountId { account_id: u32 },
-    AddressId(HDAccountAddressId),
-    AddressDerivationPath(StandardHDPath),
-}
-
-impl Default for MyTxHistoryTarget {
-    fn default() -> Self { MyTxHistoryTarget::Iguana }
+    AccountId {
+        account_id: u32,
+    },
+    AddressId(HDPathAccountToAddressId),
 }
 
 #[derive(Clone, Deserialize)]
@@ -304,21 +299,25 @@ pub struct MyTxHistoryResponseV2<Tx, Id> {
     pub(crate) paging_options: PagingOptionsEnum<Id>,
 }
 
-#[derive(Debug, Display, Serialize, SerializeErrorType)]
+#[derive(Debug, Display, EnumFromStringify, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum MyTxHistoryErrorV2 {
     CoinIsNotActive(String),
+    #[from_stringify("InvalidBip44ChainError")]
     InvalidTarget(String),
     StorageIsNotInitialized(String),
+    #[from_stringify("CreateTxHistoryStorageError")]
     StorageError(String),
+    #[from_stringify("UtxoRpcError")]
     RpcError(String),
     NotSupportedFor(String),
+    #[from_stringify("MyAddressError")]
     Internal(String),
 }
 
 impl MyTxHistoryErrorV2 {
     pub fn with_expected_target(actual: MyTxHistoryTarget, expected: &str) -> MyTxHistoryErrorV2 {
-        MyTxHistoryErrorV2::InvalidTarget(format!("Expected {:?} target, found: {:?}", expected, actual))
+        MyTxHistoryErrorV2::InvalidTarget(format!("Expected {expected:?} target, found: {actual:?}"))
     }
 }
 
@@ -345,17 +344,9 @@ impl From<CoinFindError> for MyTxHistoryErrorV2 {
 
 impl<T: TxHistoryStorageError> From<T> for MyTxHistoryErrorV2 {
     fn from(err: T) -> Self {
-        let msg = format!("{:?}", err);
+        let msg = format!("{err:?}");
         MyTxHistoryErrorV2::StorageError(msg)
     }
-}
-
-impl From<CreateTxHistoryStorageError> for MyTxHistoryErrorV2 {
-    fn from(e: CreateTxHistoryStorageError) -> Self { MyTxHistoryErrorV2::StorageError(e.to_string()) }
-}
-
-impl From<UtxoRpcError> for MyTxHistoryErrorV2 {
-    fn from(err: UtxoRpcError) -> Self { MyTxHistoryErrorV2::RpcError(err.to_string()) }
 }
 
 impl From<AddressDerivingError> for MyTxHistoryErrorV2 {
@@ -366,10 +357,6 @@ impl From<AddressDerivingError> for MyTxHistoryErrorV2 {
             AddressDerivingError::Internal(internal) => MyTxHistoryErrorV2::Internal(internal),
         }
     }
-}
-
-impl From<InvalidBip44ChainError> for MyTxHistoryErrorV2 {
-    fn from(e: InvalidBip44ChainError) -> Self { MyTxHistoryErrorV2::InvalidTarget(e.to_string()) }
 }
 
 #[async_trait]
@@ -388,7 +375,7 @@ pub async fn my_tx_history_v2_rpc(
     ctx: MmArc,
     request: MyTxHistoryRequestV2<BytesJson>,
 ) -> Result<MyTxHistoryResponseV2<MyTxHistoryDetails, BytesJson>, MmError<MyTxHistoryErrorV2>> {
-    match lp_coinfind_or_err(&ctx, &request.coin).await? {
+    match lp_coinfind_or_err(&ctx, &request.coin).await.map_mm_err()? {
         MmCoinEnum::Bch(bch) => my_tx_history_v2_impl(ctx, &bch, request).await,
         MmCoinEnum::SlpToken(slp_token) => my_tx_history_v2_impl(ctx, &slp_token, request).await,
         MmCoinEnum::UtxoCoin(utxo) => my_tx_history_v2_impl(ctx, &utxo, request).await,
@@ -407,12 +394,12 @@ pub(crate) async fn my_tx_history_v2_impl<Coin>(
 where
     Coin: CoinWithTxHistoryV2 + MmCoin,
 {
-    let tx_history_storage = TxHistoryStorageBuilder::new(&ctx).build()?;
+    let tx_history_storage = TxHistoryStorageBuilder::new(&ctx).build().map_mm_err()?;
 
     let wallet_id = coin.history_wallet_id();
-    let is_storage_init = tx_history_storage.is_initialized_for(&wallet_id).await?;
+    let is_storage_init = tx_history_storage.is_initialized_for(&wallet_id).await.map_mm_err()?;
     if !is_storage_init {
-        let msg = format!("Storage is not initialized for {:?}", wallet_id);
+        let msg = format!("Storage is not initialized for {wallet_id:?}");
         return MmError::err(MyTxHistoryErrorV2::StorageIsNotInitialized(msg));
     }
     let current_block = coin
@@ -424,7 +411,8 @@ where
     let filters = coin.get_tx_history_filters(request.target.clone()).await?;
     let history = tx_history_storage
         .get_history(&wallet_id, filters, request.paging_options.clone(), request.limit)
-        .await?;
+        .await
+        .map_mm_err()?;
 
     let coin_conf = coin_conf(&ctx, coin.ticker());
     let protocol_type = coin_conf["protocol"]["type"].as_str().unwrap_or_default();
@@ -434,11 +422,6 @@ where
         .transactions
         .into_iter()
         .map(|mut details| {
-            // it can be the platform ticker instead of the token ticker for a pre-saved record
-            if details.coin != request.coin {
-                details.coin = request.coin.clone();
-            }
-
             // TODO
             // !! temporary solution !!
             // for tendermint, tx_history_v2 implementation doesn't include amount parsing logic.
@@ -488,10 +471,20 @@ where
                         },
                     }
                 },
+                BCH_COIN_PROTOCOL_TYPE | BCH_TOKEN_PROTOCOL_TYPE => {
+                    // SLP tokens are part of BCH transactions and SLP transactions might be stored with the BCH ticker.
+                    // Ideally, we should avoid this workaround and instead fix the incorrect ticker logic when inserting
+                    // transactions with the wrong ticker.
+                    //
+                    // Original PR: https://github.com/KomodoPlatform/komodo-defi-framework/pull/1175.
+                    if details.coin != request.coin {
+                        details.coin = request.coin.clone();
+                    }
+                },
                 _ => {},
             };
 
-            let confirmations = if details.block_height == 0 || details.block_height > current_block {
+            let confirmations = if details.block_height > current_block {
                 0
             } else {
                 current_block + 1 - details.block_height
@@ -514,12 +507,11 @@ where
     })
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub async fn z_coin_tx_history_rpc(
     ctx: MmArc,
     request: MyTxHistoryRequestV2<i64>,
 ) -> Result<MyTxHistoryResponseV2<crate::z_coin::ZcoinTxDetails, i64>, MmError<MyTxHistoryErrorV2>> {
-    match lp_coinfind_or_err(&ctx, &request.coin).await? {
+    match lp_coinfind_or_err(&ctx, &request.coin).await.map_mm_err()? {
         MmCoinEnum::ZCoin(z_coin) => z_coin.tx_history(request).await,
         other => MmError::err(MyTxHistoryErrorV2::NotSupportedFor(other.ticker().to_owned())),
     }

@@ -4,14 +4,17 @@ use crate::platform_coin_with_tokens::{self, RegisterTokenInfo};
 use crate::prelude::*;
 use async_trait::async_trait;
 use coins::utxo::rpc_clients::UtxoRpcError;
-use coins::{lp_coinfind, lp_coinfind_or_err, BalanceError, CoinProtocol, CoinsContext, MmCoinEnum, RegisterCoinError,
-            UnexpectedDerivationMethod};
+use coins::{
+    lp_coinfind, lp_coinfind_or_err, BalanceError, CoinProtocol, CoinsContext, CustomTokenError, MmCoinEnum,
+    PrivKeyPolicyNotAllowed, RegisterCoinError, UnexpectedDerivationMethod,
+};
 use common::{HttpStatusCode, StatusCode};
 use derive_more::Display;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
 use ser_error_derive::SerializeErrorType;
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value as Json;
 
 pub trait TokenProtocolParams {
     fn platform_coin_ticker(&self) -> &str;
@@ -28,40 +31,47 @@ pub trait TokenActivationOps: Into<MmCoinEnum> + platform_coin_with_tokens::Toke
         ticker: String,
         platform_coin: Self::PlatformCoin,
         activation_params: Self::ActivationParams,
+        token_conf: Json,
         protocol_conf: Self::ProtocolInfo,
+        is_custom: bool,
     ) -> Result<(Self, Self::ActivationResult), MmError<Self::ActivationError>>;
 }
 
 #[derive(Debug, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum EnableTokenError {
-    #[display(fmt = "Token {} is already activated", _0)]
+    #[display(fmt = "Token {_0} is already activated")]
     TokenIsAlreadyActivated(String),
-    #[display(fmt = "Token {} config is not found", _0)]
+    #[display(fmt = "Token {_0} config is not found")]
     TokenConfigIsNotFound(String),
-    #[display(fmt = "Token {} protocol parsing failed: {}", ticker, error)]
+    #[display(fmt = "Token {ticker} protocol parsing failed: {error}")]
     TokenProtocolParseError {
         ticker: String,
         error: String,
     },
-    #[display(fmt = "Unexpected token protocol {:?} for {}", protocol, ticker)]
+    #[display(fmt = "Unexpected token protocol {protocol} for {ticker}")]
     UnexpectedTokenProtocol {
         ticker: String,
-        protocol: CoinProtocol,
+        protocol: Json,
     },
-    #[display(fmt = "Platform coin {} is not activated", _0)]
+    #[display(fmt = "Platform coin {_0} is not activated")]
     PlatformCoinIsNotActivated(String),
-    #[display(fmt = "{} is not a platform coin for token {}", platform_coin_ticker, token_ticker)]
+    #[display(fmt = "{platform_coin_ticker} is not a platform coin for token {token_ticker}")]
     UnsupportedPlatformCoin {
         platform_coin_ticker: String,
         token_ticker: String,
     },
-    #[display(fmt = "{}", _0)]
+    #[display(fmt = "{_0}")]
     UnexpectedDerivationMethod(UnexpectedDerivationMethod),
     CouldNotFetchBalance(String),
     InvalidConfig(String),
     Transport(String),
     Internal(String),
+    InvalidPayload(String),
+    PrivKeyPolicyNotAllowed(PrivKeyPolicyNotAllowed),
+    #[display(fmt = "Custom token error: {_0}")]
+    CustomTokenError(CustomTokenError),
+    PlatformCoinMismatch,
 }
 
 impl From<RegisterCoinError> for EnableTokenError {
@@ -86,6 +96,7 @@ impl From<CoinConfWithProtocolError> for EnableTokenError {
             CoinConfWithProtocolError::UnexpectedProtocol { ticker, protocol } => {
                 EnableTokenError::UnexpectedTokenProtocol { ticker, protocol }
             },
+            CoinConfWithProtocolError::CustomTokenError(e) => EnableTokenError::CustomTokenError(e),
         }
     }
 }
@@ -96,6 +107,7 @@ impl From<BalanceError> for EnableTokenError {
             BalanceError::Transport(e) | BalanceError::InvalidResponse(e) => EnableTokenError::Transport(e),
             BalanceError::UnexpectedDerivationMethod(e) => EnableTokenError::UnexpectedDerivationMethod(e),
             BalanceError::Internal(e) | BalanceError::WalletStorageError(e) => EnableTokenError::Internal(e),
+            BalanceError::NoSuchCoin { .. } => EnableTokenError::Internal(e.clone().to_string()),
         }
     }
 }
@@ -103,6 +115,7 @@ impl From<BalanceError> for EnableTokenError {
 #[derive(Debug, Deserialize)]
 pub struct EnableTokenRequest<T> {
     ticker: String,
+    protocol: Option<CoinProtocol>,
     activation_params: T,
 }
 
@@ -113,13 +126,13 @@ pub async fn enable_token<Token>(
 where
     Token: TokenActivationOps + Clone,
     EnableTokenError: From<Token::ActivationError>,
-    (Token::ActivationError, EnableTokenError): NotEqual,
 {
     if let Ok(Some(_)) = lp_coinfind(&ctx, &req.ticker).await {
         return MmError::err(EnableTokenError::TokenIsAlreadyActivated(req.ticker));
     }
 
-    let (_, token_protocol): (_, Token::ProtocolInfo) = coin_conf_with_protocol(&ctx, &req.ticker)?;
+    let (token_conf, token_protocol): (_, Token::ProtocolInfo) =
+        coin_conf_with_protocol(&ctx, &req.ticker, req.protocol.clone()).map_mm_err()?;
 
     let platform_coin = lp_coinfind_or_err(&ctx, token_protocol.platform_coin_ticker())
         .await
@@ -132,11 +145,19 @@ where
         }
     })?;
 
-    let (token, activation_result) =
-        Token::enable_token(req.ticker, platform_coin.clone(), req.activation_params, token_protocol).await?;
+    let (token, activation_result) = Token::enable_token(
+        req.ticker,
+        platform_coin.clone(),
+        req.activation_params,
+        token_conf,
+        token_protocol,
+        req.protocol.is_some(),
+    )
+    .await
+    .map_mm_err()?;
 
     let coins_ctx = CoinsContext::from_ctx(&ctx).unwrap();
-    coins_ctx.add_token(token.clone().into()).await?;
+    coins_ctx.add_token(token.clone().into()).await.map_mm_err()?;
 
     platform_coin.register_token_info(&token);
 
@@ -161,14 +182,18 @@ impl HttpStatusCode for EnableTokenError {
             EnableTokenError::TokenIsAlreadyActivated(_)
             | EnableTokenError::PlatformCoinIsNotActivated(_)
             | EnableTokenError::TokenConfigIsNotFound { .. }
-            | EnableTokenError::UnexpectedTokenProtocol { .. } => StatusCode::BAD_REQUEST,
+            | EnableTokenError::UnexpectedTokenProtocol { .. }
+            | EnableTokenError::InvalidPayload(_)
+            | EnableTokenError::PlatformCoinMismatch
+            | EnableTokenError::CustomTokenError(_) => StatusCode::BAD_REQUEST,
             EnableTokenError::TokenProtocolParseError { .. }
             | EnableTokenError::UnsupportedPlatformCoin { .. }
             | EnableTokenError::UnexpectedDerivationMethod(_)
             | EnableTokenError::Transport(_)
             | EnableTokenError::CouldNotFetchBalance(_)
             | EnableTokenError::InvalidConfig(_)
-            | EnableTokenError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            | EnableTokenError::Internal(_)
+            | EnableTokenError::PrivKeyPolicyNotAllowed(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }

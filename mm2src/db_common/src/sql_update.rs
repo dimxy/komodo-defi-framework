@@ -2,7 +2,7 @@ use crate::sql_condition::SqlCondition;
 use crate::sql_value::{FromQuoted, SqlValueOptional, SqlValueToString};
 use crate::sqlite::{validate_table_name, OwnedSqlParam, OwnedSqlParams, SqlParamsBuilder, ToValidSqlIdent};
 use common::log::debug;
-use rusqlite::{Connection, Error as SqlError, Result as SqlResult};
+use rusqlite::{params_from_iter, Connection, Error as SqlError, Result as SqlResult};
 use sql_builder::SqlBuilder;
 
 /// An `UPDATE` SQL request builder.
@@ -81,7 +81,9 @@ impl<'a> SqlUpdate<'a> {
 
     /// Returns the reference to the specified SQL parameters.
     #[inline]
-    pub fn params(&self) -> &OwnedSqlParams { self.params.params() }
+    pub fn params(&self) -> &OwnedSqlParams {
+        self.params.params()
+    }
 
     /// Convenience method to execute the `UPDATE` request.
     /// Returns a number of updated records.
@@ -91,7 +93,7 @@ impl<'a> SqlUpdate<'a> {
 
         let params = self.params();
         debug!("Trying to execute SQL query {} with params {:?}", sql, params);
-        self.conn.execute(&sql, params)
+        self.conn.execute(&sql, params_from_iter(params.iter()))
     }
 }
 
@@ -106,16 +108,19 @@ impl<'a> SqlUpdate<'a> {
 /// - [`SqlUpdate::or_where_in`]
 /// - [`SqlUpdate::or_where_in_quoted`]
 /// - [`SqlUpdate::or_where_in_params`]
-impl<'a> SqlCondition for SqlUpdate<'a> {
-    fn sql_builder(&mut self) -> &mut SqlBuilder { &mut self.sql_builder }
+impl SqlCondition for SqlUpdate<'_> {
+    fn sql_builder(&mut self) -> &mut SqlBuilder {
+        &mut self.sql_builder
+    }
 
-    fn sql_params(&mut self) -> &mut SqlParamsBuilder { &mut self.params }
+    fn sql_params(&mut self) -> &mut SqlParamsBuilder {
+        &mut self.params
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::NO_PARAMS;
 
     const CREATE_TX_HISTORY_TABLE: &str = "CREATE TABLE tx_history (
         tx_hash VARCHAR(255) NOT NULL UNIQUE,
@@ -124,7 +129,9 @@ mod tests {
         kmd_rewards REAL
     );";
 
-    fn init_table_for_test(conn: &Connection) { conn.execute(CREATE_TX_HISTORY_TABLE, NO_PARAMS).unwrap(); }
+    fn init_table_for_test(conn: &Connection) {
+        conn.execute(CREATE_TX_HISTORY_TABLE, []).unwrap();
+    }
 
     #[test]
     fn test_update_all_records() {

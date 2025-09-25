@@ -6,6 +6,8 @@ use prost::bytes::BytesMut;
 pub mod messages;
 pub mod messages_bitcoin;
 pub mod messages_common;
+pub mod messages_ethereum;
+pub mod messages_ethereum_definitions;
 pub mod messages_management;
 
 /// This is needed by generated protobuf modules.
@@ -14,13 +16,16 @@ pub(crate) use messages_common as common;
 use messages::MessageType;
 use messages_bitcoin::*;
 use messages_common::*;
+use messages_ethereum::*;
 use messages_management::*;
 
 /// This macro provides the TrezorMessage trait for a protobuf message.
 macro_rules! trezor_message_impl {
     ($struct:ident, $mtype:expr) => {
         impl TrezorMessage for $struct {
-            fn message_type() -> MessageType { $mtype }
+            fn message_type() -> MessageType {
+                $mtype
+            }
         }
     };
 }
@@ -34,13 +39,21 @@ pub struct ProtoMessage {
 }
 
 impl ProtoMessage {
-    pub fn new(message_type: MessageType, payload: Vec<u8>) -> ProtoMessage { ProtoMessage { message_type, payload } }
+    pub fn new(message_type: MessageType, payload: Vec<u8>) -> ProtoMessage {
+        ProtoMessage { message_type, payload }
+    }
 
-    pub fn message_type(&self) -> MessageType { self.message_type }
+    pub fn message_type(&self) -> MessageType {
+        self.message_type
+    }
 
-    pub fn payload(&self) -> &[u8] { &self.payload }
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
 
-    pub fn into_payload(self) -> Vec<u8> { self.payload }
+    pub fn into_payload(self) -> Vec<u8> {
+        self.payload
+    }
 
     /// Take the payload from the ProtoMessage and parse it to a protobuf message.
     pub fn into_message<M: prost::Message + Default>(self) -> Result<M, prost::DecodeError> {
@@ -100,3 +113,13 @@ trezor_message_impl!(TxAckPrevMeta, MessageType::TxAck);
 trezor_message_impl!(TxAckPrevInput, MessageType::TxAck);
 trezor_message_impl!(TxAckPrevOutput, MessageType::TxAck);
 trezor_message_impl!(TxAckPrevExtraData, MessageType::TxAck);
+
+// Ethereum
+trezor_message_impl!(EthereumSignTx, MessageType::EthereumSignTx);
+trezor_message_impl!(EthereumSignTxEIP1559, MessageType::EthereumSignTxEip1559);
+trezor_message_impl!(EthereumTxRequest, MessageType::EthereumTxRequest);
+trezor_message_impl!(EthereumTxAck, MessageType::EthereumTxAck);
+trezor_message_impl!(EthereumGetAddress, MessageType::EthereumGetAddress);
+trezor_message_impl!(EthereumAddress, MessageType::EthereumAddress);
+trezor_message_impl!(EthereumGetPublicKey, MessageType::EthereumGetPublicKey);
+trezor_message_impl!(EthereumPublicKey, MessageType::EthereumPublicKey);

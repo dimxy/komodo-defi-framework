@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright © 2022 Atomic Private Limited and its contributors               *
+ * Copyright © 2023 Pampex LTD and TillyHK LTD                                *
  *                                                                            *
  * See the CONTRIBUTOR-LICENSE-AGREEMENT, COPYING, LICENSE-COPYRIGHT-NOTICE   *
  * and DEVELOPER-CERTIFICATE-OF-ORIGIN files in the LEGAL directory in        *
@@ -7,7 +7,7 @@
  * holder information and the developer policies on copyright and licensing.  *
  *                                                                            *
  * Unless otherwise agreed in a custom licensing agreement, no part of the    *
- * AtomicDEX software, including this file may be copied, modified, propagated*
+ * Komodo DeFi Framework software, including this file may be copied, modified, propagated*
  * or distributed except according to the terms contained in the              *
  * LICENSE-COPYRIGHT-NOTICE file.                                             *
  *                                                                            *
@@ -19,6 +19,7 @@
 //  marketmaker
 //
 
+use crate::global_hd_ctx::Bip39Seed;
 use bitcrypto::{sha256, ChecksumType};
 use derive_more::Display;
 use keys::{Error as KeysError, KeyPair, Private, Secret as Secp256k1Secret};
@@ -32,21 +33,27 @@ pub type PrivKeyResult<T> = Result<T, MmError<PrivKeyError>>;
 pub enum PrivKeyError {
     #[display(fmt = "Provided WIF passphrase has invalid checksum!")]
     WifPassphraseInvalidChecksum,
-    #[display(fmt = "Error parsing passphrase: {}", _0)]
+    #[display(fmt = "Error parsing passphrase: {_0}")]
     ErrorParsingPassphrase(String),
-    #[display(fmt = "Invalid private key: {}", _0)]
+    #[display(fmt = "Invalid private key: {_0}")]
     InvalidPrivKey(String),
     #[display(fmt = "We only support compressed keys at the moment")]
     ExpectedCompressedKeys,
 }
 
 impl From<FromHexError> for PrivKeyError {
-    fn from(e: FromHexError) -> Self { PrivKeyError::ErrorParsingPassphrase(e.to_string()) }
+    fn from(e: FromHexError) -> Self {
+        PrivKeyError::ErrorParsingPassphrase(e.to_string())
+    }
 }
 
 impl From<KeysError> for PrivKeyError {
-    fn from(e: KeysError) -> Self { PrivKeyError::InvalidPrivKey(e.to_string()) }
+    fn from(e: KeysError) -> Self {
+        PrivKeyError::InvalidPrivKey(e.to_string())
+    }
 }
+
+impl std::error::Error for PrivKeyError {}
 
 fn private_from_seed(seed: &str) -> PrivKeyResult<Private> {
     match seed.parse() {
@@ -91,7 +98,7 @@ pub fn secp_privkey_from_hash(mut hash: Secp256k1Secret) -> Secp256k1Secret {
 }
 
 pub fn key_pair_from_seed(seed: &str) -> PrivKeyResult<KeyPair> {
-    let private = private_from_seed(seed)?;
+    let private = private_from_seed(seed).map_mm_err()?;
     if !private.compressed {
         return MmError::err(PrivKeyError::ExpectedCompressedKeys);
     }
@@ -101,11 +108,7 @@ pub fn key_pair_from_seed(seed: &str) -> PrivKeyResult<KeyPair> {
     Ok(pair)
 }
 
-pub fn key_pair_from_secret(secret: &[u8]) -> PrivKeyResult<KeyPair> {
-    if secret.len() != 32 {
-        return MmError::err(PrivKeyError::InvalidPrivKey(KeysError::InvalidPrivate.to_string()));
-    }
-
+pub fn key_pair_from_secret(secret: &[u8; 32]) -> PrivKeyResult<KeyPair> {
     let private = Private {
         prefix: 0,
         secret: secret.into(),
@@ -115,10 +118,11 @@ pub fn key_pair_from_secret(secret: &[u8]) -> PrivKeyResult<KeyPair> {
     Ok(KeyPair::from_private(private)?)
 }
 
-pub fn bip39_seed_from_passphrase(passphrase: &str) -> PrivKeyResult<bip39::Seed> {
-    let mnemonic = bip39::Mnemonic::from_phrase(passphrase, bip39::Language::English)
+pub fn bip39_seed_from_passphrase(passphrase: &str) -> PrivKeyResult<Bip39Seed> {
+    let mnemonic = bip39::Mnemonic::parse_in_normalized(bip39::Language::English, passphrase)
         .map_to_mm(|e| PrivKeyError::ErrorParsingPassphrase(e.to_string()))?;
-    Ok(bip39::Seed::new(&mnemonic, ""))
+    let seed = mnemonic.to_seed_normalized("");
+    Ok(Bip39Seed(seed))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -127,23 +131,31 @@ pub struct SerializableSecp256k1Keypair {
 }
 
 impl PartialEq for SerializableSecp256k1Keypair {
-    fn eq(&self, other: &Self) -> bool { self.inner.public() == other.inner.public() }
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.public() == other.inner.public()
+    }
 }
 
 impl Eq for SerializableSecp256k1Keypair {}
 
 impl SerializableSecp256k1Keypair {
-    fn new(key: [u8; 32]) -> PrivKeyResult<Self> {
+    pub fn new(key: [u8; 32]) -> PrivKeyResult<Self> {
         Ok(SerializableSecp256k1Keypair {
             inner: key_pair_from_secret(&key)?,
         })
     }
 
-    pub fn key_pair(&self) -> &KeyPair { &self.inner }
+    pub fn key_pair(&self) -> &KeyPair {
+        &self.inner
+    }
 
-    pub fn public_slice(&self) -> &[u8] { self.inner.public_slice() }
+    pub fn public_slice(&self) -> &[u8] {
+        self.inner.public_slice()
+    }
 
-    fn priv_key(&self) -> [u8; 32] { self.inner.private().secret.take() }
+    pub fn priv_key(&self) -> [u8; 32] {
+        self.inner.private().secret.take()
+    }
 
     pub fn random() -> Self {
         SerializableSecp256k1Keypair {
@@ -151,11 +163,15 @@ impl SerializableSecp256k1Keypair {
         }
     }
 
-    pub fn into_inner(self) -> KeyPair { self.inner }
+    pub fn into_inner(self) -> KeyPair {
+        self.inner
+    }
 }
 
 impl From<KeyPair> for SerializableSecp256k1Keypair {
-    fn from(inner: KeyPair) -> Self { SerializableSecp256k1Keypair { inner } }
+    fn from(inner: KeyPair) -> Self {
+        SerializableSecp256k1Keypair { inner }
+    }
 }
 
 impl Serialize for SerializableSecp256k1Keypair {
@@ -184,7 +200,7 @@ fn serializable_secp256k1_keypair_test() {
     let key_pair = KeyPair::random_compressed();
     let serializable = SerializableSecp256k1Keypair { inner: key_pair };
     let serialized = json::to_string(&serializable).unwrap();
-    println!("{}", serialized);
+    println!("{serialized}");
     let deserialized = json::from_str(&serialized).unwrap();
     assert_eq!(serializable, deserialized);
 
@@ -194,5 +210,5 @@ fn serializable_secp256k1_keypair_test() {
     ];
     let invalid_privkey_serialized = json::to_string(&invalid_privkey).unwrap();
     let err = json::from_str::<SerializableSecp256k1Keypair>(&invalid_privkey_serialized).unwrap_err();
-    println!("{}", err);
+    println!("{err}");
 }

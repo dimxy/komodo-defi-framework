@@ -1,14 +1,16 @@
 use crate::integration_tests_common::*;
 use common::executor::Timer;
-use common::{block_on, log, now_ms, wait_until_ms};
+use common::{block_on, log, now_ms, now_sec, wait_until_ms};
 use mm2_number::BigDecimal;
-use mm2_test_helpers::electrums::rick_electrums;
-use mm2_test_helpers::for_tests::{init_withdraw, pirate_conf, rick_conf, send_raw_transaction, withdraw_status,
-                                  z_coin_tx_history, zombie_conf, MarketMakerIt, Mm2TestConf, ARRR, PIRATE_ELECTRUMS,
-                                  PIRATE_LIGHTWALLETD_URLS, RICK, ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS,
-                                  ZOMBIE_TICKER};
-use mm2_test_helpers::structs::{EnableCoinBalance, InitTaskResult, RpcV2Response, TransactionDetails, WithdrawStatus,
-                                ZcoinHistoryRes};
+use mm2_test_helpers::electrums::doc_electrums;
+use mm2_test_helpers::for_tests::{
+    disable_coin, enable_z_coin_light, init_withdraw, pirate_conf, rick_conf, send_raw_transaction, withdraw_status,
+    z_coin_tx_history, zombie_conf, MarketMakerIt, Mm2TestConf, ARRR, PIRATE_ELECTRUMS, PIRATE_LIGHTWALLETD_URLS, RICK,
+    ZOMBIE_ELECTRUMS, ZOMBIE_LIGHTWALLETD_URLS, ZOMBIE_TICKER,
+};
+use mm2_test_helpers::structs::{
+    EnableCoinBalance, InitTaskResult, RpcV2Response, TransactionDetails, WithdrawStatus, ZcoinHistoryRes,
+};
 use serde_json::{self as json, json, Value as Json};
 use std::collections::HashSet;
 use std::iter::FromIterator;
@@ -17,8 +19,8 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 
-const ZOMBIE_TEST_BIP39_ACTIVATION_SEED: &str = "course flock lucky cereal hamster novel team never metal bean behind cute cruel matrix symptom fault harsh fashion impact prison glove then tree chef";
-const ZOMBIE_TEST_BALANCE_SEED: &str = "zombie test seed";
+const ARRR_TEST_BIP39_ACTIVATION_SEED: &str = "course flock lucky cereal hamster novel team never metal bean behind cute cruel matrix symptom fault harsh fashion impact prison glove then tree chef";
+const ARRR_TEST_BALANCE_SEED: &str = "zombie test seed";
 const ARRR_TEST_ACTIVATION_SEED: &str = "arrr test activation seed";
 const ZOMBIE_TEST_HISTORY_SEED: &str = "zombie test history seed";
 const ZOMBIE_TEST_WITHDRAW_SEED: &str = "zombie withdraw test seed";
@@ -26,7 +28,7 @@ const ZOMBIE_TRADE_BOB_SEED: &str = "RICK ZOMBIE BOB";
 const ZOMBIE_TRADE_ALICE_SEED: &str = "RICK ZOMBIE ALICE";
 
 async fn withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &str) -> TransactionDetails {
-    let init = init_withdraw(mm, coin, to, amount).await;
+    let init = init_withdraw(mm, coin, to, amount, None).await;
     let init: RpcV2Response<InitTaskResult> = json::from_value(init).unwrap();
     let timeout = wait_until_ms(150000);
 
@@ -36,7 +38,7 @@ async fn withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &str) -> Tra
         }
 
         let status = withdraw_status(mm, init.result.task_id).await;
-        println!("Withdraw status {}", json::to_string(&status).unwrap());
+        log!("Withdraw status {}", json::to_string(&status).unwrap());
         let status: RpcV2Response<WithdrawStatus> = json::from_value(status).unwrap();
         match status.result {
             WithdrawStatus::Ok(result) => break result,
@@ -46,43 +48,105 @@ async fn withdraw(mm: &MarketMakerIt, coin: &str, to: &str, amount: &str) -> Tra
     }
 }
 
-// ignored because it requires a long-running Zcoin initialization process
 #[test]
-#[ignore]
 fn activate_z_coin_light() {
-    let coins = json!([zombie_conf()]);
+    let coins = json!([pirate_conf()]);
 
-    let conf = Mm2TestConf::seednode(ZOMBIE_TEST_BALANCE_SEED, &coins);
+    let conf = Mm2TestConf::seednode(ARRR_TEST_BALANCE_SEED, &coins);
     let mm = MarketMakerIt::start(conf.conf, conf.rpc_password, None).unwrap();
 
     let activation_result = block_on(enable_z_coin_light(
         &mm,
-        ZOMBIE_TICKER,
-        ZOMBIE_ELECTRUMS,
-        ZOMBIE_LIGHTWALLETD_URLS,
+        ARRR,
+        PIRATE_ELECTRUMS,
+        PIRATE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
     let balance = match activation_result.wallet_balance {
         EnableCoinBalance::Iguana(iguana) => iguana,
         _ => panic!("Expected EnableCoinBalance::Iguana"),
     };
-    assert_eq!(balance.balance.spendable, BigDecimal::from_str("3.1").unwrap());
+    assert_eq!(balance.balance.spendable, BigDecimal::default());
 }
 
 #[test]
-#[ignore]
-fn activate_z_coin_with_hd_account() {
-    let coins = json!([zombie_conf()]);
+fn activate_z_coin_light_with_changing_height() {
+    let coins = json!([pirate_conf()]);
 
-    let hd_account_id = 0;
-    let conf = Mm2TestConf::seednode_with_hd_account(ZOMBIE_TEST_BIP39_ACTIVATION_SEED, hd_account_id, &coins);
+    let conf = Mm2TestConf::seednode_with_hd_account(ARRR_TEST_BIP39_ACTIVATION_SEED, &coins);
     let mm = MarketMakerIt::start(conf.conf, conf.rpc_password, None).unwrap();
 
     let activation_result = block_on(enable_z_coin_light(
         &mm,
-        ZOMBIE_TICKER,
-        ZOMBIE_ELECTRUMS,
-        ZOMBIE_LIGHTWALLETD_URLS,
+        ARRR,
+        PIRATE_ELECTRUMS,
+        PIRATE_LIGHTWALLETD_URLS,
+        None,
+        None,
+    ));
+
+    let old_first_sync_block = activation_result.first_sync_block;
+    let balance = match activation_result.wallet_balance {
+        EnableCoinBalance::Iguana(iguana) => iguana,
+        _ => panic!("Expected EnableCoinBalance::Iguana"),
+    };
+    assert_eq!(balance.balance.spendable, BigDecimal::default());
+
+    // disable coin
+    block_on(disable_coin(&mm, ARRR, true));
+
+    // Perform activation with changed height
+    // Calculate timestamp for 2 days ago
+    let two_day_seconds = 2 * 24 * 60 * 60;
+    let two_days_ago = now_sec() - two_day_seconds;
+    log!(
+        "Re-running enable_z_coin_light_with_changing_height with new starting date {}",
+        two_days_ago
+    );
+
+    let activation_result = block_on(enable_z_coin_light(
+        &mm,
+        ARRR,
+        PIRATE_ELECTRUMS,
+        PIRATE_LIGHTWALLETD_URLS,
+        None,
+        Some(two_days_ago),
+    ));
+
+    let new_first_sync_block = activation_result.first_sync_block;
+    let balance = match activation_result.wallet_balance {
+        EnableCoinBalance::Iguana(iguana) => iguana,
+        _ => panic!("Expected EnableCoinBalance::Iguana"),
+    };
+    assert_eq!(balance.balance.spendable, BigDecimal::default());
+
+    // let's check to make sure first activation starting height is different from current one
+    assert_ne!(
+        old_first_sync_block.as_ref().unwrap().actual,
+        new_first_sync_block.as_ref().unwrap().actual
+    );
+    // let's check to make sure first activation starting height is greater than current one since we used date later
+    // than current date
+    assert!(old_first_sync_block.as_ref().unwrap().actual > new_first_sync_block.as_ref().unwrap().actual);
+}
+
+#[test]
+fn activate_z_coin_with_hd_account() {
+    let coins = json!([pirate_conf()]);
+
+    let hd_account_id = 0;
+    let conf = Mm2TestConf::seednode_with_hd_account(ARRR_TEST_BIP39_ACTIVATION_SEED, &coins);
+    let mm = MarketMakerIt::start(conf.conf, conf.rpc_password, None).unwrap();
+
+    let activation_result = block_on(enable_z_coin_light(
+        &mm,
+        ARRR,
+        PIRATE_ELECTRUMS,
+        PIRATE_LIGHTWALLETD_URLS,
+        Some(hd_account_id),
+        None,
     ));
 
     let actual = match activation_result.wallet_balance {
@@ -109,17 +173,19 @@ fn test_z_coin_tx_history() {
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
     let tx_history = block_on(z_coin_tx_history(&mm, ZOMBIE_TICKER, 5, None));
-    println!("History {}", json::to_string(&tx_history).unwrap());
+    log!("History {}", json::to_string(&tx_history).unwrap());
 
     let response: RpcV2Response<ZcoinHistoryRes> = json::from_value(tx_history).unwrap();
 
     // all transactions have default fee
     let expected_fee = BigDecimal::from_str("0.00001").unwrap();
     for tx in response.result.transactions.iter() {
-        assert_eq!(tx.transaction_fee, expected_fee, "Invalid fee for tx {:?}", tx);
+        assert_eq!(tx.transaction_fee, expected_fee, "Invalid fee for tx {tx:?}");
     }
 
     // withdraw transaction to the shielded address
@@ -273,7 +339,7 @@ fn test_z_coin_tx_history() {
     // check paging by page number
     let page = Some(common::PagingOptionsEnum::PageNumber(NonZeroUsize::new(2).unwrap()));
     let tx_history = block_on(z_coin_tx_history(&mm, ZOMBIE_TICKER, 2, page));
-    println!("History {}", json::to_string(&tx_history).unwrap());
+    log!("History {}", json::to_string(&tx_history).unwrap());
 
     let response: RpcV2Response<ZcoinHistoryRes> = json::from_value(tx_history).unwrap();
     assert_eq!(response.result.transactions.len(), 2);
@@ -294,7 +360,7 @@ fn test_z_coin_tx_history() {
     // check paging by from_id 3
     let page = Some(common::PagingOptionsEnum::FromId(3));
     let tx_history = block_on(z_coin_tx_history(&mm, ZOMBIE_TICKER, 3, page));
-    println!("History {}", json::to_string(&tx_history).unwrap());
+    log!("History {}", json::to_string(&tx_history).unwrap());
 
     let response: RpcV2Response<ZcoinHistoryRes> = json::from_value(tx_history).unwrap();
     assert_eq!(response.result.transactions.len(), 2);
@@ -315,7 +381,7 @@ fn test_z_coin_tx_history() {
     // check paging by from_id 5
     let page = Some(common::PagingOptionsEnum::FromId(5));
     let tx_history = block_on(z_coin_tx_history(&mm, ZOMBIE_TICKER, 3, page));
-    println!("History {}", json::to_string(&tx_history).unwrap());
+    log!("History {}", json::to_string(&tx_history).unwrap());
 
     let response: RpcV2Response<ZcoinHistoryRes> = json::from_value(tx_history).unwrap();
     assert_eq!(response.result.transactions.len(), 3);
@@ -352,9 +418,11 @@ fn withdraw_z_coin_light() {
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
-    println!("{:?}", activation_result);
+    log!("{:?}", activation_result);
 
     let withdraw_res = block_on(withdraw(
         &mm,
@@ -362,7 +430,7 @@ fn withdraw_z_coin_light() {
         "zs1hs0p406y5tntz6wlp7sc3qe4g6ycnnd46leeyt6nyxr42dfvf0dwjkhmjdveukem0x72kkx0tup",
         "0.1",
     ));
-    println!("{:?}", withdraw_res);
+    log!("{:?}", withdraw_res);
 
     // withdrawing to myself, balance change is the fee
     assert_eq!(
@@ -371,7 +439,7 @@ fn withdraw_z_coin_light() {
     );
 
     let send_raw_tx = block_on(send_raw_transaction(&mm, ZOMBIE_TICKER, &withdraw_res.tx_hex));
-    println!("{:?}", send_raw_tx);
+    log!("{:?}", send_raw_tx);
 }
 
 // ignored because it requires a long-running Zcoin initialization process
@@ -393,13 +461,15 @@ fn trade_rick_zombie_light() {
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
-    println!("Bob ZOMBIE activation {:?}", zombie_activation);
+    log!("Bob ZOMBIE activation {:?}", zombie_activation);
 
-    let rick_activation = block_on(enable_electrum_json(&mm_bob, RICK, false, rick_electrums()));
+    let rick_activation = block_on(enable_electrum_json(&mm_bob, RICK, false, doc_electrums()));
 
-    println!("Bob RICK activation {:?}", rick_activation);
+    log!("Bob RICK activation {:?}", rick_activation);
 
     let rc = block_on(mm_bob.rpc(&json! ({
         "userpass": mm_bob.userpass,
@@ -425,13 +495,15 @@ fn trade_rick_zombie_light() {
         ZOMBIE_TICKER,
         ZOMBIE_ELECTRUMS,
         ZOMBIE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
-    println!("Alice ZOMBIE activation {:?}", zombie_activation);
+    log!("Alice ZOMBIE activation {:?}", zombie_activation);
 
-    let rick_activation = block_on(enable_electrum_json(&mm_alice, RICK, false, rick_electrums()));
+    let rick_activation = block_on(enable_electrum_json(&mm_alice, RICK, false, doc_electrums()));
 
-    println!("Alice RICK activation {:?}", rick_activation);
+    log!("Alice RICK activation {:?}", rick_activation);
 
     let rc = block_on(mm_alice.rpc(&json! ({
         "userpass": mm_alice.userpass,
@@ -462,9 +534,9 @@ fn trade_rick_zombie_light() {
 
     block_on(mm_bob.wait_for_log(5., |log| log.contains("Entering the maker_swap_loop RICK/ZOMBIE"))).unwrap();
 
-    block_on(mm_bob.wait_for_log(900., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))).unwrap();
+    block_on(mm_bob.wait_for_log(900., |log| log.contains(&format!("[swap uuid={uuid}] Finished")))).unwrap();
 
-    block_on(mm_alice.wait_for_log(900., |log| log.contains(&format!("[swap uuid={}] Finished", uuid)))).unwrap();
+    block_on(mm_alice.wait_for_log(900., |log| log.contains(&format!("[swap uuid={uuid}] Finished")))).unwrap();
 }
 
 // ignored because it requires a long-running Zcoin initialization process
@@ -481,12 +553,14 @@ fn activate_pirate_light() {
         ARRR,
         PIRATE_ELECTRUMS,
         PIRATE_LIGHTWALLETD_URLS,
+        None,
+        None,
     ));
 
     let balance = match activation_result.wallet_balance {
         EnableCoinBalance::Iguana(iguana) => iguana,
         _ => panic!("Expected EnableCoinBalance::Iguana"),
     };
-    println!("{:?}", balance);
+    log!("{:?}", balance);
     assert_eq!(balance.balance.spendable, BigDecimal::default());
 }

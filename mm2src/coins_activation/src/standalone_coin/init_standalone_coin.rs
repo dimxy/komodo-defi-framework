@@ -1,20 +1,23 @@
 use crate::context::CoinsActivationContext;
 use crate::prelude::*;
-use crate::standalone_coin::init_standalone_coin_error::{CancelInitStandaloneCoinError, InitStandaloneCoinError,
-                                                         InitStandaloneCoinStatusError,
-                                                         InitStandaloneCoinUserActionError};
+use crate::standalone_coin::init_standalone_coin_error::{
+    CancelInitStandaloneCoinError, InitStandaloneCoinError, InitStandaloneCoinStatusError,
+    InitStandaloneCoinUserActionError,
+};
 use async_trait::async_trait;
 use coins::my_tx_history_v2::TxHistoryStorage;
 use coins::tx_history_storage::{CreateTxHistoryStorageError, TxHistoryStorageBuilder};
 use coins::{lp_coinfind, lp_register_coin, CoinsContext, MmCoinEnum, RegisterCoinError, RegisterCoinParams};
 use common::{log, SuccessResponse};
-use crypto::trezor::trezor_rpc_task::RpcTaskHandle;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
+use mm2_event_stream::StreamingManager;
 use mm2_metrics::MetricsArc;
 use mm2_number::BigDecimal;
 use rpc_task::rpc_common::{CancelRpcTaskRequest, InitRpcTaskResponse, RpcTaskStatusRequest, RpcTaskUserActionRequest};
-use rpc_task::{RpcTask, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes};
+use rpc_task::{
+    RpcInitReq, RpcTask, RpcTaskHandleShared, RpcTaskManager, RpcTaskManagerShared, RpcTaskStatus, RpcTaskTypes,
+};
 use serde_derive::Deserialize;
 use serde_json::Value as Json;
 use std::collections::HashMap;
@@ -23,9 +26,9 @@ pub type InitStandaloneCoinResponse = InitRpcTaskResponse;
 pub type InitStandaloneCoinStatusRequest = RpcTaskStatusRequest;
 pub type InitStandaloneCoinUserActionRequest<UserAction> = RpcTaskUserActionRequest<UserAction>;
 pub type InitStandaloneCoinTaskManagerShared<Standalone> = RpcTaskManagerShared<InitStandaloneCoinTask<Standalone>>;
-pub type InitStandaloneCoinTaskHandle<Standalone> = RpcTaskHandle<InitStandaloneCoinTask<Standalone>>;
+pub type InitStandaloneCoinTaskHandleShared<Standalone> = RpcTaskHandleShared<InitStandaloneCoinTask<Standalone>>;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct InitStandaloneCoinReq<T> {
     ticker: String,
     activation_params: T,
@@ -41,7 +44,6 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'sta
         + From<CreateTxHistoryStorageError>
         + Into<InitStandaloneCoinError>
         + SerMmErrorType
-        + NotEqual
         + Clone
         + Send
         + Sync
@@ -59,13 +61,13 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'sta
         coin_conf: Json,
         activation_request: &Self::ActivationRequest,
         protocol_info: Self::StandaloneProtocol,
-        task_handle: &InitStandaloneCoinTaskHandle<Self>,
+        task_handle: InitStandaloneCoinTaskHandleShared<Self>,
     ) -> Result<Self, MmError<Self::ActivationError>>;
 
     async fn get_activation_result(
         &self,
         ctx: MmArc,
-        task_handle: &InitStandaloneCoinTaskHandle<Self>,
+        task_handle: InitStandaloneCoinTaskHandleShared<Self>,
         activation_request: &Self::ActivationRequest,
     ) -> Result<Self::ActivationResult, MmError<Self::ActivationError>>;
 
@@ -73,27 +75,31 @@ pub trait InitStandaloneCoinActivationOps: Into<MmCoinEnum> + Send + Sync + 'sta
         &self,
         metrics: MetricsArc,
         storage: impl TxHistoryStorage,
+        streaming_manager: StreamingManager,
         current_balances: HashMap<String, BigDecimal>,
     );
 }
 
 pub async fn init_standalone_coin<Standalone>(
     ctx: MmArc,
-    request: InitStandaloneCoinReq<Standalone::ActivationRequest>,
+    request: RpcInitReq<InitStandaloneCoinReq<Standalone::ActivationRequest>>,
 ) -> MmResult<InitStandaloneCoinResponse, InitStandaloneCoinError>
 where
     Standalone: InitStandaloneCoinActivationOps + Send + Sync + 'static,
     Standalone::InProgressStatus: InitStandaloneCoinInitialStatus,
     InitStandaloneCoinError: From<Standalone::ActivationError>,
-    (Standalone::ActivationError, InitStandaloneCoinError): NotEqual,
 {
+    let (client_id, request) = (request.client_id, request.inner);
     if let Ok(Some(_)) = lp_coinfind(&ctx, &request.ticker).await {
         return MmError::err(InitStandaloneCoinError::CoinIsAlreadyActivated { ticker: request.ticker });
     }
 
-    let (coin_conf, protocol_info) = coin_conf_with_protocol(&ctx, &request.ticker)?;
+    let (coin_conf, protocol_info) = coin_conf_with_protocol(&ctx, &request.ticker, None).map_mm_err()?;
 
-    let coins_act_ctx = CoinsActivationContext::from_ctx(&ctx).map_to_mm(InitStandaloneCoinError::Internal)?;
+    let coins_act_ctx = CoinsActivationContext::from_ctx(&ctx)
+        .map_to_mm(InitStandaloneCoinError::Internal)
+        .map_mm_err()?;
+
     let spawner = ctx.spawner();
     let task = InitStandaloneCoinTask::<Standalone> {
         ctx,
@@ -103,7 +109,7 @@ where
     };
     let task_manager = Standalone::rpc_task_manager(&coins_act_ctx);
 
-    let task_id = RpcTaskManager::spawn_rpc_task(task_manager, &spawner, task)
+    let task_id = RpcTaskManager::spawn_rpc_task(task_manager, &spawner, task, client_id)
         .mm_err(|e| InitStandaloneCoinError::Internal(e.to_string()))?;
 
     Ok(InitStandaloneCoinResponse { task_id })
@@ -138,12 +144,14 @@ pub async fn init_standalone_coin_user_action<Standalone: InitStandaloneCoinActi
     ctx: MmArc,
     req: InitStandaloneCoinUserActionRequest<Standalone::UserAction>,
 ) -> MmResult<SuccessResponse, InitStandaloneCoinUserActionError> {
-    let coins_act_ctx =
-        CoinsActivationContext::from_ctx(&ctx).map_to_mm(InitStandaloneCoinUserActionError::Internal)?;
+    let coins_act_ctx = CoinsActivationContext::from_ctx(&ctx)
+        .map_to_mm(InitStandaloneCoinUserActionError::Internal)
+        .map_mm_err()?;
     let mut task_manager = Standalone::rpc_task_manager(&coins_act_ctx)
         .lock()
-        .map_to_mm(|poison| InitStandaloneCoinUserActionError::Internal(poison.to_string()))?;
-    task_manager.on_user_action(req.task_id, req.user_action)?;
+        .map_to_mm(|poison| InitStandaloneCoinUserActionError::Internal(poison.to_string()))
+        .map_mm_err()?;
+    task_manager.on_user_action(req.task_id, req.user_action).map_mm_err()?;
     Ok(SuccessResponse::new())
 }
 
@@ -154,11 +162,13 @@ pub async fn cancel_init_standalone_coin<Standalone: InitStandaloneCoinActivatio
     let coins_act_ctx = CoinsActivationContext::from_ctx(&ctx).map_to_mm(CancelInitStandaloneCoinError::Internal)?;
     let mut task_manager = Standalone::rpc_task_manager(&coins_act_ctx)
         .lock()
-        .map_to_mm(|poison| CancelInitStandaloneCoinError::Internal(poison.to_string()))?;
-    task_manager.cancel_task(req.task_id)?;
+        .map_to_mm(|poison| CancelInitStandaloneCoinError::Internal(poison.to_string()))
+        .map_mm_err()?;
+    task_manager.cancel_task(req.task_id).map_mm_err()?;
     Ok(SuccessResponse::new())
 }
 
+#[derive(Clone)]
 pub struct InitStandaloneCoinTask<Standalone: InitStandaloneCoinActivationOps> {
     ctx: MmArc,
     request: InitStandaloneCoinReq<Standalone::ActivationRequest>,
@@ -192,7 +202,7 @@ where
         };
     }
 
-    async fn run(&mut self, task_handle: &RpcTaskHandle<Self>) -> Result<Self::Item, MmError<Self::Error>> {
+    async fn run(&mut self, task_handle: RpcTaskHandleShared<Self>) -> Result<Self::Item, MmError<Self::Error>> {
         let ticker = self.request.ticker.clone();
         let coin = Standalone::init_standalone_coin(
             self.ctx.clone(),
@@ -200,13 +210,15 @@ where
             self.coin_conf.clone(),
             &self.request.activation_params,
             self.protocol_info.clone(),
-            task_handle,
+            task_handle.clone(),
         )
-        .await?;
+        .await
+        .map_mm_err()?;
 
         let result = coin
             .get_activation_result(self.ctx.clone(), task_handle, &self.request.activation_params)
-            .await?;
+            .await
+            .map_mm_err()?;
         log::info!("{} current block {}", ticker, result.current_block());
 
         let tx_history = self.request.activation_params.tx_history();
@@ -214,12 +226,15 @@ where
             let current_balances = result.get_addresses_balances();
             coin.start_history_background_fetching(
                 self.ctx.metrics.clone(),
-                TxHistoryStorageBuilder::new(&self.ctx).build()?,
+                TxHistoryStorageBuilder::new(&self.ctx).build().map_mm_err()?,
+                self.ctx.event_stream_manager.clone(),
                 current_balances,
             );
         }
 
-        lp_register_coin(&self.ctx, coin.into(), RegisterCoinParams { ticker }).await?;
+        lp_register_coin(&self.ctx, coin.into(), RegisterCoinParams { ticker })
+            .await
+            .map_mm_err()?;
 
         Ok(result)
     }

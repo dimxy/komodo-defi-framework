@@ -1,19 +1,24 @@
-use crate::mm2::lp_dispatcher::{dispatch_lp_event, DispatcherContext};
-use crate::mm2::lp_ordermatch::lp_bot::{RunningState, StoppedState, StoppingState, TradingBotStarted,
-                                        TradingBotStopped, TradingBotStopping, VolumeSettings};
-use crate::mm2::lp_ordermatch::{cancel_all_orders, CancelBy, TradingBotEvent};
-use crate::mm2::lp_swap::SavedSwap;
-use crate::mm2::{lp_ordermatch::{cancel_order, create_maker_order,
-                                 lp_bot::{SimpleCoinMarketMakerCfg, SimpleMakerBotRegistry, TradingBotContext,
-                                          TradingBotState},
-                                 update_maker_order, CancelOrderReq, MakerOrder, MakerOrderUpdateReq,
-                                 OrdermatchContext, SetPriceReq},
-                 lp_swap::{latest_swaps_for_pair, LatestSwapsErr}};
-use coins::lp_price::{fetch_price_tickers, Provider, RateInfos};
+use crate::lp_dispatcher::{dispatch_lp_event, DispatcherContext};
+use crate::lp_ordermatch::lp_bot::{
+    RunningState, StoppedState, StoppingState, TradingBotStarted, TradingBotStopped, TradingBotStopping, VolumeSettings,
+};
+use crate::lp_ordermatch::{cancel_all_orders, CancelBy, TradingBotEvent};
+use crate::lp_swap::SavedSwap;
+use crate::{
+    lp_ordermatch::{
+        cancel_order, create_maker_order,
+        lp_bot::{SimpleCoinMarketMakerCfg, SimpleMakerBotRegistry, TradingBotContext, TradingBotState},
+        update_maker_order, CancelOrderReq, MakerOrder, MakerOrderUpdateReq, OrdermatchContext, SetPriceReq,
+    },
+    lp_swap::{latest_swaps_for_pair, LatestSwapsErr},
+};
+use coins::lp_price::{fetch_price_tickers, Provider, RateInfos, PRICE_ENDPOINTS};
 use coins::{lp_coinfind, GetNonZeroBalance};
-use common::{executor::{SpawnFuture, Timer},
-             log::{debug, error, info, warn},
-             Future01CompatExt, HttpStatusCode, StatusCode};
+use common::{
+    executor::{SpawnFuture, Timer},
+    log::{debug, error, info, warn},
+    Future01CompatExt, HttpStatusCode, StatusCode,
+};
 use derive_more::Display;
 use mm2_core::mm_ctx::MmArc;
 use mm2_err_handle::prelude::*;
@@ -23,7 +28,6 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 // !< constants
-pub const KMD_PRICE_ENDPOINT: &str = "https://prices.komodo.live:1313/api/v2/tickers";
 pub const BOT_DEFAULT_REFRESH_RATE: f64 = 30.0;
 pub const PRECISION_FOR_NOTIFICATION: u64 = 8;
 const LATEST_SWAPS_LIMIT: usize = 1000;
@@ -38,35 +42,27 @@ pub type OrderPreparationResult = Result<(Option<MmNumber>, MmNumber, MmNumber, 
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum OrderProcessingError {
-    #[display(fmt = "Rates from provider are Unknown - skipping for {}", key_trade_pair)]
+    #[display(fmt = "Rates from provider are Unknown - skipping for {key_trade_pair}")]
     ProviderUnknown { key_trade_pair: String },
-    #[display(fmt = "Price from provider is zero - skipping for {}", key_trade_pair)]
+    #[display(fmt = "Price from provider is zero - skipping for {key_trade_pair}")]
     PriceIsZero { key_trade_pair: String },
-    #[display(fmt = "Last updated price timestamp is invalid - skipping for {}", key_trade_pair)]
+    #[display(fmt = "Last updated price timestamp is invalid - skipping for {key_trade_pair}")]
     LastUpdatedTimestampInvalid { key_trade_pair: String },
     #[display(
-        fmt = "Last updated price timestamp elapsed {} is more than the elapsed validity {} - skipping for {}",
-        elapsed,
-        elapsed_validity,
-        key_trade_pair
+        fmt = "Last updated price timestamp elapsed {elapsed} is more than the elapsed validity {elapsed_validity} - skipping for {key_trade_pair}"
     )]
     PriceElapsedValidityExpired {
         elapsed: f64,
         elapsed_validity: f64,
         key_trade_pair: String,
     },
-    #[display(fmt = "Unable to parse/treat elapsed time {} - skipping", _0)]
+    #[display(fmt = "Unable to parse/treat elapsed time {_0} - skipping")]
     PriceElapsedValidityUntreatable(String),
-    #[display(fmt = "Price of base coin {} is below min_base_price {}", base_price, min_base_price)]
+    #[display(fmt = "Price of base coin {base_price} is below min_base_price {min_base_price}")]
     PriceBelowMinBasePrice { base_price: String, min_base_price: String },
-    #[display(fmt = "Price of rel coin {} is below min_rel_price {}", rel_price, min_rel_price)]
+    #[display(fmt = "Price of rel coin {rel_price} is below min_rel_price {min_rel_price}")]
     PriceBelowMinRelPrice { rel_price: String, min_rel_price: String },
-    #[display(
-        fmt = "Price of pair {} ({}) is below min_pair_price {}",
-        pair,
-        pair_price,
-        min_pair_price
-    )]
+    #[display(fmt = "Price of pair {pair} ({pair_price}) is below min_pair_price {min_pair_price}")]
     PriceBelowPairPrice {
         pair: String,
         pair_price: String,
@@ -81,11 +77,11 @@ pub enum OrderProcessingError {
     BalanceInternalError,
     #[display(fmt = "Balance is zero - skipping")]
     BalanceIsZero,
-    #[display(fmt = "{}", _0)]
+    #[display(fmt = "{_0}")]
     OrderCreationError(String),
-    #[display(fmt = "{}", _0)]
+    #[display(fmt = "{_0}")]
     OrderUpdateError(String),
-    #[display(fmt = "Error when querying swap history: {}", _0)]
+    #[display(fmt = "Error when querying swap history: {_0}")]
     MyRecentSwapsError(String),
     #[display(fmt = "Base balance is less than the min_vol_usd - skipping")]
     MinVolUsdAboveBalanceUsd,
@@ -94,7 +90,9 @@ pub enum OrderProcessingError {
 }
 
 impl From<LatestSwapsErr> for OrderProcessingError {
-    fn from(e: LatestSwapsErr) -> Self { OrderProcessingError::MyRecentSwapsError(format!("{}", e)) }
+    fn from(e: LatestSwapsErr) -> Self {
+        OrderProcessingError::MyRecentSwapsError(format!("{e}"))
+    }
 }
 
 impl From<GetNonZeroBalance> for OrderProcessingError {
@@ -107,13 +105,45 @@ impl From<GetNonZeroBalance> for OrderProcessingError {
 }
 
 impl From<std::string::String> for OrderProcessingError {
-    fn from(error: std::string::String) -> Self { OrderProcessingError::LegacyError(error) }
+    fn from(error: std::string::String) -> Self {
+        OrderProcessingError::LegacyError(error)
+    }
+}
+
+#[derive(Deserialize)]
+enum PriceSources {
+    #[serde(rename = "price_url")]
+    Singular(String),
+    #[serde(rename = "price_urls")]
+    Multiple(Vec<String>),
+}
+
+impl Default for PriceSources {
+    fn default() -> Self {
+        PriceSources::Multiple(PRICE_ENDPOINTS.iter().map(ToString::to_string).collect())
+    }
+}
+
+impl PriceSources {
+    /// # Important
+    ///
+    /// Always use this to get the data
+    fn get_urls(&self) -> Vec<String> {
+        match self {
+            // TODO: deprecate price_url soon and inform the users
+            PriceSources::Singular(url) => vec![url.clone()],
+            PriceSources::Multiple(urls) => urls.clone(),
+        }
+    }
 }
 
 #[derive(Deserialize)]
 pub struct StartSimpleMakerBotRequest {
     cfg: SimpleMakerBotRegistry,
-    price_url: Option<String>,
+    // TODO: This is marked as an `Option` for now so we can be able to provide a default value for it since
+    // `flatten` & `default` don't work together: https://github.com/serde-rs/serde/issues/1626.
+    #[serde(flatten)]
+    price_sources: Option<PriceSources>,
     bot_refresh_rate: Option<f64>,
 }
 
@@ -124,7 +154,9 @@ pub struct StopSimpleMakerBotRes {
 
 impl StopSimpleMakerBotRes {
     #[allow(dead_code)]
-    pub fn get_result(&self) -> String { self.result.clone() }
+    pub fn get_result(&self) -> String {
+        self.result.clone()
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -134,7 +166,9 @@ pub struct StartSimpleMakerBotRes {
 
 impl StartSimpleMakerBotRes {
     #[allow(dead_code)]
-    pub fn get_result(&self) -> String { self.result.clone() }
+    pub fn get_result(&self) -> String {
+        self.result.clone()
+    }
 }
 
 enum VwapSide {
@@ -149,9 +183,9 @@ pub enum StopSimpleMakerBotError {
     AlreadyStopped,
     #[display(fmt = "The bot is already stopping")]
     AlreadyStopping,
-    #[display(fmt = "Transport error: {}", _0)]
+    #[display(fmt = "Transport error: {_0}")]
     Transport(String),
-    #[display(fmt = "Internal error: {}", _0)]
+    #[display(fmt = "Internal error: {_0}")]
     InternalError(String),
 }
 
@@ -162,25 +196,28 @@ pub enum StartSimpleMakerBotError {
     AlreadyStarted,
     #[display(fmt = "Invalid bot configuration")]
     InvalidBotConfiguration,
-    #[display(fmt = "Transport error: {}", _0)]
+    #[display(fmt = "Transport error: {_0}")]
     Transport(String),
     #[display(fmt = "Cannot start the bot if it's currently stopping")]
     CannotStartFromStopping,
-    #[display(fmt = "Internal error: {}", _0)]
+    #[display(fmt = "Internal error: {_0}")]
     InternalError(String),
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), expect(dead_code))]
 #[derive(Debug, Deserialize, Display, Serialize, SerializeErrorType)]
 #[serde(tag = "error_type", content = "error_data")]
 pub enum SwapUpdateNotificationError {
-    #[display(fmt = "{}", _0)]
+    #[display(fmt = "{_0}")]
     MyRecentSwapsError(LatestSwapsErr),
     #[display(fmt = "Swap info not available")]
     SwapInfoNotAvailable,
 }
 
 impl From<LatestSwapsErr> for SwapUpdateNotificationError {
-    fn from(e: LatestSwapsErr) -> Self { SwapUpdateNotificationError::MyRecentSwapsError(e) }
+    fn from(e: LatestSwapsErr) -> Self {
+        SwapUpdateNotificationError::MyRecentSwapsError(e)
+    }
 }
 
 impl HttpStatusCode for StartSimpleMakerBotError {
@@ -217,9 +254,13 @@ struct TradingPair {
 }
 
 impl TradingPair {
-    pub fn new(base: String, rel: String) -> TradingPair { TradingPair { base, rel } }
+    pub fn new(base: String, rel: String) -> TradingPair {
+        TradingPair { base, rel }
+    }
 
-    pub fn as_combination(&self) -> String { self.base.clone() + "/" + self.rel.clone().as_str() }
+    pub fn as_combination(&self) -> String {
+        self.base.clone() + "/" + self.rel.clone().as_str()
+    }
 }
 
 pub async fn tear_down_bot(ctx: MmArc) {
@@ -329,18 +370,25 @@ async fn vwap_calculator(
     ctx: &MmArc,
     cfg: &SimpleCoinMarketMakerCfg,
 ) -> VwapProcessingResult {
-    let base_swaps = latest_swaps_for_pair(ctx.clone(), cfg.base.clone(), cfg.rel.clone(), LATEST_SWAPS_LIMIT).await?;
-    let rel_swaps = latest_swaps_for_pair(ctx.clone(), cfg.rel.clone(), cfg.base.clone(), LATEST_SWAPS_LIMIT).await?;
+    let base_swaps = latest_swaps_for_pair(ctx.clone(), cfg.base.clone(), cfg.rel.clone(), LATEST_SWAPS_LIMIT)
+        .await
+        .map_mm_err()?;
+    let rel_swaps = latest_swaps_for_pair(ctx.clone(), cfg.rel.clone(), cfg.base.clone(), LATEST_SWAPS_LIMIT)
+        .await
+        .map_mm_err()?;
     Ok(vwap(base_swaps, rel_swaps, calculated_price, cfg).await)
 }
 
 async fn cancel_pending_orders(ctx: &MmArc, cfg_registry: &HashMap<String, SimpleCoinMarketMakerCfg>) -> usize {
     let mut nb_orders = 0;
     for (trading_pair, cfg) in cfg_registry.iter() {
-        match cancel_all_orders(ctx.clone(), CancelBy::Pair {
-            base: cfg.base.clone(),
-            rel: cfg.rel.clone(),
-        })
+        match cancel_all_orders(
+            ctx.clone(),
+            CancelBy::Pair {
+                base: cfg.base.clone(),
+                rel: cfg.rel.clone(),
+            },
+        )
         .await
         {
             Ok(resp) => {
@@ -439,7 +487,7 @@ async fn prepare_order(
     let base_coin = lp_coinfind(ctx, cfg.base.as_str())
         .await?
         .ok_or_else(|| MmError::new(OrderProcessingError::AssetNotEnabled))?;
-    let base_balance = base_coin.get_non_zero_balance().compat().await?;
+    let base_balance = base_coin.get_non_zero_balance().compat().await.map_mm_err()?;
     lp_coinfind(ctx, cfg.rel.as_str())
         .await?
         .ok_or_else(|| MmError::new(OrderProcessingError::AssetNotEnabled))?;
@@ -574,6 +622,7 @@ async fn create_single_order(
         rel_confs: cfg.rel_confs,
         rel_nota: cfg.rel_nota,
         save_in_history: true,
+        timeout_in_minutes: None,
     };
 
     let resp = create_maker_order(&ctx, req)
@@ -614,20 +663,15 @@ async fn execute_create_single_order(
 
 async fn process_bot_logic(ctx: &MmArc) {
     let simple_market_maker_bot_ctx = TradingBotContext::from_ctx(ctx).unwrap();
-    let state = simple_market_maker_bot_ctx.trading_bot_states.lock().await;
-    let (cfg, price_url) = if let TradingBotState::Running(running_state) = &*state {
-        let res = (running_state.trading_bot_cfg.clone(), running_state.price_url.clone());
-        drop(state);
-        res
-    } else {
-        drop(state);
-        return;
+    let mut state = simple_market_maker_bot_ctx.trading_bot_states.lock().await;
+    let running_state = match &mut *state {
+        TradingBotState::Running(running_state) => running_state,
+        TradingBotState::Stopping(_) | TradingBotState::Stopped(_) => return,
     };
-    let rates_registry = match fetch_price_tickers(price_url.as_str()).await {
-        Ok(model) => {
-            info!("price successfully fetched from {price_url}");
-            model
-        },
+
+    let cfg = running_state.trading_bot_cfg.clone();
+    let rates_registry = match fetch_price_tickers(&mut running_state.price_urls).await {
+        Ok(model) => model,
         Err(err) => {
             let nb_orders = cancel_pending_orders(ctx, &cfg).await;
             error!("error fetching price: {err:?} - cancel {nb_orders} orders");
@@ -635,60 +679,52 @@ async fn process_bot_logic(ctx: &MmArc) {
         },
     };
 
+    drop(state);
+
     let mut memoization_pair_registry: HashSet<String> = HashSet::new();
     let ordermatch_ctx = OrdermatchContext::from_ctx(ctx).unwrap();
     let maker_orders = ordermatch_ctx.maker_orders_ctx.lock().orders.clone();
-    let mut futures_order_update = Vec::with_capacity(0);
-    // Iterating over maker orders and update order that are present in cfg as the key_trade_pair e.g KMD/LTC
-    for (uuid, order_mutex) in maker_orders.into_iter() {
+    let mut futures_order_update = Vec::with_capacity(maker_orders.len());
+    for (uuid, order_mutex) in maker_orders {
         let order = order_mutex.lock().await;
         let key_trade_pair = TradingPair::new(order.base.clone(), order.rel.clone());
-        match cfg.get(&key_trade_pair.as_combination()) {
-            Some(coin_cfg) => {
-                if !coin_cfg.enable {
-                    continue;
-                }
-                let cloned_infos = (
-                    ctx.clone(),
-                    rates_registry
-                        .get_cex_rates(&coin_cfg.base, &coin_cfg.rel)
-                        .unwrap_or_default(),
-                    key_trade_pair.clone(),
-                    coin_cfg.clone(),
-                );
-                futures_order_update.push(execute_update_order(uuid, order.clone(), cloned_infos));
-                memoization_pair_registry.insert(key_trade_pair.as_combination());
-            },
-            _ => continue,
+
+        if let Some(coin_cfg) = cfg.get(&key_trade_pair.as_combination()) {
+            if !coin_cfg.enable {
+                continue;
+            }
+            let cloned_infos = (
+                ctx.clone(),
+                rates_registry
+                    .get_cex_rates(&coin_cfg.base, &coin_cfg.rel)
+                    .unwrap_or_default(),
+                key_trade_pair.clone(),
+                coin_cfg.clone(),
+            );
+            futures_order_update.push(execute_update_order(uuid, order.clone(), cloned_infos));
+            memoization_pair_registry.insert(key_trade_pair.as_combination());
         }
     }
 
-    let all_updated_orders_tasks = futures::future::join_all(futures_order_update);
-    let _results_order_updates = all_updated_orders_tasks.await;
+    let _results_order_updates = futures::future::join_all(futures_order_update).await;
 
-    let mut futures_order_creation = Vec::with_capacity(0);
+    let mut futures_order_creation = Vec::with_capacity(cfg.len());
     // Now iterate over the registry and for every pairs that are not hit let's create an order
-    for (trading_pair, cur_cfg) in cfg.into_iter() {
-        match memoization_pair_registry.get(&trading_pair) {
-            Some(_) => continue,
-            None => {
-                if !cur_cfg.enable {
-                    continue;
-                }
-                let rates_infos = rates_registry
-                    .get_cex_rates(&cur_cfg.base, &cur_cfg.rel)
-                    .unwrap_or_default();
-                futures_order_creation.push(execute_create_single_order(
-                    rates_infos,
-                    cur_cfg,
-                    trading_pair.clone(),
-                    ctx,
-                ));
-            },
-        };
+    for (trading_pair, cur_cfg) in cfg {
+        if memoization_pair_registry.contains(&trading_pair) || !cur_cfg.enable {
+            continue;
+        }
+        let rates_infos = rates_registry
+            .get_cex_rates(&cur_cfg.base, &cur_cfg.rel)
+            .unwrap_or_default();
+        futures_order_creation.push(execute_create_single_order(
+            rates_infos,
+            cur_cfg,
+            trading_pair.clone(),
+            ctx,
+        ));
     }
-    let all_created_orders_tasks = futures::future::join_all(futures_order_creation);
-    let _results_order_creations = all_created_orders_tasks.await;
+    let _results_order_creations = futures::future::join_all(futures_order_creation).await;
 }
 
 pub async fn lp_bot_loop(ctx: MmArc) {
@@ -738,7 +774,7 @@ pub async fn start_simple_market_maker_bot(ctx: MmArc, req: StartSimpleMakerBotR
             *state = RunningState {
                 trading_bot_cfg: req.cfg,
                 bot_refresh_rate: refresh_rate,
-                price_url: req.price_url.unwrap_or_else(|| KMD_PRICE_ENDPOINT.to_string()),
+                price_urls: req.price_sources.unwrap_or_default().get_urls(),
             }
             .into();
             drop(state);
@@ -793,7 +829,7 @@ mod tests {
         let another_cloned_ctx = ctx.clone();
         let req = StartSimpleMakerBotRequest {
             cfg: Default::default(),
-            price_url: None,
+            price_sources: Default::default(),
             bot_refresh_rate: None,
         };
         let answer = block_on(start_simple_market_maker_bot(ctx, req)).unwrap();
@@ -801,7 +837,7 @@ mod tests {
 
         let req = StartSimpleMakerBotRequest {
             cfg: Default::default(),
-            price_url: None,
+            price_sources: Default::default(),
             bot_refresh_rate: None,
         };
         let answer = block_on(start_simple_market_maker_bot(cloned_ctx, req));

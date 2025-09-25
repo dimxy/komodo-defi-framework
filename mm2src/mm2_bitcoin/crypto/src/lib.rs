@@ -11,7 +11,7 @@ use groestl::Groestl512;
 use primitives::hash::{H160, H256, H32, H512};
 use ripemd160::{Digest, Ripemd160};
 use sha1::Sha1;
-use sha2::Sha256;
+use sha2::{Digest as Sha2Digest, Sha256};
 use sha3::Keccak256;
 use siphasher::sip::SipHasher24;
 use std::hash::Hasher;
@@ -21,15 +21,12 @@ use std::hash::Hasher;
 /// GRS uses double groestl512
 /// SMART uses keccak
 #[allow(clippy::upper_case_acronyms)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum ChecksumType {
+    #[default]
     DSHA256,
     DGROESTL512,
     KECCAK256,
-}
-
-impl Default for ChecksumType {
-    fn default() -> ChecksumType { ChecksumType::DSHA256 }
 }
 
 /// RIPEMD160
@@ -37,15 +34,17 @@ impl Default for ChecksumType {
 pub fn ripemd160(input: &[u8]) -> H160 {
     let mut hasher = Ripemd160::new();
     hasher.update(input);
-    (*hasher.finalize()).into()
+    let array: [u8; 20] = hasher.finalize().into();
+    array.into()
 }
 
 /// SHA-1
 #[inline]
 pub fn sha1(input: &[u8]) -> H160 {
-    let mut hasher = Sha1::default();
+    let mut hasher = Sha1::new();
     hasher.update(input);
-    (*hasher.finalize()).into()
+    let array: [u8; 20] = hasher.finalize().into();
+    array.into()
 }
 
 /// SHA-256
@@ -53,7 +52,8 @@ pub fn sha1(input: &[u8]) -> H160 {
 pub fn sha256(input: &[u8]) -> H256 {
     let mut hasher = Sha256::new();
     hasher.update(input);
-    (*hasher.finalize()).into()
+    let array: [u8; 32] = hasher.finalize().into();
+    array.into()
 }
 
 /// Groestl-512
@@ -61,7 +61,8 @@ pub fn sha256(input: &[u8]) -> H256 {
 pub fn groestl512(input: &[u8]) -> H512 {
     let mut hasher = Groestl512::new();
     hasher.update(input);
-    (*hasher.finalize()).into()
+    let array: [u8; 64] = hasher.finalize().into();
+    array.into()
 }
 
 /// Keccak-256
@@ -69,20 +70,27 @@ pub fn groestl512(input: &[u8]) -> H512 {
 pub fn keccak256(input: &[u8]) -> H256 {
     let mut hasher = Keccak256::new();
     hasher.update(input);
-    (*hasher.finalize()).into()
+    let array: [u8; 32] = hasher.finalize().into();
+    array.into()
 }
 
 /// Double Keccak-256
 #[inline]
-pub fn dkeccak256(input: &[u8]) -> H256 { keccak256(&*keccak256(input)) }
+pub fn dkeccak256(input: &[u8]) -> H256 {
+    keccak256(&*keccak256(input))
+}
 
 /// SHA-256 and RIPEMD160
 #[inline]
-pub fn dhash160(input: &[u8]) -> H160 { ripemd160(&*sha256(input)) }
+pub fn dhash160(input: &[u8]) -> H160 {
+    ripemd160(&*sha256(input))
+}
 
 /// Double SHA-256
 #[inline]
-pub fn dhash256(input: &[u8]) -> H256 { sha256(&*sha256(input)) }
+pub fn dhash256(input: &[u8]) -> H256 {
+    sha256(&*sha256(input))
+}
 
 /// SipHash-2-4
 #[inline]
@@ -94,7 +102,9 @@ pub fn siphash24(key0: u64, key1: u64, input: &[u8]) -> u64 {
 
 /// Double Groestl-512
 #[inline]
-pub fn dgroestl512(input: &[u8]) -> H512 { groestl512(&*groestl512(input)) }
+pub fn dgroestl512(input: &[u8]) -> H512 {
+    groestl512(&*groestl512(input))
+}
 
 /// Data checksum
 #[inline]
@@ -106,6 +116,20 @@ pub fn checksum(data: &[u8], sum_type: &ChecksumType) -> H32 {
         ChecksumType::KECCAK256 => result.copy_from_slice(&keccak256(data)[0..4]),
     }
     result
+}
+
+/// Hash message for signature using Bitcoin's message signing format.
+/// sha256(sha256(PREFIX_LENGTH + PREFIX + MESSAGE_LENGTH + MESSAGE))
+pub fn sign_message_hash(sign_message_prefix: &str, message: &str) -> [u8; 32] {
+    use serialization::{CompactInteger, Serializable, Stream};
+    let mut stream = Stream::new();
+    let prefix_len = CompactInteger::from(sign_message_prefix.len());
+    prefix_len.serialize(&mut stream);
+    stream.append_slice(sign_message_prefix.as_bytes());
+    let msg_len = CompactInteger::from(message.len());
+    msg_len.serialize(&mut stream);
+    stream.append_slice(message.as_bytes());
+    dhash256(&stream.out()).take()
 }
 
 #[cfg(test)]

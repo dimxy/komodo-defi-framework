@@ -1,15 +1,18 @@
-name: "PR Lint"
+name: PR Lint
 
 on:
   pull_request:
     types:
       - opened
       - edited
+      - reopened
       - synchronize
+      - labeled
+      - unlabeled
 
 jobs:
   main:
-    name: Validate PR title
+    name: Validate PR
     runs-on: ubuntu-latest
     steps:
       - uses: amannn/action-semantic-pull-request@v5.2.0
@@ -19,6 +22,7 @@ jobs:
           types: |
             feat
             fix
+            improvement
             chore
             docs
             deps
@@ -35,8 +39,8 @@ jobs:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
           title_length=${#TITLE}
-          if [ $title_length -gt 72 ]
+          if [ $title_length -gt 85 ]
           then
-            echo "PR title is too long (greater than 72 characters)"
+            echo "PR title is too long (greater than 85 characters)"
             exit 1
           fi

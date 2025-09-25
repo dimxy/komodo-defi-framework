@@ -2,6 +2,7 @@
 
 use bitcoin_hashes::{sha256d, Hash as ExtHash};
 use hex::{FromHex, FromHexError, ToHex};
+use std::convert::TryInto;
 use std::hash::{Hash, Hasher};
 use std::{cmp, fmt, ops, str};
 
@@ -12,43 +13,53 @@ macro_rules! impl_hash {
         pub struct $name([u8; $size]);
 
         impl Default for $name {
-            fn default() -> Self { $name([0u8; $size]) }
+            fn default() -> Self {
+                $name([0u8; $size])
+            }
         }
 
         impl AsRef<$name> for $name {
-            fn as_ref(&self) -> &$name { self }
+            fn as_ref(&self) -> &$name {
+                self
+            }
         }
 
         impl AsRef<[u8]> for $name {
-            fn as_ref(&self) -> &[u8] { &self.0 }
+            fn as_ref(&self) -> &[u8] {
+                &self.0
+            }
         }
 
         impl Clone for $name {
             fn clone(&self) -> Self {
-                let mut result = Self::default();
-                result.copy_from_slice(&self.0);
-                result
+                *self
             }
         }
 
         impl From<[u8; $size]> for $name {
-            fn from(h: [u8; $size]) -> Self { $name(h) }
+            fn from(h: [u8; $size]) -> Self {
+                $name(h)
+            }
         }
 
         impl From<$name> for [u8; $size] {
-            fn from(h: $name) -> Self { h.0 }
+            fn from(h: $name) -> Self {
+                h.0
+            }
         }
 
-        impl<'a> From<&'a [u8]> for $name {
-            fn from(slc: &[u8]) -> Self {
+        impl<'a> From<&'a [u8; $size]> for $name {
+            fn from(slc: &[u8; $size]) -> Self {
                 let mut inner = [0u8; $size];
-                inner[..].clone_from_slice(&slc[0..$size]);
+                inner.copy_from_slice(slc);
                 $name(inner)
             }
         }
 
         impl From<&'static str> for $name {
-            fn from(s: &'static str) -> Self { s.parse().unwrap() }
+            fn from(s: &'static str) -> Self {
+                s.parse().unwrap()
+            }
         }
 
         impl From<u8> for $name {
@@ -61,36 +72,36 @@ macro_rules! impl_hash {
 
         impl str::FromStr for $name {
             type Err = FromHexError;
-
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 let vec: Vec<u8> = s.from_hex()?;
-                match vec.len() {
-                    $size => {
-                        let mut result = [0u8; $size];
-                        result.copy_from_slice(&vec);
-                        Ok($name(result))
-                    },
-                    _ => Err(FromHexError::InvalidHexLength),
-                }
+                Self::from_slice(&vec).map_err(|_| FromHexError::InvalidHexLength)
             }
         }
 
         impl fmt::Debug for $name {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str(&self.0.to_hex::<String>()) }
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(&self.0.to_hex::<String>())
+            }
         }
 
         impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str(&self.0.to_hex::<String>()) }
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(&self.0.to_hex::<String>())
+            }
         }
 
         impl ops::Deref for $name {
             type Target = [u8; $size];
 
-            fn deref(&self) -> &Self::Target { &self.0 }
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
         }
 
         impl ops::DerefMut for $name {
-            fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
+            fn deref_mut(&mut self) -> &mut Self::Target {
+                &mut self.0
+            }
         }
 
         impl cmp::PartialEq for $name {
@@ -123,16 +134,20 @@ macro_rules! impl_hash {
                 H: Hasher,
             {
                 state.write(&self.0);
-                state.finish();
+                let _ = state.finish();
             }
         }
 
         impl Eq for $name {}
 
         impl $name {
-            pub fn take(self) -> [u8; $size] { self.0 }
+            pub fn take(self) -> [u8; $size] {
+                self.0
+            }
 
-            pub fn as_slice(&self) -> &[u8] { &self.0 }
+            pub fn as_slice(&self) -> &[u8] {
+                &self.0
+            }
 
             pub fn reversed(&self) -> Self {
                 let mut result = self.clone();
@@ -140,9 +155,21 @@ macro_rules! impl_hash {
                 result
             }
 
-            pub fn size() -> usize { $size }
+            pub fn size() -> usize {
+                $size
+            }
 
-            pub fn is_zero(&self) -> bool { self.0.iter().all(|b| *b == 0) }
+            pub fn is_zero(&self) -> bool {
+                self.0.iter().all(|b| *b == 0)
+            }
+
+            /// Preferred method for constructing from a slice - checks length and returns Result
+            pub fn from_slice(slc: &[u8]) -> Result<Self, &'static str> {
+                let bytes: [u8; $size] = slc
+                    .try_into()
+                    .map_err(|_| "Slice length must be exactly 40 bytes")?;
+                Ok(bytes.into())
+            }
         }
     };
 }
@@ -166,11 +193,17 @@ impl_hash!(EquihashSolution, 1344);
 
 impl H256 {
     #[inline]
-    pub fn from_reversed_str(s: &'static str) -> Self { H256::from(s).reversed() }
+    pub fn from_reversed_str(s: &'static str) -> Self {
+        H256::from(s).reversed()
+    }
 
     #[inline]
-    pub fn to_reversed_str(self) -> String { self.reversed().to_string() }
+    pub fn to_reversed_str(self) -> String {
+        self.reversed().to_string()
+    }
 
     #[inline]
-    pub fn to_sha256d(self) -> sha256d::Hash { sha256d::Hash::from_inner(self.take()) }
+    pub fn to_sha256d(self) -> sha256d::Hash {
+        sha256d::Hash::from_inner(self.take())
+    }
 }
