@@ -88,6 +88,7 @@ jobs:
         run: |
           rustup toolchain install stable --no-self-update --profile=minimal
           rustup default stable
+          rustup target add x86_64-apple-darwin
 
       - name: Install build deps
         uses: ./.github/actions/deps-install
