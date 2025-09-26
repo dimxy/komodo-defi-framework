@@ -1036,7 +1036,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
 
     // and then calculate `min_max_val = balance - locked_amount - max_trade_fee - max_fee_to_send_taker_fee - dex_fee(max_val)` using `max_taker_vol_from_available()`
     // where `available = balance - locked_amount - max_trade_fee - max_fee_to_send_taker_fee`
-    let available = &qtum_balance - &max_trade_fee - &max_fee_to_send_taker_fee;
+    let available = &qtum_balance - &max_trade_fee - &max_fee_to_send_taker_fee - qtum_min_tx_amount.clone().to_decimal();
     log!("total_available: {}", available);
     let expected_max_taker_vol =
         max_taker_vol_from_available(MmNumber::from(available), "QTUM", "MYCOIN", &qtum_min_tx_amount)
