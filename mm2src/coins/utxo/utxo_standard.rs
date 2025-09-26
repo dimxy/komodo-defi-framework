@@ -676,10 +676,15 @@ impl TakerCoinSwapOpsV2 for UtxoStandardCoin {
         let total_amount =
             &args.dex_fee.total_spend_amount().to_decimal() + &args.premium_amount + &args.trading_amount;
         let preimage_value = if args.upper_bound_amount {
-            TradePreimageValue::UpperBound(total_amount)
+            TradePreimageValue::UpperBound(total_amount.clone())
         } else {
-            TradePreimageValue::Exact(total_amount)
+            TradePreimageValue::Exact(total_amount.clone())
         };
+        println!(
+            "get_fee_to_send_taker_funding total_amount={} dex_fee={}",
+            total_amount,
+            args.dex_fee.total_spend_amount().to_decimal()
+        );
         utxo_common::get_sender_trade_fee(self, preimage_value, args.stage).await
     }
 

@@ -2806,9 +2806,13 @@ pub async fn max_taker_vol(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, S
         Ok(None) => return ERR!("No such coin: {}", req.coin),
         Err(err) => return ERR!("!lp_coinfind({}): {}", req.coin, err),
     };
-    let other_coin = req.trade_with.as_ref().unwrap_or(&req.coin);
-    let fut = calc_max_taker_vol(&ctx, &coin, other_coin, FeeApproxStage::TradePreimageMax);
-    let max_vol = match fut.await {
+    let other_coin_str = req.trade_with.as_ref().unwrap_or(&req.coin);
+    let other_coin = match lp_coinfind(&ctx, other_coin_str).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return ERR!("No such coin: {}", other_coin_str),
+        Err(err) => return ERR!("!lp_coinfind({}): {}", other_coin_str, err),
+    };
+    let max_vol = match calc_max_taker_vol(&ctx, &coin, &other_coin, FeeApproxStage::TradePreimageMax).await {
         Ok(max_vol) => max_vol,
         Err(e) if e.get_inner().not_sufficient_balance() => {
             warn!("{}", e);
@@ -2883,7 +2887,7 @@ pub async fn max_taker_vol(ctx: MmArc, req: Json) -> Result<Response<Vec<u8>>, S
 pub async fn calc_max_taker_vol(
     ctx: &MmArc,
     coin: &MmCoinEnum,
-    other_coin: &str,
+    other_coin: &MmCoinEnum,
     stage: FeeApproxStage,
 ) -> CheckBalanceResult<MmNumber> {
     let my_coin = coin.ticker();
@@ -2891,18 +2895,20 @@ pub async fn calc_max_taker_vol(
     let locked = get_locked_amount(ctx, my_coin);
     let min_tx_amount = MmNumber::from(coin.min_tx_amount());
     let max_possible = &balance - &locked;
+    let dex_fee_rate = DexFee::dex_fee_rate(my_coin, other_coin.ticker());
     let fee_helper = create_taker_total_fee_helper(
         ctx,
         coin,
-        coin, // Send same coin as we won't need other_coin fees here
-        max_possible.clone(),
+        other_coin, // Send same coin as we won't need other_coin fees here
+        &max_possible / &(MmNumber::from(1) + dex_fee_rate),
         None,
         stage,
     )?;
     let max_vol = if coin.is_platform_coin() {
         // second case (fee are paid in this coin)
         let max_total_fees = fee_helper.get_my_coin_fees(true).await?;
-        let min_max_possible = &max_possible - &max_total_fees.amount;
+        // Also subtract min_tx_amount to absorb dust in utxo coins
+        let min_max_possible = &max_possible - &max_total_fees.amount - min_tx_amount.clone();
         debug!(
             "max_taker_vol case 2: min_max_possible {:?}, balance {:?}, locked {:?}, max_total_fees {:?}, max_dex_fee {:?}",
             min_max_possible.to_fraction(),
@@ -2911,7 +2917,7 @@ pub async fn calc_max_taker_vol(
             max_total_fees.amount.to_fraction(),
             fee_helper.get_dex_fee().map(|dex_fee| dex_fee.to_fraction())
         );
-        max_taker_vol_from_available(min_max_possible, my_coin, other_coin, &min_tx_amount)
+        max_taker_vol_from_available(min_max_possible, my_coin, other_coin.ticker(), &min_tx_amount)
             .mm_err(|e| CheckBalanceError::from_max_taker_vol_error(e, my_coin.to_owned(), locked.to_decimal()))?
     } else {
         // first case (fee are paid in platform coin)
@@ -2920,7 +2926,7 @@ pub async fn calc_max_taker_vol(
             balance.to_fraction(),
             locked.to_fraction()
         );
-        max_taker_vol_from_available(max_possible, my_coin, other_coin, &min_tx_amount)
+        max_taker_vol_from_available(max_possible, my_coin, other_coin.ticker(), &min_tx_amount)
             .mm_err(|e| CheckBalanceError::from_max_taker_vol_error(e, my_coin.to_owned(), locked.to_decimal()))?
     };
     // do not check if `max_vol < min_tx_amount`, because it is checked within `max_taker_vol_from_available` already
@@ -2943,8 +2949,10 @@ pub fn max_taker_vol_from_available(
     let dex_fee_rate = DexFee::dex_fee_rate(base, rel);
     let threshold_coef = &(&MmNumber::from(1) + &dex_fee_rate) / &dex_fee_rate;
     let max_vol = if available > min_tx_amount * &threshold_coef {
-        available / (MmNumber::from(1) + dex_fee_rate)
+        println!("max_taker_vol_from_available 1");
+        available.clone() / (MmNumber::from(1) + dex_fee_rate.clone())
     } else {
+        println!("max_taker_vol_from_available 2");
         &available - min_tx_amount
     };
 
@@ -2954,6 +2962,7 @@ pub fn max_taker_vol_from_available(
             min_tx_amount: min_tx_amount.clone(),
         });
     }
+    println!("max_taker_vol_from_available {available} {dex_fee_rate} {max_vol}");
     Ok(max_vol)
 }
 

@@ -1007,13 +1007,12 @@ fn test_match_and_trade_setprice_max() {
     test_match_and_trade_setprice_max_impl(false)
 }
 
-
 #[test]
 fn test_match_and_trade_setprice_max_v2() {
     test_match_and_trade_setprice_max_impl(true)
 }
 
-fn test_max_taker_vol_swap_impl(is_tpu: bool) {
+fn test_max_taker_vol_swap_impl(is_tpu: bool, expected_vol: MmNumber) {
     let (_ctx, _, bob_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN", 1000.into());
     let (_ctx, _, alice_priv_key) = generate_utxo_coin_with_random_privkey("MYCOIN1", 50.into());
     let coins = json!([mycoin_conf(1000), mycoin1_conf(1000)]);
@@ -1050,6 +1049,7 @@ fn test_max_taker_vol_swap_impl(is_tpu: bool) {
         }),
         "pass".to_string(),
         None,
+        // Note: dex fee discount:
         &[("MYCOIN_FEE_DISCOUNT", "")],
     ))
     .unwrap();
@@ -1091,10 +1091,8 @@ fn test_max_taker_vol_swap_impl(is_tpu: bool) {
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!max_taker_vol: {}", rc.1);
-    let vol: MaxTakerVolResponse = serde_json::from_str(&rc.1).unwrap();
-    let expected_vol = MmNumber::from((1294999865579, 25930000000));
-
-    let actual_vol = MmNumber::from(vol.result.clone());
+    let vol_res: MaxTakerVolResponse = serde_json::from_str(&rc.1).unwrap();
+    let actual_vol = MmNumber::from(vol_res.result.clone());
     log!("actual vol {}", actual_vol.to_decimal());
     log!("expected vol {}", expected_vol.to_decimal());
 
@@ -1106,7 +1104,7 @@ fn test_max_taker_vol_swap_impl(is_tpu: bool) {
         "base": "MYCOIN1",
         "rel": "MYCOIN",
         "price": "16",
-        "volume": vol.result,
+        "volume": vol_res.result,
     })))
     .unwrap();
     assert!(rc.0.is_success(), "!sell: {}", rc.1);
@@ -1129,8 +1127,14 @@ fn test_max_taker_vol_swap_impl(is_tpu: bool) {
 
     let status_response: Json = serde_json::from_str(&rc.1).unwrap();
     let events_array = status_response["result"]["events"].as_array().unwrap();
-    let first_event_type = events_array[0]["event"]["type"].as_str().unwrap();
-    assert_eq!("Started", first_event_type);
+    println!("events_array={:?}", events_array);
+    if is_tpu {
+        let first_event_type = events_array[0]["event_type"].as_str().unwrap();
+        assert_eq!("Initialized", first_event_type);
+    } else {
+        let first_event_type = events_array[0]["event"]["type"].as_str().unwrap();
+        assert_eq!("Started", first_event_type);
+    }
     block_on(mm_bob.stop()).unwrap();
     block_on(mm_alice.stop()).unwrap();
 }
@@ -1138,12 +1142,12 @@ fn test_max_taker_vol_swap_impl(is_tpu: bool) {
 #[test]
 // https://github.com/KomodoPlatform/atomicDEX-API/issues/888
 fn test_max_taker_vol_swap() {
-    test_max_taker_vol_swap_impl(false)
+    test_max_taker_vol_swap_impl(false, MmNumber::from((1294999606579, 25930000000)));
 }
 
 #[test]
 fn test_max_taker_vol_swap_v2() {
-    test_max_taker_vol_swap_impl(true)
+    test_max_taker_vol_swap_impl(true, MmNumber::from((129499954157, 2593000000)));
 }
 
 #[test]

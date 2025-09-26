@@ -2516,7 +2516,7 @@ pub async fn calc_max_maker_vol(
     let fee_helper = create_maker_total_fee_helper(
         ctx,
         coin,
-        coin, // Send same coin as we won't need other_coin fees here
+        coin, // Send same coin as we won't need other_coin fees or dexfee here
         volume.clone(),
         stage,
     )?;
