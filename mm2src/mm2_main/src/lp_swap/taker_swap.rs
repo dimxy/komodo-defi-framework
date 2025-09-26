@@ -2917,6 +2917,14 @@ pub async fn calc_max_taker_vol(
             max_total_fees.amount.to_fraction(),
             fee_helper.get_dex_fee().map(|dex_fee| dex_fee.to_fraction())
         );
+        if min_max_possible < MmNumber::from(0) {
+            return MmError::err(CheckBalanceError::NotSufficientBalance { 
+                coin: my_coin.to_string(),
+                available: balance.to_decimal(),
+                required: (max_total_fees.amount + min_tx_amount).to_decimal(),
+                locked_by_swaps: Some(locked.to_decimal())
+            });
+        }
         max_taker_vol_from_available(min_max_possible, my_coin, other_coin.ticker(), &min_tx_amount)
             .mm_err(|e| CheckBalanceError::from_max_taker_vol_error(e, my_coin.to_owned(), locked.to_decimal()))?
     } else {
