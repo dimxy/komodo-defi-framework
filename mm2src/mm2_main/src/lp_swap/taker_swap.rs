@@ -2907,8 +2907,7 @@ pub async fn calc_max_taker_vol(
     let max_vol = if coin.is_platform_coin() {
         // second case (fee are paid in this coin)
         let max_total_fees = fee_helper.get_my_coin_fees(true).await?;
-        // Also subtract min_tx_amount to absorb dust in utxo coins
-        let min_max_possible = &max_possible - &max_total_fees.amount - min_tx_amount.clone();
+        let min_max_possible = &max_possible - &max_total_fees.amount;
         debug!(
             "max_taker_vol case 2: min_max_possible {:?}, balance {:?}, locked {:?}, max_total_fees {:?}, max_dex_fee {:?}",
             min_max_possible.to_fraction(),
@@ -2921,7 +2920,7 @@ pub async fn calc_max_taker_vol(
             return MmError::err(CheckBalanceError::NotSufficientBalance { 
                 coin: my_coin.to_string(),
                 available: balance.to_decimal(),
-                required: (max_total_fees.amount + min_tx_amount).to_decimal(),
+                required: max_total_fees.amount.to_decimal(),
                 locked_by_swaps: Some(locked.to_decimal())
             });
         }

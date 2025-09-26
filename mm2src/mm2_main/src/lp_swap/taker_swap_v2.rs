@@ -2724,10 +2724,16 @@ impl<MakerCoin: MmCoin + MakerCoinSwapOpsV2, TakerCoin: MmCoin + TakerCoinSwapOp
             .await
             .mm_err(|e| CheckBalanceError::from_trade_preimage_error(e, self.my_coin.ticker()))?;
         println!("get_my_coin_fees spend_fees={}", spend_fees.amount);
+        // Add fees both to send taker funding and spend funding
+        let mut total_amount = funding_fee.amount + spend_fees.amount;
+        if matches!(self.stage, FeeApproxStage::OrderIssueMax | FeeApproxStage::TradePreimageMax) {
+            // Also add min_tx_amount to absorb dust for utxo coins
+            let min_tx_amount = MmNumber::from(self.my_coin.min_tx_amount());
+            total_amount += min_tx_amount;
+        }
         Ok(TradeFee {
             coin: funding_fee.coin,
-            // Add fees both to send taker funding and spend funding
-            amount: funding_fee.amount + spend_fees.amount,
+            amount: total_amount,
             paid_from_trading_vol: funding_fee.paid_from_trading_vol,
         })
     }

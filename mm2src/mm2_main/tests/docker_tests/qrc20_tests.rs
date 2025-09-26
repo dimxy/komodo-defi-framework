@@ -1021,7 +1021,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
     log!("max_trade_fee: {}", max_trade_fee);
 
     // - `max_possible_2 = balance - locked_amount - max_trade_fee`, where `locked_amount = 0`
-    let max_possible_2 = &qtum_balance - &max_trade_fee - qtum_min_tx_amount.clone().to_decimal();
+    let max_possible_2 = &qtum_balance - &max_trade_fee;
     // - `max_dex_fee = dex_fee(max_possible_2)`
     let max_dex_fee = DexFee::new_from_taker_coin(&coin, "MYCOIN", &MmNumber::from(max_possible_2));
     log!("max_dex_fee: {:?}", max_dex_fee.fee_amount().to_fraction());
@@ -1036,7 +1036,7 @@ fn test_get_max_taker_vol_and_trade_with_dynamic_trade_fee(coin: QtumCoin, priv_
 
     // and then calculate `min_max_val = balance - locked_amount - max_trade_fee - max_fee_to_send_taker_fee - dex_fee(max_val)` using `max_taker_vol_from_available()`
     // where `available = balance - locked_amount - max_trade_fee - max_fee_to_send_taker_fee`
-    let available = &qtum_balance - &max_trade_fee - &max_fee_to_send_taker_fee - qtum_min_tx_amount.clone().to_decimal();
+    let available = &qtum_balance - &max_trade_fee - &max_fee_to_send_taker_fee;
     log!("total_available: {}", available);
     let expected_max_taker_vol =
         max_taker_vol_from_available(MmNumber::from(available), "QTUM", "MYCOIN", &qtum_min_tx_amount)
