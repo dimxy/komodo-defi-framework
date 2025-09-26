@@ -2899,7 +2899,7 @@ pub async fn calc_max_taker_vol(
     let fee_helper = create_taker_total_fee_helper(
         ctx,
         coin,
-        other_coin, // Send same coin as we won't need other_coin fees here
+        other_coin,
         &max_possible / &(MmNumber::from(1) + dex_fee_rate),
         None,
         stage,

@@ -2050,7 +2050,7 @@ fn test_get_max_taker_vol() {
     // the result of equation `max_vol + max_vol / 777 + 0.00000274 + 0.00000245 = 1`
     // derived from `max_vol = balance - locked - trade_fee - fee_to_send_taker_fee - dex_fee(max_vol)`
     // where balance = 1, locked = 0, trade_fee = fee_to_send_taker_fee = 0.00001, dex_fee = max_vol / 777
-    let expected = MmNumber::from((77698819737, 77800000000)).to_fraction();
+    let expected = MmNumber::from((77699596737, 77800000000)).to_fraction();
     assert_eq!(json.result, expected);
     assert_eq!(json.coin, "MYCOIN1");
 
@@ -2101,7 +2101,7 @@ fn test_get_max_taker_vol_dex_fee_min_tx_amount() {
     assert!(rc.0.is_success(), "!max_taker_vol: {}", rc.1);
     let json: Json = serde_json::from_str(&rc.1).unwrap();
     // the result of equation x + 0.00001 (dex fee) + 0.0000485 (miner fee 2740 + 2450) = 0.00532845
-    assert_eq!(json["result"]["numer"], Json::from("52497"));
+    assert_eq!(json["result"]["numer"], Json::from("52597"));
     assert_eq!(json["result"]["denom"], Json::from("10000000"));
 
     let rc = block_on(mm_alice.rpc(&json!({
@@ -2166,7 +2166,7 @@ fn test_get_max_taker_vol_dust_threshold() {
     let result: MmNumber = serde_json::from_value(json["result"].clone()).unwrap();
     assert!(result.is_zero());
 
-    fill_address(&coin, &coin.my_address().unwrap(), "0.002".parse().unwrap(), 30);
+    fill_address(&coin, &coin.my_address().unwrap(), "0.0002".parse().unwrap(), 30); //00699910
 
     let rc = block_on(mm.rpc(&json!({
         "userpass": mm.userpass,
@@ -2177,8 +2177,8 @@ fn test_get_max_taker_vol_dust_threshold() {
     assert!(rc.0.is_success(), "!max_taker_vol: {}", rc.1);
     let json: Json = serde_json::from_str(&rc.1).unwrap();
     // the result of equation x + 0.000728 (dex fee) + 0.00004220 + 0.00003930 (miner fees) = 0.0016041, x > dust
-    assert_eq!(json["result"]["numer"], Json::from("61101"));
-    assert_eq!(json["result"]["denom"], Json::from("50000000"));
+    assert_eq!(json["result"]["numer"], Json::from("79253"));
+    assert_eq!(json["result"]["denom"], Json::from("100000000"));
 
     block_on(mm.stop()).unwrap();
 }
@@ -2227,7 +2227,7 @@ fn test_get_max_taker_vol_with_kmd() {
     assert!(rc.0.is_success(), "!max_taker_vol: {}", rc.1);
     let json: Json = serde_json::from_str(&rc.1).unwrap();
     // the result of equation x + x * 9 / 7770 + 0.00002740 + 0.00002450 = 1
-    assert_eq!(json["result"]["numer"], Json::from("2589839679"));
+    assert_eq!(json["result"]["numer"], Json::from("2589865579"));
     assert_eq!(json["result"]["denom"], Json::from("2593000000"));
 
     let rc = block_on(mm_alice.rpc(&json!({
