@@ -513,6 +513,7 @@ pub(super) async fn init_light_client(
     let coin = builder.ticker.to_string();
     let (sync_status_notifier, sync_watcher) = channel(1);
     let (on_tx_gen_notifier, on_tx_gen_watcher) = channel(1);
+    log!("init_light_client ...");
 
     let light_rpc_clients = LightRpcClient::new(lightwalletd_urls).await?;
 
@@ -534,6 +535,8 @@ pub(super) async fn init_light_client(
             .mm_err(ZcoinClientInitError::UtxoCoinBuildError)?
             .unwrap_or(sapling_activation_height),
     };
+    log!("init_light_client sync_height={} min_height={}", sync_height, min_height);
+
     let maybe_checkpoint_block = light_rpc_clients
         .checkpoint_block_from_height(sync_height.max(sapling_activation_height), &coin)
         .await
@@ -542,6 +545,8 @@ pub(super) async fn init_light_client(
     // check if no sync_params was provided and continue syncing from last height in db if it's > 0 or skip_sync_params is true.
     let continue_from_prev_sync =
         (min_height > 0 && sync_params.is_none()) || (skip_sync_params && min_height < sapling_activation_height);
+
+    log!("init_light_client continue_from_prev_sync={}", continue_from_prev_sync);
 
     let wallet_db = WalletDbShared::new(builder, maybe_checkpoint_block, continue_from_prev_sync)
         .await
@@ -561,6 +566,7 @@ pub(super) async fn init_light_client(
         is_pre_sapling: sync_height < sapling_activation_height,
         actual: sync_height.max(sapling_activation_height),
     };
+    log!("init_light_client first_sync_block={}", first_sync_block.requested);
     let sync_handle = SaplingSyncLoopHandle {
         coin,
         current_block: BlockHeight::from_u32(0),
@@ -776,24 +782,29 @@ impl SaplingSyncLoopHandle {
     }
 
     async fn update_blocks_cache(&mut self, rpc: &dyn ZRpcOps) -> Result<(), MmError<UpdateBlocksCacheErr>> {
+        log!("update_blocks_cache ...");
         let current_block = rpc.get_block_height().await?;
+        log!("update_blocks_cache current_block={}", current_block);
         let block_db = self.blocks_db.clone();
         let current_block_in_db = &self.blocks_db.get_latest_block().await.map_mm_err()?;
+        log!("update_blocks_cache current_block_in_db={}", current_block_in_db);
         let wallet_db = self.wallet_db.clone();
         let extrema = wallet_db
             .db
             .block_height_extrema()
             .await
             .map_err(|err| MmError::new(UpdateBlocksCacheErr::ZcashDBError(err.to_string())))?;
+        log!("update_blocks_cache extrema={:?}", extrema);
         let mut from_block = self
             .consensus_params
             .sapling_activation_height
             .max(current_block_in_db + 1) as u64;
 
+        log!("update_blocks_cache from_block={:?}", from_block);
         if let Some((_, max_in_wallet)) = extrema {
             from_block = from_block.max(max_in_wallet.into());
         }
-
+        log!("update_blocks_cache current_block={} from_block={}", current_block, from_block);
         if current_block >= from_block {
             rpc.scan_blocks(from_block, current_block, &block_db, self)
                 .await
@@ -801,6 +812,7 @@ impl SaplingSyncLoopHandle {
         }
 
         self.current_block = BlockHeight::from_u32(current_block as u32);
+        log!("update_blocks_cache new current_block={}", self.current_block);
         Ok(())
     }
 
@@ -810,6 +822,7 @@ impl SaplingSyncLoopHandle {
         let blocks_db = self.blocks_db.clone();
         let wallet_db = self.wallet_db.db.clone();
         let mut wallet_ops = wallet_db.get_update_ops().expect("get_update_ops always returns Ok");
+        log!("scan_validate_and_update_blocks ...");
 
         if let Err(e) = blocks_db
             .process_blocks_with_mode(
@@ -839,18 +852,22 @@ impl SaplingSyncLoopHandle {
         }
 
         let current_block = BlockHeight::from_u32(blocks_db.get_latest_block().await?);
+        log!("scan_validate_and_update_blocks current_block={}", current_block);
         loop {
             match wallet_ops.block_height_extrema().await? {
                 Some((_, max_in_wallet)) => {
                     if max_in_wallet >= current_block {
+                        log!("scan_validate_and_update_blocks max_in_wallet={} breaking", max_in_wallet);
                         break;
                     } else {
                         debug!("Updating wallet.db from block {} to {}", max_in_wallet, current_block);
+                        log!("scan_validate_and_update_blocks max_in_wallet={} to current_block={} Updating wallet.db", max_in_wallet, current_block);
                         self.notify_building_wallet_db(max_in_wallet.into(), current_block.into());
                     }
                 },
                 None => {
                     debug!("Updating wallet.db from block {} to {}", 0, current_block);
+                    log!("scan_validate_and_update_blocks from 0 to current_block={} Updating wallet.db", current_block);
                     self.notify_building_wallet_db(0, current_block.into())
                 },
             }
@@ -909,10 +926,12 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
         "(Re)starting light_wallet_db_sync_loop for {}, blocks per iteration {}, interval in ms {}",
         sync_handle.coin, sync_handle.scan_blocks_per_iteration, sync_handle.scan_interval_ms
     );
+    log!("light_wallet_db_sync_loop starting...");
 
     loop {
         if let Err(e) = sync_handle.update_blocks_cache(client.as_ref()).await {
             error!("Error {} on blocks cache update", e);
+            log!("Error {} on blocks cache update", e);
             sync_handle.notify_on_error(e.to_string());
             Timer::sleep(10.).await;
             continue;
@@ -920,6 +939,7 @@ async fn light_wallet_db_sync_loop(mut sync_handle: SaplingSyncLoopHandle, mut c
 
         if let Err(e) = sync_handle.scan_validate_and_update_blocks().await {
             error!("Error {} on scan_blocks", e);
+            log!("Error {} on scan_blocks", e);
             sync_handle.notify_on_error(e.to_string());
             Timer::sleep(10.).await;
             continue;

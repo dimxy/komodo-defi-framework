@@ -488,6 +488,7 @@ impl WalletIndexedDb {
             .map_mm_err()?;
 
         if let Some((id, note)) = maybe_note {
+            log!("mark_spent maybe_note={}", id);
             let new_received_note = WalletDbReceivedNotesTable {
                 tx: note.tx,
                 output_index: note.output_index,
@@ -544,6 +545,7 @@ impl WalletIndexedDb {
             .map_mm_err()?;
 
         let id = if let Some((id, note)) = current_note {
+            log!("put_received_note current_note tx_ref={} id={}", tx, id);
             let temp_note = WalletDbReceivedNotesTable {
                 tx,
                 output_index,
@@ -559,6 +561,7 @@ impl WalletIndexedDb {
             };
             received_note_table.replace_item(id, &temp_note).await.map_mm_err()?
         } else {
+            log!("put_received_note new note tx={} nf={:?}", tx, nf_bytes);
             let new_note = WalletDbReceivedNotesTable {
                 tx,
                 output_index,
@@ -586,6 +589,7 @@ impl WalletIndexedDb {
                 .map_mm_err()?
         };
 
+        log!("put_received_note return id={}", id);
         Ok(NoteId::ReceivedNoteId(id.into()))
     }
 
@@ -1245,6 +1249,7 @@ impl WalletRead for WalletIndexedDb {
         // Transactions
         let txs_table = db_transaction.table::<WalletDbTransactionsTable>().await.map_mm_err()?;
         let maybe_txs = txs_table.get_items("ticker", &self.ticker).await.map_mm_err()?;
+        log!("get_nullifiers maybe_notes.len()={} maybe_txs.len()={}", maybe_notes.len(), maybe_txs.len());
 
         let mut nullifiers = vec![];
         for (_, note) in maybe_notes {
@@ -1334,9 +1339,11 @@ impl WalletRead for WalletIndexedDb {
             let id_note = num_to_bigint!(id_note)?;
             let witness = witnesses.iter().find(|wit| wit.note == id_note);
             let tx = txs.iter().find(|(id, _tx)| *id == note.tx);
+            log!("get_spendable_notes note.tx={}", note.tx);
 
             if let (Some(witness), Some(_)) = (witness, tx) {
                 if note.spent.is_none() {
+                    log!("get_spendable_notes note.spent is none");
                     let spend = SpendableNoteConstructor {
                         diversifier: note.diversifier.clone(),
                         value: note.value.clone(),
@@ -1491,6 +1498,7 @@ impl WalletWrite for WalletIndexedDb {
 
             // Mark notes as spent and remove them from the scanning cache
             for spend in &tx.shielded_spends {
+                log!("mark_spent for tx_row={}", tx_row);
                 selfi.mark_spent(tx_row, &spend.nf).await?;
             }
 

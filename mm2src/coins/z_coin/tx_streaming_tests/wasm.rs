@@ -95,14 +95,19 @@ async fn test_zcoin_tx_history() {
 
     // zs1c734j8hnuse797d3382jnz48cvjsdtvgh980efwczxgztk2vf7a6f4zqypxnkjgk8sk9yrfc0hg
     let coin = z_coin_from_conf_and_params(&ctx, ARRR, &conf, &params, protocol_info, priv_key_policy,
-        Some("secret-extended-key-main1qdputxysqqqqpq89d7lpf8r2f03xsuhxn7sf6qp9st8gpkfw8dplge2708r3dahx3qdfx2py9d4w853ql52mdtt9xax0acfg57h0k42nkrasyducexvspxuhykaq9f3w48y7fyxpa8g0nhc7kd0p9f5f5d4fvlf72cnr0lg94vmetacttpwap5f90unqu6u4u9v74ruvyvl83ju2llzm38ku7vjqs63r5wdc58t36t0asv3qpq67grd6a0vht595mvz4wyjdgq95cfchp7y8v"))
+            Some("secret-extended-key-main1qdputxysqqqqpq89d7lpf8r2f03xsuhxn7sf6qp9st8gpkfw8dplge2708r3dahx3qdfx2py9d4w853ql52mdtt9xax0acfg57h0k42nkrasyducexvspxuhykaq9f3w48y7fyxpa8g0nhc7kd0p9f5f5d4fvlf72cnr0lg94vmetacttpwap5f90unqu6u4u9v74ruvyvl83ju2llzm38ku7vjqs63r5wdc58t36t0asv3qpq67grd6a0vht595mvz4wyjdgq95cfchp7y8v")
+        )
         .await
         .unwrap();
 
     // Wait till we are synced with the sapling state.
-    //while !coin.is_sapling_state_synced().await {
-    //    Timer::sleep(1.).await;
-    //}
+    while !coin.is_sapling_state_synced().await {
+        log!("waiting for sync");
+        Timer::sleep(5.).await;
+    }
+
+    log!("my_balance = {:?}", coin.my_balance().compat().await);
+    log!("my_address = {:?}", coin.my_address());
 
     // Query the block height to make sure our electrums are actually connected.
     log!("current block = {:?}", coin.current_block().compat().await.unwrap());
@@ -116,6 +121,6 @@ async fn test_zcoin_tx_history() {
 
     println!("tx={:?}", tx);
     log!("tx={:?}", tx);*/
-    let r = fetch_tx_history_from_db(&coin, 1000, PagingOptionsEnum::PageNumber(NonZeroUsize::new(2).unwrap())).await;
+    let r = fetch_tx_history_from_db(&coin, 0, PagingOptionsEnum::PageNumber(NonZeroUsize::new(2).unwrap())).await;
     log!("fetch_tx_history_from_db={:?}", r);
 }

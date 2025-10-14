@@ -317,7 +317,7 @@ impl ZCoin {
     /// Asynchronously checks the synchronization status and returns `true` if
     /// the Sapling state has finished synchronizing, meaning that the block number is available.
     /// Otherwise, it returns `false`.
-    #[cfg(any(test, feature = "run-docker-tests"))]
+    //#[cfg(any(test, feature = "run-docker-tests"))]
     #[inline]
     pub async fn is_sapling_state_synced(&self) -> bool {
         use futures::StreamExt;
@@ -1000,6 +1000,7 @@ impl UtxoCoinBuilder for ZCoinBuilder<'_> {
             .await
             .map_mm_err()?;
 
+        log!("ZCoinBuilder::build..");
         let (sync_state_connector, light_wallet_db) = match &self.z_coin_params.mode {
             #[cfg(not(target_arch = "wasm32"))]
             ZcoinRpcMode::Native => init_native_client(

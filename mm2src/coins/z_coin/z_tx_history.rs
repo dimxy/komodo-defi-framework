@@ -208,6 +208,7 @@ pub(crate) async fn fetch_tx_history_from_db(
             .sql()
             .expect("valid SQL");
         let total_tx_count = conn.query_row(&total_sql, [], |row| row.get(0))?;
+        print!("total_tx_count={}", total_tx_count);
 
         let mut sql_builder = SqlBuilder::select_from(name!(TRANSACTIONS_TABLE; "txes"));
         sql_builder

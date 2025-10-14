@@ -210,6 +210,8 @@ impl BlockDbImpl {
             },
         };
 
+        println!("process_blocks_with_mode from_height={}", from_height);
+        log!("process_blocks_with_mode from_height={}", from_height);
         let rows = self.query_blocks_by_limit(from_height, limit).await?;
 
         let mut prev_height = from_height;

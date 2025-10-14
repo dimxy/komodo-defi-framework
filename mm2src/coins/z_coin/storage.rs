@@ -150,6 +150,8 @@ pub async fn scan_cached_block(
     let mut nullifiers = data_guard.get_nullifiers().await?;
 
     let current_height = block.height();
+    //println!("scan_cached_block current_height={}", current_height);
+    //log!("scan_cached_block current_height={}", current_height);
     // Scanned blocks MUST be height-sequential.
     if current_height != (*last_height + 1) {
         return Err(ValidateBlocksError::block_height_discontinuity(
