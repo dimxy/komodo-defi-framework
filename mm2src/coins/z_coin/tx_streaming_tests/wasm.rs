@@ -79,7 +79,7 @@ async fn test_zcoin_tx_streaming() {
 #[wasm_bindgen_test]
 async fn test_zcoin_tx_history() {
     let ctx = MmCtxBuilder::default().into_mm_arc();
-    let conf = zombie_conf();
+    let conf = pirate_conf();
     let params = light_zcoin_activation_params();
     // Address: RQX5MnqnxEk6P33LSEAxC2vqA7DfSdWVyH
     // Or: zs1n2azlwcj9pvl2eh36qvzgeukt2cpzmw44hya8wyu52j663d0dfs4d5hjx6tr04trz34jxyy433j
@@ -90,7 +90,7 @@ async fn test_zcoin_tx_history() {
         other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
     };
 
-    let coin = z_coin_from_conf_and_params(&ctx, "ZOMBIE", &conf, &params, protocol_info, priv_key_policy,
+    let coin = z_coin_from_conf_and_params(&ctx, ARRR, &conf, &params, protocol_info, priv_key_policy,
         Some("secret-extended-key-main1qdputxysqqqqpq89d7lpf8r2f03xsuhxn7sf6qp9st8gpkfw8dplge2708r3dahx3qdfx2py9d4w853ql52mdtt9xax0acfg57h0k42nkrasyducexvspxuhykaq9f3w48y7fyxpa8g0nhc7kd0p9f5f5d4fvlf72cnr0lg94vmetacttpwap5f90unqu6u4u9v74ruvyvl83ju2llzm38ku7vjqs63r5wdc58t36t0asv3qpq67grd6a0vht595mvz4wyjdgq95cfchp7y8v"))
         .await
         .unwrap();
