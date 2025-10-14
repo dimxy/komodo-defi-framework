@@ -83,6 +83,7 @@ use z_rpc::init_light_client;
 pub use z_rpc::{FirstSyncBlock, SyncStatus};
 use z_rpc::{SaplingSyncConnector, SaplingSyncGuard};
 use zcash_client_backend::encoding::{decode_payment_address, encode_extended_spending_key, encode_payment_address};
+use zcash_client_backend::encoding::decode_extended_spending_key;
 use zcash_client_backend::wallet::{AccountId, SpendableNote};
 use zcash_extras::WalletRead;
 use zcash_primitives::consensus::{BlockHeight, BranchId, NetworkUpgrade, Parameters, H0};
@@ -893,8 +894,15 @@ pub async fn z_coin_from_conf_and_params(
     params: &ZcoinActivationParams,
     protocol_info: ZcoinProtocolInfo,
     priv_key_policy: PrivKeyBuildPolicy,
+    spending_key: Option<&str>,
 ) -> Result<ZCoin, MmError<ZCoinBuildError>> {
-    let z_spending_key = None;
+    let z_spending_key = if let Some(spending_key) = spending_key {
+        Some(decode_extended_spending_key(z_mainnet_constants::HRP_SAPLING_EXTENDED_SPENDING_KEY, spending_key)
+            .unwrap()
+            .unwrap())
+    } else {
+        None
+    };
     let builder = ZCoinBuilder::new(
         ctx,
         ticker,

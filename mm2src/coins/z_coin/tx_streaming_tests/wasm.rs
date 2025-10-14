@@ -1,16 +1,17 @@
-// use common::custom_futures::timeout::FutureTimerExt;
-// use common::{executor::Timer, Future01CompatExt};
-// use mm2_core::mm_ctx::MmCtxBuilder;
+use common::custom_futures::timeout::FutureTimerExt;
+use common::{executor::Timer, Future01CompatExt};
+use mm2_core::mm_ctx::MmCtxBuilder;
 // use mm2_test_helpers::for_tests::{pirate_conf, ARRR};
+use mm2_test_helpers::for_tests::zombie_conf;
 use common::log::warn;
 use wasm_bindgen_test::*;
-//
-// use super::light_zcoin_activation_params;
+use super::light_zcoin_activation_params;
 // use crate::z_coin::tx_history_events::ZCoinTxHistoryEventStreamer;
-// use crate::z_coin::z_coin_from_conf_and_params;
-// use crate::z_coin::z_htlc::z_send_dex_fee;
-// use crate::PrivKeyBuildPolicy;
-// use crate::{CoinProtocol, MarketCoinOps, MmCoin};
+use crate::z_coin::z_coin_from_conf_and_params;
+use crate::z_coin::z_htlc::z_send_dex_fee;
+use crate::PrivKeyBuildPolicy;
+use crate::{CoinProtocol, MarketCoinOps, MmCoin};
+use crate::DexFee;
 
 #[wasm_bindgen_test]
 async fn test_zcoin_tx_streaming() {
@@ -73,4 +74,41 @@ async fn test_zcoin_tx_streaming() {
     //     );
     //     // and has the expected data.
     //     assert_eq!(event_data["tx_hash"].as_str().unwrap(), tx.txid().to_string());
+}
+
+#[wasm_bindgen_test]
+async fn test_zcoin_tx_history() {
+    let ctx = MmCtxBuilder::default().into_mm_arc();
+    let conf = zombie_conf();
+    let params = light_zcoin_activation_params();
+    // Address: RQX5MnqnxEk6P33LSEAxC2vqA7DfSdWVyH
+    // Or: zs1n2azlwcj9pvl2eh36qvzgeukt2cpzmw44hya8wyu52j663d0dfs4d5hjx6tr04trz34jxyy433j
+    let priv_key_policy =
+        PrivKeyBuildPolicy::IguanaPrivKey("6d862798ef956fb60fb17bcc417dd6d44bfff066a4a49301cd2528e41a4a3e45".into());
+    let protocol_info = match serde_json::from_value::<CoinProtocol>(conf["protocol"].clone()).unwrap() {
+        CoinProtocol::ZHTLC(protocol_info) => protocol_info,
+        other_protocol => panic!("Failed to get protocol from config: {:?}", other_protocol),
+    };
+
+    let coin = z_coin_from_conf_and_params(&ctx, "ZOMBIE", &conf, &params, protocol_info, priv_key_policy,
+        Some("secret-extended-key-main1qdputxysqqqqpq89d7lpf8r2f03xsuhxn7sf6qp9st8gpkfw8dplge2708r3dahx3qdfx2py9d4w853ql52mdtt9xax0acfg57h0k42nkrasyducexvspxuhykaq9f3w48y7fyxpa8g0nhc7kd0p9f5f5d4fvlf72cnr0lg94vmetacttpwap5f90unqu6u4u9v74ruvyvl83ju2llzm38ku7vjqs63r5wdc58t36t0asv3qpq67grd6a0vht595mvz4wyjdgq95cfchp7y8v"))
+        .await
+        .unwrap();
+
+    // Wait till we are synced with the sapling state.
+    //while !coin.is_sapling_state_synced().await {
+    //    Timer::sleep(1.).await;
+    //}
+
+    // Query the block height to make sure our electrums are actually connected.
+    log!("current block = {:?}", coin.current_block().compat().await.unwrap());
+
+
+
+    // Send a tx to have it in the tx history.
+    let tx = z_send_dex_fee(&coin, DexFee::Standard("0.01".into()), &[1; 16])
+        .await
+        .unwrap();
+
+    println!("tx={:?}", tx);
 }

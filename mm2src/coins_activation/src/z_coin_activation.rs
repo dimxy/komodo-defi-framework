@@ -258,6 +258,7 @@ impl InitStandaloneCoinActivationOps for ZCoin {
             activation_request,
             protocol_info,
             priv_key_policy,
+            None,
         )
         .await
         .mm_err(|e| ZcoinInitError::from_build_err(e, ticker))?;

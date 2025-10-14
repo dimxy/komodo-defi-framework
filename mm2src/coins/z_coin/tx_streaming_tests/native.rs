@@ -33,6 +33,7 @@ fn test_zcoin_tx_streaming() {
         &params,
         protocol_info,
         priv_key_policy,
+        None,
     ))
     .unwrap();
 
