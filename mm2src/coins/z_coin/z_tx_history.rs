@@ -28,6 +28,8 @@ cfg_native!(
 #[cfg(not(target_arch = "wasm32"))]
 const TRANSACTIONS_TABLE: &str = "transactions";
 
+
+#[derive(Debug)]
 pub(crate) struct ZCoinTxHistoryItem {
     pub(crate) tx_hash: H256,
     pub(crate) internal_id: i64,
@@ -37,6 +39,7 @@ pub(crate) struct ZCoinTxHistoryItem {
     pub(crate) spent_amount: i64,
 }
 
+#[derive(Debug)]
 pub(crate) struct ZTxHistoryRes {
     pub(crate) total_tx_count: u32,
     pub(crate) transactions: Vec<ZCoinTxHistoryItem>,

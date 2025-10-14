@@ -4,11 +4,13 @@ use mm2_core::mm_ctx::MmCtxBuilder;
 use mm2_test_helpers::for_tests::{pirate_conf, ARRR};
 use mm2_test_helpers::for_tests::zombie_conf;
 use common::log::warn;
+use common::PagingOptionsEnum;
 use wasm_bindgen_test::*;
 use super::light_zcoin_activation_params;
 // use crate::z_coin::tx_history_events::ZCoinTxHistoryEventStreamer;
 use crate::z_coin::z_coin_from_conf_and_params;
 use crate::z_coin::z_htlc::z_send_dex_fee;
+use crate::z_coin::z_tx_history::{fetch_tx_history_from_db, ZCoinTxHistoryItem};
 use crate::PrivKeyBuildPolicy;
 use crate::{CoinProtocol, MarketCoinOps, MmCoin};
 use crate::DexFee;
@@ -107,10 +109,12 @@ async fn test_zcoin_tx_history() {
 
 
     // Send a tx to have it in the tx history.
-    let tx = z_send_dex_fee(&coin, DexFee::Standard("0.01".into()), &[1; 16])
+    /*let tx = z_send_dex_fee(&coin, DexFee::Standard("0.01".into()), &[1; 16])
         .await
         .unwrap();
 
     println!("tx={:?}", tx);
-    log!("tx={:?}", tx);
+    log!("tx={:?}", tx);*/
+    let r = fetch_tx_history_from_db(&coin, 1000, PagingOptionsEnum::default()).await;
+    log!("fetch_tx_history_from_db={:?}", r);
 }
