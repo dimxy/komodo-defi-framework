@@ -115,6 +115,6 @@ async fn test_zcoin_tx_history() {
 
     println!("tx={:?}", tx);
     log!("tx={:?}", tx);*/
-    let r = fetch_tx_history_from_db(&coin, 1000, PagingOptionsEnum::default()).await;
+    let r = fetch_tx_history_from_db(&coin, 1000, PagingOptionsEnum::PageNumber(2)).await;
     log!("fetch_tx_history_from_db={:?}", r);
 }
