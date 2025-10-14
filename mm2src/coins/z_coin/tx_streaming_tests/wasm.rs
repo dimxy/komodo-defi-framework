@@ -14,6 +14,7 @@ use crate::z_coin::z_tx_history::{fetch_tx_history_from_db, ZCoinTxHistoryItem};
 use crate::PrivKeyBuildPolicy;
 use crate::{CoinProtocol, MarketCoinOps, MmCoin};
 use crate::DexFee;
+use std::num::NonZeroUsize;
 
 #[wasm_bindgen_test]
 async fn test_zcoin_tx_streaming() {
