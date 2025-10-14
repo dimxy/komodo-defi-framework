@@ -1,7 +1,7 @@
 use common::custom_futures::timeout::FutureTimerExt;
 use common::{executor::Timer, Future01CompatExt};
 use mm2_core::mm_ctx::MmCtxBuilder;
-// use mm2_test_helpers::for_tests::{pirate_conf, ARRR};
+use mm2_test_helpers::for_tests::{pirate_conf, ARRR};
 use mm2_test_helpers::for_tests::zombie_conf;
 use common::log::warn;
 use wasm_bindgen_test::*;
