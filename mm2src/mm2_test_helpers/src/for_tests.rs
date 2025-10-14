@@ -219,20 +219,33 @@ pub const PIRATE_ELECTRUMS: &[&str] = &[
 ];
 #[cfg(target_arch = "wasm32")]
 pub const PIRATE_ELECTRUMS: &[&str] = &[
-    "electrum3.cipig.net:30008",
+   "arrr.electrum2.cipig.net:30008",
+   "arrr.electrum3.cipig.net:30008",
     "electrum1.cipig.net:30008",
     "electrum2.cipig.net:30008",
 ];
 #[cfg(not(target_arch = "wasm32"))]
 pub const PIRATE_LIGHTWALLETD_URLS: &[&str] = &[
+    "https://pirate.spyglass.quest:9447",
+    "https://pirate.spyglass.quest:9447",
     "https://lightd1.pirate.black:443",
+    "https://piratelightd1.cryptoforge.cc:443",
+    "https://piratelightd2.cryptoforge.cc:443",
+    "https://piratelightd3.cryptoforge.cc:443",
+    "https://piratelightd4.cryptoforge.cc:443",
+    "https://electrum1.cipig.net:9447",
+    "https://electrum2.cipig.net:9447",
+    "https://electrum3.cipig.net:9447",
     "https://piratelightd1.cryptoforge.cc:443",
     "https://piratelightd2.cryptoforge.cc:443",
     "https://piratelightd3.cryptoforge.cc:443",
     "https://piratelightd4.cryptoforge.cc:443",
 ];
 #[cfg(target_arch = "wasm32")]
-pub const PIRATE_LIGHTWALLETD_URLS: &[&str] = &["https://pirate.battlefield.earth:8581"];
+pub const PIRATE_LIGHTWALLETD_URLS: &[&str] = &["https://pirate.spyglass.quest:19447",
+    "https://electrum1.cipig.net:19447",
+    "https://electrum2.cipig.net:19447",
+    "https://electrum3.cipig.net:19447","https://pirate.battlefield.earth:8581"];
 pub const DEFAULT_RPC_PASSWORD: &str = "pass";
 pub const QRC20_ELECTRUMS: &[&str] = &[
     "electrum1.cipig.net:10071",
