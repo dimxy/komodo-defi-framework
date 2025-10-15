@@ -1254,7 +1254,7 @@ impl WalletRead for WalletIndexedDb {
         let mut nullifiers = vec![];
         for (_, note) in maybe_notes {
             let maybe_spending_tx = maybe_txs.iter().find(|(id_tx, _tx)| { 
-                log!("get_nullifiers id_tx={:?} note.spent={:?}", id_tx.to_bigint(), note.spent); 
+                // log!("get_nullifiers id_tx={:?} note.spent={:?}", id_tx.to_bigint(), note.spent); 
                 id_tx.to_bigint() == note.spent
             });
             log!("get_nullifiers maybe_spending_tx={:?}", maybe_spending_tx);
@@ -1277,6 +1277,21 @@ impl WalletRead for WalletIndexedDb {
                     .unwrap(),
                 ));
             }
+            if add_nullifier {
+                log!("get_nullifiers adding nullifier for spending tx={:?} nf={:?}", note.spent, note.nf);
+                if let Some(ref nf_bytes) = note.nf {
+                    let account_id = AccountId(
+                        note.account
+                            .to_u32()
+                            .ok_or_else(|| ZcoinStorageError::GetFromStorageError("Invalid account id".to_string()))?,
+                    );
+                    let nf = Nullifier::from_slice(nf_bytes).map_err(|e| {
+                        ZcoinStorageError::GetFromStorageError(format!("Invalid nullifier bytes error: {}", e))
+                    })?;
+                    nullifiers.push((account_id, nf));
+                }
+            }
+
         }
 
         Ok(nullifiers)
